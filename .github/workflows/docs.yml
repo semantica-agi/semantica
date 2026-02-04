@@ -5,7 +5,7 @@ name: Build and Deploy Documentation
 
 on:
   push:
-    branches: [main]
+    branches: [main, utils]
     paths:
       - 'docs/**'
       - 'semantica/**'
