@@ -1,81 +1,690 @@
-# Provenance Tracking Module
+# Provenance
 
-**W3C PROV-O compliant provenance tracking for high-stakes domains requiring complete traceability**
-
-## Overview
-
-The Semantica provenance module provides W3C PROV-O compliant tracking for knowledge graphs, enabling complete end-to-end lineage from source documents to query responses. Designed for high-stakes domains where every decision must be explainable and auditable.
-
-### Key Features
-
-- ✅ **W3C PROV-O Compliant** — Implements PROV-O ontology (prov:Entity, prov:Activity, prov:Agent, prov:wasDerivedFrom)
-- ✅ **All 17 Modules Integrated** — Complete coverage across Semantica
-- ✅ **Source Tracking** — Document identifiers, page numbers, sections, and direct quotes supported
-- ✅ **Zero Breaking Changes** — 100% backward compatible, opt-in only
-- ✅ **Multiple Storage Backends** — InMemory (fast) and SQLite (persistent)
-- ✅ **Bridge Axiom Support** — Translation chain tracking for domain transformations (L1 → L2 → L3)
-- ✅ **Integrity Verification** — SHA-256 checksums for tamper detection
-- ✅ **Complete Lineage Tracing** — End-to-end from document to response
+> **W3C PROV-O compliant provenance tracking for high-stakes domains requiring complete traceability and audit-grade lineage.**
 
 ---
 
-## Installation
+## 🎯 Overview
 
-The provenance module is included with Semantica. No additional installation required.
+<div class="grid cards" markdown>
+
+-   :material-fingerprint:{ .lg .middle } **W3C PROV-O Compliant**
+
+    ---
+
+    Implements PROV-O ontology (prov:Entity, prov:Activity, prov:Agent, prov:wasDerivedFrom) for standards compliance
+
+-   :material-link-variant:{ .lg .middle } **Complete Lineage**
+
+    ---
+
+    End-to-end lineage from source documents to query responses with full traceability
+
+-   :material-source:{ .lg .middle } **Source Tracking**
+
+    ---
+
+    Document identifiers, page numbers, sections, and direct quotes with audit-grade precision
+
+-   :material-shield-check:{ .lg .middle } **Integrity Verification**
+
+    ---
+
+    SHA-256 checksums for tamper detection and data integrity verification
+
+-   :material-database:{ .lg .middle } **Persistent Storage**
+
+    ---
+
+    InMemory (fast) and SQLite (persistent) storage backends with thread safety
+
+-   :material-swap-horizontal:{ .lg .middle } **Bridge Axiom**
+
+    ---
+
+    Translation chain tracking for domain transformations (L1 → L2 → L3)
+
+</div>
+
+!!! tip "When to Use"
+    - **High-Stakes Domains**: Healthcare, finance, legal, pharmaceutical industries
+    - **Regulatory Compliance**: When audit trails and traceability are required
+    - **Research Applications**: Scientific literature analysis and citation tracking
+    - **Quality Assurance**: When data provenance and source attribution are critical
+    - **Audit Requirements**: For complete traceability from source to conclusion
+    - **Legal Discovery**: When source attribution and chain of custody matter
+
+---
+
+## 🏗️ Architecture
+
+<div class="admonition note" markdown>
+<div class="admonition-title" markdown>**Modular Design**</div>
+
+The provenance module is organized into logical components for comprehensive tracking capabilities.
+
+</div>
+
+<div class="grid cards" markdown>
+
+-   :material-file-document:{ .lg .middle } **Schemas**
+
+    ---
+
+    - `schemas.py`
+    - ProvenanceEntry and SourceReference data structures
+    - W3C PROV-O compliant ontology mapping
+    - Validation and serialization support
+
+-   :material-database:{ .lg .middle } **Storage Layer**
+
+    ---
+
+    - `storage.py`
+    - Abstract ProvenanceStorage interface and implementations
+    - InMemory and SQLite backends with thread safety
+    - Checksum-based integrity verification
+
+-   :material-cog:{ .lg .middle } **Management Layer**
+
+    ---
+
+    - `manager.py`
+    - ProvenanceManager for tracking operations
+    - Entity and relationship provenance tracking
+    - Lineage tracing and query capabilities
+
+-   :material-swap-horizontal:{ .lg .middle } **Bridge Axiom**
+
+    ---
+
+    - `bridge_axiom.py`
+    - Translation chain tracking (L1 → L2 → L3)
+    - Domain transformation provenance
+    - Cross-level lineage support
+
+-   :material-shield-check:{ .lg .middle } **Integrity Layer**
+
+    ---
+
+    - `integrity.py`
+    - SHA-256 checksum computation and verification
+    - Tamper detection and data validation
+    - Cryptographic integrity guarantees
+
+-   :material-book:{ .lg .middle } **Usage Guide**
+
+    ---
+
+    - `provenance_usage.md`
+    - Comprehensive examples and best practices
+    - Integration patterns and troubleshooting guide
+
+</div>
+
+---
+
+## ⚡ Quick Start
+
+<div class="admonition example" markdown>
+<div class="admonition-title" markdown>**Get Started Fast**</div>
+
+Enable provenance tracking and start tracing lineage immediately.
+
+</div>
 
 ```python
 from semantica.provenance import ProvenanceManager
+from semantica.semantic_extract import NERExtractor
+
+# Enable provenance tracking
+ner = NERExtractor(provenance=True)
+entities = ner.extract("Steve Jobs founded Apple in 1976.")
+
+# Initialize provenance manager
+manager = ProvenanceManager(storage_path="provenance.db")
+
+# Track entity with source details
+manager.track_entity(
+    entity_id=entities[0].id,
+    source="DOI:10.1371/journal.pone.0023601",
+    entity_type="Person",
+    source_location="Figure 2",
+    confidence=0.92
+)
+
+# Trace lineage
+lineage = manager.get_lineage(entities[0].id)
+print(f"Lineage: {lineage}")
 ```
 
 ---
 
-## Core Components
+## Main Classes
 
 ### ProvenanceManager
 
-Central manager for all provenance tracking operations.
+Central manager for all provenance tracking operations with W3C PROV-O compliance and comprehensive lineage tracing.
+
+**Initialization:**
+
+```python
+ProvenanceManager(
+    storage_path: Optional[str] = None,
+    **kwargs
+)
+```
+
+**Methods:**
+
+| Method | Description | Returns |
+|--------|-------------|---------|
+| `track_entity(entity_id, source, entity_type, **metadata)` | Track entity provenance | `str` entry_id |
+| `track_relationship(relationship_id, source, subject, predicate, obj, **metadata)` | Track relationship provenance | `str` entry_id |
+| `track_chunk(chunk_id, source_document, chunk_text, start_char, end_char, **metadata)` | Track document chunk provenance | `str` entry_id |
+| `track_property_source(entity_id, property_name, value, source, **metadata)` | Track property-level provenance | `str` entry_id |
+| `get_lineage(entity_id)` | Retrieve complete lineage for an entity | `List[ProvenanceEntry]` |
+| `get_statistics()` | Get provenance statistics | `Dict[str, Any]` |
+| `get_all_entries()` | Retrieve all provenance entries | `List[ProvenanceEntry]` |
+
+**Example:**
+
+```python
+from semantica.provenance import ProvenanceManager
+from semantica.semantic_extract import NERExtractor
+
+# Enable provenance tracking in extraction
+ner = NERExtractor(provenance=True)
+entities = ner.extract("Steve Jobs founded Apple in 1976.")
+
+# Initialize provenance manager
+manager = ProvenanceManager(storage_path="provenance.db")
+
+# Track entity with comprehensive source details
+entry_id = manager.track_entity(
+    entity_id=entities[0].id,
+    source="DOI:10.1371/journal.pone.0023601",
+    entity_type="Person",
+    source_location="Figure 2",
+    source_quote="Steve Jobs founded Apple in 1976.",
+    confidence=0.92,
+    extraction_method="ner",
+    model="en_core_web_sm"
+)
+
+# Trace complete lineage
+lineage = manager.get_lineage(entities[0].id)
+print(f"Lineage for {entities[0].text}: {len(lineage)} entries")
+
+# Get statistics
+stats = manager.get_statistics()
+print(f"Total tracked entities: {stats['total_entities']}")
+```
+
+---
+
+### ProvenanceEntry
+
+W3C PROV-O compliant data structure for storing provenance information with validation and serialization support.
+
+**Initialization:**
+
+```python
+ProvenanceEntry(
+    entity_id: str,
+    source: str,
+    entity_type: str,
+    timestamp: Optional[str] = None,
+    **metadata
+)
+```
+
+**Key Attributes:**
+- `entity_id`: Unique identifier for the tracked entity
+- `source`: Source document or reference (DOI, URL, file path)
+- `entity_type`: Type of entity (Person, Organization, etc.)
+- `timestamp`: ISO 8601 formatted timestamp
+- `source_location`: Page number, section, or location within source
+- `source_quote`: Direct quote from source document
+- `confidence`: Confidence score (0.0 to 1.0)
+- `extraction_method`: Method used for extraction (ner, regex, etc.)
+
+**Example:**
+
+```python
+from semantica.provenance import ProvenanceEntry
+from datetime import datetime
+
+# Create provenance entry
+entry = ProvenanceEntry(
+    entity_id="entity_123",
+    source="DOI:10.1371/journal.pone.0023601",
+    entity_type="Person",
+    timestamp=datetime.utcnow().isoformat(),
+    source_location="Page 42, Figure 2",
+    source_quote="The patient showed significant improvement...",
+    confidence=0.95,
+    extraction_method="manual"
+)
+
+print(f"Provenance entry: {entry.entity_id} from {entry.source}")
+```
+
+---
+
+### SourceReference
+
+Structured reference for source documents with detailed location and citation information.
+
+**Initialization:**
+
+```python
+SourceReference(
+    source: str,
+    source_type: str,
+    location: Optional[str] = None,
+    quote: Optional[str] = None,
+    **metadata
+)
+```
+
+**Key Attributes:**
+- `source`: Source identifier (DOI, URL, file path)
+- `source_type`: Type of source (journal, book, website, etc.)
+- `location`: Specific location within source (page, section, figure)
+- `quote`: Direct quote from source
+- `doi`: DOI if available
+- `authors`: List of authors
+- `title`: Source title
+- `publication_date`: Publication date
+
+**Example:**
+
+```python
+from semantica.provenance import SourceReference
+
+# Create source reference
+source_ref = SourceReference(
+    source="DOI:10.1371/journal.pone.0023601",
+    source_type="journal_article",
+    location="Page 42, Figure 2",
+    quote="Total fish biomass increased by 463%...",
+    doi="10.1371/journal.pone.0023601",
+    authors=["Smith, J.", "Doe, J."],
+    title="Fish Population Dynamics",
+    publication_date="2023-01-15"
+)
+
+print(f"Source: {source_ref.title} ({source_ref.doi})")
+```
+
+---
+
+### ProvenanceStorage
+
+Abstract base class for storage implementations providing interface for saving, retrieving, and managing provenance data.
+
+**Abstract Methods:**
+
+| Method | Description | Returns |
+|--------|-------------|---------|
+| `save(entry)` | Save a provenance entry | `str` entry_id |
+| `retrieve(entity_id)` | Retrieve provenance for entity | `List[ProvenanceEntry]` |
+| `get_all()` | Retrieve all provenance entries | `List[ProvenanceEntry]` |
+| `delete(entity_id)` | Delete provenance for entity | `bool` success |
+| `exists(entity_id)` | Check if entity has provenance | `bool` |
+| `search(query)` | Search provenance entries | `List[ProvenanceEntry]` |
+
+**Implementations:**
+
+#### SQLiteStorage
+
+```python
+SQLiteStorage(
+    database_path: str = "provenance.db",
+    table_name: str = "provenance",
+    create_if_missing: bool = True,
+    **kwargs
+)
+```
+
+**Features:**
+- Persistent SQLite database storage
+- ACID compliance and thread safety
+- Automatic schema management
+- Integrity verification with checksums
+
+**Example:**
+
+```python
+from semantica.provenance import SQLiteStorage, ProvenanceManager
+
+# Create SQLite storage
+storage = SQLiteStorage(
+    database_path="provenance.db",
+    table_name="provenance_entries"
+)
+
+# Use with provenance manager
+manager = ProvenanceManager(storage=storage)
+
+# Track and retrieve provenance
+entry_id = manager.track_entity(entity_id, source, entity_type)
+provenance = manager.get_lineage(entity_id)
+```
+
+#### InMemoryStorage
+
+```python
+InMemoryStorage(
+    max_entries: int = 10000,
+    **kwargs
+)
+```
+
+**Features:**
+- Dictionary-based in-memory storage
+- Thread-safe operations
+- Configurable entry limits
+- Perfect for testing and development
+
+**Example:**
+
+```python
+from semantica.provenance import InMemoryStorage, ProvenanceManager
+
+# Create in-memory storage for testing
+storage = InMemoryStorage(max_entries=1000)
+manager = ProvenanceManager(storage=storage)
+
+# Track and retrieve provenance
+entry_id = manager.track_entity(entity_id, source, entity_type)
+all_entries = manager.get_all_entries()
+```
+
+---
+
+### Bridge Axiom Support
+
+Translation chain tracking for domain transformations with cross-level lineage support.
+
+**Key Features:**
+- L1 → L2 → L3 transformation tracking
+- Domain translation provenance
+- Cross-level lineage tracing
+- Bridge axiom validation
+
+**Example:**
 
 ```python
 from semantica.provenance import ProvenanceManager
 
-# Initialize with in-memory storage (default)
+# Track translation chain
 manager = ProvenanceManager()
 
-# Initialize with persistent SQLite storage
+# L1 to L2 transformation
+manager.track_entity(
+    entity_id="entity_l1",
+    source="source_l1",
+    entity_type="L1_Entity",
+    transformation="L1_to_L2",
+    target_level="L2"
+)
+
+# L2 to L3 transformation
+manager.track_entity(
+    entity_id="entity_l2",
+    source="entity_l1",
+    entity_type="L2_Entity", 
+    transformation="L2_to_L3",
+    target_level="L3"
+)
+
+# Trace complete transformation chain
+lineage = manager.get_lineage("entity_l3")
+print(f"Transformation chain: {len(lineage)} levels")
+```
+
+---
+
+### Utilities
+
+#### Checksum Functions
+
+```python
+from semantica.provenance import compute_checksum, verify_checksum
+
+# Compute checksum of data
+data = {"entity": "Steve Jobs", "source": "DOI:10.1371/..."}
+checksum = compute_checksum(data)
+print(f"Checksum: {checksum}")
+
+# Verify data integrity
+is_valid = verify_checksum(data, checksum)
+if not is_valid:
+    raise ValueError("Data integrity check failed")
+```
+
+---
+
+## Usage Patterns
+
+### 🔄 Basic Provenance Tracking
+
+```python
+from semantica.provenance import ProvenanceManager
+from semantica.semantic_extract import NERExtractor
+
+# Enable provenance tracking
+ner = NERExtractor(provenance=True)
+entities = ner.extract("Steve Jobs founded Apple in 1976.")
+
+# Initialize provenance manager
 manager = ProvenanceManager(storage_path="provenance.db")
+
+# Track entities with source details
+for entity in entities:
+    manager.track_entity(
+        entity_id=entity.id,
+        source="document.pdf",
+        entity_type=entity.label,
+        source_location="Page 1",
+        confidence=entity.confidence
+    )
+
+# Get lineage for each entity
+for entity in entities:
+    lineage = manager.get_lineage(entity.id)
+    print(f"{entity.text}: {len(lineage)} provenance entries")
 ```
 
-**Methods:**
-- `track_entity(entity_id, source, entity_type, **metadata)` — Track entity provenance
-- `track_relationship(relationship_id, source, subject, predicate, obj, **metadata)` — Track relationship provenance
-- `track_chunk(chunk_id, source_document, chunk_text, start_char, end_char, **metadata)` — Track document chunk provenance
-- `track_property_source(entity_id, property_name, value, source, **metadata)` — Track property-level provenance
-- `get_lineage(entity_id)` — Retrieve complete lineage for an entity
-- `get_statistics()` — Get provenance statistics
-- `get_all_entries()` — Retrieve all provenance entries
-
-### Storage Backends
-
-#### InMemoryStorage
-
-Fast, non-persistent storage for development and testing.
+### 🏢 Scientific Literature Tracking
 
 ```python
-from semantica.provenance import ProvenanceManager, InMemoryStorage
+from semantica.provenance import ProvenanceManager, SourceReference
 
-manager = ProvenanceManager(storage=InMemoryStorage())
+manager = ProvenanceManager(storage_path="scientific_provenance.db")
+
+# Track entity with scientific source
+manager.track_entity(
+    entity_id="protein_123",
+    source="DOI:10.1038/nature12345",
+    entity_type="Protein",
+    source_location="Figure 3, Page 456",
+    confidence=0.95,
+    source_reference=SourceReference(
+        source="DOI:10.1038/nature12345",
+        source_type="journal_article",
+        authors=["Smith, J.", "Doe, J."],
+        title="Novel Protein Binding Mechanisms",
+        publication_date="2023-01-15"
+    )
+)
+
+# Trace scientific lineage
+lineage = manager.get_lineage("protein_123")
+print(f"Scientific lineage: {len(lineage)} entries")
 ```
 
-#### SQLiteStorage
-
-Persistent storage for production use.
+###  Storage Configuration
 
 ```python
-from semantica.provenance import ProvenanceManager, SQLiteStorage
+from semantica.provenance import (
+    ProvenanceManager,
+    SQLiteStorage,
+    InMemoryStorage
+)
 
-storage = SQLiteStorage("provenance.db")
-manager = ProvenanceManager(storage=storage)
+# SQLite storage for production
+sqlite_storage = SQLiteStorage("production_provenance.db")
+production_manager = ProvenanceManager(storage=sqlite_storage)
+
+# In-memory storage for testing
+memory_storage = InMemoryStorage(max_entries=5000)
+dev_manager = ProvenanceManager(storage=memory_storage)
+
+# Direct storage path
+direct_manager = ProvenanceManager(storage_path="provenance.db")
 ```
+
+### 📊 Provenance Analysis
+
+```python
+from semantica.provenance import ProvenanceManager
+
+manager = ProvenanceManager(storage_path="provenance.db")
+
+# Get provenance statistics
+stats = manager.get_statistics()
+print(f"Total tracked entities: {stats['total_entities']}")
+
+# Get all provenance entries
+all_entries = manager.get_all_entries()
+print(f"Total provenance entries: {len(all_entries)}")
+
+# Analyze source distribution
+source_counts = {}
+for entry in all_entries:
+    source = entry.source
+    source_counts[source] = source_counts.get(source, 0) + 1
+
+print("Source distribution:")
+for source, count in sorted(source_counts.items(), key=lambda x: x[1], reverse=True):
+    print(f"  {source}: {count} entries")
+```
+
+---
+
+## Advanced Features
+
+### 🔍 W3C PROV-O Compliance
+
+The provenance module implements the W3C PROV-O ontology for standards compliance:
+
+- **prov:Entity**: Represents entities with provenance information
+- **prov:Activity**: Tracks activities that generate or modify entities
+- **prov:Agent**: Identifies agents responsible for activities
+- **prov:wasDerivedFrom**: Links entities to their sources
+- **prov:wasGeneratedBy**: Links entities to generating activities
+- **prov:used**: Links activities to used entities
+
+### 🛡️ Security and Integrity
+
+- **SHA-256 Checksums**: Cryptographic integrity verification
+- **Tamper Detection**: Automatic integrity violation detection
+- **Audit Trails**: Complete audit trail for compliance
+- **Access Control**: Optional access control for sensitive provenance data
+
+### 📊 Analytics and Reporting
+
+- **Source Analysis**: Analyze source distribution and coverage
+- **Lineage Statistics**: Track lineage depth and complexity
+- **Confidence Metrics**: Monitor extraction confidence over time
+- **Transformation Tracking**: Track domain transformations and translations
+
+---
+
+## Integration Examples
+
+### 🏥 Healthcare Applications
+
+```python
+from semantica.provenance import ProvenanceManager
+from semantica.semantic_extract import NERExtractor
+
+# HIPAA-compliant provenance tracking
+ner = NERExtractor(provenance=True)
+manager = ProvenanceManager(storage_path="healthcare_provenance.db")
+
+# Track patient data with compliance metadata
+entities = ner.extract("Patient John Doe, age 45, diagnosed with diabetes.")
+
+for entity in entities:
+    manager.track_entity(
+        entity_id=entity.id,
+        source="medical_record_12345.pdf",
+        entity_type=entity.label,
+        source_location="Page 1",
+        patient_id="patient_123",  # HIPAA identifier
+        access_level="restricted",
+        compliance_framework="HIPAA",
+        retention_period="7_years",
+        audit_required=True
+    )
+```
+
+### ⚖️ Legal Applications
+
+```python
+from semantica.provenance import ProvenanceManager
+
+manager = ProvenanceManager(storage_path="legal_provenance.db")
+
+# Track legal evidence with chain of custody
+manager.track_entity(
+    entity_id="evidence_001",
+    source="case_file_789.pdf",
+    entity_type="LegalEvidence",
+    source_location="Exhibit A, Page 23",
+    chain_of_custody=True,
+    legal_privilege="attorney_client",
+    court_case="case_2023_456",
+    submission_date="2023-01-15",
+    verified_by="attorney_john_doe"
+)
+```
+
+### 🔬 Research Applications
+
+```python
+from semantica.provenance import ProvenanceManager, SourceReference
+
+manager = ProvenanceManager(storage_path="research_provenance.db")
+
+# Track research data with full citation
+manager.track_entity(
+    entity_id="finding_001",
+    source="DOI:10.1038/nature12345",
+    entity_type="ResearchFinding",
+    source_reference=SourceReference(
+        source="DOI:10.1038/nature12345",
+        source_type="journal_article",
+        authors=["Smith, J.", "Doe, J."],
+        title="Novel Protein Binding Mechanisms",
+        publication_date="2023-01-15",
+        journal="Nature",
+        volume="567",
+        issue="2",
+        pages="1234-1245"
+    ),
+    peer_reviewed=True,
+    reproducible=True,
+    data_available=True,
+    funding_source="NIH_Grant_12345"
+)
+```
+
+---
 
 ### Data Schemas
 

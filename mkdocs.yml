@@ -94,6 +94,7 @@ plugins:
 # Custom CSS
 extra_css:
   - css/custom.css
+  - css/version-dropdown.css
 
 # Custom JavaScript
 extra_javascript:
@@ -143,6 +144,7 @@ nav:
     - learning-more.md
   - Integrations:
     - Docling: integrations/docling.md
+    - Snowflake: integrations/snowflake_ingestion.md
   - Cookbook: cookbook.md
   - Resources:
     - community-projects.md

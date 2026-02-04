@@ -1,0 +1,184 @@
+/* 
+   ==========================================================================
+   Version Selector - Dropdown Layout
+   ========================================================================== 
+*/
+.version-scroll-container {
+  display: flex;
+  align-items: center;
+  margin-left: 1.5rem;
+  position: relative;
+  height: 2.4rem;
+}
+
+.version-dropdown {
+  position: relative;
+}
+
+.version-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.6rem 0.8rem;
+  border-radius: 0.2rem;
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--md-default-fg-color--light);
+  background-color: transparent;
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  text-decoration: none !important;
+  font-family: var(--md-text-font-family);
+  min-width: 3.5rem;
+  height: 2.4rem;
+}
+
+.version-toggle:hover {
+  background-color: rgba(0, 0, 0, 0.07);
+  color: var(--md-default-fg-color);
+}
+
+.version-toggle.active {
+  background-color: var(--md-accent-fg-color);
+  color: white;
+  border-radius: 0.2rem;
+}
+
+.version-list {
+  display: none;
+  position: absolute;
+  top: 100%;
+  left: 0;
+  background-color: var(--md-default-bg-color);
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  border-radius: 0.2rem;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  z-index: 9999;
+  min-width: 4rem;
+  max-width: 8rem;
+  max-height: 12rem;
+  margin-top: 0.2rem;
+  flex-direction: column;
+  gap: 0;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(0, 0, 0, 0.2) transparent;
+}
+
+.version-dropdown:hover .version-list,
+.version-dropdown:focus-within .version-list {
+  display: flex !important;
+}
+
+/* Webkit scrollbar styling */
+.version-list::-webkit-scrollbar {
+  width: 6px;
+}
+
+.version-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.version-list::-webkit-scrollbar-thumb {
+  background-color: rgba(0, 0, 0, 0.2);
+  border-radius: 3px;
+}
+
+.version-list::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(0, 0, 0, 0.3);
+}
+
+.version-tag {
+  display: block;
+  padding: 0.6rem 0.8rem;
+  border-radius: 0;
+  font-size: 0.8rem;
+  font-weight: 400;
+  line-height: 1.4;
+  color: var(--md-default-fg-color--light);
+  background-color: transparent;
+  border: none;
+  transition: all 0.2s ease;
+  text-decoration: none !important;
+  font-family: var(--md-text-font-family);
+  white-space: nowrap;
+}
+
+.version-tag:first-child {
+  border-radius: 0.2rem 0.2rem 0 0;
+}
+
+.version-tag:last-child {
+  border-radius: 0 0 0.2rem 0.2rem;
+}
+
+.version-tag:hover {
+  background-color: rgba(0, 0, 0, 0.04);
+  color: var(--md-default-fg-color);
+}
+
+.version-tag.active {
+  background-color: var(--md-accent-fg-color);
+  color: white;
+  font-weight: 500;
+}
+
+/* Dark Mode Adjustments */
+[data-md-color-scheme="slate"] .version-toggle {
+  color: var(--md-default-fg-color--light);
+  background-color: transparent;
+}
+
+[data-md-color-scheme="slate"] .version-toggle:hover {
+  background-color: rgba(255, 255, 255, 0.04);
+  color: var(--md-default-fg-color);
+}
+
+[data-md-color-scheme="slate"] .version-toggle.active {
+  background-color: var(--md-accent-fg-color);
+  color: white;
+}
+
+[data-md-color-scheme="slate"] .version-list {
+  background-color: var(--md-default-bg-color);
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+[data-md-color-scheme="slate"] .version-tag {
+  color: var(--md-default-fg-color--light);
+}
+
+[data-md-color-scheme="slate"] .version-tag:hover {
+  background-color: rgba(255, 255, 255, 0.04);
+  color: var(--md-default-fg-color);
+}
+
+[data-md-color-scheme="slate"] .version-tag.active {
+  background-color: var(--md-accent-fg-color);
+  color: white;
+}
+
+/* Mobile adjustments */
+@media screen and (max-width: 76.1875em) {
+  .version-scroll-container {
+    margin-left: 1rem;
+    height: 2.4rem;
+  }
+
+  .version-toggle {
+    padding: 0.4rem 0.6rem;
+    font-size: 0.75rem;
+    min-width: 3rem;
+    height: 2.4rem;
+  }
+
+  .version-list {
+    min-width: 3rem;
+  }
+
+  .version-tag {
+    padding: 0.4rem 0.6rem;
+    font-size: 0.75rem;
+  }
+}

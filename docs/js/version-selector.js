@@ -7,9 +7,15 @@ document.addEventListener("DOMContentLoaded", function () {
         var versionContainer = document.createElement("div");
         versionContainer.className = "version-scroll-container";
 
-        // Define versions
+        // Create dropdown wrapper
+        var versionDropdown = document.createElement("div");
+        versionDropdown.className = "version-dropdown";
+
+        // Define versions with latest 0.2.6 on top
         var versions = [
-            { name: "0.2.4", url: "#", current: true },
+            { name: "0.2.6", url: "#", current: true },
+            { name: "0.2.5", url: "#", current: false },
+            { name: "0.2.4", url: "#", current: false },
             { name: "0.2.3", url: "#", current: false },
             { name: "0.2.2", url: "#", current: false },
             { name: "0.2.1", url: "#", current: false },
@@ -18,7 +24,12 @@ document.addEventListener("DOMContentLoaded", function () {
             { name: "0.1.0", url: "#", current: false }
         ];
 
-        // Create the scrollable list
+        // Create the toggle button showing current version
+        var versionToggle = document.createElement("div");
+        versionToggle.className = "version-toggle active";
+        versionToggle.textContent = versions[0].name;
+
+        // Create the dropdown list
         var versionList = document.createElement("div");
         versionList.className = "version-list";
 
@@ -30,7 +41,10 @@ document.addEventListener("DOMContentLoaded", function () {
             versionList.appendChild(versionLink);
         });
 
-        versionContainer.appendChild(versionList);
+        // Assemble the dropdown
+        versionDropdown.appendChild(versionToggle);
+        versionDropdown.appendChild(versionList);
+        versionContainer.appendChild(versionDropdown);
 
         // Insert after the header title
         headerTitle.parentNode.insertBefore(versionContainer, headerTitle.nextSibling);
