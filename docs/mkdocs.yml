@@ -6,6 +6,9 @@ repo_url: https://github.com/Hawksight-AI/semantica
 repo_name: Hawksight-AI/semantica
 edit_uri: edit/main/docs/
 
+# Documentation directory
+docs_dir: site
+
 # Copyright
 copyright: Copyright &copy; 2026 Hawksight AI
 
@@ -103,60 +106,61 @@ extra_javascript:
 # Navigation
 nav:
   - Home: index.md
-  - Getting Started:
-    - Overview: getting-started.md
-    - installation.md
-    - quickstart.md
+  - Getting Started: user-guide/getting-started.md
   - Docs:
-    - Change Management: reference/change_management.md
-    - Conflicts: reference/conflicts.md
-    - Context: reference/context.md
-    - Core: reference/core.md
-    - Deduplication: reference/deduplication.md
-    - Embeddings: reference/embeddings.md
-    - Evals: reference/evals.md
-    - Export: reference/export.md
-    - Graph Store: reference/graph_store.md
-    - Ingest: reference/ingest.md
-    - Knowledge Graph: reference/kg.md
-    - LLMs: reference/llms.md
-    - Normalize: reference/normalize.md
-    - Ontology: reference/ontology.md
-    - Parse: reference/parse.md
-    - Pipeline: reference/pipeline.md
-    - Provenance: reference/provenance.md
-    - Reasoning: reference/reasoning.md
-    - Seed: reference/seed.md
-    - Semantic Extract: reference/semantic_extract.md
-    - Split: reference/split.md
-    - Triplet Store: reference/triplet_store.md
-    - Utils: reference/utils.md
-    - Vector Store: reference/vector_store.md
-    - Visualization: reference/visualization.md
+    - Overview: user-guide/README.md
+    - Core Concepts: user-guide/concepts.md
+    - Modules & Architecture: user-guide/modules.md
+    - Deep Dive: user-guide/deep-dive.md
+    - Examples: user-guide/examples.md
+    - Use Cases: user-guide/use-cases.md
+    - FAQ: user-guide/faq.md
+    - Glossary: user-guide/glossary.md
   - Guides:
-    - concepts.md
-    - deep-dive.md
-    - modules.md
-    - glossary.md
-    - use-cases.md
-    - examples.md
-    - Code Examples: CodeExamples.md
-    - learning-more.md
+    - API Reference:
+      - Overview: api/README.md
+      - Change Management: api/change_management.md
+      - Conflicts: api/conflicts.md
+      - Context: api/context.md
+      - Core: api/core.md
+      - Deduplication: api/deduplication.md
+      - Embeddings: api/embeddings.md
+      - Evals: api/evals.md
+      - Export: api/export.md
+      - Graph Store: api/graph_store.md
+      - Ingest: api/ingest.md
+      - Knowledge Graph: api/kg.md
+      - LLMs: api/llms.md
+      - Normalize: api/normalize.md
+      - Ontology: api/ontology.md
+      - Parse: api/parse.md
+      - Pipeline: api/pipeline.md
+      - Provenance: api/provenance.md
+      - Reasoning: api/reasoning.md
+      - Seed: api/seed.md
+      - Semantic Extract: api/semantic_extract.md
+      - Split: api/split.md
+      - Triplet Store: api/triplet_store.md
+      - Utils: api/utils.md
+      - Vector Store: api/vector_store.md
+      - Visualization: api/visualization.md
+    - Contributing: developer/contributing.md
+    - Community:
+      - Overview: community/README.md
+      - Community: community/community.md
+      - Projects: community/projects.md
+      - Governance: community/governance.md
+    - Legal:
+      - Overview: legal/README.md
+      - License: legal/license.md
+      - Citation: legal/citation.md
   - Integrations:
     - Docling: integrations/docling.md
     - Snowflake: integrations/snowflake_ingestion.md
-  - Cookbook: cookbook.md
+  - Cookbook: user-guide/cookbook.md
   - Resources:
-    - community-projects.md
-    - community.md
-    - contributing.md
-    - architecture.md
-    - governance.md
-    - citation.md
-    - Changelog: changelog.md
-    - Release Guide: release-guide.md
-    - faq.md
-    - license.md
+    - Community: community/README.md
+    - Contributing: developer/contributing.md
 
 # Extra
 extra:

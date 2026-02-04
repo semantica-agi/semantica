@@ -10,7 +10,7 @@
 [![PyPI](https://img.shields.io/pypi/v/semantica.svg)](https://pypi.org/project/semantica/)
 [![Total Downloads](https://static.pepy.tech/badge/semantica)](https://pepy.tech/project/semantica)
 [![CI](https://github.com/Hawksight-AI/semantica/workflows/CI/badge.svg)](https://github.com/Hawksight-AI/semantica/actions)
-[![Discord](https://img.shields.io/badge/Discord-Join-7289da?logo=discord&logoColor=white)](https://discord.gg/RgaGTj9J)
+[![Discord](https://img.shields.io/badge/Discord-Join-7289da?logo=discord&logoColor=white)](https://discord.gg/ggb7vWeP)
 
 ### ⭐ Give us a Star • 🍴 Fork us • 💬 Join our Discord
 
@@ -47,7 +47,7 @@ kg = GraphBuilder().build({"entities": entities, "relationships": []})
 print(f"Built KG with {len(kg.get('entities', []))} entities")
 ```
 
-**[📖 Full Quick Start](#-quick-start)** • **[🍳 Cookbook Examples](#-semantica-cookbook)** • **[💬 Join Discord](https://discord.gg/RgaGTj9J)** • **[⭐ Star Us](https://github.com/Hawksight-AI/semantica)**
+**[📖 Full Quick Start](#-quick-start)** • **[🍳 Cookbook Examples](#-semantica-cookbook)** • **[💬 Join Discord](https://discord.gg/ggb7vWeP)** • **[⭐ Star Us](https://github.com/Hawksight-AI/semantica)**
 
 ---
 
@@ -952,7 +952,7 @@ print(f"Found {len(results)} results")
 
 | **Channel** | **Purpose** |
 |:-----------:|:-----------|
-| [**Discord**](https://discord.gg/pMHguUzG) | Real-time help, showcases |
+| [**Discord**](https://discord.gg/ggb7vWeP) | Real-time help, showcases |
 | [**GitHub Discussions**](https://github.com/Hawksight-AI/semantica/discussions) | Q&A, feature requests |
 
 ### Learning Resources
@@ -963,7 +963,7 @@ print(f"Found {len(results)} results")
 Enterprise support, professional services, and commercial licensing will be available in the future. For now, we offer community support through Discord and GitHub Discussions.
 
 **Current Support:**
-- **Community Support** - Free support via [Discord](https://discord.gg/pMHguUzG) and [GitHub Discussions](https://github.com/Hawksight-AI/semantica/discussions)
+- **Community Support** - Free support via [Discord](https://discord.gg/ggb7vWeP) and [GitHub Discussions](https://github.com/Hawksight-AI/semantica/discussions)
 - **Bug Reports** - [GitHub Issues](https://github.com/Hawksight-AI/semantica/issues)
 
 **Future Enterprise Offerings:**
@@ -1015,4 +1015,4 @@ Semantica is licensed under the **MIT License** - see the [LICENSE](https://gith
 **Built by the Semantica Community**
 
 
-[GitHub](https://github.com/Hawksight-AI/semantica) • [Discord](https://discord.gg/RgaGTj9J)
+[GitHub](https://github.com/Hawksight-AI/semantica) • [Discord](https://discord.gg/ggb7vWeP)
