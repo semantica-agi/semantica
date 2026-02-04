@@ -46,16 +46,14 @@ jobs:
 
       - name: Build documentation
         # Builds the static site using MkDocs
-        run: |
-          cd docs
-          mkdocs build
+        run: mkdocs build
 
       - name: Check for broken links
         # Optional: checks if any links in the docs are broken
         run: |
           pip install linkchecker || echo "Skipping link check"
-          if [ -d "docs/site" ]; then
-            linkchecker docs/site/ --check-extern || echo "Link check completed"
+          if [ -d "site" ]; then
+            linkchecker site/ --check-extern || echo "Link check completed"
           fi
         continue-on-error: true
 
@@ -66,7 +64,7 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: ./docs/site
+          path: ./site
 
   deploy:
     name: Deploy to GitHub Pages

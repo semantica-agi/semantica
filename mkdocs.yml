@@ -1,0 +1,167 @@
+# Deployment Trigger: Public GitHub Pages
+site_name: Semantica
+site_description: Open Source Framework for Semantic Intelligence & Knowledge Engineering
+site_url: https://hawksight-ai.github.io/semantica/
+repo_url: https://github.com/Hawksight-AI/semantica
+repo_name: Hawksight-AI/semantica
+edit_uri: edit/main/docs/
+
+# Documentation directory
+docs_dir: docs/site
+
+# Copyright
+copyright: Copyright &copy; 2026 Hawksight AI
+
+# Theme Configuration
+theme:
+  name: material
+  palette:
+    # Light mode
+    - scheme: default
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    # Dark mode
+    - scheme: slate
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - navigation.indexes
+    - search.highlight
+    - search.share
+    - content.code.annotate
+    - content.code.copy
+    - content.tabs.link
+  font:
+    text: Roboto
+    code: Roboto Mono
+  language: en
+
+# Extensions
+markdown_extensions:
+  - admonition
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.tasklist:
+      custom_checkbox: true
+  - pymdownx.emoji:
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.tasklist:
+      custom_checkbox: true
+  - admonition
+  - pymdownx.details
+  - attr_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+      toc_depth: 6
+
+# Plugins
+plugins:
+  - search:
+      lang: en
+  - minify:
+      minify_html: true
+  - mkdocstrings:
+      handlers:
+        python:
+          options:
+            docstring_style: google
+            show_source: true
+            show_root_heading: true
+            show_category_heading: true
+  - mkdocs-jupyter:
+      include_source: true
+
+# Custom CSS
+extra_css:
+  - css/custom.css
+  - css/version-dropdown.css
+
+# Custom JavaScript
+extra_javascript:
+  - js/version-selector.js
+
+# Navigation
+nav:
+  - Home: index.md
+  - Getting Started: user-guide/getting-started.md
+  - Docs:
+    - Overview: user-guide/README.md
+    - Core Concepts: user-guide/concepts.md
+    - Modules & Architecture: user-guide/modules.md
+    - Deep Dive: user-guide/deep-dive.md
+    - Examples: user-guide/examples.md
+    - Cookbook: user-guide/cookbook.md
+    - Use Cases: user-guide/use-cases.md
+    - FAQ: user-guide/faq.md
+    - Glossary: user-guide/glossary.md
+  - Guides:
+    - API Reference:
+      - Overview: api/README.md
+      - Change Management: api/change_management.md
+      - Conflicts: api/conflicts.md
+      - Context: api/context.md
+      - Core: api/core.md
+      - Deduplication: api/deduplication.md
+      - Embeddings: api/embeddings.md
+      - Evals: api/evals.md
+      - Export: api/export.md
+      - Graph Store: api/graph_store.md
+      - Ingest: api/ingest.md
+      - Knowledge Graph: api/kg.md
+      - LLMs: api/llms.md
+      - Normalize: api/normalize.md
+      - Ontology: api/ontology.md
+      - Parse: api/parse.md
+      - Pipeline: api/pipeline.md
+      - Provenance: api/provenance.md
+      - Reasoning: api/reasoning.md
+      - Seed: api/seed.md
+      - Semantic Extract: api/semantic_extract.md
+      - Split: api/split.md
+      - Triplet Store: api/triplet_store.md
+      - Utils: api/utils.md
+      - Vector Store: api/vector_store.md
+      - Visualization: api/visualization.md
+    - Contributing: developer/contributing.md
+    - Community:
+      - Overview: community/README.md
+      - Community: community/community.md
+      - Projects: community/projects.md
+      - Governance: community/governance.md
+    - Legal:
+      - Overview: legal/README.md
+      - License: legal/license.md
+      - Citation: legal/citation.md
+  - Integrations:
+    - Docling: integrations/docling.md
+    - Snowflake: integrations/snowflake_ingestion.md
+  - Cookbook: user-guide/cookbook.md
+  - Resources:
+    - Community: community/README.md
+    - Contributing: developer/contributing.md
+
+# Extra
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/Hawksight-AI/semantica
+    - icon: fontawesome/brands/python
+      link: https://pypi.org/project/semantica/
+  version:
+    provider: mike
+  generator: true
