@@ -9,6 +9,9 @@ edit_uri: edit/main/docs/
 # Documentation directory
 docs_dir: site
 
+# Site directory
+site_dir: ../site
+
 # Copyright
 copyright: Copyright &copy; 2026 Hawksight AI
 
