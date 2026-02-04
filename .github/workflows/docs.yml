@@ -46,7 +46,10 @@ jobs:
 
       - name: Build documentation
         # Builds the static site using MkDocs
-        run: mkdocs build
+        run: |
+          # Copy source files from docs/ to docs/site
+          cp -r docs/* docs/site/ 2>/dev/null || true
+          mkdocs build
 
       - name: Check for broken links
         # Optional: checks if any links in the docs are broken
