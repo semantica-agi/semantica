@@ -18,6 +18,83 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - (Closes #231, Resolves PR #289)
     - **Contributors**: @ZohaibHassan16, @KaifAhmad1
 
+- **Snowflake Connector for Data Ingestion** (PR #276 by @Sameer6305):
+  - Native Snowflake connector with multi-authentication (password, OAuth, key-pair, SSO)
+  - Table and query ingestion with pagination, schema introspection, batch processing
+  - SQL injection prevention via identifier escaping, OAuth token validation
+  - Progress tracking integration, context manager support, document export
+  - 24 comprehensive unit tests with mocking, complete documentation and examples
+  - Added as optional dependency `db-snowflake` with snowflake-connector-python>=3.0.0
+
+- **Apache Arrow Export Support** (PR #273 by @Sameer6305):
+  - Added Apache Arrow exporter with explicit schemas, entity/relationship export, compression support
+  - Integrated with export module and method registry, Pandas/DuckDB compatible
+  - 20 unit tests + 1 integration test, complete documentation with examples
+
+## [0.2.6] - 2026-02-03
+
+### Added / Changed
+
+- **W3C PROV-O Compliant Provenance Tracking** (#254, #246):
+  - Comprehensive provenance tracking system with W3C PROV-O compliance across all 17 Semantica modules
+  - **Core Module**: `ProvenanceManager`, W3C PROV-O schemas, storage backends (InMemory, SQLite), SHA-256 integrity verification
+  - **Module Integrations**: Semantic Extract, LLMs (Groq, OpenAI, HuggingFace, LiteLLM), Pipeline, Context, Ingest, Embeddings, Graph/Vector/Triplet stores, Reasoning, Conflicts, Deduplication, Export, Parse, Normalize, Ontology, Visualization
+  - **Features**: Complete lineage tracking (Document → Chunk → Entity → Relationship → Graph), LLM tracking (tokens, costs, latency), source tracking, bridge axioms for domain transformations
+  - **Compliance Infrastructure**: W3C PROV-O, FDA 21 CFR Part 11, SOX, HIPAA, TNFD
+  - **Testing**: 237 tests covering core functionality, all 17 module integrations, edge cases, backward compatibility
+  - **Design**: Opt-in with `provenance=False` by default, zero breaking changes, no new dependencies
+  - Contributed by @KaifAhmad1
+
+- **Enhanced Change Management Module** (#248, #243):
+  - Enterprise-grade version control for knowledge graphs and ontologies with persistent storage and audit trails
+  - **Core Classes**: `TemporalVersionManager` (KG versioning), `OntologyVersionManager` (ontology versioning), `ChangeLogEntry` (metadata)
+  - **Storage**: SQLite (persistent) and in-memory backends with thread-safe operations
+  - **Features**: SHA-256 checksums, detailed entity/relationship diffs, structural ontology comparison, email validation
+  - **Compliance Infrastructure**: HIPAA, SOX, FDA 21 CFR Part 11 with immutable audit trails
+  - **Testing**: 104 tests (100% pass) - unit, integration, compliance, performance, edge cases
+  - **Performance**: 17.6ms for 10k entities, 510+ ops/sec concurrent, handles 5k+ entity graphs
+  - **Migration**: Backward compatible, simplified class names, zero external dependencies
+  - Contributed by @KaifAhmad1
+
+- CSV Ingestion Enhancements (PR #244 by @saloni0318)
+  - Auto-detect CSV encoding (chardet) and delimiter (csv.Sniffer)
+  - Tolerant decoding and malformed-row handling (`on_bad_lines='warn'`)
+  - Optional chunked reading for large files; metadata tracks detected values
+  - Expanded unit tests covering delimiters, quoted/multiline fields, header overrides, chunks, and NaN preservation
+
+- Tests: Comprehensive units for TextNormalizer (PR #242 by @ZohaibHassan16)
+  - Added focused test coverage for TextNormalizer behavior across inputs
+
+- Tests: Register integration mark and tidy ingest test warnings (PR #241 by @KaifAhmad1)
+  - Introduced integration test marker and reduced noisy warnings in ingest tests
+
+- **Ingest Unit Tests** (#239, #232):
+  - Comprehensive unit tests for ingestion modules (file, web, and feed ingestors)
+  - **Coverage**: File scanning (local/cloud S3/GCS/Azure), web ingestion (URL/sitemap/robots.txt), RSS/Atom feed parsing
+  - **Testing**: 998 lines of test code with mocked external dependencies for fast, isolated execution
+  - **Results**: file_ingestor (86%), web_ingestor (86%), feed_ingestor (80%) coverage
+  - Covers happy paths, edge cases, and error handling
+  - Contributed by @Mohammed2372
+
+### Fixed
+
+- **Temperature Compatibility Fix** (#256, #252):
+  - Fixed hardcoded `temperature=0.3` that broke compatibility with models requiring specific temperature values (e.g., gpt-5-mini)
+  - Added `_add_if_set` helper method to `BaseProvider` that only passes parameters when explicitly set
+  - When `temperature=None`, parameter is omitted allowing APIs to use model defaults
+  - Updated all 5 providers: OpenAI, Groq, Gemini, Ollama, DeepSeek
+  - Reduced code by ~85 lines with cleaner parameter handling
+  - Comprehensive test coverage added (10 temperature tests, all passing)
+  - Backward compatible - no breaking changes
+  - Contributed by @F0rt1s and @IGES-Institut
+
+- **JenaStore Empty Graph Bug** (#257, #258):
+  - Fixed `ProcessingError: Graph not initialized` when operating on empty (but initialized) graphs
+  - Replaced implicit `if not self.graph:` checks with explicit `if self.graph is None:` validation in 5 methods (`add_triplets`, `get_triplets`, `delete_triplet`, `execute_sparql`, `serialize`)
+  - Properly distinguishes `None` (uninitialized) from empty graphs (initialized with 0 triplets)
+  - Unblocks benchmarking suite, fresh deployments, and testing workflows
+  - Contributed by @ZohaibHassan16
+
 ## [0.2.5] - 2026-01-27
 
 ### Added
