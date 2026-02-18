@@ -10,7 +10,7 @@
 [![PyPI](https://img.shields.io/pypi/v/semantica.svg)](https://pypi.org/project/semantica/)
 [![Total Downloads](https://static.pepy.tech/badge/semantica)](https://pepy.tech/project/semantica)
 [![CI](https://github.com/Hawksight-AI/semantica/workflows/CI/badge.svg)](https://github.com/Hawksight-AI/semantica/actions)
-[![Discord](https://img.shields.io/discord/1449054810048565342?label=👥%20Discord&logo=discord&logoColor=white&color=5865F2)](https://discord.gg/N7WmAuDH)
+[![Discord](https://img.shields.io/badge/💬%20Join%20Discord-5865F2?logo=discord&logoColor=white)](https://discord.gg/N7WmAuDH)
 ### ⭐ Give us a Star • 🍴 Fork us • 💬 Join our Discord
 
 > **Transform Chaos into Intelligence. Build AI systems with context graphs, decision tracking, and advanced knowledge engineering that are explainable, traceable, and trustworthy — not black boxes.**
