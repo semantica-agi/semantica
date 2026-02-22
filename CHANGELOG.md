@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Fixed NameError: missing Type import in utils/helpers.py
+  - Added Type to typing imports to fix retry_on_error decorator
+  - Removed unused Type import from config_manager.py
+  - Resolves ImportError when importing semantica modules
+  - Fixes capability gap analysis notebook execution
+
 ## [0.3.0-alpha] - 2026-02-19
 
 ### Added / Changed
