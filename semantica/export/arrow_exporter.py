@@ -42,30 +42,34 @@ from ..utils.progress_tracker import get_progress_tracker
 
 
 # Explicit Arrow Schemas (no inference)
-ENTITY_SCHEMA = pa.schema([
-    pa.field("id", pa.string(), nullable=False),
-    pa.field("text", pa.string(), nullable=True),
-    pa.field("type", pa.string(), nullable=True),
-    pa.field("confidence", pa.float64(), nullable=True),
-    pa.field("start", pa.int64(), nullable=True),
-    pa.field("end", pa.int64(), nullable=True),
-    pa.field("metadata", pa.struct([
-        pa.field("keys", pa.list_(pa.string())),
-        pa.field("values", pa.list_(pa.string()))
-    ]), nullable=True),
-])
+if ARROW_AVAILABLE:
+    ENTITY_SCHEMA = pa.schema([
+        pa.field("id", pa.string(), nullable=False),
+        pa.field("text", pa.string(), nullable=True),
+        pa.field("type", pa.string(), nullable=True),
+        pa.field("confidence", pa.float64(), nullable=True),
+        pa.field("start", pa.int64(), nullable=True),
+        pa.field("end", pa.int64(), nullable=True),
+        pa.field("metadata", pa.struct([
+            pa.field("keys", pa.list_(pa.string())),
+            pa.field("values", pa.list_(pa.string()))
+        ]), nullable=True),
+    ])
 
-RELATIONSHIP_SCHEMA = pa.schema([
-    pa.field("id", pa.string(), nullable=False),
-    pa.field("source_id", pa.string(), nullable=False),
-    pa.field("target_id", pa.string(), nullable=False),
-    pa.field("type", pa.string(), nullable=True),
-    pa.field("confidence", pa.float64(), nullable=True),
-    pa.field("metadata", pa.struct([
-        pa.field("keys", pa.list_(pa.string())),
-        pa.field("values", pa.list_(pa.string()))
-    ]), nullable=True),
-])
+    RELATIONSHIP_SCHEMA = pa.schema([
+        pa.field("id", pa.string(), nullable=False),
+        pa.field("source_id", pa.string(), nullable=False),
+        pa.field("target_id", pa.string(), nullable=False),
+        pa.field("type", pa.string(), nullable=True),
+        pa.field("confidence", pa.float64(), nullable=True),
+        pa.field("metadata", pa.struct([
+            pa.field("keys", pa.list_(pa.string())),
+            pa.field("values", pa.list_(pa.string()))
+        ]), nullable=True),
+    ])
+else:
+    ENTITY_SCHEMA = None
+    RELATIONSHIP_SCHEMA = None
 
 
 class ArrowExporter:

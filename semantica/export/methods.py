@@ -157,6 +157,7 @@ from ..utils.exceptions import ConfigurationError, ProcessingError
 from ..utils.logging import get_logger
 from .arrow_exporter import ArrowExporter
 from .config import export_config
+from .parquet_exporter import ParquetExporter
 from .csv_exporter import CSVExporter
 from .graph_exporter import GraphExporter
 from .json_exporter import JSONExporter
@@ -360,6 +361,42 @@ def export_arrow(
 
     except Exception as e:
         logger.error(f"Failed to export Arrow: {e}")
+        raise
+
+
+def export_parquet(
+    data: Union[List[Dict[str, Any]], Dict[str, List[Dict[str, Any]]]],
+    file_path: Union[str, Path],
+    method: str = "default",
+    **kwargs,
+) -> None:
+    """
+    Export data to Apache Parquet format (convenience function).
+
+    Args:
+        data: Data to export (list of dicts or dict with list values)
+        file_path: Output Parquet file path (or base path for multiple files)
+        method: Export method (default: "default")
+        **kwargs: Additional options passed to ParquetExporter
+    """
+    custom_method = method_registry.get("parquet", method)
+    if custom_method and custom_method is not export_parquet:
+        try:
+            return custom_method(data, file_path, **kwargs)
+        except Exception as e:
+            logger.warning(
+                f"Custom method {method} failed: {e}, falling back to default"
+            )
+
+    try:
+        config = export_config.get_method_config("parquet")
+        config.update(kwargs)
+
+        exporter = ParquetExporter(**config)
+        exporter.export(data, file_path)
+
+    except Exception as e:
+        logger.error(f"Failed to export Parquet: {e}")
         raise
 
 

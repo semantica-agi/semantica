@@ -142,6 +142,7 @@ from .methods import (
     export_json,
     export_lpg,
     export_owl,
+    export_parquet,
     export_rdf,
     export_vector,
     export_yaml,
@@ -149,6 +150,7 @@ from .methods import (
     get_export_method,
     list_available_methods,
 )
+from .parquet_exporter import ParquetExporter
 from .owl_exporter import OWLExporter
 from .rdf_exporter import NamespaceManager, RDFExporter, RDFSerializer, RDFValidator
 from .registry import MethodRegistry, method_registry
@@ -173,6 +175,7 @@ __all__ = [
     "OWLExporter",
     "VectorExporter",
     "LPGExporter",
+    "ParquetExporter",
     # Registry and Methods
     "MethodRegistry",
     "method_registry",
@@ -183,6 +186,7 @@ __all__ = [
     "export_graph",
     "export_yaml",
     "export_owl",
+    "export_parquet",
     "export_vector",
     "export_lpg",
     "generate_report",
