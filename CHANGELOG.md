@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **Deduplication v2 Migration Guide** (PR #344 by @ZohaibHassan16, fixes by @KaifAhmad1):
+  - Added comprehensive MIGRATION_V2.md documentation for Deduplication v2 Epic #333
+  - Documented Candidate Generation V2 with multi-key blocking and phonetic matching
+  - Documented Two-Stage Scoring prefilter with configurable thresholds
+  - Documented Semantic Relationship Deduplication v2 with synonym mapping
+  - Added practical code examples for all V2 features with opt-in configuration
+  - Fixed critical infinite recursion bug in dedup_triplets() function
+  - Completed Epic #333 with comprehensive migration path and documentation
+  - Performance: 5.86x speedup confirmed (129ms vs 754ms) for semantic deduplication
+  - Full backward compatibility maintained with legacy mode as default
 - **Semantic Relationship Deduplication v2** (PR #340 by @ZohaibHassan16, fixes by @KaifAhmad1):
   - Implemented opt-in semantic relationship deduplication mode (`semantic_v2`) with 6.98x performance improvement
   - Added canonicalization engine with predicate synonym mapping (`works_for` → `employed_by`)
