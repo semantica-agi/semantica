@@ -7,6 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0-beta] - 2026-03-07
 
 - **Multi-Founder LLM Extraction & Reasoner Inference Fix** (PR #354 by @KaifAhmad1):
   - Fixed `_parse_relation_result` in `methods.py` — unmatched subjects/objects now produce a synthetic `UNKNOWN` entity instead of silently dropping the relation; all LLM-returned co-founders are preserved
