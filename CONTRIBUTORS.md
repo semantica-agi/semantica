@@ -4,7 +4,7 @@ Thank you to all the people who have contributed to Semantica! 🎉
 
 This project follows the [all-contributors](https://allcontributors.org) specification. Contributions of any kind are welcome!
 
-⭐ **Give us a Star** • 🍴 **Fork us** • 💬 **Join our [Discord](https://discord.gg/N7WmAuDH)**
+⭐ **Give us a Star** • 🍴 **Fork us** • 💬 **Join our [Discord](https://discord.gg/sV34vps5hH)**
 
 ---
 

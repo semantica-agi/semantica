@@ -27,7 +27,7 @@ Start with our comprehensive documentation:
 
 **Best for**: Real-time chat and quick questions
 
-- [Join Discord](https://discord.gg/N7WmAuDH)
+- [Join Discord](https://discord.gg/sV34vps5hH)
 
 #### GitHub Issues
 

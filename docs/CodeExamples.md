@@ -1018,7 +1018,7 @@ knowledge_graph.apply_resolutions(resolved_data)
 
 ### 💬 Community Support
 
-- **💬 [Discord Community](https://discord.gg/N7WmAuDH)** - Real-time chat and support
+- **💬 [Discord Community](https://discord.gg/sV34vps5hH)** - Real-time chat and support
 - **🐙 [GitHub Discussions](https://github.com/semantica/semantica/discussions)** - Community Q&A
 - **📧 [Mailing List](https://groups.google.com/g/semantica)** - Announcements and updates
 - **🐦 [Twitter](https://twitter.com/semantica)** - Latest news and tips
@@ -1051,6 +1051,6 @@ This project is licensed under the MIT License - see the [LICENSE](https://githu
 
 **🚀 Ready to transform your data into intelligent knowledge?**
 
-[Get Started Now](https://semantica.readthedocs.io/quickstart/) • [View Examples](https://github.com/semantica/examples) • [Join Community](https://discord.gg/N7WmAuDH)
+[Get Started Now](https://semantica.readthedocs.io/quickstart/) • [View Examples](https://github.com/semantica/examples) • [Join Community](https://discord.gg/sV34vps5hH)
 
 </div>

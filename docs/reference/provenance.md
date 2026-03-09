@@ -734,4 +734,4 @@ MIT License - See [LICENSE](../../LICENSE) for details.
 
 ## Support
 
-For issues or questions, please open an issue on GitHub or join our [Discord](https://discord.gg/N7WmAuDH).
+For issues or questions, please open an issue on GitHub or join our [Discord](https://discord.gg/sV34vps5hH).

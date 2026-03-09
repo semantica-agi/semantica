@@ -9,7 +9,7 @@
   <a href="https://pypi.org/project/semantica/"><img src="https://img.shields.io/pypi/dm/semantica" alt="Monthly Downloads"></a>
   <a href="https://pepy.tech/project/semantica"><img src="https://static.pepy.tech/badge/semantica" alt="Total Downloads"></a>
   <a href="https://semantica.readthedocs.io/"><img src="https://img.shields.io/badge/docs-latest-brightgreen.svg" alt="Documentation"></a>
-  <a href="https://discord.gg/N7WmAuDH"><img src="https://img.shields.io/badge/Discord-Join%20Us-7289da?style=flat&logo=discord&logoColor=white" alt="Discord"></a>
+  <a href="https://discord.gg/sV34vps5hH"><img src="https://img.shields.io/badge/Discord-Join%20Us-7289da?style=flat&logo=discord&logoColor=white" alt="Discord"></a>
   
   <p><strong>Open-Source Semantic Layer & Knowledge Engineering Framework</strong></p>
   
@@ -53,7 +53,7 @@ kg = GraphBuilder().build({"entities": entities, "relationships": []})
 print(f"Built KG with {len(kg.get('entities', []))} entities")
 ```
 
-**[📖 Full Quick Start](getting-started.md)** • **[🍳 Cookbook Examples](cookbook.md)** • **[💬 Join Discord](https://discord.gg/N7WmAuDH)** • **[⭐ Star Us](https://github.com/Hawksight-AI/semantica)**
+**[📖 Full Quick Start](getting-started.md)** • **[🍳 Cookbook Examples](cookbook.md)** • **[💬 Join Discord](https://discord.gg/sV34vps5hH)** • **[⭐ Star Us](https://github.com/Hawksight-AI/semantica)**
 
 ---
 
