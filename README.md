@@ -13,6 +13,12 @@
 [![CI](https://github.com/Hawksight-AI/semantica/workflows/CI/badge.svg)](https://github.com/Hawksight-AI/semantica/actions)
 [![Discord](https://img.shields.io/badge/Discord-Join-5865F2?logo=discord&logoColor=white)](https://discord.gg/sV34vps5hH)
 [![X](https://img.shields.io/badge/X-Follow-black?logo=x&logoColor=white)](https://x.com/BuildSemantica)
+[![Discord](https://img.shields.io/badge/Discord-Join%20Community-5865F2?logo=discord&logoColor=white)](https://discord.gg/sV34vps5hH)
+[![X](https://img.shields.io/badge/X-Follow%20Semantica-black?logo=x&logoColor=white)](https://x.com/BuildSemantica)
+
+### ⭐ Give us a Star • 🍴 Fork us • 💬 Join our Discord • 🐦 Follow on X
+
+> **Transform Chaos into Intelligence. Build AI systems with context graphs, decision tracking, and advanced knowledge engineering that are explainable, traceable, and trustworthy — not black boxes.**
 
 </div>
 
@@ -183,6 +189,70 @@ precedents = context.find_precedents("model selection reasoning", limit=5)
 # Analyze downstream influence of this decision
 influence = context.analyze_decision_influence(decision_id)
 ```
+
+**[📖 Full Quick Start](#-quick-start)** • **[🍳 Cookbook Examples](#-semantica-cookbook)** • **[💬 Join Discord](https://discord.gg/sV34vps5hH)** • **[⭐ Star Us](https://github.com/Hawksight-AI/semantica)**
+
+---
+
+## Core Value Proposition
+
+| **Trustworthy** | **Explainable** | **Auditable** |
+|:------------------:|:------------------:|:-----------------:|
+| Conflict detection & validation | Transparent reasoning paths | Complete provenance tracking |
+| Rule-based governance | Entity relationships & ontologies | W3C PROV-O compliant lineage |
+| Production-grade QA | Multi-hop graph reasoning | Source tracking & integrity verification |
+
+---
+
+## Key Features & Benefits
+
+### Not Just Another Agentic Framework
+
+**Semantica complements** LangChain, LlamaIndex, AutoGen, CrewAI, Google ADK, Agno, and other frameworks to enhance your agents with:
+
+| Feature | Benefit |
+|:--------|:--------|
+| **Context Graphs** | Structured knowledge representation with entity relationships and semantic context |
+| **Decision Tracking** | Complete decision lifecycle management with precedent search and causal analysis |
+| **KG Algorithms** | Advanced graph analytics including centrality, community detection, and embeddings |
+| **Vector Store Integration** | Hybrid search with custom similarity weights and advanced filtering |
+| **Auditable** | Complete provenance tracking with W3C PROV-O compliance |
+| **Explainable** | Transparent reasoning paths with entity relationships |
+| **Provenance-Aware** | End-to-end lineage from documents to responses |
+| **Validated** | Built-in conflict detection, deduplication, QA |
+| **Governed** | Rule-based validation and semantic consistency |
+| **Version Control** | Enterprise-grade change management with integrity verification |
+
+### Perfect For High-Stakes Use Cases
+
+| 🏥 **Healthcare** | 💰 **Finance** | ⚖️ **Legal** |
+|:-----------------:|:--------------:|:------------:|
+| Clinical decisions | Fraud detection | Evidence-backed research |
+| Drug interactions | Regulatory support | Contract analysis |
+| Patient safety | Risk assessment | Case law reasoning |
+
+| 🔒 **Cybersecurity** | 🏛️ **Government** | 🏭 **Infrastructure** | 🚗 **Autonomous** |
+|:-------------------:|:----------------:|:-------------------:|:-----------------:|
+| Threat attribution | Policy decisions | Power grids | Decision logs |
+| Incident response | Classified info | Transportation | Safety validation |
+
+### Powers Your AI Stack
+
+- **Context Graphs** — Structured knowledge representation with entity relationships and semantic context
+- **Decision Tracking Systems** — Complete decision lifecycle management with precedent search and causal analysis
+- **GraphRAG Systems** — Retrieval with graph reasoning and hybrid search using KG algorithms
+- **AI Agents** — Trustworthy, accountable multi-agent systems with semantic memory and decision history
+- **Reasoning Models** — Explainable AI decisions with reasoning paths and influence analysis
+- **Enterprise AI** — Governed, auditable platforms that support compliance and policy enforcement
+
+### Integrations
+
+- **Docling Support** — Document parsing with table extraction (PDF, DOCX, PPTX, XLSX)
+- **AWS Neptune** — Amazon Neptune graph database support with IAM authentication
+- **Apache AGE** — PostgreSQL graph extension backend (openCypher via SQL)
+- **Custom Ontology Import** — Import existing ontologies (OWL, RDF, Turtle, JSON-LD)
+
+> **Built for environments where every answer must be explainable and governed.**
 
 ---
 
@@ -557,7 +627,34 @@ pytest tests/
 
 ---
 
-## Built For
+## 🤝 Community & Support
+
+### Join Our Community
+
+| **Channel** | **Purpose** |
+|:-----------:|:-----------|
+| [**Discord**](https://discord.gg/sV34vps5hH) | Real-time help, showcases |
+| [**GitHub Discussions**](https://github.com/Hawksight-AI/semantica/discussions) | Q&A, feature requests |
+
+### Learning Resources
+
+
+### Enterprise Support
+
+Enterprise support, professional services, and commercial licensing will be available in the future. For now, we offer community support through Discord and GitHub Discussions.
+
+**Current Support:**
+- **Community Support** - Free support via [Discord](https://discord.gg/sV34vps5hH) and [GitHub Discussions](https://github.com/Hawksight-AI/semantica/discussions)
+- **Bug Reports** - [GitHub Issues](https://github.com/Hawksight-AI/semantica/issues)
+
+**Future Enterprise Offerings:**
+- Professional support with SLA
+- Enterprise licensing
+- Custom development services
+- Priority feature requests
+- Dedicated support channels
+
+Stay tuned for updates!
 
 - **AI / ML engineers** — GraphRAG, explainable agents, decision tracing
 - **Data engineers** — governed semantic pipelines with full provenance
@@ -594,4 +691,4 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for full guidelines.
 
 MIT License · Built by [Hawksight AI](https://github.com/Hawksight-AI) · [⭐ Star on GitHub](https://github.com/Hawksight-AI/semantica)
 
-</div>
+[GitHub](https://github.com/Hawksight-AI/semantica) • [Discord](https://discord.gg/sV34vps5hH)
