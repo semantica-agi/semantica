@@ -1,4 +1,3 @@
-from semantica.change_management.ontology_version_manager import VersionManager
 """
 Tests for Enhanced Version Managers
 
@@ -10,11 +9,12 @@ import os
 import tempfile
 import pytest
 from semantica.change_management import (
-    TemporalVersionManager, 
+    TemporalVersionManager,
     OntologyVersionManager,
     ChangeLogEntry
 )
 from semantica.change_management.change_log import generate_change_report, ChangeLogAnalyzer
+from semantica.change_management.ontology_version_manager import VersionManager
 from semantica.ontology.engine import OntologyEngine
 from semantica.utils.exceptions import ValidationError, ProcessingError
 
@@ -426,3 +426,49 @@ class TestOntologyEngineMigration:
         assert report["summary"]["total_changes"] == 1
         assert len(report["impact_classification"]["safe"]) == 1
         assert report["impact_classification"]["safe"][0]["entity_uri"] == "http://ex.org/C1"
+
+    def test_compare_versions_version_not_found_raises(self):
+        """Test that compare_versions raises ProcessingError when version ID is not registered."""
+        engine = OntologyEngine()
+
+        with pytest.raises(ProcessingError):
+            engine.compare_versions("nonexistent_v1", "nonexistent_v2")
+
+    def test_compare_versions_diff_includes_individuals_and_axioms(self):
+        """Test that the diff covers individuals and axioms, not just classes/properties."""
+        engine = OntologyEngine()
+
+        base_dict = {
+            "classes": [],
+            "properties": [],
+            "individuals": [{"uri": "http://ex.org/john"}],
+            "axioms": [{"uri": "http://ex.org/rule1", "expression": "Person hasName exactly 1 string"}],
+        }
+        target_dict = {
+            "classes": [],
+            "properties": [],
+            "individuals": [
+                {"uri": "http://ex.org/john"},
+                {"uri": "http://ex.org/jane"},
+            ],
+            "axioms": [],
+        }
+
+        report = engine.compare_versions("v1", "v2", base_dict=base_dict, target_dict=target_dict)
+
+        diff = report["diff"]
+        assert any(i.get("uri") == "http://ex.org/jane" for i in diff["added_individuals"])
+        assert any(a.get("uri") == "http://ex.org/rule1" for a in diff["removed_axioms"])
+
+    def test_compare_versions_null_constraint_value_flagged_as_breaking(self):
+        """Test that a constraint field going from None to a value is flagged as breaking."""
+        diff = {
+            "changed_properties": [{
+                "uri": "http://ex.org/worksFor",
+                "changes": {"domain": {"old": None, "new": ["Person"]}}
+            }]
+        }
+        report = generate_change_report(diff)
+
+        assert len(report["impact_classification"]["breaking"]) == 1
+        assert report["impact_classification"]["breaking"][0]["severity"] == "high"

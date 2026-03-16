@@ -117,7 +117,7 @@ class Severity(Enum):
     
 class ChangeCategory(Enum):
     BREAKING = "breaking"
-    POTENTIALLY_BREAKING = "potenitally_breaking"
+    POTENTIALLY_BREAKING = "potentially_breaking"
     NON_BREAKING = "non_breaking"
     UNKNOWN = "unknown"
     
@@ -151,17 +151,14 @@ class ChangeLogAnalyzer:
     VALIDITY_CONSTRAINTS = {'domain', 'range', 'cardinality', 'max_cardinality'}
     STRUCTURAL_FIELDS = {'subclasses', 'superclasses', 'equivalent_to', 'disjoint_with'}
     
-    def __init__(self):
-        pass
-    
     def analyze(self, diff: Dict[str, Any]) -> ImpactReport:
-        self.report = ImpactReport()
+        report = ImpactReport()
         if not diff:
-            self.report.summary = {"error": "Empty diff provided"}
-            return self.report
-        
+            report.summary = {"error": "Empty diff provided"}
+            return report
+
         all_changes = []
-        
+
         for key, entity_type, change_type in [
             ("added_classes", "class", "added"), ("added_properties", "property", "added"),
             ("removed_classes", "class", "removed"), ("removed_properties", "property", "removed"),
@@ -174,11 +171,9 @@ class ChangeLogAnalyzer:
                     "change_type": change_type,
                     "changes": item.get("changes", {})
                 })
-        
-        self.report.summary = {"total_changes": len(all_changes)}
-        
-        # Classify each change
-        
+
+        report.summary = {"total_changes": len(all_changes)}
+
         for change in all_changes:
             severity, category, description, mitigation = self._classify_change(change)
             entry = {
@@ -189,16 +184,16 @@ class ChangeLogAnalyzer:
                 "severity": severity.value,
                 "mitigation": mitigation
             }
-            
+
             if category == ChangeCategory.BREAKING:
-                self.report.breaking_changes.append(entry)
+                report.breaking_changes.append(entry)
             elif category == ChangeCategory.POTENTIALLY_BREAKING:
-                self.report.potentially_breaking.append(entry)
+                report.potentially_breaking.append(entry)
             else:
-                self.report.safe_changes.append(entry)
-        
-        self._generate_recommendations()
-        return self.report
+                report.safe_changes.append(entry)
+
+        self._generate_recommendations(report)
+        return report
     
     
     def _classify_change(self, change: Dict[str, Any]) -> Tuple[Severity, ChangeCategory, str, str]:
@@ -212,7 +207,7 @@ class ChangeLogAnalyzer:
             return (Severity.CRITICAL, ChangeCategory.BREAKING, f"Property {uri} removed.", "Migrate property values.")
         
         if change_type == 'added':
-            return (Severity.INFO, ChangeCategory.NON_BREAKING, f"New{entity_type} {uri} added.", "No action required.")
+            return (Severity.INFO, ChangeCategory.NON_BREAKING, f"New {entity_type} {uri} added.", "No action required.")
         
         if change_type == 'modified':
             return self._analyze_field_changes(uri, change.get('changes', {}))
@@ -222,18 +217,22 @@ class ChangeLogAnalyzer:
     def _analyze_field_changes(self, uri: str, field_changes: Dict[str, Any]) -> Tuple[Severity, ChangeCategory, str, str]:
         has_restriction = False
         has_structural = False
-        
+
         for field, vals in field_changes.items():
             if field in self.VALIDITY_CONSTRAINTS:
                 old_val, new_val = vals.get("old"), vals.get("new")
-                
+
+                if old_val is None or new_val is None:
+                    has_restriction = True
+                    continue
+
                 # if new constraint is smaller, it is a restriction
                 old_set = set(old_val) if isinstance(old_val, list) else {old_val}
                 new_set = set(new_val) if isinstance(new_val, list) else {new_val}
-                
+
                 if new_set < old_set:
                     has_restriction = True
-            
+
             elif field in self.STRUCTURAL_FIELDS:
                 has_structural = True
         
@@ -244,18 +243,16 @@ class ChangeLogAnalyzer:
         
         return (Severity.LOW, ChangeCategory.NON_BREAKING, f"Safe annotations updated for {uri}", "No action required.")
     
-    def _generate_recommendations(self):
-        if self.report.breaking_changes:
-            self.report.recommendations.append("✘✘✘ BREAKING: Schedule downtime or validate existing data.")
-        if self.report.potentially_breaking:
-            self.report.recommendations.append("¤¤¤ POTENTIAL IMPACT: Run full regression tests on queries.")
-        if not self.report.breaking_changes and not self.report.potentially_breaking:
-            self.report.recommendations.append("☺☺☺ Safe Migration: Minor version bump sufficient.")
+    def _generate_recommendations(self, report: ImpactReport) -> None:
+        if report.breaking_changes:
+            report.recommendations.append("[BREAKING] Schedule downtime or validate existing data.")
+        if report.potentially_breaking:
+            report.recommendations.append("[WARNING] Run full regression tests on queries.")
+        if not report.breaking_changes and not report.potentially_breaking:
+            report.recommendations.append("[SAFE] Minor version bump sufficient.")
 
-    
-    
-    
+
 def generate_change_report(diff: Dict[str, Any]) -> Dict[str, Any]:
     """Public API for generating impact reports from diffs."""
     analyzer = ChangeLogAnalyzer()
-    return analyzer.analyze(diff).to_dict() 
+    return analyzer.analyze(diff).to_dict()

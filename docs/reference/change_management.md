@@ -434,7 +434,7 @@ Here is the exact structure of the returned report:
   "impact_classification": {
     "breaking": [
       {
-        "entity_uri": "[http://example.org/Person](http://example.org/Person)",
+        "entity_uri": "http://example.org/Person",
         "severity": "critical",
         "description": "Class Person removed.",
         "mitigation": "Migrate orphaned instances."
@@ -444,7 +444,7 @@ Here is the exact structure of the returned report:
     "safe": []
   },
   "recommendations": [
-    "✘✘✘ BREAKING: Schedule downtime or validate existing data."
+    "[BREAKING] Schedule downtime or validate existing data."
   ],
   "diff": {
     "added_classes": [],

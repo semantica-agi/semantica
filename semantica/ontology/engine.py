@@ -26,7 +26,8 @@ class OntologyEngine:
         self.validator = OntologyValidator(**config)
         self.llm = LLMOntologyGenerator(**config)
         self.store = config.get("store")
-        
+
+        # Deferred to avoid circular import: change_management → ontology → change_management
         from ..change_management.ontology_version_manager import VersionManager
         self.version_manager = config.get("version_manager") or VersionManager(**config)
 
@@ -72,53 +73,48 @@ class OntologyEngine:
 
     def export_owl(self, ontology: Dict[str, Any], path: str, format: str = "turtle"):
         return self.owl.export_owl(ontology, path, format=format)
-    
+
     def get_ontology_version_dict(self, version_id: str) -> Dict[str, Any]:
-        """ Utility to load an ontology version as plain dict ready for diffing."""
-        
+        """Utility to load an ontology version as plain dict ready for diffing."""
         version_record = self.version_manager.get_version(version_id)
         if not version_record:
             raise ProcessingError(f"Version {version_id} not found.")
-        
         return version_record.metadata.get("structure", {"classes": [], "properties": []})
-    
+
     def compare_versions(self, base_id: str, target_id: str, **options) -> Dict[str, Any]:
         """
         Orchestrates version loading, diff computation, and report generation.
-        
+
         Args:
             base_id: Version ID of the old ontology
             target_id: Version ID of the new ontology
             **options: Can pass 'base_dict' and 'target_dict' directly to bypass loading.
                        Can pass 'run_validation=True' to validate schema.
                        Can pass 'graph_data' to validate instances against new schema.
-            
+
         Returns:
-             A structured dictionary containing the impact report and machine-readable diff.
+            A structured dictionary containing the impact report and machine-readable diff.
         """
-        
         tracking_id = self.progress.start_tracking(
             module="ontology",
             submodule="OntologyEngine",
             message=f"Comparing ontology versions: {base_id} -> {target_id}"
         )
-        
+
         try:
+            # Deferred to avoid circular import
             from ..change_management.change_log import generate_change_report
-            
-    
-            base_dict = options["base_dict"] if "base_dict" in options else self.get_ontology_version_dict(base_id)
-            target_dict = options["target_dict"] if "target_dict" in options else self.get_ontology_version_dict(target_id)
-            
+            from ..kg.graph_validator import GraphValidator
+
+            base_dict = options.get("base_dict") or self.get_ontology_version_dict(base_id)
+            target_dict = options.get("target_dict") or self.get_ontology_version_dict(target_id)
+
             diff_result = self.version_manager.diff_ontologies(base_dict, target_dict)
             report = generate_change_report(diff_result)
-            
             report["diff"] = diff_result
-            
+
             if options.get("run_validation"):
                 self.progress.update_tracking(tracking_id, message="Running validation on target schema...")
-                
-        
                 val_res = self.validate(target_dict, **options)
                 report["validation_results"] = {
                     "valid": getattr(val_res, "valid", getattr(val_res, "is_valid", False)),
@@ -127,28 +123,21 @@ class OntologyEngine:
                     "errors": getattr(val_res, "errors", []),
                     "warnings": getattr(val_res, "warnings", [])
                 }
-                
-    
+
                 if "graph_data" in options:
-                    try:
-                        from ..kg.graph_validator import GraphValidator
-                        kg_validator = GraphValidator(**self.config)
-                        
-                        self.progress.update_tracking(tracking_id, message="Running graph data validation...")
-                        kg_res = kg_validator.validate(options["graph_data"], ontology=target_dict, **options)
-                        
-                        report["graph_validation"] = {
-                            "valid": getattr(kg_res, "valid", getattr(kg_res, "is_valid", False)),
-                            "errors": getattr(kg_res, "errors", []),
-                            "warnings": getattr(kg_res, "warnings", [])
-                        }
-                    except ImportError:
-                        self.logger.warning("GraphValidator module not found, skipping KG validation.")
-            
+                    self.progress.update_tracking(tracking_id, message="Running graph data validation...")
+                    kg_validator = GraphValidator(**self.config)
+                    kg_res = kg_validator.validate(options["graph_data"], ontology=target_dict, **options)
+                    report["graph_validation"] = {
+                        "valid": getattr(kg_res, "valid", getattr(kg_res, "is_valid", False)),
+                        "errors": getattr(kg_res, "errors", []),
+                        "warnings": getattr(kg_res, "warnings", [])
+                    }
+
             self.progress.stop_tracking(tracking_id, status="completed", message="Comparison complete")
             return report
-        
+
         except Exception as e:
             self.progress.stop_tracking(tracking_id, status="failed", message=str(e))
             self.logger.error(f"Failed to compare versions: {e}")
-            raise ProcessingError(f"Version comparison failed: {e}")
+            raise ProcessingError(f"Version comparison failed: {e}") from e

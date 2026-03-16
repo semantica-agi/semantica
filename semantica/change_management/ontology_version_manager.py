@@ -366,6 +366,12 @@ class VersionManager:
         props_added, props_removed, props_changed = _compute_section_diff(
             base.get("properties", []), target.get("properties", [])
         )
+        inds_added, inds_removed, inds_changed = _compute_section_diff(
+            base.get("individuals", []), target.get("individuals", [])
+        )
+        axioms_added, axioms_removed, axioms_changed = _compute_section_diff(
+            base.get("axioms", []), target.get("axioms", [])
+        )
 
         return {
             "added_classes": classes_added,
@@ -373,10 +379,14 @@ class VersionManager:
             "changed_classes": classes_changed,
             "added_properties": props_added,
             "removed_properties": props_removed,
-            "changed_properties": props_changed
+            "changed_properties": props_changed,
+            "added_individuals": inds_added,
+            "removed_individuals": inds_removed,
+            "changed_individuals": inds_changed,
+            "added_axioms": axioms_added,
+            "removed_axioms": axioms_removed,
+            "changed_axioms": axioms_changed,
         }
-        
-        
 
     def get_version(self, version: str) -> Optional[OntologyVersion]:
         """Get version by version string."""
