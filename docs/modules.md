@@ -1,9 +1,9 @@
-﻿# Modules & Architecture
+﻿# Modules
 
-**Complete guide to Semantica's modular architecture and how to use each component.**
+Every Semantica module works independently — use only what you need.
 
-!!! tip "Modular Design"
-    Each Semantica module works independently. Use only what you need for your specific use case.
+!!! tip "Just need a quick reference?"
+    Jump to the [Module Index](#module-index) at the bottom of this page.
 
 ---
 
@@ -82,13 +82,11 @@ web_ingestor = WebIngestor()
 pages = web_ingestor.ingest_urls(["https://example.com"])
 ```
 
-**What it does:**
 - **File formats** - PDF, DOCX, TXT, JSON, CSV
 - **Web scraping** - Extract content from websites
 - **Database** - Connect to SQL and NoSQL databases
 - **Batch processing** - Handle large datasets efficiently
 
-**Use Cases:**
 - Document processing pipelines
 - Web data extraction
 - Database integration
@@ -106,13 +104,11 @@ text = parsed["full_text"]
 metadata = parsed["metadata"]
 ```
 
-**What it does:**
 - **Text extraction** - Extract clean text from documents
 - **Metadata parsing** - Extract titles, authors, dates
 - **Structure analysis** - Identify sections, headings
 - **OCR support** - Handle scanned documents
 
-**Use Cases:**
 - PDF processing
 - Document analysis
 - Content extraction
@@ -130,13 +126,11 @@ splitter = TextSplitter(method="semantic")
 chunks = splitter.split(text, chunk_size=1000, overlap=200)
 ```
 
-**What it does:**
 - **Intelligent chunking** - Split text while preserving context
 - **Semantic splitting** - Break at natural boundaries
 - **Size control** - Manage chunk sizes for processing
 - **Overlap handling** - Maintain context between chunks
 
-**Use Cases:**
 - Document preprocessing
 - Embedding preparation
 - RAG systems
@@ -155,13 +149,11 @@ clean_text = normalizer.normalize_text(text)
 standardized_date = normalizer.normalize_date("Jan 1st, 2020")
 ```
 
-**What it does:**
 - **Text cleaning** - Remove noise and artifacts
 - **Date standardization** - Convert to ISO format
 - **Name normalization** - Standardize person names
 - **Entity normalization** - Clean up company names
 
-**Use Cases:**
 - Data preprocessing
 - Quality improvement
 - Standardization
@@ -186,13 +178,11 @@ rel_extractor = RelationExtractor()
 relationships = rel_extractor.extract(text, entities)
 ```
 
-**What it does:**
 - **Named Entity Recognition** - Find people, orgs, locations
 - **Relationship extraction** - Find connections between entities
 - **Custom entities** - Define your own entity types
 - **Confidence scoring** - Quality assessment for extractions
 
-**Use Cases:**
 - Knowledge graph construction
 - Document analysis
 - Information extraction
@@ -215,13 +205,11 @@ analyzer = GraphAnalyzer()
 stats = analyzer.analyze(kg)
 ```
 
-**What it does:**
 - **Graph construction** - Build knowledge graphs from data
 - **Graph analysis** - Calculate metrics and statistics
 - **Graph querying** - Search and retrieve information
 - **Graph manipulation** - Merge, split, transform graphs
 
-**Use Cases:**
 - Knowledge base creation
 - Graph analytics
 - Information retrieval
@@ -244,13 +232,11 @@ ontology.add_relationship("works_for", "Person", "Organization")
 is_valid = ontology.validate_graph(kg)
 ```
 
-**What it does:**
 - **Schema definition** - Define data structure
 - **Data validation** - Ensure data conforms to schema
 - **Inheritance** - Create hierarchical relationships
 - **Constraints** - Enforce data quality rules
 
-**Use Cases:**
 - Data modeling
 - Quality assurance
 - Schema management
@@ -268,13 +254,11 @@ engine = ReasoningEngine()
 inferences = engine.infer(kg, rules=["transitivity", "symmetry"])
 ```
 
-**What it does:**
 - **Logical inference** - Derive new facts from existing ones
 - **Pattern matching** - Find complex patterns in data
 - **Consistency checking** - Detect contradictions
 - **Decision support** - Automated reasoning
 
-**Use Cases:**
 - Knowledge discovery
 - Decision making
 - Consistency checking
@@ -295,13 +279,11 @@ embeddings = generator.generate(["text1", "text2"])
 similarity = generator.similarity(embeddings[0], embeddings[1])
 ```
 
-**What it does:**
 - **Text embeddings** - Convert text to vectors
 - **Similarity search** - Find similar content
 - **Clustering** - Group related items
 - **AI integration** - Provide context to LLMs
 
-**Use Cases:**
 - Semantic search
 - Recommendation systems
 - Clustering
@@ -320,13 +302,11 @@ store.add_vectors(embeddings, ids)
 results = store.search(query_vector, top_k=10)
 ```
 
-**What it does:**
 - **Vector storage** - Efficient vector database
 - **Fast search** - Approximate nearest neighbor search
 - **Indexing** - Optimize for performance
 - **Batch operations** - Handle large datasets
 
-**Use Cases:**
 - Semantic search
 - RAG systems
 - Recommendation engines
@@ -346,13 +326,11 @@ store.add_edges(relationships)
 results = store.query("MATCH (n)-[r]->(m) RETURN n, r, m")
 ```
 
-**What it does:**
 - **Graph persistence** - Store graphs in databases
 - **Graph queries** - Cypher and Gremlin support
 - **Graph algorithms** - Path finding, centrality
 - **Transactions** - ACID compliance
 
-**Use Cases:**
 - Knowledge graph storage
 - Graph analytics
 - Network analysis
@@ -371,13 +349,11 @@ store.add_triplets(subject, predicate, object)
 triplets = store.get_triplets(entity="Apple Inc.")
 ```
 
-**What it does:**
 - **Triple storage** - Store (subject, predicate, object) triples
 - **Pattern matching** - Find specific patterns
 - **RDF support** - Semantic web standards
 - **Bulk operations** - Efficient batch processing
 
-**Use Cases:**
 - Semantic web
 - Knowledge representation
 - Linked data
@@ -397,13 +373,11 @@ resolver = EntityResolver()
 merged_entities = resolver.resolve(entities, strategy="semantic")
 ```
 
-**What it does:**
 - **Duplicate detection** - Find similar entities
 - **Entity resolution** - Merge duplicate records
 - **Similarity scoring** - Quality assessment
 - **Record linkage** - Connect related records
 
-**Use Cases:**
 - Data cleaning
 - Master data management
 - Record linkage
@@ -422,13 +396,11 @@ conflicts = detector.detect_conflicts(kg)
 resolved = detector.resolve(conflicts, strategy="most_recent")
 ```
 
-**What it does:**
 - **Conflict detection** - Find contradictory information
 - **Resolution strategies** - Automated conflict resolution
 - **Source reliability** - Trustworthiness assessment
 - **Temporal analysis** - Time-based conflict handling
 
-**Use Cases:**
 - Data quality
 - Consistency checking
 - Trust management
@@ -448,13 +420,11 @@ manager = ContextManager()
 context = manager.get_context(query, history)
 ```
 
-**What it does:**
 - **Context tracking** - Maintain conversation context
 - **Memory management** - Store and retrieve context
 - **Relevance scoring** - Find relevant context
 - **Session management** - Handle multiple conversations
 
-**Use Cases:**
 - AI agents
 - Chatbots
 - Conversational AI
@@ -472,13 +442,11 @@ seed = SeedData()
 knowledge = seed.get_knowledge("technology", "companies")
 ```
 
-**What it does:**
 - **Seed knowledge** - Foundation data for domains
 - **Knowledge bases** - Pre-built domain knowledge
 - **Quick start** - Bootstrap applications
 - **Domain models** - Industry-specific data
 
-**Use Cases:**
 - Domain bootstrapping
 - Quick start data
 - Industry knowledge
@@ -496,13 +464,11 @@ provider = LLMProvider(model="gpt-4")
 response = provider.generate(prompt, context=kg)
 ```
 
-**What it does:**
 - **LLM integration** - Connect to various LLM providers
 - **Prompt engineering** - Optimize prompts for results
 - **Context injection** - Provide knowledge graph context
 - **Response parsing** - Extract structured outputs
 
-**Use Cases:**
 - AI generation
 - Question answering
 - Text completion
@@ -522,13 +488,11 @@ exporter = GraphExporter()
 exporter.export(kg, format="json", filename="output.json")
 ```
 
-**What it does:**
 - **Multiple formats** - JSON, CSV, RDF, GraphML
 - **Database export** - Export to various databases
 - **Streaming** - Handle large datasets
 - **Filtering** - Export specific data subsets
 
-**Use Cases:**
 - Data sharing
 - System integration
 - Backup and restore
@@ -546,13 +510,11 @@ visualizer = GraphVisualizer()
 visualizer.plot(kg, layout="force_directed")
 ```
 
-**What it does:**
 - **Graph visualization** - Interactive graph plots
 - **Custom styling** - Tailored visual appearance
 - **Analytics charts** - Statistics and metrics
 - **Exploration tools** - Interactive data exploration
 
-**Use Cases:**
 - Data exploration
 - Presentation
 - Analysis
@@ -573,13 +535,11 @@ pipeline.add_step("build", GraphBuilder())
 result = pipeline.run("data/")
 ```
 
-**What it does:**
 - **Workflow orchestration** - Coordinate multiple steps
 - **Parallel processing** - Run steps concurrently
 - **Progress tracking** - Monitor pipeline execution
 - **Error handling** - Robust error management
 
-**Use Cases:**
 - Data processing
 - Workflow automation
 - Batch processing
@@ -587,7 +547,7 @@ result = pipeline.run("data/")
 
 ---
 
-## New Features & Modules
+## Additional Modules
 
 ### Change Management Module
 **Version control and audit trails**
@@ -599,13 +559,11 @@ manager = TemporalVersionManager(storage_path="versions.db")
 snapshot = manager.create_snapshot(kg, "v1.0", "user@example.com", "Initial version")
 ```
 
-**What it does:**
 - **Version control** - Track changes over time
 - **Audit trails** - Complete change history
 - **Data integrity** - SHA-256 checksums
 - **Change comparison** - Detailed diff analysis
 
-**Use Cases:**
 - Knowledge graph versioning
 - Compliance tracking
 - Data governance
@@ -623,13 +581,11 @@ manager = ProvenanceManager()
 manager.track_entity("entity_1", "document.pdf", "person")
 ```
 
-**What it does:**
 - **W3C PROV-O compliant** - Industry standard tracking
 - **Complete lineage** - End-to-end traceability
 - **Source attribution** - Track data origins
 - **Integrity verification** - Tamper detection
 
-**Use Cases:**
 - Regulatory compliance
 - Data provenance
 - Audit trails
@@ -648,13 +604,11 @@ semantica = Semantica(config=Config())
 result = semantica.process("data/")
 ```
 
-**What it does:**
 - **Framework orchestration** - Central coordination
 - **Configuration management** - Settings and preferences
 - **Lifecycle management** - Start/stop/restart
 - **Plugin system** - Extensible architecture
 
-**Use Cases:**
 - Framework initialization
 - Configuration management
 - Plugin development
@@ -662,46 +616,18 @@ result = semantica.process("data/")
 
 ---
 
-## Getting Started
+## Common Module Chains
 
-### Quick Start Example
-
-```python
-# Complete pipeline example
-from semantica.ingest import FileIngestor
-from semantica.semantic_extract import NERExtractor, RelationExtractor
-from semantica.kg import GraphBuilder
-from semantica.pipeline import Pipeline
-
-# Create pipeline
-pipeline = Pipeline()
-pipeline.add_step("ingest", FileIngestor())
-pipeline.add_step("ner", NERExtractor())
-pipeline.add_step("relations", RelationExtractor())
-pipeline.add_step("build", GraphBuilder())
-
-# Run pipeline
-kg = pipeline.run("documents/")
-print(f"Built graph with {len(kg['entities'])} entities")
-```
-
-### Choose Your Modules
-
-**For Document Processing:**
-- Ingest → Parse → Split → Semantic Extract → Knowledge Graph
-
-**For Web Scraping:**
-- Ingest (Web) → Normalize → Semantic Extract → Graph Store
-
-**For AI Agents:**
-- Context → LLM Providers → Reasoning → Export
-
-**For Analytics:**
-- Knowledge Graph → Graph Store → Visualization → Export
+| Goal | Modules |
+|------|---------|
+| Document processing | Ingest → Parse → Split → Semantic Extract → KG |
+| Web scraping | Ingest (Web) → Normalize → Semantic Extract → Graph Store |
+| AI agents | Context → LLM Providers → Reasoning → Export |
+| Analytics | KG → Graph Store → Visualization → Export |
 
 ---
 
-## Module Reference
+## Module Index
 
 | Module | Purpose | Key Classes | Use Cases |
 |--------|---------|-------------|-----------|
@@ -731,10 +657,9 @@ print(f"Built graph with {len(kg['entities'])} entities")
 
 ---
 
-## Need Help?
+## More
 
-- **Documentation**: [Getting Started](getting-started.md)
-- **Examples**: [Cookbook](cookbook.md)
-- **Community**: [Discord](community.md)
-- **Issues**: [GitHub Issues](https://github.com/Hawksight-AI/semantica/issues)
-- **Support**: [Contact Us](community.md)
+- [Getting Started](getting-started.md)
+- [Examples](examples.md)
+- [Cookbook](cookbook.md)
+- [API Reference](reference/core.md)

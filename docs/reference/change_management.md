@@ -58,16 +58,14 @@ The Semantica change management module provides enterprise-grade version control
 
 </div>
 
-### Key Features
-
-- ✅ **Enterprise Version Control** — Complete snapshot management with SHA-256 integrity verification
-- ✅ **Dual Storage Backends** — InMemory (development) and SQLite (production) with ACID guarantees
-- ✅ **Knowledge Graph Versioning** — Entity and relationship-level change tracking with detailed diffs
-- ✅ **Ontology Versioning** — Structural change tracking for classes, properties, and axioms
-- ✅ **Audit Trail Compliance** — Complete change logs with author attribution and timestamps
-- ✅ **Data Integrity** — SHA-256 checksums for tamper detection and verification
-- ✅ **Change Comparison** — Detailed diff algorithms for entities, relationships, and ontology structures
-- ✅ **Backward Compatibility** — Legacy support for existing ontology version management
+- **Enterprise Version Control** — Complete snapshot management with SHA-256 integrity verification
+- **Dual Storage Backends** — InMemory (development) and SQLite (production) with ACID guarantees
+- **Knowledge Graph Versioning** — Entity and relationship-level change tracking with detailed diffs
+- **Ontology Versioning** — Structural change tracking for classes, properties, and axioms
+- **Audit Trail Compliance** — Complete change logs with author attribution and timestamps
+- **Data Integrity** — SHA-256 checksums for tamper detection and verification
+- **Change Comparison** — Detailed diff algorithms for entities, relationships, and ontology structures
+- **Backward Compatibility** — Legacy support for existing ontology version management
 
 ---
 
@@ -121,24 +119,21 @@ class ChangeLogEntry:
 
 ### Storage Backends
 
-#### InMemoryVersionStorage
-Fast, volatile storage for development and testing.
+**InMemoryVersionStorage** — Fast, volatile storage for development and testing.
 ```python
 from semantica.change_management import InMemoryVersionStorage
 
 storage = InMemoryVersionStorage()
 ```
 
-#### SQLiteVersionStorage
-Persistent storage with ACID guarantees for production.
+**SQLiteVersionStorage** — Persistent storage with ACID guarantees for production.
 ```python
 from semantica.change_management import SQLiteVersionStorage
 
 storage = SQLiteVersionStorage("versions.db")
 ```
 
-#### VersionStorage (Abstract)
-Base interface for custom storage implementations.
+**VersionStorage (Abstract)** — Base interface for custom storage implementations.
 
 **Core Methods:**
 - `save(snapshot)` - Store version snapshot
@@ -251,7 +246,7 @@ For large-scale knowledge graphs, reprocessing the entire dataset on every updat
 Semantica supports **Delta-Aware Pipelines**, allowing you to compute the exact differences (added and removed triples)
 between the two graph snapshots and run validation, enrichment, or export jobs *only* on the changes.
 
-### Delta Pipeline Example
+**Delta Pipeline Example**
 
 ```python
 from semantica.change_management import TemporalVersionManager
@@ -286,6 +281,7 @@ result = engine.execute_pipeline(
     triplet_store=triplet_store
 )
 ```
+
 ---
 
 ## Data Integrity
@@ -399,7 +395,7 @@ for version in prod_manager.list_versions():
 Semantica allows you to treat ontology schema changes with the same rigor as database migrations. By comparing two versions, you can generate a machine-readable diff and a structured impact report to catch breaking changes before they reach production.
 
 
-### Comparing Versions
+**Comparing Versions**
 
 The `OntologyEngine` provides a high-level API to orchestrate the comparison of two schema versions.
 
@@ -410,21 +406,18 @@ engine = OntologyEngine()
 
 # Generate a migration impact report between v1.0 and v2.0
 report = engine.compare_versions(
-    base_id="v1.0", 
+    base_id="v1.0",
     target_id="v2.0"
 )
 
 print(f"Total changes detected: {report['summary']['total_changes']}")
 ```
+
 ---
 
-### Understanding the Report Format
+**Report Format**
 
-The `compare_versions` method returns a comprehensive dictionary containing both a machine-readable diff and a human-readable impact analysis. 
-
-
-
-Here is the exact structure of the returned report:
+The `compare_versions` method returns a dictionary with a machine-readable diff and a human-readable impact analysis:
 
 ```json
 {
@@ -467,3 +460,4 @@ Here is the exact structure of the returned report:
     "warnings": []
   }
 }
+```

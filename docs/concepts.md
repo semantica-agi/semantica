@@ -1,372 +1,172 @@
-﻿# Core Concepts
+# Core Concepts
 
-**Learn the fundamental concepts behind Semantica in simple, practical terms.**
+The fundamental ideas behind Semantica — explained plainly.
 
-!!! tip "Quick Start"
-    New to Semantica? Start with [Getting Started](getting-started.md) for hands-on examples.
+!!! tip "New here?"
+    Start with [Getting Started](getting-started.md) for hands-on examples, then come back to this page for deeper understanding.
 
 ---
 
 ## What is Semantica?
 
-Semantica transforms unstructured data (documents, web pages, reports) into **knowledge graphs** - structured databases that AI systems can understand and reason about.
+Semantica transforms unstructured data (documents, web pages, reports, databases) into **knowledge graphs** — structured representations that AI systems can query, reason about, and trace back to sources.
 
-**What it does:**
-- **Reads** documents, PDFs, web pages, databases
-- **Extracts** entities (people, companies, dates) and relationships
-- **Builds** connected knowledge graphs
-- **Enables** AI to reason with structured knowledge
-
----
-
-## Core Architecture
-
-Semantica uses a **layered architecture** - use only what you need:
-
-<div class="grid cards" markdown>
-
--   **Input Layer**
-    
-    ---
-    
-    Data ingestion and preparation
-    
-    **Modules**: Ingest, Parse, Split, Normalize
-
--   **Semantic Layer**
-    
-    ---
-    
-    Intelligence and understanding
-    
-    **Modules**: Semantic Extract, Knowledge Graph, Ontology, Reasoning
-
--   **Storage Layer**
-    
-    ---
-    
-    Persistent data storage
-    
-    **Modules**: Embeddings, Vector Store, Graph Store
-
--   **Quality Layer**
-    
-    ---
-    
-    Data quality and consistency
-    
-    **Modules**: Deduplication, Conflicts
-
--   **Context & Memory**
-    
-    ---
-    
-    Agent memory and foundation data
-    
-    **Modules**: Context, Seed, LLM Providers
-
--   **Output & Orchestration**
-    
-    ---
-    
-    Export, visualization, and workflows
-    
-    **Modules**: Export, Visualization, Pipeline
-
-</div>
+At its core, Semantica adds a **context and intelligence layer** on top of your existing AI stack: it doesn't replace LangChain, LlamaIndex, or your LLM provider — it makes their outputs accountable.
 
 ---
 
 ## Knowledge Graphs
 
-The foundation of Semantica - turning data into structured knowledge.
+The foundation of everything in Semantica.
 
-### What is a Knowledge Graph?
+A knowledge graph stores information as:
 
-A knowledge graph represents real-world information as:
-- **Nodes** (entities): People, companies, locations, dates
-- **Edges** (relationships): works_for, located_in, founded_by
-- **Properties**: Name, date, confidence score, source
+- **Nodes (entities)** — people, companies, locations, events, concepts
+- **Edges (relationships)** — `works_for`, `located_in`, `founded_by`
+- **Properties** — name, date, confidence score, source URL
 
-### Why Knowledge Graphs?
-
-- **Searchable**: Find information instantly
-- **Connectable**: Discover hidden relationships
-- **Queryable**: Ask complex questions
-- **Explainable**: Trace answers back to sources
+This structure makes knowledge **searchable**, **connectable**, **queryable**, and — critically — **explainable**: every answer can be traced back to the facts and relationships that produced it.
 
 ---
 
 ## Entity Extraction (NER)
 
-Finding and classifying entities in text.
+Scanning text to find and classify real-world entities.
 
-### What it does:
-- Scans text for people, organizations, locations, dates
-- Classifies each entity by type
-- Assigns confidence scores
-- Tracks source provenance
-
-### Example Output:
 ```python
-# From: "Apple Inc. was founded by Steve Jobs in 1976 in Cupertino."
+# Input: "Apple Inc. was founded by Steve Jobs in 1976 in Cupertino."
 {
     "entities": [
-        {"text": "Apple Inc.", "type": "ORGANIZATION", "confidence": 0.98},
-        {"text": "Steve Jobs", "type": "PERSON", "confidence": 0.99},
-        {"text": "1976", "type": "DATE", "confidence": 0.95},
-        {"text": "Cupertino", "type": "LOCATION", "confidence": 0.97}
+        {"text": "Apple Inc.",  "type": "ORGANIZATION", "confidence": 0.98},
+        {"text": "Steve Jobs",  "type": "PERSON",       "confidence": 0.99},
+        {"text": "1976",        "type": "DATE",         "confidence": 0.95},
+        {"text": "Cupertino",   "type": "LOCATION",     "confidence": 0.97}
     ]
 }
 ```
+
+Each entity gets a type, confidence score, and a link to its source document.
 
 ---
 
 ## Relationship Extraction
 
-Finding connections between entities.
+Finding how entities connect to each other.
 
-### What it does:
-- Identifies how entities relate to each other
-- Extracts relationship types and directions
-- Provides context and confidence
-- Links to source documents
-
-### Example Output:
 ```python
 {
     "relationships": [
-        {"subject": "Steve Jobs", "predicate": "founded", "object": "Apple Inc.", "confidence": 0.92},
-        {"subject": "Apple Inc.", "predicate": "located_in", "object": "Cupertino", "confidence": 0.89}
+        {"subject": "Steve Jobs", "predicate": "founded",    "object": "Apple Inc.", "confidence": 0.92},
+        {"subject": "Apple Inc.", "predicate": "located_in", "object": "Cupertino",  "confidence": 0.89}
     ]
 }
 ```
+
+Relationships can be extracted via rule-based methods, ML models, or LLMs (with `"llm_typed"` metadata).
 
 ---
 
 ## Embeddings
 
-Turning text into numerical vectors for AI understanding.
+Embeddings convert text into numerical vectors so that AI systems can measure semantic similarity — finding related concepts even when the exact words differ.
 
-### What are embeddings?
-- **Numerical representations** of text, entities, and relationships
-- **Similarity calculations** - find related concepts
-- **AI-powered search** - semantic understanding
-- **Clustering and grouping** - discover patterns
+Semantica uses embeddings for:
 
-### Use Cases:
-- **Semantic Search** - find documents by meaning, not keywords
-- **Entity Resolution** - match similar entities across sources
-- **Recommendations** - suggest related content
-- **AI Input** - provide structured context to LLMs
-
----
-
-## Temporal Graphs
-
-Knowledge graphs that understand time.
-
-### What they track:
-- **When** events happened
-- **How** entities changed over time
-- **Temporal relationships** - before, after, during
-- **Historical context** - point-in-time snapshots
-
-### Example Uses:
-- **Company History** - track mergers, leadership changes
-- **Person Careers** - job changes, relocations
-- **Policy Evolution** - law changes over time
-- **Research Progress** - scientific discoveries timeline
+- **Semantic search** — retrieve by meaning, not just keywords
+- **Entity resolution** — match the same entity across different sources
+- **Precedent search** — find similar past decisions
+- **GraphRAG retrieval** — hybrid vector + graph traversal
 
 ---
 
 ## GraphRAG
 
-Enhanced AI retrieval using knowledge graphs.
+GraphRAG (Graph-Augmented Retrieval Augmented Generation) enhances LLM responses by grounding them in a structured knowledge graph rather than raw text chunks alone.
 
-### How it works:
-1. **Query** user question
-2. **Retrieve** relevant graph context
-3. **Enhance** with relationships and entities
-4. **Generate** AI response with sources
+How it works:
 
-### Benefits:
-- **More accurate** answers
-- **Source attribution** - trace answers back
-- **Context awareness** - understand relationships
-- **Reduced hallucination** - grounded in facts
+1. User submits a query
+2. Semantica retrieves relevant graph context (entities, relationships, reasoning paths)
+3. The LLM generates a response grounded in that context
+4. Every claim in the response links back to a source node in the graph
+
+This eliminates the hallucination and traceability problems of standard RAG.
 
 ---
 
 ## Ontology
 
-Defining the structure and rules of your knowledge.
+An ontology defines the schema and rules for your knowledge — what entity types exist, which relationships are valid, and what constraints apply.
 
-### What it provides:
-- **Schema definition** - what types exist
-- **Relationship rules** - valid connections
-- **Property constraints** - required fields
-- **Inheritance hierarchies** - parent-child relationships
-
-### Example:
 ```python
-# Define ontology structure
 ontology = {
     "classes": ["Person", "Organization", "Location"],
-    "properties": ["name", "date", "confidence"],
-    "relationships": ["works_for", "located_in", "born_in"],
+    "relationships": ["works_for", "located_in", "founded_by"],
     "rules": {
-        "Person": ["must_have_name", "can_have_birth_date"],
+        "Person":       ["must_have_name"],
         "Organization": ["must_have_name", "can_have_founding_date"]
     }
 }
 ```
 
+Semantica can auto-generate ontologies from your knowledge graph, or import existing OWL/RDF/Turtle ontologies.
+
 ---
 
 ## Reasoning & Inference
 
-Making logical deductions from your knowledge.
+Semantica includes multiple reasoning engines to derive new knowledge from existing facts.
 
-### What it can do:
-- **Infer missing facts** - derive new knowledge
-- **Detect inconsistencies** - find contradictions
-- **Apply rules** - automate decision making
-- **Explain reasoning** - show how conclusions were reached
+```
+Known:    Steve Jobs founded Apple Inc.
+Known:    Apple Inc. is headquartered in Cupertino
+Inferred: Steve Jobs has a connection to Cupertino
+```
 
-### Example:
-```
-Known: Steve Jobs founded Apple Inc.
-Known: Apple Inc. is headquartered in Cupertino
-Inferred: Steve Jobs has connection to Cupertino
-```
+Supported engines: forward chaining, Rete network, deductive, abductive, and SPARQL reasoning — all producing **explainable inference paths**, not black-box conclusions.
+
+---
+
+## Temporal Graphs
+
+Knowledge changes over time. Temporal graphs attach `valid_from` / `valid_until` windows to nodes and edges, enabling point-in-time queries and historical analysis.
+
+Common uses: tracking company leadership changes, policy evolution, research timelines, financial instrument histories.
 
 ---
 
 ## Deduplication & Entity Resolution
 
-Finding and merging duplicate entities.
+Real-world data contains the same entity under many names — "Apple", "Apple Inc.", "Apple Computer Inc." Semantica's deduplication pipeline detects these, merges attributes, resolves conflicts, and preserves the original source provenance.
 
-### What it does:
-- **Detects duplicates** - same entity, different names
-- **Merges information** - combine attributes
-- **Resolves conflicts** - handle contradictory data
-- **Maintains provenance** - track original sources
-
-### Example:
-```python
-# These refer to the same entity:
-"Apple Inc." â†’ "Apple" â†’ "Apple Computer Inc."
-# Merge into single entity with all attributes
-```
+Strategies: Jaro-Winkler similarity (v1), `blocking_v2`, `hybrid_v2`, `semantic_v2` (v2 — up to 7x faster).
 
 ---
 
-## Data Normalization
+## Provenance & Auditability
 
-Cleaning and standardizing your data.
+Every fact in Semantica links back to:
 
-### What it fixes:
-- **Format inconsistencies** - dates, names, numbers
-- **Canonical forms** - standard representations
-- **Data quality** - remove errors and noise
-- **Standardization** - consistent naming conventions
+- The source document it came from
+- The extraction method used
+- The ontology rules applied
+- The reasoning steps that produced any inference
 
-### Examples:
-- **Dates**: "Jan 1, 2020" â†’ "2020-01-01"
-- **Names**: "Dr. Smith PhD" â†’ "John Smith"
-- **Companies**: "Apple" â†’ "Apple Inc."
-- **Locations**: "NYC" â†’ "New York City"
+This is W3C PROV-O compliant lineage — suitable for regulated industries that require audit trails.
 
 ---
 
 ## Conflict Detection
 
-Finding and resolving contradictory information.
+When multiple sources disagree on the same fact, Semantica flags and resolves the conflict rather than silently picking one value.
 
-### What it identifies:
-- **Factual conflicts** - different values for same fact
-- **Temporal conflicts** - impossible timelines
-- **Logical conflicts** - contradictory relationships
-- **Source reliability** - trustworthiness assessment
-
-### Resolution Strategies:
-- **Most recent** - prefer newer information
-- **Most reliable** - prefer trusted sources
-- **Majority vote** - go with consensus
-- **Manual review** - flag for human review
+Resolution strategies: prefer most recent, prefer most reliable source, majority vote, or flag for manual review.
 
 ---
 
-## Getting Started
+## Next Steps
 
-Ready to build your first knowledge graph?
-
-### Quick Start (5 minutes)
-```python
-from semantica.semantic_extract import NERExtractor
-from semantica.kg import GraphBuilder
-
-# Extract entities
-ner = NERExtractor()
-entities = ner.extract("Apple Inc. was founded by Steve Jobs in 1976.")
-
-# Build graph
-kg = GraphBuilder().build({"entities": entities, "relationships": []})
-```
-
-### Learn More
-- **Getting Started Guide** - [Getting Started](getting-started.md)
-- **Cookbook Examples** - [Cookbook](cookbook.md)
-- **Module Documentation** - [Reference](reference/)
-- **Community Support** - [Community](community.md)
-
-### Common Use Cases
-- **Document Analysis** - extract knowledge from reports
-- **Research Assistant** - find connections in academic papers
-- **Business Intelligence** - analyze company relationships
-- **Regulatory Compliance** - track policy changes
-
----
-
-## Best Practices
-
-### Start Small
-- Begin with a single document type
-- Focus on specific entity types
-- Validate results before scaling
-
-### Configure Properly
-- Choose appropriate models for your domain
-- Set confidence thresholds
-- Define clear ontology rules
-
-### Validate Data
-- Check extraction quality
-- Review relationship accuracy
-- Test with known examples
-
-### Handle Errors
-- Implement error handling
-- Log processing issues
-- Provide feedback mechanisms
-
-### Optimize Performance
-- Use appropriate storage backends
-- Cache frequently accessed data
-- Monitor resource usage
-
-### Document Workflows
-- Record processing steps
-- Track data sources
-- Maintain change logs
-
----
-
-## Need Help?
-
-- **Documentation**: [Getting Started](getting-started.md)
-- **Examples**: [Cookbook](cookbook.md)
-- **Community**: [Discord](community.md)
-- **Issues**: [GitHub Issues](https://github.com/Hawksight-AI/semantica/issues)
-- **Support**: [Contact Us](community.md)
+- [Quickstart Tutorial](quickstart.md) — build a full pipeline with code
+- [Modules Guide](modules.md) — every module explained
+- [Use Cases](use-cases.md) — real-world domain examples
+- [API Reference](reference/core.md) — complete technical reference

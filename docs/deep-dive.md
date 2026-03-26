@@ -1,10 +1,15 @@
 # Deep Dive
 
-Advanced topics, architecture, and internals of Semantica.
+Internals, advanced concepts, and extension points for contributors and power users.
 
-## Architecture Overview
+!!! tip "Just getting started?"
+    Read [Architecture](architecture.md) for a higher-level overview first.
 
-Semantica follows a modular, extensible architecture:
+---
+
+## Pipeline Internals
+
+The full data flow through a Semantica pipeline:
 
 ```mermaid
 graph TB
@@ -16,65 +21,79 @@ graph TB
     F --> G[Knowledge Graph Builder]
     G --> H[Embedding Generator]
     H --> I[Export Layer]
-    
+
     D --> D1[Entity Extractor]
     D --> D2[Relationship Extractor]
     D --> D3[Triplet Extractor]
-    
+
     G --> G1[Graph Validator]
     G --> G2[Graph Analyzer]
-    
+
     H --> H1[Text Embeddings]
     H --> H2[Graph Embeddings]
 ```
 
+### Sequence Diagram
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant Semantica
+    participant Ingestor
+    participant Parser
+    participant Extractor
+    participant Resolver
+    participant GraphBuilder
+    participant Exporter
+
+    User->>Semantica: build_knowledge_base(sources)
+    Semantica->>Ingestor: ingest(sources)
+    Ingestor->>Parser: parse(documents)
+    Parser->>Extractor: extract(text)
+    Extractor->>Resolver: resolve_conflicts(entities)
+    Resolver->>GraphBuilder: build_graph(resolved_data)
+    GraphBuilder->>Exporter: export(graph)
+    Exporter->>User: return result
+```
+
+---
+
 ## System Components
 
-### 1. Ingestion Layer
+### Ingestion Layer
 
-Handles data input from various sources:
+Handles input from any source:
 
-- **File Ingestor**: PDF, DOCX, HTML, JSON, CSV
-- **Web Ingestor**: URLs, web scraping
-- **Database Ingestor**: SQL databases
-- **Stream Ingestor**: Real-time data streams
+- **FileIngestor** — PDF, DOCX, HTML, JSON, CSV, archives
+- **WebIngestor** — URL crawling and scraping
+- **DBIngestor** / **SnowflakeIngestor** — SQL databases
+- **StreamIngestor** — Kafka and real-time feeds
 
-### 2. Parsing Layer
+### Parsing Layer
 
-Converts raw data into structured format:
+Converts raw data to structured text:
 
-- Document parsing (PDF, Word, etc.)
-- Text extraction
-- Metadata extraction
-- Format normalization
+- Text and metadata extraction from documents
+- OCR for scanned content
+- Layout analysis (via Docling for tables and columns)
 
-### 3. Extraction Layer
+### Extraction Layer
 
-Core semantic extraction:
+Core semantic processing pipeline:
 
-```python
-# Entity extraction pipeline
+```
 text → Tokenization → NER → Entity Linking → Entity Validation
 ```
 
-**Components:**
-- Named Entity Recognition (NER)
-- Relationship Extraction
-- Triplet Extraction
-- Coreference Resolution
+Components: Named Entity Recognition, Relationship Extraction, Triplet Extraction, Coreference Resolution.
 
-### 4. Normalization Layer
+### Normalization Layer
 
-Standardizes extracted data:
+Standardizes extracted data: entity names, date formats, numbers, encodings, and language normalization.
 
-- Entity normalization
-- Date/time normalization
-- Number normalization
-- Text cleaning
+### Conflict Resolution
 
-### 5. Conflict Resolution
-
-Handles conflicting information:
+Handles contradictory facts from multiple sources:
 
 ```mermaid
 graph LR
@@ -88,64 +107,28 @@ graph LR
     E --> H
     F --> H
     G --> H
-    
-    style A fill:#ffebee
-    style H fill:#c8e6c9
-    style C fill:#fff9c4
 ```
 
-### 6. Knowledge Graph Builder
+### Knowledge Graph Builder
 
-Constructs the knowledge graph:
+- Entity resolution across sources
+- Edge creation (typed relationships)
+- Property assignment with confidence scores
+- Graph validation and quality checks
 
-- Node creation (entities)
-- Edge creation (relationships)
-- Property assignment
-- Graph validation
-- Quality checks
+### Embedding Generator
 
-### 7. Embedding Generator
+- Text embeddings (Sentence-Transformers, FastEmbed, OpenAI, BGE)
+- Graph embeddings (Node2Vec, GraphSAGE)
 
-Generates vector representations:
-
-- Text embeddings (sentence transformers)
-- Graph embeddings (node2vec, GraphSAGE)
-- Multimodal embeddings
-
-## Data Flow
-
-```mermaid
-sequenceDiagram
-    participant User
-    participant Semantica
-    participant Ingestor
-    participant Parser
-    participant Extractor
-    participant Resolver
-    participant GraphBuilder
-    participant Exporter
-    
-    User->>Semantica: build_knowledge_base(sources)
-    Semantica->>Ingestor: ingest(sources)
-    Ingestor->>Parser: parse(documents)
-    Parser->>Extractor: extract(text)
-    Extractor->>Resolver: resolve_conflicts(entities)
-    Resolver->>GraphBuilder: build_graph(resolved_data)
-    GraphBuilder->>Exporter: export(graph)
-    Exporter->>User: return result
-    
-    Note over User,Exporter: Complete pipeline execution
-```
+---
 
 ## Advanced Concepts
 
-### Entity Resolution
-
-Matching entities across sources:
+### Entity Resolution Algorithm
 
 ```python
-# Entity resolution algorithm
-def resolve_entities(entities):
+def resolve_entities(entities, threshold=0.85):
     clusters = []
     for entity in entities:
         matched = False
@@ -161,123 +144,92 @@ def resolve_entities(entities):
 
 ### Relationship Inference
 
-Inferring implicit relationships:
+Semantica's reasoning engines can derive implicit relationships:
 
-- Transitive relationships
-- Temporal relationships
-- Causal relationships
-- Hierarchical relationships
+- **Transitive** — if A→B and B→C, infer A→C
+- **Temporal** — before, after, during from timestamped facts
+- **Causal** — IF/THEN rules via `Reasoner`
+- **Hierarchical** — subclass/instance inference via `OntologyReasoner`
 
-### Graph Optimization
-
-Optimizing knowledge graph structure:
-
-- Node deduplication
-- Edge consolidation
-- Path compression
-- Index optimization
-
-## Performance Considerations
-
-### Scalability
-
-- **Horizontal Scaling**: Process multiple documents in parallel
-- **Vertical Scaling**: Use GPU acceleration
-- **Caching**: Cache embeddings and parsed documents
-- **Lazy Loading**: Load components on demand
-
-### Memory Management
+### Batch Processing for Large Datasets
 
 ```python
-# Process large datasets efficiently
 def process_large_dataset(sources, batch_size=100):
     for i in range(0, len(sources), batch_size):
-        batch = sources[i:i+batch_size]
+        batch = sources[i : i + batch_size]
         result = semantica.build_knowledge_base(batch)
-        # Save and clear memory
         save_result(result)
         del result
         gc.collect()
 ```
 
+---
+
 ## Extension Points
 
-### Custom Plugins
-
-Create custom plugins:
+### Custom Plugin
 
 ```python
 from semantica.core import Plugin
 
 class CustomPlugin(Plugin):
     def process(self, data):
-        # Your custom processing
+        # Your custom processing logic
         return processed_data
 ```
 
-### Custom Extractors
-
-Implement custom extractors:
+### Custom Extractor
 
 ```python
 from semantica.semantic_extract import BaseExtractor
 
 class DomainSpecificExtractor(BaseExtractor):
-    def extract_entities(self, text):
-        # Domain-specific extraction logic
+    def extract(self, text):
+        # Domain-specific entity extraction logic
         return entities
 ```
 
-## Internal APIs
+### Custom Ingestor
 
-### Core APIs
+```python
+from semantica.ingest import BaseIngestor
 
-- `Semantica.build_knowledge_base()` - Main entry point
-- `KGBuilder.build()` - Graph construction
-- `ConflictResolver.resolve()` - Conflict resolution
-- `EmbeddingGenerator.generate()` - Embedding generation
-
-### Extension APIs
-
-- Plugin registration
-- Custom extractor registration
-- Custom exporter registration
-- Event hooks
-
-## Design Decisions
-
-### Why Modular Architecture?
-
-- **Extensibility**: Easy to add new features
-- **Testability**: Components can be tested independently
-- **Maintainability**: Clear separation of concerns
-- **Flexibility**: Swap implementations easily
-
-### Why Conflict Resolution?
-
-- **Data Quality**: Ensures consistent knowledge
-- **Multi-Source**: Handles conflicting information
-- **Flexibility**: Multiple resolution strategies
-- **Transparency**: Track resolution decisions
-
-## Future Enhancements
-
-Planned improvements:
-
-- Distributed processing
-- Real-time streaming
-- Advanced reasoning
-- Multi-modal support expansion
-- Enhanced visualization
-
-## Contributing to Core
-
-Interested in contributing to Semantica's core? See our [Contributing Guide](https://github.com/Hawksight-AI/semantica/blob/main/CONTRIBUTING.md).
+class CustomIngestor(BaseIngestor):
+    def ingest(self, source):
+        # Load and return document dicts
+        return documents
+```
 
 ---
 
-For more information:
-- **[API Reference](reference/core.md) - Detailed API documentation
-- **[Learning More](learning-more.md)** - Additional resources
-- **[GitHub Repository](https://github.com/Hawksight-AI/semantica)** - Source code
+## Internal APIs
 
+| API | Purpose |
+|-----|---------|
+| `Semantica.build_knowledge_base()` | Main orchestration entry point |
+| `GraphBuilder.build()` | Graph construction |
+| `ConflictResolver.resolve()` | Conflict resolution |
+| `EmbeddingGenerator.generate()` | Embedding generation |
+
+Extension hooks: plugin registration, custom extractor registration, custom exporter registration, event hooks.
+
+---
+
+## Design Decisions
+
+**Why modular architecture?** Each component is independently testable and swappable. You can use `NERExtractor` alone without pulling in graph storage or pipelines.
+
+**Why built-in conflict resolution?** Multi-source data always has contradictions. Ignoring them produces garbage graphs. Explicit resolution strategies give you control over data quality.
+
+**Why W3C PROV-O for provenance?** It's an industry standard with tooling support. Using a custom format would make lineage data non-portable.
+
+**Why multiple reasoning engines?** Different problems need different reasoning: forward chaining for rule application, SPARQL for graph queries, abductive for hypothesis generation. No single engine fits all cases.
+
+---
+
+## Further Reading
+
+- [Architecture](architecture.md) — high-level three-layer overview
+- [Modules](modules.md) — every module with code examples
+- [API Reference](reference/core.md) — complete technical reference
+- [Contributing](contributing.md) — how to extend the framework

@@ -216,76 +216,92 @@ html {
   border-left: 2px solid var(--md-accent-fg-color);
 }
 
-/* 
+/*
    ==========================================================================
    Layout Optimization
-   ========================================================================== 
+   ==========================================================================
 */
-/* Reduce spacing between sidebars and content for all pages */
-.md-content__inner {
-  padding-left: 0.75rem;
-  padding-right: 0.75rem;
-  margin-left: 0;
-}
 
-.md-content {
-  margin-left: 0;
+/* Widen the overall grid */
+.md-grid {
+  max-width: 1440px;
+  margin-left: auto;
+  margin-right: auto;
   padding-left: 0.5rem;
-  padding-right: 0.5rem;
 }
 
-/* Reduce spacing before left sidebar for all pages */
-.md-sidebar {
-  padding-left: 0.25rem;
-  margin-left: 0;
-}
-
+/* Narrow left sidebar to give content more room */
 .md-sidebar--primary {
-  padding-right: 0.5rem;
+  width: 11rem;
+  padding-right: 0.25rem;
   padding-left: 0.25rem;
+}
+
+/* Right TOC sidebar */
+.md-sidebar--secondary {
+  width: 11rem;
+  padding-left: 0.5rem;
+  padding-right: 0;
   margin-left: 0;
 }
 
-/* Reduce spacing after right sidebar (table of contents) and shift it right slightly */
-.md-sidebar--secondary {
-  padding-left: 1.25rem;
-  padding-right: 0;
-  margin-right: 0;
-  margin-left: 3.5rem;
+.md-sidebar--secondary .md-nav {
+  width: 11rem;
 }
 
-/* Reduce right edge spacing - similar to left */
-.md-container {
-  padding-right: 0;
+/* Tighten TOC list spacing */
+.md-sidebar--secondary .md-nav__list {
+  padding-bottom: 1.5rem;
+  margin: 0;
+}
+
+.md-sidebar--secondary .md-nav__item {
+  padding: 0;
+  margin: 0;
+}
+
+.md-sidebar--secondary .md-nav__link {
+  white-space: normal;
+  word-break: break-word;
+  overflow: visible;
+  text-overflow: unset;
+  padding-top: 0.15rem;
+  padding-bottom: 0.15rem;
+  line-height: 1.4;
+  font-size: 0.7rem;
+  margin: 0;
+}
+
+/* Nested TOC items (h3, h4) */
+.md-sidebar--secondary .md-nav__item .md-nav__item .md-nav__link {
+  padding-left: 0.6rem;
+  font-size: 0.68rem;
+}
+
+/* Remove extra gap between TOC title and first item */
+.md-sidebar--secondary .md-nav__title {
+  margin-bottom: 0.25rem;
+  padding-bottom: 0.25rem;
+}
+
+/* Give the main content area maximum available width */
+.md-content {
+  max-width: none;
+  padding-left: 1rem;
+  padding-right: 1rem;
+}
+
+.md-content__inner {
+  max-width: none;
+  padding-left: 1rem;
+  padding-right: 1rem;
+  margin-left: 0;
   margin-right: 0;
 }
 
-.md-main {
-  margin-right: 0;
-  padding-right: 0;
-}
-
-/* Reduce margins of the main container */
 .md-main__inner {
   margin-left: 0;
   margin-right: 0;
-  padding-right: 0;
-}
-
-/* Reduce right edge spacing on body/html */
-body {
-  margin-right: 0;
-  padding-right: 0;
-}
-
-html {
-  margin-right: 0;
-  padding-right: 0;
-}
-
-.md-grid {
-  margin-left: 0;
-  padding-left: 0.5rem;
 }
 
 /* Ensure text content is left-aligned by default */

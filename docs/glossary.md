@@ -1,9 +1,9 @@
 # Glossary
 
-**Comprehensive reference of terms and concepts used in Semantica and semantic intelligence.**
+Reference of terms and concepts used throughout Semantica.
 
-!!! tip "Quick Reference"
-    Looking for a specific term? Use your browser's search function (Ctrl+F) to find terms quickly.
+!!! tip "Finding a term"
+    Use Ctrl+F to search this page.
 
 ---
 
@@ -216,17 +216,7 @@ W3C PROV-O compliant tracking of data lineage and source attribution.
 
 ## See Also
 
-- **[Core Concepts](concepts.md)** - Deep dive into fundamental concepts
-- **[Getting Started](getting-started.md)** - Begin your journey with Semantica
-- **[Modules Guide](modules.md)** - Complete module overview
-- **[API Reference](reference/)** - Technical documentation
-
----
-
-## Need Help?
-
-- **Documentation**: [Getting Started](getting-started.md)
-- **Examples**: [Cookbook](cookbook.md)
-- **Community**: [Discord](community.md)
-- **Issues**: [GitHub Issues](https://github.com/Hawksight-AI/semantica/issues)
-- **Support**: [Contact Us](community.md)
+- [Core Concepts](concepts.md) — deeper explanation of key ideas
+- [Getting Started](getting-started.md) — first steps
+- [Modules Guide](modules.md) — every module explained
+- [API Reference](reference/) — technical reference

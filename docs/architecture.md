@@ -1,180 +1,126 @@
 # Architecture
 
-Semantica's modular, extensible framework for semantic intelligence and knowledge engineering.
+Semantica is built around a three-layer, modular architecture designed for independent use of components, clean separation of concerns, and extensibility at each layer.
 
 ---
 
-## Design Principles
-
-- **Modular**: Independent, reusable components
-- **Extensible**: Easy to add new functionality
-- **Scalable**: Handle large-scale data processing
-- **Maintainable**: Clear separation of concerns
-
----
-
-## System Architecture
+## System Overview
 
 ```mermaid
 graph TB
     A[Data Ingestion Layer] --> B[Semantic Processing Layer]
     B --> C[Application Layer]
-    
-    A1[Files • Web • APIs • Streams] --> A
-    B1[Parse • Normalize • Extract • Build] --> B
-    C1[GraphRAG • AI Agents • Analytics] --> C
+
+    A1[Files · Web · APIs · Streams] --> A
+    B1[Parse · Normalize · Extract · Build] --> B
+    C1[GraphRAG · AI Agents · Analytics] --> C
 ```
-
-### Three-Layer Architecture
-
-**1. Data Ingestion Layer**
-- Multiple file formats (PDF, DOCX, JSON, CSV, etc.)
-- Web scraping and APIs
-- Real-time streams (Kafka, RabbitMQ)
-- Database connectors (SQL, NoSQL)
-
-**2. Semantic Processing Layer**
-- Document parsing and normalization
-- Entity and relationship extraction
-- Embedding generation
-- Knowledge graph construction
-- Quality assurance and deduplication
-
-**3. Application Layer**
-- GraphRAG for enhanced retrieval
-- AI agent memory and context
-- Multi-agent systems
-- Analytics and visualization
 
 ---
 
-## Core Modules
+## Three-Layer Architecture
 
-### Orchestration
-- **`semantica.core`** - Main framework class and coordination
-- **`semantica.pipeline`** - Pipeline management and execution
+### 1. Data Ingestion Layer
 
-### Data Processing
-- **`semantica.ingest`** - Universal data ingestion
-- **`semantica.parse`** - Document parsing
-- **`semantica.normalize`** - Data cleaning and normalization
+Responsible for loading data from any source into the pipeline.
 
-### Semantic Intelligence
-- **`semantica.semantic_extract`** - Entity and relationship extraction
-- **`semantica.embeddings`** - Vector embedding generation
-- **`semantica.ontology`** - Ontology generation and management
+- **File formats** — PDF, DOCX, HTML, JSON, CSV, Excel, PPTX, archives
+- **Web** — crawl via `WebIngestor` with configurable depth
+- **Databases** — SQL, NoSQL, Snowflake via `DBIngestor` / `SnowflakeIngestor`
+- **Streams** — Kafka, real-time feeds
 
-### Knowledge Graphs
-- **`semantica.kg`** - Knowledge graph construction
-- **`semantica.vector_store`** - Vector storage (Weaviate, FAISS)
-- **`semantica.triplet_store`** - RDF triplet storage (Jena, Blazegraph)
-- **`semantica.graph_store`** - Property graphs (Neo4j, FalkorDB)
+### 2. Semantic Processing Layer
 
-### Quality Assurance
-- **`semantica.deduplication`** - Entity deduplication
-- **`semantica.conflicts`** - Conflict detection and resolution
+The core intelligence engine — transforms raw data into structured knowledge.
+
+- Document parsing and normalization
+- Entity and relationship extraction (NER, LLM-typed, rule-based)
+- Embedding generation
+- Knowledge graph construction with entity merging
+- Deduplication, conflict detection, and validation
+
+### 3. Application Layer
+
+Consumes the knowledge graph for downstream use cases.
+
+- GraphRAG — graph-grounded retrieval for LLMs
+- AI agent context and decision tracking
+- Multi-agent pipelines
+- Analytics, visualization, and export
 
 ---
 
 ## Data Flow
 
 ```
-1. Ingestion → Raw data from sources
-2. Parsing → Structured content extraction
-3. Normalization → Cleaned data
-4. Semantic Extraction → Entities, relationships, events
-5. Graph Construction → Entity resolution, conflict resolution
-6. Quality Assurance → Deduplication, validation
-7. Storage → Vector, triplet, and graph stores
-8. Application → GraphRAG, agents, analytics
+Ingest      →  raw data from sources
+Parse       →  structured text extraction
+Normalize   →  canonical forms, date/name standardization
+Extract     →  entities, relationships, events
+Build       →  entity resolution, graph construction
+QA          →  deduplication, conflict resolution, validation
+Store       →  vector store, graph store, triplet store
+Deliver     →  GraphRAG, agents, export, visualization
 ```
+
+---
+
+## Module Map
+
+| Layer | Modules |
+|-------|---------|
+| **Ingestion** | `ingest`, `parse`, `split`, `normalize` |
+| **Semantic** | `semantic_extract`, `kg`, `ontology`, `reasoning` |
+| **Storage** | `embeddings`, `vector_store`, `graph_store`, `triplet_store` |
+| **Quality** | `deduplication`, `conflicts` |
+| **Context** | `context`, `provenance`, `change_management` |
+| **Output** | `export`, `visualization`, `pipeline` |
+
+For full module documentation, see the [Modules Guide](modules.md).
 
 ---
 
 ## Extension Points
 
-### Custom Ingestors
+### Custom Ingestor
 
 ```python
 from semantica.ingest import BaseIngestor
 
 class CustomIngestor(BaseIngestor):
     def ingest(self, source):
-        # Custom ingestion logic
-        pass
+        # Return a list of document dicts
+        ...
 ```
 
-### Custom Extractors
+### Custom Extractor
 
 ```python
 from semantica.semantic_extract import BaseExtractor
 
 class CustomExtractor(BaseExtractor):
     def extract(self, text):
-        # Custom extraction logic
-        pass
+        # Return a list of entity dicts
+        ...
 ```
-
-### Custom Validators
-
-Validators can be implemented within domain-specific modules (e.g., graph or ontology) as needed.
 
 ---
 
 ## Design Decisions
 
-### Modularity
-Independent components that can be used standalone or together. Easy to test, maintain, and extend.
+**Modularity** — every component can be used standalone. Import only what you need; the framework never forces a full stack.
 
-### Plugin System
-Extensible architecture allowing custom functionality without modifying core code.
+**Pluggability** — extend any layer without modifying core code. Custom ingestors, extractors, validators, and exporters all follow the same base class pattern.
 
-### Configuration Management
-Centralized configuration with environment variable support for different deployment environments.
+**Configuration over convention** — centralized config with environment variable overrides for deployment flexibility.
 
-### Error Handling
-Comprehensive error handling with graceful degradation and recovery mechanisms.
+**Provenance by default** — lineage tracking is built into graph construction, not bolted on. Every node traces back to a source document.
 
 ---
 
-## Performance
+## Performance Characteristics
 
-**Scalability**
-- Parallel processing support
-- Streaming for large datasets
-- Efficient memory usage
-- Intelligent caching
-
-**Optimization**
-- Lazy loading
-- Batch processing
-- Connection pooling
-- Query optimization
-
----
-
-## Security
-
-**Data Security**
-- Secure credential handling
-- Input validation and output sanitization
-- Audit logging
-
-**Access Control**
-- Authentication and authorization
-- API key management
-- Role-based access control
-
----
-
-## Future Roadmap
-
-- Distributed processing
-- Real-time streaming improvements
-- Advanced reasoning capabilities
-- Multi-modal expansion
-- Enhanced visualization
-
----
-
-For detailed module documentation, see [Modules Guide](modules.md)
+- **Parallel execution** — `PipelineBuilder` supports configurable worker counts per stage
+- **Delta processing** — incremental graph updates without full recompute
+- **Streaming ingestion** — process large corpora without loading everything into memory
+- **Backend flexibility** — swap in-memory NetworkX for Neo4j/FalkorDB at scale with no API changes

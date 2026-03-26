@@ -13,7 +13,7 @@ Snowflake is integrated into Semantica's `ingest` module via the `SnowflakeInges
 
 ---
 
-## 📖 Integration Documentation
+## Integration Documentation
 
 The `SnowflakeIngestor` provides a high-level interface for Snowflake data ingestion. It supports:
 
@@ -42,7 +42,7 @@ For more details, see the [Ingest Reference](../reference/ingest.md).
 
 ---
 
-## 🧑🏽‍🍳 Integration Example
+## Integration Example
 
 We provide a detailed cookbook and clear code examples to help you get started quickly.
 
@@ -97,7 +97,7 @@ See more in our [Code Examples](../CodeExamples.md).
 
 ---
 
-## 💻 GitHub Source
+## GitHub Source
 
 The integration is open-source and available on GitHub. You can explore the implementation, contribute improvements, or report issues.
 
@@ -105,7 +105,7 @@ The integration is open-source and available on GitHub. You can explore the impl
 
 ---
 
-## 📦 PyPI & Installation
+## PyPI & Installation
 
 Snowflake connector is an optional dependency for Semantica. You can install it along with Semantica or as a separate requirement.
 
@@ -128,7 +128,7 @@ For full installation details, see the [Installation Guide](../installation.md).
 
 ---
 
-## 🔐 Authentication Methods
+## Authentication Methods
 
 Snowflake integration supports multiple authentication methods for different security requirements:
 
@@ -175,7 +175,7 @@ ingestor = SnowflakeIngestor(
 
 ---
 
-## 🚀 Advanced Features
+## Advanced Features
 
 ### Schema Introspection
 ```python
@@ -209,7 +209,7 @@ data = ingestor.ingest_query(
 
 ---
 
-## 📊 Best Practices
+## Best Practices
 
 ### Use Environment Variables
 ```python
@@ -244,7 +244,7 @@ for page in range(total_pages):
 
 ---
 
-## 🔍 Troubleshooting
+## Troubleshooting
 
 ### Connection Issues
 ```python
@@ -272,7 +272,7 @@ ingestor = SnowflakeIngestor(
 
 ---
 
-## 📚 See Also
+## See Also
 
 - **[Ingest Module Reference](../reference/ingest.md)** - Complete ingestion documentation
 - **[Getting Started Guide](../getting-started.md)** - Quick start with Semantica

@@ -1,14 +1,18 @@
 # Getting Started
 
-## Overview
+**Semantica** is the context and intelligence layer for AI — turning raw data into explainable, auditable knowledge graphs for high-stakes domains.
 
-**Semantica** is a semantic intelligence layer that bridges the gap between raw data and trustworthy AI. It transforms unstructured data into explainable, auditable knowledge graphs perfect for high-stakes domains.
+!!! tip "Just here for code?"
+    Jump straight to the [Quick Start](#quick-start) or explore the [Cookbook](cookbook.md) for interactive notebooks.
 
-### What You Can Build
-- **GraphRAG Systems** - Enhanced retrieval with semantic reasoning
-- **AI Agents** - Trustworthy agents with explainable memory
-- **Knowledge Graphs** - Production-ready semantic databases
-- **Compliance-Ready AI** - Auditable systems with full provenance
+---
+
+## What You Can Build
+
+- **GraphRAG Systems** — enhanced retrieval with semantic graph reasoning
+- **AI Agents** — accountable agents with structured decision history and memory
+- **Knowledge Graphs** — production-ready semantic knowledge bases
+- **Compliance-Ready AI** — auditable systems with full W3C PROV-O provenance
 
 ---
 
@@ -18,17 +22,17 @@
 pip install semantica
 ```
 
-Or with all features:
+With all optional dependencies:
 
 ```bash
 pip install semantica[all]
 ```
 
-Verify installation:
+Verify:
 
 ```python
 import semantica
-print(f"Semantica {semantica.__version__} installed!")
+print(semantica.__version__)
 ```
 
 ---
@@ -36,66 +40,59 @@ print(f"Semantica {semantica.__version__} installed!")
 ## Quick Start
 
 ```python
-from semantica.semantic_extract import NERExtractor
-from semantica.kg import GraphBuilder
+from semantica.context import AgentContext, ContextGraph
+from semantica.vector_store import VectorStore
 
-# Extract entities
-ner = NERExtractor(method="ml", model="en_core_web_sm")
-entities = ner.extract("Apple Inc. was founded by Steve Jobs in 1976.")
+context = AgentContext(
+    vector_store=VectorStore(backend="faiss", dimension=768),
+    knowledge_graph=ContextGraph(advanced_analytics=True),
+    decision_tracking=True,
+)
 
-# Build knowledge graph
-kg = GraphBuilder().build({"entities": entities, "relationships": []})
-print(f"Built KG with {len(kg.get('entities', []))} entities")
+# Store a memory
+context.store("GPT-4 outperforms GPT-3.5 on reasoning benchmarks by 40%")
+
+# Record a decision
+decision_id = context.record_decision(
+    category="model_selection",
+    scenario="Choose LLM for production pipeline",
+    reasoning="GPT-4 benchmark advantage justifies cost increase",
+    outcome="selected_gpt4",
+    confidence=0.91,
+)
+
+# Find similar past decisions
+precedents = context.find_precedents("model selection", limit=5)
 ```
-
-**What this does:**
-- Extracts entities (people, organizations, dates) from text
-- Builds a knowledge graph from extracted entities
-- Outputs the number of entities found
 
 ---
 
 ## Core Architecture
 
-Semantica uses a **modular architecture** - use only what you need:
+Semantica uses a modular, layered architecture — import only what you need.
 
-### 1️⃣ Input Layer - Data Ingestion
-```python
-from semantica.ingest import FileIngestor
-documents = FileIngestor().ingest_directory("docs/")
-```
-
-### 2️⃣ Semantic Layer - Intelligence Engine
-```python
-from semantica.semantic_extract import NERExtractor, RelationExtractor
-entities = NERExtractor().extract(text)
-relationships = RelationExtractor().extract(text, entities)
-```
-
-### 3️⃣ Output Layer - Knowledge Assets
-```python
-from semantica.kg import GraphBuilder
-kg = GraphBuilder().build_graph(entities, relationships)
-```
+| Layer | Modules | Purpose |
+|-------|---------|---------|
+| **Input** | `ingest`, `parse`, `split`, `normalize` | Load and prepare data |
+| **Semantic** | `semantic_extract`, `kg`, `ontology`, `reasoning` | Extract meaning |
+| **Storage** | `embeddings`, `vector_store`, `graph_store` | Persist knowledge |
+| **Quality** | `deduplication`, `conflicts` | Validate and clean |
+| **Context** | `context`, `provenance`, `change_management` | Track decisions and lineage |
+| **Output** | `export`, `visualization`, `pipeline` | Deliver results |
 
 ---
 
 ## Next Steps
 
-### 🍳 Interactive Tutorials
-1. **[Welcome to Semantica](https://github.com/Hawksight-AI/semantica/blob/main/cookbook/introduction/01_Welcome_to_Semantica.ipynb)** - Complete framework overview
-2. **[Your First Knowledge Graph](https://github.com/Hawksight-AI/semantica/blob/main/cookbook/introduction/08_Your_First_Knowledge_Graph.ipynb)** - Hands-on graph building
-3. **[GraphRAG Complete](https://github.com/Hawksight-AI/semantica/blob/main/cookbook/use_cases/advanced_rag/01_GraphRAG_Complete.ipynb)** - Production-ready RAG
-
-### 📚 Learn More
-- **[Core Concepts](concepts.md)** - Deep dive into knowledge graphs & ontologies
-- **[Cookbook](cookbook.md)** - 14 domain-specific tutorials
-- **[API Reference](reference/core.md)** - Complete technical documentation
+- [Core Concepts](concepts.md) — knowledge graphs, ontologies, reasoning explained
+- [Quickstart Tutorial](quickstart.md) — build a full pipeline step by step
+- [Cookbook](cookbook.md) — 14 domain-specific Jupyter notebook tutorials
+- [API Reference](reference/core.md) — complete module documentation
 
 ---
 
-## Need Help?
+## Help
 
-- **[💬 Discord Community](https://discord.gg/sV34vps5hH)** - Get help from the community
-- **[🐛 Issues](https://github.com/Hawksight-AI/semantica/issues)** - Report bugs or request features
-- **[📖 Documentation](https://semantica.readthedocs.io/)** - Full documentation site
+- [Discord Community](https://discord.gg/sV34vps5hH) — ask questions, share projects
+- [GitHub Issues](https://github.com/Hawksight-AI/semantica/issues) — report bugs or request features
+- [FAQ](faq.md) — common questions answered

@@ -1,108 +1,58 @@
-# 🍳 Semantica Cookbook
+# Semantica Cookbook
 
-Welcome to the **Semantica Cookbook**!
+Interactive Jupyter notebooks covering everything from your first knowledge graph to production GraphRAG systems.
 
-This collection of Jupyter notebooks is designed to take you from a beginner to an expert in building semantic AI applications. Whether you're looking for quick recipes or deep-dive tutorials, you'll find it here.
-
-!!! tip "How to use this Cookbook"
-    - **Beginners**: Start with the [Core Tutorials](#core-tutorials) to learn the basics.
-    - **Developers**: Check out [Advanced Concepts](#advanced-concepts) for deep dives into specific features.
-    - **Architects**: Explore [Industry Use Cases](#industry-use-cases) for end-to-end solutions.
+!!! tip "Where to start"
+    - **New to Semantica** — begin with [Core Tutorials](#core-tutorials)
+    - **Building an application** — see [Advanced Concepts](#advanced-concepts) or [Industry Use Cases](#industry-use-cases)
+    - **Need installation help** — see the [Installation Guide](installation.md)
 
 !!! note "Prerequisites"
-    Before running these notebooks, ensure you have:
-    - Python 3.8+ installed
-    - A basic understanding of Python and Jupyter
-    - An OpenAI API key (for most examples)
-
-!!! success "Installation"
-    Install Semantica from PyPI (recommended):
-    
-    ```bash
-    pip install semantica
-    # Or with all optional dependencies:
-    pip install semantica[all]
-    ```
-    
-    For more installation options, see the [Installation Guide](installation.md).
+    Python 3.8+, Jupyter, and an OpenAI API key (for most examples).
 
 ---
 
-## � Featured Recipes
-
-Hand-picked tutorials to show you the power of Semantica.
+## Featured Recipes
 
 <div class="grid cards" markdown>
-
--   :material-robot: **GraphRAG Complete**
-    ---
-    Build a production-ready Graph Retrieval Augmented Generation system.
-    
-    **Topics**: RAG, LLMs, Vector Search, Graph Traversal
-    
-    **Difficulty**: Advanced
-    
-    [Open Notebook](https://github.com/Hawksight-AI/semantica/blob/main/cookbook/use_cases/advanced_rag/01_GraphRAG_Complete.ipynb)
-
--   :material-scale-balance: **RAG vs. GraphRAG Comparison**
-    ---
-    Side-by-side comparison of Standard RAG vs. GraphRAG using real-world data.
-    
-    **Topics**: RAG, GraphRAG, Benchmarking, Visualization
-    
-    **Difficulty**: Intermediate
-    
-    [Open Notebook](https://github.com/Hawksight-AI/semantica/blob/main/cookbook/use_cases/advanced_rag/02_RAG_vs_GraphRAG_Comparison.ipynb)
-
--   :material-robot: **GraphRAG Complete**
-    ---
-    Build a production-ready Graph Retrieval Augmented Generation system.
-    
-    **New Features**: Graph Validation, Logical Inference, Hybrid Context.
-    
-    **Topics**: RAG, LLMs, Vector Search, Graph Traversal
-    
-    **Difficulty**: Advanced
-    
-    [Open Notebook](https://github.com/Hawksight-AI/semantica/blob/main/cookbook/use_cases/advanced_rag/01_GraphRAG_Complete.ipynb)
-
--   :material-scale-balance: **RAG vs. GraphRAG Comparison**
-    ---
-    Side-by-side comparison of Standard RAG vs. GraphRAG using real-world data.
-    
-    **New Features**: Inference-Enhanced GraphRAG, Reasoning Gap Analysis.
-    
-    **Topics**: RAG, GraphRAG, Benchmarking, Visualization
-    
-    **Difficulty**: Intermediate
-    
-    [Open Notebook](https://github.com/Hawksight-AI/semantica/blob/main/cookbook/use_cases/advanced_rag/02_RAG_vs_GraphRAG_Comparison.ipynb)
 
 -   :material-graph: **Your First Knowledge Graph**
     ---
     Go from raw text to a queryable knowledge graph in 20 minutes.
-    
-    **Topics**: Extraction, Graph Construction, Visualization
-    
-    **Difficulty**: Beginner
-    
+
+    **Topics**: Extraction, Graph Construction, Visualization · **Difficulty**: Beginner
+
     [Open Notebook](https://github.com/Hawksight-AI/semantica/blob/main/cookbook/introduction/08_Your_First_Knowledge_Graph.ipynb)
+
+-   :material-robot: **GraphRAG Complete**
+    ---
+    Build a production-ready Graph Retrieval Augmented Generation system with hybrid retrieval and logical inference.
+
+    **Topics**: RAG, LLMs, Vector Search, Graph Traversal · **Difficulty**: Advanced
+
+    [Open Notebook](https://github.com/Hawksight-AI/semantica/blob/main/cookbook/use_cases/advanced_rag/01_GraphRAG_Complete.ipynb)
+
+-   :material-scale-balance: **RAG vs. GraphRAG Comparison**
+    ---
+    Side-by-side benchmark of standard RAG vs. GraphRAG on real-world data.
+
+    **Topics**: RAG, GraphRAG, Benchmarking, Reasoning Gap · **Difficulty**: Intermediate
+
+    [Open Notebook](https://github.com/Hawksight-AI/semantica/blob/main/cookbook/use_cases/advanced_rag/02_RAG_vs_GraphRAG_Comparison.ipynb)
 
 -   :material-shield-alert: **Real-Time Anomaly Detection**
     ---
-    Detect anomalies in streaming data using dynamic graphs.
-    
-    **Topics**: Streaming, Security, Dynamic Graphs
-    
-    **Difficulty**: Advanced
-    
+    Detect anomalies in streaming data using dynamic knowledge graphs.
+
+    **Topics**: Streaming, Security, Dynamic Graphs · **Difficulty**: Advanced
+
     [Open Notebook](https://github.com/Hawksight-AI/semantica/blob/main/cookbook/use_cases/cybersecurity/01_Real_Time_Anomaly_Detection.ipynb)
 
 </div>
 
 ---
 
-## 🏁 Core Tutorials {#core-tutorials}
+## Core Tutorials {#core-tutorials}
 
 Essential guides to master the Semantica framework.
 
@@ -210,7 +160,7 @@ Essential guides to master the Semantica framework.
 
 ---
 
-## 🧠 Advanced Concepts
+## Advanced Concepts
 
 Deep dive into advanced features, customization, and complex workflows.
 
@@ -329,7 +279,7 @@ Deep dive into advanced features, customization, and complex workflows.
 
 ---
 
-## 🏭 Industry Use Cases {#industry-use-cases}
+## Industry Use Cases {#industry-use-cases}
 
 Real-world examples and end-to-end applications across various industries.
 
@@ -497,7 +447,7 @@ Real-world examples and end-to-end applications across various industries.
 
 ---
 
-## 🛠️ How to Run
+## How to Run
 
 To run these notebooks locally:
 

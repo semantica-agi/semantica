@@ -13,7 +13,7 @@ Docling is integrated into Semantica's `parse` module via the `DoclingParser`. T
 
 ---
 
-## 📖 Integration Documentation
+## Integration Documentation
 
 The `DoclingParser` provides a high-level interface for document processing. It supports:
 
@@ -42,7 +42,7 @@ For more details, see the [Parse Reference](../reference/parse.md).
 
 ---
 
-## 🧑🏽‍🍳 Integration Example
+## Integration Example
 
 We provide a detailed cookbook and clear code examples to help you get started quickly.
 
@@ -81,7 +81,7 @@ See more in our [Code Examples](../CodeExamples.md).
 
 ---
 
-## 💻 GitHub Source
+## GitHub Source
 
 The integration is open-source and available on GitHub. You can explore the implementation, contribute improvements, or report issues.
 
@@ -89,7 +89,7 @@ The integration is open-source and available on GitHub. You can explore the impl
 
 ---
 
-## 📦 PyPI & Installation
+## PyPI & Installation
 
 Docling is an optional but highly recommended dependency for Semantica. You can install it along with Semantica or as a separate requirement.
 

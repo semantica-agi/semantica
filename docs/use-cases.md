@@ -1,210 +1,125 @@
 # Use Cases
 
-Semantica is designed to solve complex data challenges across various domains. This guide explores common use cases and how to implement them.
-
-!!! info "About This Guide"
-    This guide provides detailed implementation guides for real-world use cases, complete with code examples, prerequisites, and step-by-step instructions.
+Real-world applications of Semantica across domains, with linked cookbook notebooks for each.
 
 ---
 
-## Use Case Comparison
+## Overview
 
-| Use Case                          | Difficulty    | Time        | Domain      | Key Features                                    | Cookbook                                    |
-| :-------------------------------- | :------------ | :---------- | :---------- | :---------------------------------------------- | :------------------------------------------ |
-| **Biomedical Knowledge Graphs**  | Intermediate  | 1-2 hours   | Healthcare  | Gene-protein-disease relationships              | Drug Discovery, Genomic Variant Analysis   |
-| **Financial Data Integration**   | Intermediate  | 1-2 hours   | Finance     | MCP integration, real-time data                 | Financial Data Integration MCP             |
-| **Fraud Detection**              | Advanced      | 2-3 hours   | Finance     | Temporal graphs, pattern detection              | Fraud Detection                            |
-| **Blockchain Analytics**         | Intermediate  | 1-2 hours   | Finance     | Transaction tracing, DeFi intelligence         | DeFi Protocol Intelligence, Transaction Network |
-| **Cybersecurity Threat Intelligence**| Advanced   | 2-3 hours   | Security    | Threat mapping, anomaly detection               | Real-Time Anomaly Detection, Threat Intelligence |
-| **Intelligence Analysis**        | Intermediate  | 1-2 hours   | Security    | Criminal networks, OSINT analysis               | Criminal Network Analysis, Intelligence Orchestrator |
-| **Supply Chain Optimization**    | Intermediate  | 1-2 hours   | Industry    | Data integration, route optimization            | Supply Chain Data Integration               |
-| **Renewable Energy Management**  | Intermediate  | 1-2 hours   | Energy      | Energy market analysis, optimization             | Energy Market Analysis                     |
-| **GraphRAG**                      | Advanced      | 1-2 hours   | AI          | Enhanced RAG with knowledge graphs              | GraphRAG Complete, RAG vs GraphRAG         |
+| Use Case | Domain | Difficulty | Estimated Time |
+|----------|--------|------------|----------------|
+| Biomedical Knowledge Graphs | Healthcare | Intermediate | 1–2 hours |
+| Financial Data Integration | Finance | Intermediate | 1–2 hours |
+| Fraud Detection | Finance | Advanced | 2–3 hours |
+| Blockchain Analytics | Finance | Intermediate | 1–2 hours |
+| Cybersecurity Threat Intelligence | Security | Advanced | 2–3 hours |
+| Criminal Network Analysis | Security / Intelligence | Intermediate | 1–2 hours |
+| Intelligence Analysis Orchestrator | Intelligence | Intermediate | 1–2 hours |
+| Supply Chain Optimization | Operations | Intermediate | 1–2 hours |
+| Renewable Energy Management | Energy | Intermediate | 1–2 hours |
+| GraphRAG | AI | Advanced | 1–2 hours |
 
-**Difficulty Levels**:
-- **Beginner**: Basic Semantica knowledge required
-- **Intermediate**: Some domain knowledge helpful
-- **Advanced**: Requires domain expertise and advanced Semantica features
+**Difficulty levels**:
+
+- **Beginner** — basic Semantica knowledge only
+- **Intermediate** — some domain knowledge helpful
+- **Advanced** — domain expertise + advanced Semantica features
 
 ---
 
 ## Research & Science
 
-<div class="grid cards" markdown>
+### Biomedical Knowledge Graphs
 
--   :material-dna: **Biomedical Knowledge Graphs**
-    ---
-    Accelerate drug discovery and understand disease pathways by connecting genes, proteins, drugs, and diseases.
-    
-    **Goal**: Connect genes, proteins, drugs, and diseases from scientific literature and databases.
-    
-    **Difficulty**: Intermediate
-    
-    [:material-arrow-right: Drug Discovery Pipeline](https://github.com/Hawksight-AI/semantica/blob/main/cookbook/use_cases/biomedical/01_Drug_Discovery_Pipeline.ipynb)
-    
-    [:material-arrow-right: Genomic Variant Analysis](https://github.com/Hawksight-AI/semantica/blob/main/cookbook/use_cases/biomedical/02_Genomic_Variant_Analysis.ipynb)
+Connect genes, proteins, drugs, and diseases from scientific literature and databases to accelerate drug discovery and understand disease pathways.
 
-</div>
-
-### Biomedical Knowledge Graphs Implementation
-
-**Prerequisites**:
-- Domain knowledge of biomedical concepts
-- Access to biomedical literature/databases
-
-**Implementation Guides:**
-
-- **[Drug Discovery Pipeline Cookbook](https://github.com/Hawksight-AI/semantica/blob/main/cookbook/use_cases/biomedical/01_Drug_Discovery_Pipeline.ipynb)**: Build knowledge graphs from PubMed RSS feeds
-  - **Topics**: PubMed RSS ingestion, entity-aware chunking, GraphRAG, vector similarity search
-  - **Difficulty**: Intermediate
-  - **Time**: 1-2 hours
-  - **Use Cases**: Drug discovery, biomedical research
-
-- **[Genomic Variant Analysis Cookbook](https://github.com/Hawksight-AI/semantica/blob/main/cookbook/use_cases/biomedical/02_Genomic_Variant_Analysis.ipynb)**: Analyze genomic variants using temporal knowledge graphs
-  - **Topics**: bioRxiv RSS, temporal KGs, deduplication, pathway analysis
-  - **Difficulty**: Intermediate
-  - **Time**: 1-2 hours
-  - **Use Cases**: Genomic research, variant analysis
+**Cookbooks**:
+- [Drug Discovery Pipeline](https://github.com/Hawksight-AI/semantica/blob/main/cookbook/use_cases/biomedical/01_Drug_Discovery_Pipeline.ipynb) — PubMed RSS ingestion, entity-aware chunking, GraphRAG, vector similarity search
+- [Genomic Variant Analysis](https://github.com/Hawksight-AI/semantica/blob/main/cookbook/use_cases/biomedical/02_Genomic_Variant_Analysis.ipynb) — bioRxiv RSS, temporal KGs, deduplication, pathway analysis
 
 ---
 
 ## Finance & Trading
 
-<div class="grid cards" markdown>
+### Financial Data Integration
 
--   :material-finance: **Financial Data Integration**
-    ---
-    Integrate financial data from multiple sources using MCP servers and real-time ingestion.
-    
-    **Goal**: Connect Alpha Vantage API, MCP servers, seed data, and real-time ingestion for comprehensive financial analysis.
-    
-    [:material-arrow-right: View Cookbook](https://github.com/Hawksight-AI/semantica/blob/main/cookbook/use_cases/finance/01_Financial_Data_Integration_MCP.ipynb)
+Unify financial data from APIs, MCP servers, and real-time streams into a single queryable knowledge graph.
 
--   :material-shield-alert: **Fraud Detection**
-    ---
-    Detect complex fraud rings using temporal knowledge graphs and pattern detection.
-    
-    **Goal**: Build a graph of Users, Devices, IP Addresses, and Transactions to find cycles and detect fraud patterns.
-    
-    [:material-arrow-right: View Cookbook](https://github.com/Hawksight-AI/semantica/blob/main/cookbook/use_cases/finance/02_Fraud_Detection.ipynb)
+**Cookbook**: [Financial Data Integration (MCP)](https://github.com/Hawksight-AI/semantica/blob/main/cookbook/use_cases/finance/01_Financial_Data_Integration_MCP.ipynb) — Alpha Vantage API, MCP servers, seed data, real-time ingestion
 
--   :material-bitcoin: **Blockchain Analytics**
-    ---
-    Analyze DeFi protocols and transaction networks for intelligence and fraud detection.
-    
-    **Goal**: Map transaction flows between wallets and exchanges, analyze DeFi protocols, and detect illicit activity.
-    
-    [:material-arrow-right: DeFi Protocol Intelligence](https://github.com/Hawksight-AI/semantica/blob/main/cookbook/use_cases/blockchain/01_DeFi_Protocol_Intelligence.ipynb)
-    
-    [:material-arrow-right: Transaction Network Analysis](https://github.com/Hawksight-AI/semantica/blob/main/cookbook/use_cases/blockchain/02_Transaction_Network_Analysis.ipynb)
+### Fraud Detection
 
-</div>
+Detect complex fraud rings using temporal graphs and pattern detection over transaction, device, and user data.
 
----
+**Cookbook**: [Fraud Detection](https://github.com/Hawksight-AI/semantica/blob/main/cookbook/use_cases/finance/02_Fraud_Detection.ipynb) — temporal KGs, cycle detection, fraud pattern analysis
 
+### Blockchain Analytics
+
+Map transaction flows, analyze DeFi protocols, and detect illicit activity across wallet and exchange networks.
+
+**Cookbooks**:
+- [DeFi Protocol Intelligence](https://github.com/Hawksight-AI/semantica/blob/main/cookbook/use_cases/blockchain/01_DeFi_Protocol_Intelligence.ipynb)
+- [Transaction Network Analysis](https://github.com/Hawksight-AI/semantica/blob/main/cookbook/use_cases/blockchain/02_Transaction_Network_Analysis.ipynb)
 
 ---
 
 ## Security & Intelligence
 
-<div class="grid cards" markdown>
+### Cybersecurity Threat Intelligence
 
--   :material-shield-lock: **Cybersecurity Threat Intelligence**
-    ---
-    Proactively identify and mitigate cyber threats using real-time anomaly detection and threat intelligence.
-    
-    **Goal**: Ingest threat feeds (CVE databases, security RSS), detect anomalies in streaming data, and build threat intelligence knowledge graphs.
-    
-    [:material-arrow-right: Real-Time Anomaly Detection](https://github.com/Hawksight-AI/semantica/blob/main/cookbook/use_cases/cybersecurity/01_Real_Time_Anomaly_Detection.ipynb)
-    
-    [:material-arrow-right: Threat Intelligence Hybrid RAG](https://github.com/Hawksight-AI/semantica/blob/main/cookbook/use_cases/cybersecurity/02_Threat_Intelligence_Hybrid_RAG.ipynb)
+Ingest threat feeds (CVE databases, security RSS), detect anomalies in streaming data, and build threat intelligence knowledge graphs for proactive defense.
 
--   :material-account-network: **Criminal Network Analysis**
-    ---
-    Analyze criminal networks to identify key players, communities, and suspicious patterns using OSINT RSS feeds, deduplication, and network centrality analysis.
-    
-    **Goal**: Build knowledge graphs from police reports, court records, and surveillance data.
-    
-    [:material-arrow-right: View Cookbook](https://github.com/Hawksight-AI/semantica/blob/main/cookbook/use_cases/intelligence/01_Criminal_Network_Analysis.ipynb)
+**Cookbooks**:
+- [Real-Time Anomaly Detection](https://github.com/Hawksight-AI/semantica/blob/main/cookbook/use_cases/cybersecurity/01_Real_Time_Anomaly_Detection.ipynb)
+- [Threat Intelligence Hybrid RAG](https://github.com/Hawksight-AI/semantica/blob/main/cookbook/use_cases/cybersecurity/02_Threat_Intelligence_Hybrid_RAG.ipynb)
 
--   :material-file-search: **Intelligence Analysis Orchestrator Worker**
-    ---
-    Comprehensive intelligence analysis using pipeline orchestrator with multiple RSS feeds, conflict detection, and multi-source integration.
-    
-    **Goal**: Process multiple intelligence sources in parallel using orchestrator-worker pattern.
-    
-    [:material-arrow-right: View Cookbook](https://github.com/Hawksight-AI/semantica/blob/main/cookbook/use_cases/intelligence/02_Intelligence_Analysis_Orchestrator_Worker.ipynb)
+### Criminal Network Analysis
 
-</div>
+Build knowledge graphs from police reports, court records, and OSINT feeds to identify key players, communities, and suspicious patterns using network centrality analysis.
+
+**Cookbook**: [Criminal Network Analysis](https://github.com/Hawksight-AI/semantica/blob/main/cookbook/use_cases/intelligence/01_Criminal_Network_Analysis.ipynb)
+
+### Intelligence Analysis Orchestrator
+
+Process multiple intelligence sources in parallel using an orchestrator-worker pipeline pattern with multi-source conflict detection and integration.
+
+**Cookbook**: [Intelligence Analysis Orchestrator-Worker](https://github.com/Hawksight-AI/semantica/blob/main/cookbook/use_cases/intelligence/02_Intelligence_Analysis_Orchestrator_Worker.ipynb)
 
 ---
 
 ## Industry & Operations
 
-<div class="grid cards" markdown>
+### Supply Chain Optimization
 
--   :material-truck-delivery: **Supply Chain Optimization**
-    ---
-    Visualize and optimize complex global supply chains.
-    
-    **Goal**: Map suppliers, logistics routes, and inventory levels to identify bottlenecks.
-    
-    [:material-arrow-right: View Cookbook](https://github.com/Hawksight-AI/semantica/blob/main/cookbook/use_cases/supply_chain/01_Supply_Chain_Data_Integration.ipynb)
+Map suppliers, logistics routes, and inventory levels to identify bottlenecks and optimize global supply chains.
 
--   :material-wind-turbine: **Renewable Energy Management**
-    ---
-    Optimize grid operations and asset maintenance.
-    
-    **Goal**: Connect sensor data, weather forecasts, and maintenance logs to predict failures.
-    
-    [:material-arrow-right: View Cookbook](https://github.com/Hawksight-AI/semantica/blob/main/cookbook/use_cases/renewable_energy/01_Energy_Market_Analysis.ipynb)
+**Cookbook**: [Supply Chain Data Integration](https://github.com/Hawksight-AI/semantica/blob/main/cookbook/use_cases/supply_chain/01_Supply_Chain_Data_Integration.ipynb)
 
-</div>
+### Renewable Energy Management
+
+Connect sensor data, weather forecasts, and maintenance logs to predict equipment failures and optimize grid operations.
+
+**Cookbook**: [Energy Market Analysis](https://github.com/Hawksight-AI/semantica/blob/main/cookbook/use_cases/renewable_energy/01_Energy_Market_Analysis.ipynb)
 
 ---
 
 ## Advanced AI Patterns
 
-<div class="grid cards" markdown>
+### GraphRAG (Graph-Augmented Generation)
 
--   :material-robot: **Graph-Augmented Generation (GraphRAG)**
-    ---
-    Enhance LLM responses with structured ground truth using knowledge graphs.
-    
-    **Goal**: Use the knowledge graph to retrieve precise context for RAG applications with hybrid retrieval and logical inference.
-    
-    [:material-arrow-right: GraphRAG Complete](https://github.com/Hawksight-AI/semantica/blob/main/cookbook/use_cases/advanced_rag/01_GraphRAG_Complete.ipynb)
-    
-    [:material-scale-balance: RAG vs GraphRAG Comparison](https://github.com/Hawksight-AI/semantica/blob/main/cookbook/use_cases/advanced_rag/02_RAG_vs_GraphRAG_Comparison.ipynb)
+Use knowledge graphs to retrieve precise, structured context for LLM responses — with hybrid retrieval, logical inference, and source attribution.
 
-</div>
-
----
-
-
----
-
-## Summary
-
-This guide covered use cases across multiple domains with corresponding cookbooks:
-
-- **Research & Science**: Biomedical knowledge graphs (Drug Discovery, Genomic Variant Analysis)
-- **Finance & Trading**: Financial data integration, fraud detection, blockchain analytics
-- **Security & Intelligence**: Cybersecurity threat intelligence, criminal network analysis, intelligence orchestration
-- **Industry**: Supply chain optimization, renewable energy management
-- **AI Applications**: GraphRAG (Complete implementation and comparison)
+**Cookbooks**:
+- [GraphRAG Complete](https://github.com/Hawksight-AI/semantica/blob/main/cookbook/use_cases/advanced_rag/01_GraphRAG_Complete.ipynb) — production-ready implementation
+- [RAG vs. GraphRAG Comparison](https://github.com/Hawksight-AI/semantica/blob/main/cookbook/use_cases/advanced_rag/02_RAG_vs_GraphRAG_Comparison.ipynb) — side-by-side comparison
 
 ---
 
 ## Next Steps
 
-- **[Examples](examples.md)** - More detailed code examples
-- **[Modules Guide](modules.md)** - Learn about available modules
-- **[Cookbook](cookbook.md)** - Interactive Jupyter notebooks
-- **[API Reference](reference/core.md)** - Complete API documentation
+- [Cookbook](cookbook.md) — full notebook catalog organized by topic and difficulty
+- [Modules Guide](modules.md) — every module with examples
+- [API Reference](reference/core.md) — complete technical documentation
 
----
-
-!!! info "Contribute"
-    Have a use case to add? [Contribute on GitHub](https://github.com/Hawksight-AI/semantica)
-
+!!! info "Have a use case to add?"
+    [Open a PR](https://github.com/Hawksight-AI/semantica) or start a discussion on GitHub.
