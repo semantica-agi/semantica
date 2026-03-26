@@ -286,6 +286,15 @@ class RDFSerializer:
 
         return rdf_data
 
+    # OWL-Time namespace URI
+    _OWL_TIME_NS = "http://www.w3.org/2006/time#"
+
+    # Design decision — TemporalBound.OPEN in RDF:
+    # OWL-Time has no standard predicate for "no known end date." We use
+    # semantica:openEndedInterval "true"^^xsd:boolean on the time:Interval
+    # node to signal that valid_until is OPEN/unbounded. This keeps the
+    # interval well-formed while remaining human- and machine-readable.
+
     def serialize_to_turtle(self, rdf_data: Dict[str, Any], **options) -> str:
         """
         Serialize RDF to Turtle format.
@@ -299,7 +308,12 @@ class RDFSerializer:
                 - entities: List of entity dictionaries
                 - relationships: List of relationship dictionaries
                 - @context: Optional JSON-LD context for namespaces
-            **options: Additional serialization options (unused)
+            **options: Additional serialization options.
+                include_temporal (bool): When True, emit OWL-Time triples for
+                    relationships that carry valid_from / valid_until metadata.
+                    Default: False.
+                time_axis (str): Which temporal axis to export — "valid",
+                    "transaction", or "both". Default: "valid".
 
         Returns:
             String containing Turtle-format RDF serialization
@@ -311,21 +325,32 @@ class RDFSerializer:
             ... }
             >>> turtle = serializer.serialize_to_turtle(rdf_data)
         """
+        include_temporal: bool = options.pop("include_temporal", False)
+        time_axis: str = options.pop("time_axis", "valid")
+
         lines = []
 
-        # Generate namespace declarations
-        namespaces = self.namespace_manager.extract_namespaces(rdf_data)
-        if namespaces:
-            ns_declarations = self.namespace_manager.generate_namespace_declarations(
-                namespaces, "turtle"
-            )
-            lines.append(ns_declarations)
-            lines.append("")
+        # Namespace declarations — always emit core prefixes; add OWL-Time when needed
+        base_namespaces = {
+            "rdf": "http://www.w3.org/1999/02/22-rdf-syntax-ns#",
+            "xsd": "http://www.w3.org/2001/XMLSchema#",
+            "semantica": "https://semantica.dev/ns#",
+        }
+        if include_temporal:
+            base_namespaces["time"] = self._OWL_TIME_NS
+
+        extracted = self.namespace_manager.extract_namespaces(rdf_data)
+        merged_namespaces = {**base_namespaces, **extracted}
+
+        ns_declarations = self.namespace_manager.generate_namespace_declarations(
+            merged_namespaces, "turtle"
+        )
+        lines.append(ns_declarations)
+        lines.append("")
 
         # Convert entities to RDF triplets
         entities = rdf_data.get("entities", [])
         for entity in entities:
-            # Generate entity ID if not provided
             entity_id = entity.get("id")
             if not entity_id:
                 entity_text = entity.get("text", "")
@@ -335,7 +360,6 @@ class RDFSerializer:
             text = entity.get("text") or entity.get("label", "")
             confidence = entity.get("confidence", 1.0)
 
-            # Turtle triplet syntax: subject predicate object .
             lines.append(f"<{entity_id}> a <{entity_type}> ;")
             lines.append(f'    semantica:text "{text}" ;')
             lines.append(f"    semantica:confidence {confidence} .")
@@ -343,15 +367,84 @@ class RDFSerializer:
 
         # Convert relationships to RDF triplets
         relationships = rdf_data.get("relationships", [])
-        for rel in relationships:
+        for idx, rel in enumerate(relationships):
             source_id = rel.get("source_id") or rel.get("source")
             target_id = rel.get("target_id") or rel.get("target")
             rel_type = rel.get("type", "semantica:related_to")
 
-            # Simple triplet: subject predicate object .
             lines.append(f"<{source_id}> <{rel_type}> <{target_id}> .")
 
+            if include_temporal:
+                owl_lines = self._owl_time_triples_for_rel(rel, idx, time_axis)
+                if owl_lines:
+                    lines.extend(owl_lines)
+
         return "\n".join(lines)
+
+    def _owl_time_triples_for_rel(
+        self, rel: Dict[str, Any], idx: int, time_axis: str
+    ) -> List[str]:
+        """
+        Emit OWL-Time Turtle triples for a relationship that carries temporal metadata.
+
+        For TemporalBound.OPEN valid_until values we use:
+            semantica:openEndedInterval "true"^^xsd:boolean
+        instead of time:hasEnd, because OWL-Time has no standard predicate for
+        "no known end date."
+        """
+        _OPEN_SENTINEL = "OPEN"
+
+        def _is_open(v: Any) -> bool:
+            if v is None:
+                return False
+            if hasattr(v, "value"):          # TemporalBound enum
+                return v.value == _OPEN_SENTINEL
+            return str(v).strip().upper() == _OPEN_SENTINEL
+
+        axes: List[tuple] = []
+        if time_axis in ("valid", "both"):
+            axes.append(("valid", rel.get("valid_from"), rel.get("valid_until")))
+        if time_axis in ("transaction", "both"):
+            axes.append(("tx", rel.get("recorded_at"), rel.get("superseded_at")))
+
+        rel_base_id = (
+            rel.get("id")
+            or f"semantica:rel_{idx}_{hash(str(rel.get('source_id', '')) + str(rel.get('target_id', '')))}"
+        )
+
+        lines = [""]  # blank separator
+        for axis_name, from_val, until_val in axes:
+            if from_val is None and (until_val is None or _is_open(until_val)):
+                continue  # no temporal data on this axis — skip
+
+            interval_id = f"{rel_base_id}__{axis_name}_interval"
+            begin_id = f"{rel_base_id}__{axis_name}_begin"
+
+            lines.append(f"<{rel_base_id}> time:hasTime <{interval_id}> .")
+            lines.append(f"<{interval_id}> a time:Interval ;")
+            lines.append(f"    time:hasBeginning <{begin_id}> ;")
+
+            if _is_open(until_val):
+                lines.append(
+                    '    semantica:openEndedInterval "true"^^xsd:boolean .'
+                )
+            elif until_val is not None:
+                end_id = f"{rel_base_id}__{axis_name}_end"
+                lines.append(f"    time:hasEnd <{end_id}> .")
+                lines.append(f"<{end_id}> a time:Instant ;")
+                lines.append(
+                    f'    time:inXSDDateTimeStamp "{until_val}"^^xsd:dateTimeStamp .'
+                )
+            else:
+                lines[-1] = lines[-1].rstrip(" ;") + " ."  # close interval without hasEnd
+
+            lines.append(f"<{begin_id}> a time:Instant ;")
+            lines.append(
+                f'    time:inXSDDateTimeStamp "{from_val}"^^xsd:dateTimeStamp .'
+            )
+            lines.append("")
+
+        return lines if len(lines) > 1 else []
 
     def serialize_to_rdfxml(self, rdf_data: Dict[str, Any], **options) -> str:
         """
@@ -868,7 +961,12 @@ class RDFExporter:
         )
 
     def export_to_rdf(
-        self, data: Dict[str, Any], format: str = "turtle", **options
+        self,
+        data: Dict[str, Any],
+        format: str = "turtle",
+        include_temporal: bool = False,
+        time_axis: str = "valid",
+        **options,
     ) -> str:
         """
         Export data to RDF format string.
@@ -933,7 +1031,12 @@ class RDFExporter:
             )
             # Serialize based on format
             if format == "turtle":
-                result = self.serializer.serialize_to_turtle(data, **options)
+                result = self.serializer.serialize_to_turtle(
+                    data,
+                    include_temporal=include_temporal,
+                    time_axis=time_axis,
+                    **options,
+                )
             elif format == "rdfxml":
                 result = self.serializer.serialize_to_rdfxml(data, **options)
             elif format == "jsonld":

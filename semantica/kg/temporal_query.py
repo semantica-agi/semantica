@@ -1353,6 +1353,7 @@ class TemporalVersionManager:
         
         # Create snapshot
         snapshot = {
+            "format_version": "1.0",
             "label": version_label,
             "timestamp": change_entry.timestamp,
             "author": change_entry.author,
@@ -1501,6 +1502,80 @@ class TemporalVersionManager:
         """
         return self.storage.get(label)
     
+    def validate_snapshot(self, snapshot: Dict[str, Any]) -> bool:
+        """
+        Validate a snapshot against the v1.0 JSON Schema.
+
+        Returns True when valid. Returns False (never raises) when one or more
+        required fields are missing or have the wrong type. Structured error
+        details are logged at DEBUG level.
+
+        Required fields: format_version, label, timestamp, author, description,
+                         entities, relationships, checksum.
+        """
+        import json
+        import logging
+        import os
+
+        required = {
+            "format_version": str,
+            "label": str,
+            "timestamp": str,
+            "author": str,
+            "description": str,
+            "entities": list,
+            "relationships": list,
+            "checksum": str,
+        }
+
+        errors = []
+        for field, expected_type in required.items():
+            if field not in snapshot:
+                errors.append({"field": field, "error": "missing"})
+            elif not isinstance(snapshot[field], expected_type):
+                errors.append({
+                    "field": field,
+                    "error": "wrong_type",
+                    "expected": expected_type.__name__,
+                    "got": type(snapshot[field]).__name__,
+                })
+
+        if errors:
+            self.logger.debug(f"validate_snapshot failed: {errors}")
+            return False
+        return True
+
+    def migrate_snapshot(self, snapshot: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Upgrade an old-format snapshot (no format_version) to v1.0.
+
+        - Snapshots already at format_version "1.0" are returned unchanged.
+        - Missing required fields are populated with None.
+        - No data is lost; existing fields are preserved.
+        """
+        import copy
+
+        result = copy.deepcopy(snapshot)
+        if result.get("format_version") == "1.0":
+            return result
+
+        result["format_version"] = "1.0"
+
+        optional_defaults = {
+            "label": None,
+            "timestamp": None,
+            "author": None,
+            "description": None,
+            "entities": None,
+            "relationships": None,
+            "checksum": None,
+        }
+        for field, default in optional_defaults.items():
+            if field not in result:
+                result[field] = default
+
+        return result
+
     def verify_checksum(self, snapshot: Dict[str, Any]) -> bool:
         """
         Verify the integrity of a snapshot using its checksum.

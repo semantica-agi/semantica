@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://semantica.dev/schemas/temporal_snapshot_v1.json",
+  "title": "TemporalSnapshot",
+  "description": "Schema for Semantica temporal version manager snapshots (format_version 1.0).",
+  "type": "object",
+  "required": [
+    "format_version",
+    "label",
+    "timestamp",
+    "author",
+    "description",
+    "entities",
+    "relationships",
+    "checksum"
+  ],
+  "properties": {
+    "format_version": {
+      "type": "string",
+      "const": "1.0",
+      "description": "Schema version. Must be '1.0' for snapshots conforming to this schema."
+    },
+    "label": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Human-readable version label (e.g. 'v1.0', 'release-2024-03')."
+    },
+    "timestamp": {
+      "type": "string",
+      "description": "ISO 8601 datetime at which the snapshot was created."
+    },
+    "author": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Email address or identifier of the person who created the snapshot."
+    },
+    "description": {
+      "type": "string",
+      "maxLength": 500,
+      "description": "Human-readable description of the snapshot."
+    },
+    "entities": {
+      "type": "array",
+      "description": "List of entity dictionaries captured in this snapshot.",
+      "items": {
+        "type": "object"
+      }
+    },
+    "relationships": {
+      "type": "array",
+      "description": "List of relationship dictionaries captured in this snapshot.",
+      "items": {
+        "type": "object"
+      }
+    },
+    "checksum": {
+      "type": "string",
+      "description": "SHA-256 hex digest over the snapshot content (excluding the checksum field itself)."
+    },
+    "metadata": {
+      "type": "object",
+      "description": "Optional free-form metadata dictionary (e.g. tags, revision_event)."
+    }
+  },
+  "additionalProperties": true
+}
