@@ -128,6 +128,7 @@ from .temporal_query import (
 )
 from .temporal_model import BiTemporalFact, TemporalBound
 from .temporal_normalizer import TemporalNormalizer
+from .temporal_query_rewriter import TemporalQueryRewriter, TemporalQueryResult
 
 __all__ = [
     # Core Classes
@@ -142,6 +143,8 @@ __all__ = [
     "TemporalBound",
     "BiTemporalFact",
     "TemporalNormalizer",
+    "TemporalQueryRewriter",
+    "TemporalQueryResult",
     "AlgorithmTrackerWithProvenance",
     "ProvenanceTracker",
     # Enhanced Graph Algorithms

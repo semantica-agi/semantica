@@ -76,7 +76,7 @@ Author: Semantica Contributors
 License: MIT
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Union
 
@@ -88,6 +88,14 @@ from ..kg.path_finder import PathFinder
 from ..kg.centrality_calculator import CentralityCalculator
 from ..kg.community_detector import CommunityDetector
 from ..kg.similarity_calculator import SimilarityCalculator
+try:
+    from ..kg.temporal_query import TemporalGraphQuery as _TemporalGraphQuery
+    from ..kg.temporal_model import parse_temporal_value as _parse_temporal_value
+    _TEMPORAL_AVAILABLE = True
+except Exception:  # pragma: no cover
+    _TemporalGraphQuery = None  # type: ignore[assignment,misc]
+    _parse_temporal_value = None  # type: ignore[assignment]
+    _TEMPORAL_AVAILABLE = False
 
 
 @dataclass
@@ -1381,7 +1389,9 @@ class ContextRetriever:
         query: str,
         retrieved_context: List[RetrievedContext],
         reasoning_paths: List[Dict[str, Any]],
-        llm_provider: Any
+        llm_provider: Any,
+        at_time: Optional[Any] = None,
+        header_template: str = "[Graph context valid as of: {at_time} UTC | Source: {source}]",
     ) -> str:
         """
         Generate natural language response using LLM with retrieved context and reasoning paths.
@@ -1391,10 +1401,36 @@ class ContextRetriever:
             retrieved_context: Retrieved context items
             reasoning_paths: Multi-hop reasoning paths
             llm_provider: LLM provider instance (from semantica.llms)
+            at_time: Optional point-in-time for the graph snapshot. When set, a
+                structured temporal header is prepended to the context block so
+                the LLM knows the validity window of the facts it is reasoning over.
+            header_template: Format string for the temporal header. Placeholders:
+                ``{at_time}`` (ISO timestamp) and ``{source}`` (snapshot label).
 
         Returns:
             Generated natural language response
         """
+        # Build temporal header when at_time is explicitly provided
+        temporal_header = ""
+        if at_time is not None:
+            if isinstance(at_time, datetime):
+                # Normalise to UTC so the header always says "UTC" truthfully
+                if at_time.tzinfo is None:
+                    at_time = at_time.replace(tzinfo=timezone.utc)
+                else:
+                    at_time = at_time.astimezone(timezone.utc)
+                at_time_str = at_time.isoformat()
+            else:
+                at_time_str = str(at_time)
+            # Use plain str.replace instead of .format() so that unexpected
+            # braces in header_template or in at_time_str cannot be
+            # interpreted as additional format placeholders (injection guard).
+            temporal_header = (
+                header_template
+                .replace("{at_time}", at_time_str)
+                .replace("{source}", "KnowledgeGraph snapshot")
+            ) + "\n\n"
+
         # Format retrieved context
         context_text = "\n\n".join([
             f"Context {i+1} (Score: {ctx.score:.2f}):\n{ctx.content}"
@@ -1426,7 +1462,7 @@ class ContextRetriever:
 
 User Question: {query}
 
-Retrieved Context:
+{temporal_header}Retrieved Context:
 {context_text}
 
 {reasoning_text}
@@ -1454,7 +1490,9 @@ Answer:"""
         llm_provider: Any,
         max_results: int = 10,
         max_hops: int = 2,
-        **kwargs
+        at_time: Optional[Any] = None,
+        header_template: str = "[Graph context valid as of: {at_time} UTC | Source: {source}]",
+        **kwargs,
     ) -> Dict[str, Any]:
         """
         Query with multi-hop reasoning and LLM-based response generation.
@@ -1467,7 +1505,16 @@ Answer:"""
             llm_provider: LLM provider instance (from semantica.llms)
             max_results: Maximum context results to retrieve (default: 10)
             max_hops: Maximum graph traversal hops (default: 2)
-            **kwargs: Additional retrieval options
+            at_time: Optional point-in-time for the graph snapshot.  Accepts a
+                :class:`~datetime.datetime` (naive datetimes are assumed UTC)
+                or an ISO 8601 string.  When set, a structured temporal header
+                is prepended to the LLM context block so the model knows the
+                validity window of the facts it reasons over.
+            header_template: Template string for the temporal header.  Only
+                ``{at_time}`` and ``{source}`` placeholders are substituted;
+                any other braces are left as-is.  Defaults to
+                ``"[Graph context valid as of: {at_time} UTC | Source: {source}]"``.
+            **kwargs: Additional retrieval options passed to ``retrieve()``
 
         Returns:
             Dictionary with:
@@ -1541,7 +1588,9 @@ Answer:"""
                 query,
                 retrieved_context,
                 reasoning_paths,
-                llm_provider
+                llm_provider,
+                at_time=at_time,
+                header_template=header_template,
             )
 
             # Step 5: Format reasoning path as string
@@ -2596,3 +2645,157 @@ Answer:"""
             return DecisionQuery(self.knowledge_graph)
         except Exception:
             return None
+
+
+class TemporalGraphRetriever:
+    """
+    Drop-in temporal wrapper for any ContextRetriever.
+
+    Calls ``base_retriever.retrieve(query)``, then filters ``related_entities``
+    and ``related_relationships`` in each :class:`RetrievedContext` item to
+    those active at *at_time* using
+    :meth:`~semantica.kg.temporal_query.TemporalGraphQuery.reconstruct_at_time`.
+
+    When no *at_time* is set (neither in the constructor nor at the call site)
+    the base retriever result is returned unchanged — no copies, no filtering.
+
+    Example::
+
+        from semantica.context import ContextRetriever, TemporalGraphRetriever
+
+        base = ContextRetriever(knowledge_graph=kg)
+        retriever = TemporalGraphRetriever(base, at_time="2023-06-01")
+        results = retriever.retrieve("which suppliers were certified?")
+        # related_entities / related_relationships in each result are valid as
+        # of 2023-06-01; dangling edges are removed automatically.
+    """
+
+    _DEFAULT_HEADER = "[Graph context valid as of: {at_time} UTC | Source: {source}]"
+
+    def __init__(
+        self,
+        base_retriever: "ContextRetriever",
+        at_time: Optional[Any] = None,
+        header_template: str = _DEFAULT_HEADER,
+    ):
+        """
+        Args:
+            base_retriever: Any :class:`ContextRetriever` instance to wrap.
+            at_time: Default point-in-time for temporal filtering. Accepts a
+                :class:`~datetime.datetime` or any string parseable by
+                :func:`~semantica.kg.temporal_model.parse_temporal_value`
+                (e.g. ``"2023-06-01"``). ``None`` disables filtering.
+            header_template: Format string used to build the temporal context
+                header injected into LLM prompts by
+                :meth:`ContextRetriever.query_with_reasoning`. Placeholders:
+                ``{at_time}`` and ``{source}``.
+
+        Example:
+            >>> from semantica.context import ContextRetriever, TemporalGraphRetriever
+
+            >>> # Passthrough — no temporal filtering applied
+            >>> base = ContextRetriever(knowledge_graph=kg)
+            >>> retriever = TemporalGraphRetriever(base)
+            >>> results = retriever.retrieve("active suppliers")  # identical to base.retrieve()
+
+            >>> # Point-in-time snapshot — ISO string shorthand
+            >>> retriever = TemporalGraphRetriever(base, at_time="2023-06-01")
+            >>> results = retriever.retrieve("certified suppliers")
+            >>> # related_entities/related_relationships are valid as of 2023-06-01
+
+            >>> # Custom prompt header for LLM context
+            >>> retriever = TemporalGraphRetriever(
+            ...     base,
+            ...     at_time="2023-06-01",
+            ...     header_template="[Snapshot: {at_time} | {source}]",
+            ... )
+
+            >>> # Combine with TemporalQueryRewriter for end-to-end temporal RAG
+            >>> from semantica.kg import TemporalQueryRewriter
+            >>> rw = TemporalQueryRewriter()
+            >>> parsed = rw.rewrite("which suppliers were certified before 2022?")
+            >>> retriever = TemporalGraphRetriever(base, at_time=parsed.at_time)
+            >>> results = retriever.retrieve(parsed.rewritten_query)
+        """
+        if not _TEMPORAL_AVAILABLE:
+            raise ImportError(
+                "TemporalGraphRetriever requires the semantica.kg temporal modules "
+                "(temporal_query, temporal_model). Ensure they are installed and "
+                "importable without errors."
+            )
+        self.base_retriever = base_retriever
+        self.at_time = at_time
+        self.header_template = header_template
+        self._tgq = _TemporalGraphQuery()
+
+    def retrieve(
+        self,
+        query: str,
+        at_time: Optional[Any] = None,
+        **kwargs,
+    ) -> List[RetrievedContext]:
+        """
+        Retrieve context and apply point-in-time temporal filtering.
+
+        Args:
+            query: Search query forwarded to the base retriever.
+            at_time: Override the instance-level ``at_time`` for this call.
+                ``None`` falls back to the constructor value; if both are
+                ``None`` the base result is returned unchanged.
+            **kwargs: Forwarded to ``base_retriever.retrieve()``.
+
+        Returns:
+            List of :class:`RetrievedContext` items whose
+            ``related_entities`` and ``related_relationships`` are restricted
+            to facts valid at *at_time*. Dangling relationships (whose
+            source or target entity was filtered out) are removed.
+
+        Example:
+            >>> from datetime import datetime, timezone
+            >>> from semantica.context import ContextRetriever, TemporalGraphRetriever
+
+            >>> base = ContextRetriever(knowledge_graph=kg)
+            >>> retriever = TemporalGraphRetriever(base, at_time="2023-06-01")
+
+            >>> # Use constructor at_time
+            >>> results = retriever.retrieve("drug interactions")
+            >>> for r in results:
+            ...     print(len(r.related_entities), "entities valid as of 2023-06-01")
+
+            >>> # Override at_time per call (e.g. from TemporalQueryRewriter output)
+            >>> results_q1 = retriever.retrieve(
+            ...     "capital requirements",
+            ...     at_time=datetime(2023, 3, 31, tzinfo=timezone.utc),
+            ... )
+
+            >>> # Passthrough: no at_time → base result unchanged
+            >>> retriever_plain = TemporalGraphRetriever(base)
+            >>> plain = retriever_plain.retrieve("suppliers")  # no temporal filtering
+        """
+        import dataclasses
+
+        effective_at_time = at_time if at_time is not None else self.at_time
+        results = self.base_retriever.retrieve(query, **kwargs)
+        if effective_at_time is None:
+            return results
+        parsed = (
+            effective_at_time
+            if isinstance(effective_at_time, datetime)
+            else _parse_temporal_value(effective_at_time)
+        )
+        filtered_results = []
+        for ctx in results:
+            subgraph = {
+                "entities": ctx.related_entities,
+                "relationships": ctx.related_relationships,
+            }
+            filtered = self._tgq.reconstruct_at_time(subgraph, parsed)
+            # Return a new RetrievedContext rather than mutating the original
+            # so callers that hold a reference to the base retriever's results
+            # are not surprised by side-effects.
+            filtered_results.append(dataclasses.replace(
+                ctx,
+                related_entities=filtered["entities"],
+                related_relationships=filtered["relationships"],
+            ))
+        return filtered_results
