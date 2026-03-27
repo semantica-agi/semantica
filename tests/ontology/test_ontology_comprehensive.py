@@ -243,5 +243,193 @@ class TestOntologyComprehensive(unittest.TestCase):
         self.assertEqual(mod.name, "PersonModule")
         self.assertIn("Person", mod.classes)
 
+class TestSHACLGeneration(unittest.TestCase):
+    """Tests 1-16: SHACL shape generation from flat ontologies."""
+
+    # Shared flat ontology fixture
+    _ONTOLOGY = {
+        "classes": [
+            {"name": "Person", "label": "Person", "description": "A human individual"},
+            {"name": "Organization", "label": "Organization"},
+        ],
+        "properties": [
+            {
+                "name": "name",
+                "type": "datatype",
+                "range": "string",
+                "domain": "Person",
+                "required": True,
+            },
+            {
+                "name": "age",
+                "type": "datatype",
+                "range": "integer",
+                "domain": "Person",
+                "cardinality": {"min": 0, "max": 1},
+            },
+            {
+                "name": "worksFor",
+                "type": "object",
+                "range": "Organization",
+                "domain": "Person",
+            },
+            {
+                "name": "legalName",
+                "type": "datatype",
+                "range": "string",
+                "domain": "Organization",
+                "required": True,
+            },
+        ],
+    }
+
+    def setUp(self):
+        self.mock_logger = MagicMock()
+        self.mock_tracker = MagicMock()
+        self.mock_tracker.start_tracking.return_value = "track_shacl"
+        self.patchers = [
+            patch(
+                "semantica.ontology.ontology_generator.get_logger",
+                return_value=self.mock_logger,
+            ),
+            patch(
+                "semantica.ontology.ontology_generator.get_progress_tracker",
+                return_value=self.mock_tracker,
+            ),
+        ]
+        for p in self.patchers:
+            p.start()
+        from semantica.ontology.ontology_generator import SHACLGenerator
+        self.gen = SHACLGenerator(
+            base_uri="https://semantica.dev/shapes/",
+            quality_tier="standard",
+        )
+
+    def tearDown(self):
+        for p in self.patchers:
+            p.stop()
+
+    # 1
+    def test_generate_returns_shacl_graph(self):
+        from semantica.ontology.ontology_generator import SHACLGraph
+        graph = self.gen.generate(self._ONTOLOGY)
+        self.assertIsInstance(graph, SHACLGraph)
+
+    # 2
+    def test_node_shape_count_matches_class_count(self):
+        graph = self.gen.generate(self._ONTOLOGY)
+        self.assertEqual(len(graph.node_shapes), 2)
+
+    # 3
+    def test_node_shape_target_classes(self):
+        graph = self.gen.generate(self._ONTOLOGY)
+        classes = {ns.target_class for ns in graph.node_shapes}
+        self.assertIn("Person", classes)
+        self.assertIn("Organization", classes)
+
+    # 4
+    def test_required_property_gets_min_count_1(self):
+        graph = self.gen.generate(self._ONTOLOGY)
+        person = next(ns for ns in graph.node_shapes if ns.target_class == "Person")
+        name_ps = next(ps for ps in person.property_shapes if ps.path == "name")
+        self.assertEqual(name_ps.min_count, 1)
+
+    # 5
+    def test_cardinality_min_max(self):
+        graph = self.gen.generate(self._ONTOLOGY)
+        person = next(ns for ns in graph.node_shapes if ns.target_class == "Person")
+        age_ps = next(ps for ps in person.property_shapes if ps.path == "age")
+        self.assertEqual(age_ps.min_count, 0)
+        self.assertEqual(age_ps.max_count, 1)
+
+    # 6
+    def test_datatype_property_gets_xsd_datatype(self):
+        graph = self.gen.generate(self._ONTOLOGY)
+        person = next(ns for ns in graph.node_shapes if ns.target_class == "Person")
+        name_ps = next(ps for ps in person.property_shapes if ps.path == "name")
+        self.assertEqual(name_ps.datatype, "xsd:string")
+        self.assertIsNone(name_ps.class_)
+
+    # 7
+    def test_object_property_gets_sh_class(self):
+        graph = self.gen.generate(self._ONTOLOGY)
+        person = next(ns for ns in graph.node_shapes if ns.target_class == "Person")
+        wf_ps = next(ps for ps in person.property_shapes if ps.path == "worksFor")
+        self.assertEqual(wf_ps.class_, "Organization")
+        self.assertIsNone(wf_ps.datatype)
+
+    # 8
+    def test_turtle_contains_sh_node_shape(self):
+        graph = self.gen.generate(self._ONTOLOGY)
+        ttl = self.gen.serialize(graph, format="turtle")
+        self.assertIn("sh:NodeShape", ttl)
+        self.assertIn("sh:targetClass", ttl)
+        self.assertIn("sh:property", ttl)
+
+    # 9
+    def test_jsonld_is_valid_json(self):
+        import json
+        graph = self.gen.generate(self._ONTOLOGY)
+        jld = self.gen.serialize(graph, format="json-ld")
+        parsed = json.loads(jld)
+        self.assertIn("@context", parsed)
+        self.assertIn("@graph", parsed)
+
+    # 10
+    def test_ntriples_uses_expanded_uris(self):
+        graph = self.gen.generate(self._ONTOLOGY)
+        nt = self.gen.serialize(graph, format="n-triples")
+        self.assertNotIn("@prefix", nt)
+        self.assertIn("<http://www.w3.org/ns/shacl#NodeShape>", nt)
+
+    # 11
+    def test_unknown_format_raises_value_error(self):
+        graph = self.gen.generate(self._ONTOLOGY)
+        with self.assertRaises(ValueError):
+            self.gen.serialize(graph, format="csv")
+
+    # 12
+    def test_non_dict_ontology_raises_value_error(self):
+        with self.assertRaises(ValueError):
+            self.gen.generate("not a dict")
+
+    # 13
+    def test_ontology_missing_both_keys_raises_value_error(self):
+        with self.assertRaises(ValueError):
+            self.gen.generate({"namespace": {}})
+
+    # 14
+    def test_enumeration_produces_sh_in(self):
+        onto = {
+            "classes": [{"name": "Order"}],
+            "properties": [
+                {
+                    "name": "status",
+                    "type": "datatype",
+                    "range": "string",
+                    "domain": "Order",
+                    "one_of": ["pending", "shipped", "delivered", "cancelled"],
+                }
+            ],
+        }
+        graph = self.gen.generate(onto)
+        ttl = self.gen.serialize(graph, format="turtle")
+        self.assertIn("sh:in", ttl)
+        self.assertIn('"pending"', ttl)
+
+    # 15
+    def test_custom_namespace_in_prefixes(self):
+        onto = dict(self._ONTOLOGY)
+        onto["namespace"] = {"base_uri": "https://custom.org/onto/"}
+        graph = self.gen.generate(onto)
+        self.assertIn("https://custom.org/onto/", graph.prefixes.values())
+
+    # 16
+    def test_standard_tier_is_default(self):
+        from semantica.ontology.ontology_generator import SHACLGenerator
+        gen = SHACLGenerator()
+        self.assertEqual(gen.quality_tier, "standard")
+
+
 if __name__ == '__main__':
     unittest.main()

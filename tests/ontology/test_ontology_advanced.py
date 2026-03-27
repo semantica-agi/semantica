@@ -210,5 +210,239 @@ class TestOntologyAdvanced(unittest.TestCase):
         self.assertEqual(len(alignments), 1)
         self.assertEqual(alignments[0]["target"], "http://target.org/2")
 
+class TestSHACLHierarchicalAndValidation(unittest.TestCase):
+    """Tests 17-34: Hierarchical inheritance, engine integration, and validation models."""
+
+    # 3-level hierarchy ontology: Animal → Dog → GuideDog
+    _HIER_ONTOLOGY = {
+        "classes": [
+            {"name": "Animal"},
+            {"name": "Dog", "parent": "Animal"},
+            {"name": "GuideDog", "parent": "Dog"},
+        ],
+        "properties": [
+            {
+                "name": "name",
+                "type": "datatype",
+                "range": "string",
+                "domain": "Animal",
+                "required": True,
+            },
+            {
+                "name": "breed",
+                "type": "datatype",
+                "range": "string",
+                "domain": "Dog",
+            },
+            {
+                "name": "owner",
+                "type": "object",
+                "range": "Person",
+                "domain": "GuideDog",
+                "required": True,
+            },
+        ],
+    }
+
+    def _make_gen(self, **kwargs):
+        from semantica.ontology.ontology_generator import SHACLGenerator
+
+        with patch(
+            "semantica.ontology.ontology_generator.get_logger",
+            return_value=MagicMock(),
+        ), patch(
+            "semantica.ontology.ontology_generator.get_progress_tracker",
+            return_value=MagicMock(start_tracking=MagicMock(return_value="t")),
+        ):
+            return SHACLGenerator(**kwargs)
+
+    # 17
+    def test_child_inherits_parent_property(self):
+        gen = self._make_gen(include_inherited=True)
+        graph = gen.generate(self._HIER_ONTOLOGY)
+        dog = next(ns for ns in graph.node_shapes if ns.target_class == "Dog")
+        paths = {ps.path for ps in dog.property_shapes}
+        self.assertIn("name", paths)   # inherited from Animal
+        self.assertIn("breed", paths)  # own
+
+    # 18
+    def test_grandchild_inherits_all_ancestors(self):
+        gen = self._make_gen(include_inherited=True)
+        graph = gen.generate(self._HIER_ONTOLOGY)
+        gd = next(ns for ns in graph.node_shapes if ns.target_class == "GuideDog")
+        paths = {ps.path for ps in gd.property_shapes}
+        self.assertIn("name", paths)   # from Animal
+        self.assertIn("breed", paths)  # from Dog
+        self.assertIn("owner", paths)  # own
+
+    # 19
+    def test_no_inheritance_when_disabled(self):
+        gen = self._make_gen(include_inherited=False)
+        graph = gen.generate(self._HIER_ONTOLOGY)
+        dog = next(ns for ns in graph.node_shapes if ns.target_class == "Dog")
+        paths = {ps.path for ps in dog.property_shapes}
+        self.assertNotIn("name", paths)  # parent property should NOT appear
+
+    # 20
+    def test_no_duplicate_shapes_after_inheritance(self):
+        gen = self._make_gen(include_inherited=True)
+        graph = gen.generate(self._HIER_ONTOLOGY)
+        for node_shape in graph.node_shapes:
+            paths = [ps.path for ps in node_shape.property_shapes]
+            self.assertEqual(len(paths), len(set(paths)),
+                             f"Duplicate paths in {node_shape.target_class}: {paths}")
+
+    # 21
+    def test_no_domain_property_attaches_to_all_shapes(self):
+        onto = {
+            "classes": [{"name": "A"}, {"name": "B"}],
+            "properties": [
+                {"name": "globalProp", "type": "datatype", "range": "string"}
+                # no domain
+            ],
+        }
+        gen = self._make_gen()
+        graph = gen.generate(onto)
+        for node_shape in graph.node_shapes:
+            paths = {ps.path for ps in node_shape.property_shapes}
+            self.assertIn("globalProp", paths)
+
+    # 22
+    def test_empty_classes_produces_no_shapes(self):
+        gen = self._make_gen()
+        graph = gen.generate({"classes": [], "properties": []})
+        self.assertEqual(len(graph.node_shapes), 0)
+
+    # 23
+    def test_sh_prefix_always_present(self):
+        gen = self._make_gen()
+        graph = gen.generate(self._HIER_ONTOLOGY)
+        self.assertIn("sh", graph.prefixes)
+        self.assertIn("shacl#", graph.prefixes["sh"])
+
+    # 24
+    def test_custom_base_uri(self):
+        gen = self._make_gen(base_uri="https://myorg.com/shapes/")
+        graph = gen.generate(self._HIER_ONTOLOGY)
+        ttl = gen.serialize(graph, format="turtle")
+        self.assertIn("myorg.com", ttl)
+
+    # 25
+    def test_severity_warning(self):
+        gen = self._make_gen(severity="Warning")
+        graph = gen.generate(self._HIER_ONTOLOGY)
+        ttl = gen.serialize(graph, format="turtle")
+        self.assertIn("sh:Warning", ttl)
+        self.assertNotIn("sh:Violation", ttl)
+
+    # 26
+    def test_strict_tier_sets_closed(self):
+        gen = self._make_gen(quality_tier="strict")
+        graph = gen.generate(self._HIER_ONTOLOGY)
+        # Shapes with property_shapes should be closed
+        for node_shape in graph.node_shapes:
+            if node_shape.property_shapes:
+                self.assertTrue(node_shape.closed,
+                                f"{node_shape.target_class}Shape should be closed")
+
+    # 27
+    def test_strict_tier_includes_ignored_properties(self):
+        gen = self._make_gen(quality_tier="strict")
+        graph = gen.generate(self._HIER_ONTOLOGY)
+        ttl = gen.serialize(graph, format="turtle")
+        self.assertIn("sh:ignoredProperties", ttl)
+
+    # 28
+    def test_engine_to_shacl_returns_non_empty_string(self):
+        mock_progress = MagicMock()
+        mock_progress.start_tracking.return_value = "tid"
+        with patch("semantica.ontology.engine.get_logger", return_value=MagicMock()), \
+             patch("semantica.ontology.engine.get_progress_tracker", return_value=mock_progress), \
+             patch("semantica.ontology.ontology_generator.get_logger", return_value=MagicMock()), \
+             patch("semantica.ontology.ontology_generator.get_progress_tracker", return_value=mock_progress):
+            from semantica.ontology.engine import OntologyEngine
+            engine = OntologyEngine()
+            result = engine.to_shacl(self._HIER_ONTOLOGY)
+        self.assertIsInstance(result, str)
+        self.assertGreater(len(result), 0)
+        self.assertIn("sh:NodeShape", result)
+
+    # 29
+    def test_engine_to_shacl_jsonld(self):
+        import json
+        mock_progress = MagicMock()
+        mock_progress.start_tracking.return_value = "tid"
+        with patch("semantica.ontology.engine.get_logger", return_value=MagicMock()), \
+             patch("semantica.ontology.engine.get_progress_tracker", return_value=mock_progress), \
+             patch("semantica.ontology.ontology_generator.get_logger", return_value=MagicMock()), \
+             patch("semantica.ontology.ontology_generator.get_progress_tracker", return_value=mock_progress):
+            from semantica.ontology.engine import OntologyEngine
+            engine = OntologyEngine()
+            result = engine.to_shacl(self._HIER_ONTOLOGY, format="json-ld")
+        parsed = json.loads(result)
+        self.assertIn("@graph", parsed)
+
+    # 30
+    def test_shacl_validation_report_summary_conforms(self):
+        from semantica.ontology.ontology_validator import SHACLValidationReport
+        report = SHACLValidationReport(conforms=True)
+        self.assertIn("conforms", report.summary().lower())
+
+    # 31
+    def test_shacl_validation_report_summary_violations(self):
+        from semantica.ontology.ontology_validator import (
+            SHACLValidationReport,
+            SHACLViolation,
+        )
+        v = SHACLViolation(focus_node="https://example.com/node1")
+        report = SHACLValidationReport(conforms=False, violations=[v])
+        self.assertIn("1 violation", report.summary())
+
+    # 32
+    def test_explain_violations_populates_explanation(self):
+        from semantica.ontology.ontology_validator import (
+            SHACLValidationReport,
+            SHACLViolation,
+        )
+        v = SHACLViolation(
+            focus_node="https://example.com/john",
+            result_path="ex:name",
+            constraint="MinCountConstraintComponent",
+        )
+        report = SHACLValidationReport(conforms=False, violations=[v])
+        report.explain_violations()
+        self.assertIsNotNone(v.explanation)
+        self.assertIn("https://example.com/john", v.explanation)
+
+    # 33
+    def test_shacl_violation_to_dict(self):
+        from semantica.ontology.ontology_validator import SHACLViolation
+        v = SHACLViolation(
+            focus_node="https://example.com/n",
+            constraint="DatatypeConstraintComponent",
+            explanation="some explanation",
+        )
+        d = v.to_dict()
+        self.assertIn("focus_node", d)
+        self.assertIn("constraint", d)
+        self.assertIn("explanation", d)
+
+    # 34
+    def test_validation_report_to_dict_structure(self):
+        from semantica.ontology.ontology_validator import (
+            SHACLValidationReport,
+            SHACLViolation,
+        )
+        v = SHACLViolation(focus_node="https://example.com/x")
+        report = SHACLValidationReport(conforms=False, violations=[v])
+        d = report.to_dict()
+        self.assertIn("conforms", d)
+        self.assertIn("violations", d)
+        self.assertIn("warnings", d)
+        self.assertIn("violation_count", d)
+        self.assertEqual(d["violation_count"], 1)
+        self.assertFalse(d["conforms"])
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -146,11 +146,21 @@ from .ontology_documentation import OntologyDocumentation, OntologyDocumentation
 from .ontology_evaluator import EvaluationResult, OntologyEvaluator
 from .ontology_generator import (
     ClassInferencer,
+    NodeShape,
     OntologyGenerator,
     OntologyOptimizer,
     PropertyInferencer,
+    PropertyShape,
+    SHACLGenerator,
+    SHACLGraph,
 )
-from .ontology_validator import OntologyValidator, ValidationResult, validate_ontology
+from .ontology_validator import (
+    OntologyValidator,
+    SHACLValidationReport,
+    SHACLViolation,
+    ValidationResult,
+    validate_ontology,
+)
 from .owl_generator import OWLGenerator
 from .property_generator import PropertyGenerator
 from .registry import MethodRegistry, method_registry
@@ -175,6 +185,13 @@ __all__ = [
     "validate_ontology",
     "OntologyEvaluator",
     "EvaluationResult",
+    # SHACL generation and validation
+    "SHACLGenerator",
+    "SHACLGraph",
+    "NodeShape",
+    "PropertyShape",
+    "SHACLValidationReport",
+    "SHACLViolation",
     # OWL/RDF generation
     "OWLGenerator",
     # Requirements and competency questions

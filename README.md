@@ -78,6 +78,14 @@ See [RELEASE_NOTES.md](RELEASE_NOTES.md) for the full per-contributor breakdown 
 
 ---
 
+## Unreleased / Coming Next
+
+| Area | Highlights |
+|------|-----------|
+| **SHACL Constraints** | `OntologyEngine.to_shacl()` auto-derives SHACL shapes from any OWL ontology; `validate_graph()` returns structured `SHACLValidationReport` with plain-English violation explanations; three quality tiers (`"basic"`, `"standard"`, `"strict"`); three output formats (Turtle, JSON-LD, N-Triples); 3-level inheritance propagation |
+
+---
+
 ## Features
 
 ### Context & Decision Intelligence
@@ -146,6 +154,7 @@ See [RELEASE_NOTES.md](RELEASE_NOTES.md) for the full per-contributor breakdown 
 - **Parquet** — `ParquetExporter` for entities, relationships, and full KG export
 - **ArangoDB AQL** — ready-to-run INSERT statements via `ArangoAQLExporter`
 - **OWL ontologies** — export generated ontologies in Turtle or RDF/XML
+- **SHACL shapes** — export auto-derived constraint shapes via `RDFExporter.export_shacl()` (`.ttl`, `.jsonld`, `.nt`, `.shacl`)
 
 ### Pipeline & Production
 - **Pipeline builder** — `PipelineBuilder` with stage chaining and parallel workers
@@ -158,6 +167,11 @@ See [RELEASE_NOTES.md](RELEASE_NOTES.md) for the full per-contributor breakdown 
 - **Auto-generation** — derive OWL ontologies from knowledge graphs via `OntologyGenerator`
 - **Import** — load existing OWL, RDF, Turtle, JSON-LD ontologies via `OntologyImporter`
 - **Validation** — HermiT/Pellet compatible consistency checking
+- **SHACL shape generation** — `OntologyEngine.to_shacl()` auto-derives SHACL node and property shapes from any Semantica ontology dict; zero hand-authoring; deterministic (same ontology → same shapes)
+- **SHACL validation** — `OntologyEngine.validate_graph()` runs shapes against a data graph and returns a `SHACLValidationReport` with machine-readable violations and plain-English explanations
+- **Quality tiers** — `"basic"` (structure + cardinality), `"standard"` (+ enumerations, inheritance), `"strict"` (+ `sh:closed` rejects undeclared properties)
+- **Inheritance propagation** — child shapes automatically include all ancestor property shapes (up to 3+ levels), cycle-safe
+- **Three output formats** — Turtle (`.ttl`), JSON-LD, N-Triples; file export via `export_shacl()`
 
 ---
 
@@ -172,7 +186,7 @@ See [RELEASE_NOTES.md](RELEASE_NOTES.md) for the full per-contributor breakdown 
 | `semantica.vector_store` | FAISS, Pinecone, Weaviate, Qdrant, Milvus, PgVector, in-memory; hybrid & filtered search |
 | `semantica.export` | RDF (Turtle/JSON-LD/N-Triples/XML), Parquet, ArangoDB AQL, CSV, YAML, OWL, graph formats |
 | `semantica.ingest` | Files (PDF, DOCX, CSV, HTML), web crawl, feeds, databases, Snowflake, MCP, email, repositories |
-| `semantica.ontology` | Auto-generation (6-stage pipeline), OWL/RDF export, import (OWL/RDF/Turtle/JSON-LD), validation, versioning |
+| `semantica.ontology` | Auto-generation (6-stage pipeline), OWL/RDF export, import (OWL/RDF/Turtle/JSON-LD), validation, versioning, **SHACL shape generation & validation** |
 | `semantica.pipeline` | Pipeline DSL, parallel workers, validation, retry policies, failure handling, resource scheduling |
 | `semantica.graph_store` | Graph database backends — Neo4j, FalkorDB, Apache AGE, Amazon Neptune; Cypher queries |
 | `semantica.embeddings` | Text embedding generation — Sentence-Transformers, FastEmbed, OpenAI, BGE; similarity calculation |
@@ -654,6 +668,85 @@ ontology = importer.load("schema.ttl", format="turtle")
 ontology = importer.load("context.jsonld")
 ```
 
+### SHACL Shape Generation & Validation
+
+Semantica turns ontologies into executable data contracts. The constraints layer completes a hybrid reasoning system — symbolic constraints (SHACL) alongside semantic retrieval (embeddings).
+
+**Phase 1 — Generate shapes from any ontology dict:**
+
+```python
+from semantica.ontology import OntologyEngine
+
+engine   = OntologyEngine()
+ontology = engine.from_data(data)          # or engine.from_text(...) / engine.to_owl(...)
+
+# Generate SHACL shapes — zero hand-authoring
+shacl_ttl  = engine.to_shacl(ontology)                        # Turtle string (default)
+shacl_jld  = engine.to_shacl(ontology, format="json-ld")      # JSON-LD string
+shacl_nt   = engine.to_shacl(ontology, format="n-triples")    # N-Triples string
+
+# Write to file
+engine.export_shacl(ontology, path="shapes/domain.ttl")
+```
+
+**Quality tiers — control constraint strictness:**
+
+```python
+# "basic"    — node shapes, property paths, datatypes, cardinality
+# "standard" — + enumerations (sh:in), patterns, inheritance propagation  [DEFAULT]
+# "strict"   — + sh:closed true on all shapes (rejects undeclared properties)
+
+shacl = engine.to_shacl(ontology, quality_tier="strict")
+```
+
+**Phase 2 — Validate a graph against the shapes:**
+
+```python
+import pathlib
+
+report = engine.validate_graph(
+    data_graph=pathlib.Path("data/graph.ttl").read_text(),
+    ontology=ontology,   # auto-generates SHACL before validating
+    explain=True,        # populate plain-English explanations on each violation
+)
+
+print(report.summary())
+# → "Graph does NOT conform: 2 violation(s)."
+
+for v in report.violations:
+    print(v.explanation)
+# → "Node <https://example.com/john> is missing required property <ex:name>. At least 1 value(s) are required."
+# → "Node <https://example.com/acme> has value '999' for <ex:employeeCount> but the expected datatype is xsd:string."
+
+import json
+print(json.dumps(report.to_dict(), indent=2))  # machine-readable — feed to LLM or pipeline
+```
+
+**Or validate against a pre-built SHACL file:**
+
+```python
+report = engine.validate_graph(
+    data_graph=graph_turtle_string,
+    shacl="shapes/domain.ttl",   # path or SHACL string
+)
+```
+
+**Regenerate shapes in CI to detect breaking ontology changes:**
+
+```bash
+python -c "
+from semantica.ontology import OntologyEngine
+import json, pathlib
+engine = OntologyEngine()
+onto = engine.from_data(json.loads(pathlib.Path('ontology.json').read_text()))
+engine.export_shacl(onto, 'shapes/shapes.ttl')
+"
+git diff shapes/shapes.ttl   # detects breaking ontology changes
+```
+
+> **Requires pyshacl for `validate_graph()`:** `pip install semantica[shacl]`
+> Shape generation (`to_shacl`, `export_shacl`) works without any optional dependencies.
+
 ---
 
 ## Integrations
@@ -714,6 +807,9 @@ pip install semantica[vectorstore-weaviate]
 pip install semantica[vectorstore-qdrant]
 pip install semantica[vectorstore-milvus]
 pip install semantica[vectorstore-pgvector]
+
+# SHACL validation (validate_graph)
+pip install semantica[shacl]
 
 # Snowflake ingestion
 pip install semantica[db-snowflake]

@@ -30,6 +30,7 @@ Author: Semantica Contributors
 License: MIT
 """
 
+from dataclasses import dataclass, field, replace as dataclass_replace
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
@@ -709,3 +710,496 @@ class OntologyOptimizer:
                     prop["range"] = ["owl:Thing"]
 
         return ontology
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SHACL Shape Generation
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+@dataclass
+class PropertyShape:
+    """Internal model for a SHACL sh:PropertyShape."""
+    path: str
+    name: Optional[str] = None
+    description: Optional[str] = None
+    datatype: Optional[str] = None       # sh:datatype
+    class_: Optional[str] = None         # sh:class
+    min_count: Optional[int] = None
+    max_count: Optional[int] = None
+    in_values: Optional[List[str]] = None
+    has_value: Optional[str] = None
+    pattern: Optional[str] = None
+    severity: str = "Violation"
+
+
+@dataclass
+class NodeShape:
+    """Internal model for a SHACL sh:NodeShape."""
+    target_class: str
+    name: Optional[str] = None
+    description: Optional[str] = None
+    property_shapes: List[PropertyShape] = field(default_factory=list)
+    closed: bool = False
+    severity: str = "Violation"
+
+
+@dataclass
+class SHACLGraph:
+    """Internal model representing the complete SHACL shapes graph."""
+    base_uri: str
+    shapes_uri: str
+    node_shapes: List[NodeShape] = field(default_factory=list)
+    prefixes: Dict[str, str] = field(default_factory=dict)
+
+
+class SHACLGenerator:
+    """
+    Generates SHACL shapes from Semantica OWL ontology dicts.
+
+    6-stage internal pipeline:
+        1. _build_class_index()       — {class_name: class_dict} for O(1) lookup
+        2. _generate_node_shapes()    — one NodeShape per OWL class
+        3. _attach_property_shapes()  — map properties to their domain node shapes
+        4. _propagate_inheritance()   — copy parent shapes to children (iterative, cycle-safe)
+        5. _apply_quality_tier()      — strict tier: set closed=True on all shapes
+        6. serialize()                — Turtle / JSON-LD / N-Triples
+    """
+
+    _XSD_ALIASES: Dict[str, str] = {
+        "string": "xsd:string", "str": "xsd:string",
+        "int": "xsd:integer", "integer": "xsd:integer",
+        "float": "xsd:decimal", "decimal": "xsd:decimal",
+        "boolean": "xsd:boolean", "bool": "xsd:boolean",
+        "date": "xsd:date",
+        "datetime": "xsd:dateTime",
+        "uri": "xsd:anyURI", "anyuri": "xsd:anyURI",
+    }
+
+    def __init__(
+        self,
+        base_uri: str = "https://semantica.dev/shapes/",
+        shapes_uri: Optional[str] = None,
+        include_inherited: bool = True,
+        severity: str = "Violation",
+        quality_tier: str = "standard",
+        config: Optional[Dict[str, Any]] = None,
+    ):
+        self.logger = get_logger("ontology_shacl")
+        self.progress_tracker = get_progress_tracker()
+        self.base_uri = base_uri.rstrip("/") + "/"
+        self.shapes_uri = shapes_uri or (self.base_uri + "shapes")
+        self.include_inherited = include_inherited
+        self.severity = severity
+        self.quality_tier = quality_tier
+        self.config = config or {}
+
+    # ── Public API ────────────────────────────────────────────────────────────
+
+    def generate(self, ontology: Dict[str, Any], **options) -> SHACLGraph:
+        """Generate a SHACLGraph from a Semantica ontology dict."""
+        if not isinstance(ontology, dict):
+            raise ValueError("ontology must be a dict")
+        if "classes" not in ontology and "properties" not in ontology:
+            raise ValueError(
+                "ontology must contain at least a 'classes' or 'properties' key"
+            )
+
+        tracking_id = self.progress_tracker.start_tracking(
+            module="ontology", submodule="SHACLGenerator", message="Building SHACL index"
+        )
+        try:
+            classes = ontology.get("classes", [])
+            properties = ontology.get("properties", [])
+
+            # Resolve base_uri from ontology namespace if present
+            ns = ontology.get("namespace", {})
+            base_uri = (
+                ns.get("base_uri", self.base_uri) if isinstance(ns, dict) else self.base_uri
+            )
+            if not base_uri.endswith("/") and not base_uri.endswith("#"):
+                base_uri += "/"
+
+            prefixes = {
+                "sh": "http://www.w3.org/ns/shacl#",
+                "xsd": "http://www.w3.org/2001/XMLSchema#",
+                "owl": "http://www.w3.org/2002/07/owl#",
+                "rdf": "http://www.w3.org/1999/02/22-rdf-syntax-ns#",
+                "rdfs": "http://www.w3.org/2000/01/rdf-schema#",
+                "ex": base_uri,
+            }
+
+            graph = SHACLGraph(
+                base_uri=base_uri,
+                shapes_uri=self.shapes_uri,
+                prefixes=prefixes,
+            )
+
+            self.progress_tracker.update_tracking(tracking_id, message="Generating node shapes")
+            class_index = self._build_class_index(classes)
+            self._generate_node_shapes(graph, classes)
+
+            self.progress_tracker.update_tracking(tracking_id, message="Attaching property shapes")
+            self._attach_property_shapes(graph, properties)
+
+            if self.include_inherited:
+                self.progress_tracker.update_tracking(tracking_id, message="Propagating inheritance")
+                self._propagate_inheritance(graph, class_index)
+
+            self._apply_quality_tier(graph)
+
+            self.progress_tracker.stop_tracking(
+                tracking_id, status="completed", message="SHACL graph built"
+            )
+            return graph
+
+        except (ValueError, TypeError):
+            self.progress_tracker.stop_tracking(
+                tracking_id, status="failed", message="Generation failed"
+            )
+            raise
+        except Exception as exc:
+            self.progress_tracker.stop_tracking(
+                tracking_id, status="failed", message=str(exc)
+            )
+            from ..utils.exceptions import ProcessingError
+            raise ProcessingError(f"SHACL generation failed: {exc}") from exc
+
+    def serialize(self, graph: SHACLGraph, format: str = "turtle") -> str:
+        """Serialize a SHACLGraph to a string in the requested format."""
+        tracking_id = self.progress_tracker.start_tracking(
+            module="ontology", submodule="SHACLGenerator", message="Serializing SHACL graph"
+        )
+        try:
+            fmt = format.lower().strip()
+            if fmt in ("turtle", "ttl"):
+                result = self._serialize_turtle(graph)
+            elif fmt in ("json-ld", "jsonld", "json_ld"):
+                result = self._serialize_jsonld(graph)
+            elif fmt in ("n-triples", "ntriples", "nt"):
+                result = self._serialize_ntriples(graph)
+            else:
+                raise ValueError(
+                    f"Unsupported SHACL serialization format: '{format}'. "
+                    "Supported formats: 'turtle', 'json-ld', 'n-triples'"
+                )
+            self.progress_tracker.stop_tracking(
+                tracking_id, status="completed", message="Serialized"
+            )
+            return result
+        except ValueError:
+            self.progress_tracker.stop_tracking(
+                tracking_id, status="failed", message="Unsupported format"
+            )
+            raise
+        except Exception as exc:
+            self.progress_tracker.stop_tracking(
+                tracking_id, status="failed", message=str(exc)
+            )
+            from ..utils.exceptions import ProcessingError
+            raise ProcessingError(f"SHACL serialization failed: {exc}") from exc
+
+    # ── Internal pipeline stages ──────────────────────────────────────────────
+
+    def _build_class_index(
+        self, classes: List[Dict[str, Any]]
+    ) -> Dict[str, Dict[str, Any]]:
+        return {c["name"]: c for c in classes if c.get("name")}
+
+    def _generate_node_shapes(
+        self, graph: SHACLGraph, classes: List[Dict[str, Any]]
+    ) -> None:
+        for cls in classes:
+            name = cls.get("name")
+            if not name:
+                continue
+            shape = NodeShape(
+                target_class=name,
+                name=cls.get("label") or cls.get("name"),
+                description=cls.get("description") or cls.get("comment"),
+                severity=self.severity,
+            )
+            graph.node_shapes.append(shape)
+
+    def _attach_property_shapes(
+        self, graph: SHACLGraph, properties: List[Dict[str, Any]]
+    ) -> None:
+        shape_by_class = {ns.target_class: ns for ns in graph.node_shapes}
+
+        for prop in properties:
+            pname = prop.get("name")
+            if not pname:
+                continue
+
+            domain = prop.get("domain")
+            if isinstance(domain, list):
+                domains = [d for d in domain if d]
+            elif isinstance(domain, str) and domain:
+                domains = [domain]
+            else:
+                domains = []
+
+            if domains:
+                for d in domains:
+                    if d in shape_by_class:
+                        shape_by_class[d].property_shapes.append(
+                            self._build_property_shape(prop)
+                        )
+                    else:
+                        self.logger.debug(
+                            f"Property '{pname}' domain '{d}' has no matching node shape — skipped"
+                        )
+            else:
+                # No domain declared → attach to all shapes
+                self.logger.debug(
+                    f"Property '{pname}' has no domain — attaching to all node shapes"
+                )
+                for node_shape in graph.node_shapes:
+                    node_shape.property_shapes.append(self._build_property_shape(prop))
+
+    def _build_property_shape(self, prop: Dict[str, Any]) -> PropertyShape:
+        ptype = prop.get("type", "")
+        range_ = prop.get("range", "")
+        if isinstance(range_, list):
+            range_ = range_[0] if range_ else ""
+
+        cardinality = prop.get("cardinality") or {}
+        min_count = cardinality.get("min") if isinstance(cardinality, dict) else None
+        max_count = cardinality.get("max") if isinstance(cardinality, dict) else None
+
+        if prop.get("required") and min_count is None:
+            min_count = 1
+
+        datatype = None
+        class_ = None
+        if ptype in ("datatype", "data", "DatatypeProperty"):
+            datatype = self._resolve_xsd(range_) if range_ else None
+        elif ptype in ("object", "ObjectProperty"):
+            class_ = range_ if range_ else None
+
+        in_values = (
+            prop.get("one_of") or prop.get("enum") or prop.get("allowed_values")
+        )
+        if in_values and self.quality_tier in ("standard", "strict"):
+            in_values = list(in_values)
+        else:
+            in_values = None
+
+        pattern = prop.get("pattern") if self.quality_tier in ("standard", "strict") else None
+
+        return PropertyShape(
+            path=prop.get("name", ""),
+            name=prop.get("label") or prop.get("name"),
+            description=prop.get("description") or prop.get("comment"),
+            datatype=datatype,
+            class_=class_,
+            min_count=min_count,
+            max_count=max_count,
+            in_values=in_values,
+            has_value=prop.get("has_value"),
+            pattern=pattern,
+            severity=self.severity,
+        )
+
+    def _propagate_inheritance(
+        self, graph: SHACLGraph, class_index: Dict[str, Dict[str, Any]]
+    ) -> None:
+        shape_by_class = {ns.target_class: ns for ns in graph.node_shapes}
+
+        for _ in range(20):  # max 20 passes; stops early when stable
+            changed = False
+            for node_shape in graph.node_shapes:
+                cls_data = class_index.get(node_shape.target_class, {})
+                parent_name = cls_data.get("parent") or cls_data.get("parent_class")
+                if not parent_name or parent_name not in shape_by_class:
+                    continue
+                parent_shape = shape_by_class[parent_name]
+                existing_paths = {ps.path for ps in node_shape.property_shapes}
+                for pps in parent_shape.property_shapes:
+                    if pps.path not in existing_paths:
+                        node_shape.property_shapes.append(dataclass_replace(pps))
+                        existing_paths.add(pps.path)
+                        changed = True
+            if not changed:
+                break
+
+    def _apply_quality_tier(self, graph: SHACLGraph) -> None:
+        if self.quality_tier == "strict":
+            for node_shape in graph.node_shapes:
+                # Only close shapes that declare at least one property
+                if node_shape.property_shapes:
+                    node_shape.closed = True
+
+    # ── Serializers ───────────────────────────────────────────────────────────
+
+    def _prefix_decls(self, graph: SHACLGraph) -> str:
+        return "\n".join(f"@prefix {p}: <{u}> ." for p, u in sorted(graph.prefixes.items()))
+
+    def _uri(self, graph: SHACLGraph, local: str) -> str:
+        """Return a compact URI reference; fall back to ex:local for bare names."""
+        if local.startswith("http://") or local.startswith("https://"):
+            return f"<{local}>"
+        if ":" in local:
+            return local
+        return f"ex:{local}"
+
+    def _serialize_turtle(self, graph: SHACLGraph) -> str:
+        lines = [self._prefix_decls(graph), ""]
+        lines.append(f"<{graph.shapes_uri}> a owl:Ontology .")
+        lines.append("")
+
+        for node_shape in graph.node_shapes:
+            shape_uri = f"{graph.base_uri}{node_shape.target_class}Shape"
+            block = [f"<{shape_uri}>"]
+            block.append("    a sh:NodeShape ;")
+            block.append(
+                f"    sh:targetClass {self._uri(graph, node_shape.target_class)} ;"
+            )
+            if node_shape.name:
+                block.append(f'    sh:name "{node_shape.name}" ;')
+            if node_shape.description:
+                escaped = node_shape.description.replace('"', '\\"')
+                block.append(f'    sh:description "{escaped}" ;')
+            if node_shape.closed:
+                block.append("    sh:closed true ;")
+                block.append("    sh:ignoredProperties ( <http://www.w3.org/1999/02/22-rdf-syntax-ns#type> ) ;")
+
+            for i, ps in enumerate(node_shape.property_shapes):
+                is_last = i == len(node_shape.property_shapes) - 1
+                terminator = " ." if is_last else " ;"
+                parts = ["    sh:property ["]
+                parts.append(f"        sh:path {self._uri(graph, ps.path)} ;")
+                if ps.datatype:
+                    parts.append(f"        sh:datatype {ps.datatype} ;")
+                if ps.class_:
+                    parts.append(f"        sh:class {self._uri(graph, ps.class_)} ;")
+                if ps.min_count is not None:
+                    parts.append(f"        sh:minCount {ps.min_count} ;")
+                if ps.max_count is not None:
+                    parts.append(f"        sh:maxCount {ps.max_count} ;")
+                if ps.in_values is not None:
+                    vals = " ".join(f'"{v}"' for v in ps.in_values)
+                    parts.append(f"        sh:in ( {vals} ) ;")
+                if ps.has_value is not None:
+                    parts.append(f"        sh:hasValue {self._uri(graph, ps.has_value)} ;")
+                if ps.pattern:
+                    escaped_p = ps.pattern.replace('"', '\\"')
+                    parts.append(f'        sh:pattern "{escaped_p}" ;')
+                parts.append(f"        sh:severity sh:{ps.severity}")
+                parts.append("    ]" + terminator)
+                block.extend(parts)
+
+            if not node_shape.property_shapes:
+                # Close the declaration when there are no property shapes
+                block[-1] = block[-1].rstrip(" ;") + " ."
+
+            lines.append("\n".join(block))
+            lines.append("")
+
+        return "\n".join(lines)
+
+    def _serialize_jsonld(self, graph: SHACLGraph) -> str:
+        import json
+
+        context: Dict[str, Any] = dict(graph.prefixes)
+        context["sh"] = "http://www.w3.org/ns/shacl#"
+        context["@vocab"] = graph.base_uri
+
+        graph_list: List[Dict[str, Any]] = [
+            {"@id": graph.shapes_uri, "@type": "owl:Ontology"}
+        ]
+        for node_shape in graph.node_shapes:
+            shape_id = f"{graph.base_uri}{node_shape.target_class}Shape"
+            node: Dict[str, Any] = {
+                "@id": shape_id,
+                "@type": "sh:NodeShape",
+                "sh:targetClass": {"@id": f"{graph.base_uri}{node_shape.target_class}"},
+            }
+            if node_shape.name:
+                node["sh:name"] = node_shape.name
+            if node_shape.description:
+                node["sh:description"] = node_shape.description
+            if node_shape.closed:
+                node["sh:closed"] = True
+                node["sh:ignoredProperties"] = [{"@id": "rdf:type"}]
+            if node_shape.property_shapes:
+                props = []
+                for ps in node_shape.property_shapes:
+                    p: Dict[str, Any] = {
+                        "sh:path": {"@id": f"{graph.base_uri}{ps.path}"}
+                    }
+                    if ps.datatype:
+                        dt = ps.datatype.replace(
+                            "xsd:", "http://www.w3.org/2001/XMLSchema#"
+                        )
+                        p["sh:datatype"] = {"@id": dt}
+                    if ps.class_:
+                        p["sh:class"] = {"@id": f"{graph.base_uri}{ps.class_}"}
+                    if ps.min_count is not None:
+                        p["sh:minCount"] = ps.min_count
+                    if ps.max_count is not None:
+                        p["sh:maxCount"] = ps.max_count
+                    if ps.in_values:
+                        p["sh:in"] = {"@list": ps.in_values}
+                    if ps.has_value is not None:
+                        p["sh:hasValue"] = ps.has_value
+                    if ps.pattern:
+                        p["sh:pattern"] = ps.pattern
+                    p["sh:severity"] = {"@id": f"sh:{ps.severity}"}
+                    props.append(p)
+                node["sh:property"] = props
+            graph_list.append(node)
+
+        return json.dumps({"@context": context, "@graph": graph_list}, indent=2)
+
+    def _serialize_ntriples(self, graph: SHACLGraph) -> str:
+        SHACL = "http://www.w3.org/ns/shacl#"
+        OWL = "http://www.w3.org/2002/07/owl#"
+        RDF = "http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+        XSD = "http://www.w3.org/2001/XMLSchema#"
+
+        lines: List[str] = []
+
+        def t(s: str, p: str, o: str) -> None:
+            lines.append(f"{s} {p} {o} .")
+
+        t(f"<{graph.shapes_uri}>", f"<{RDF}type>", f"<{OWL}Ontology>")
+
+        for i, node_shape in enumerate(graph.node_shapes):
+            shape_uri = f"<{graph.base_uri}{node_shape.target_class}Shape>"
+            class_uri = f"<{graph.base_uri}{node_shape.target_class}>"
+            t(shape_uri, f"<{RDF}type>", f"<{SHACL}NodeShape>")
+            t(shape_uri, f"<{SHACL}targetClass>", class_uri)
+            if node_shape.name:
+                t(shape_uri, f"<{SHACL}name>", f'"{node_shape.name}"')
+            if node_shape.closed:
+                t(
+                    shape_uri,
+                    f"<{SHACL}closed>",
+                    f'"true"^^<{XSD}boolean>',
+                )
+
+            for j, ps in enumerate(node_shape.property_shapes):
+                bnode = f"_:ps{i}_{j}"
+                t(shape_uri, f"<{SHACL}property>", bnode)
+                prop_uri = f"<{graph.base_uri}{ps.path}>"
+                t(bnode, f"<{SHACL}path>", prop_uri)
+                if ps.datatype:
+                    dt_uri = ps.datatype.replace("xsd:", XSD)
+                    t(bnode, f"<{SHACL}datatype>", f"<{dt_uri}>")
+                if ps.class_:
+                    t(bnode, f"<{SHACL}class>", f"<{graph.base_uri}{ps.class_}>")
+                if ps.min_count is not None:
+                    t(bnode, f"<{SHACL}minCount>", f'"{ps.min_count}"^^<{XSD}integer>')
+                if ps.max_count is not None:
+                    t(bnode, f"<{SHACL}maxCount>", f'"{ps.max_count}"^^<{XSD}integer>')
+                t(bnode, f"<{SHACL}severity>", f"<{SHACL}{ps.severity}>")
+
+        return "\n".join(lines)
+
+    # ── Helper ────────────────────────────────────────────────────────────────
+
+    def _resolve_xsd(self, range_str: str) -> str:
+        """Map ontology range strings to xsd:-prefixed datatypes."""
+        key = range_str.lower().strip()
+        return self._XSD_ALIASES.get(key, f"xsd:{range_str}")

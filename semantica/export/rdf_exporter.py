@@ -1234,3 +1234,36 @@ class RDFExporter:
         )
 
         return {"namespaces": resolved, "declarations": declarations}
+
+    def export_shacl(
+        self,
+        shacl_string: str,
+        file_path: Union[str, Path],
+        format: str = "turtle",
+        encoding: str = "utf-8",
+    ) -> None:
+        """
+        Write a SHACL shapes string produced by SHACLGenerator to a file.
+
+        Args:
+            shacl_string: Serialized SHACL content (Turtle, JSON-LD, or N-Triples).
+            file_path: Output path. Allowed extensions: .ttl, .jsonld, .nt, .shacl.
+            format: Format hint used for logging — "turtle", "json-ld", "n-triples".
+            encoding: File encoding (default "utf-8").
+
+        Raises:
+            ValidationError: If the file extension is not in the allowed set.
+        """
+        allowed_extensions = {".ttl", ".jsonld", ".nt", ".shacl"}
+        path = Path(file_path)
+        if path.suffix.lower() not in allowed_extensions:
+            raise ValidationError(
+                f"Unsupported SHACL file extension '{path.suffix}'. "
+                f"Allowed: {sorted(allowed_extensions)}"
+            )
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(shacl_string, encoding=encoding)
+        self.logger.info(
+            f"SHACL shapes ({format}) exported to {file_path} "
+            f"({len(shacl_string)} chars)"
+        )

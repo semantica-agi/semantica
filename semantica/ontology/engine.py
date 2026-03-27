@@ -191,6 +191,202 @@ class OntologyEngine:
             self.logger.error(f"Failed to list alignments: {e}")
             raise ProcessingError(f"Failed to list alignments: {e}")
             
+    # ── SHACL Phase 1: Generation ─────────────────────────────────────────────
+
+    def to_shacl(
+        self,
+        ontology: Dict[str, Any],
+        *,
+        format: str = "turtle",
+        base_uri: Optional[str] = None,
+        shapes_uri: Optional[str] = None,
+        include_inherited: bool = True,
+        severity: str = "Violation",
+        quality_tier: str = "standard",
+        validate_output: bool = False,
+        **options,
+    ) -> str:
+        """
+        Auto-derive SHACL node shapes and property shapes from a Semantica ontology dict.
+
+        Args:
+            ontology: Ontology dict from any OntologyEngine generation method.
+            format: Output format — "turtle" (default), "json-ld", or "n-triples".
+            base_uri: Base URI for generated shape URIs (inferred from ontology if omitted).
+            shapes_uri: URI for the shapes graph declaration.
+            include_inherited: Propagate parent class property shapes to child shapes.
+            severity: Default severity — "Violation", "Warning", or "Info".
+            quality_tier: Constraint completeness — "basic", "standard" (default), "strict".
+            validate_output: Syntax-check output via rdflib before returning.
+
+        Returns:
+            Serialized SHACL shapes string.
+        """
+        from .ontology_generator import SHACLGenerator
+
+        tracking_id = self.progress.start_tracking(
+            module="ontology",
+            submodule="OntologyEngine",
+            message="Generating SHACL shapes",
+        )
+        try:
+            ns = ontology.get("namespace", {}) if isinstance(ontology, dict) else {}
+            resolved_base = (
+                base_uri
+                or (ns.get("base_uri") if isinstance(ns, dict) else None)
+                or "https://semantica.dev/shapes/"
+            )
+            generator = SHACLGenerator(
+                base_uri=resolved_base,
+                shapes_uri=shapes_uri,
+                include_inherited=include_inherited,
+                severity=severity,
+                quality_tier=quality_tier,
+            )
+            graph = generator.generate(ontology, **options)
+            self.progress.update_tracking(tracking_id, message="Serializing SHACL graph")
+            result = generator.serialize(graph, format=format)
+            if validate_output:
+                try:
+                    import rdflib
+                    _fmt_map = {
+                        "turtle": "turtle", "ttl": "turtle",
+                        "json-ld": "json-ld", "jsonld": "json-ld", "json_ld": "json-ld",
+                        "n-triples": "nt", "ntriples": "nt", "nt": "nt",
+                    }
+                    rdflib_fmt = _fmt_map.get(format.lower().strip(), format)
+                    g = rdflib.Graph()
+                    g.parse(data=result, format=rdflib_fmt)
+                except Exception as e:
+                    self.logger.warning(f"SHACL output syntax check failed: {e}")
+            self.progress.stop_tracking(
+                tracking_id, status="completed", message="SHACL generation complete"
+            )
+            return result
+        except Exception as e:
+            self.progress.stop_tracking(tracking_id, status="failed", message=str(e))
+            raise
+
+    def export_shacl(
+        self,
+        ontology: Dict[str, Any],
+        path,
+        format: str = "turtle",
+        encoding: str = "utf-8",
+        **options,
+    ) -> None:
+        """
+        Generate SHACL shapes from ontology and write to a file.
+
+        Args:
+            ontology: Ontology dict.
+            path: Output file path (str or Path). Parent directories are created if needed.
+            format: Output format — "turtle", "json-ld", or "n-triples".
+            encoding: File encoding (default "utf-8").
+        """
+        from pathlib import Path
+
+        shacl_str = self.to_shacl(ontology, format=format, **options)
+        p = Path(path)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(shacl_str, encoding=encoding)
+        self.logger.info(f"SHACL shapes exported to {path}")
+
+    # ── SHACL Phase 2: Runtime Validation ────────────────────────────────────
+
+    def validate_graph(
+        self,
+        data_graph,
+        shacl=None,
+        *,
+        ontology: Optional[Dict[str, Any]] = None,
+        data_graph_format: str = "turtle",
+        shacl_format: str = "turtle",
+        explain: bool = True,
+        abort_on_first: bool = False,
+        **options,
+    ):
+        """
+        Validate a data graph against SHACL shapes.
+
+        Args:
+            data_graph: The graph to validate — RDF string or rdflib.Graph.
+            shacl: Pre-built SHACL string or file Path (mutually exclusive with ontology).
+            ontology: Ontology dict — SHACL is auto-generated before validation
+                      (mutually exclusive with shacl).
+            data_graph_format: RDF format of data_graph when passed as a string.
+            shacl_format: RDF format of the shacl argument when it is a string or file
+                          — "turtle" (default), "json-ld", or "n-triples". Ignored when
+                          ontology is provided (auto-generated shapes are always Turtle).
+            explain: Populate plain-English explanation on each violation.
+            abort_on_first: Stop after the first violation.
+
+        Returns:
+            SHACLValidationReport with structured violations and optional explanations.
+
+        Raises:
+            ValueError: If both or neither of shacl/ontology are provided.
+            ImportError: If pyshacl is not installed.
+        """
+        from .ontology_validator import _run_pyshacl
+
+        if (shacl is None) == (ontology is None):
+            raise ValueError(
+                "Exactly one of 'shacl' or 'ontology' must be provided, not both or neither."
+            )
+
+        tracking_id = self.progress.start_tracking(
+            module="ontology",
+            submodule="OntologyEngine",
+            message="Preparing graph validation",
+        )
+        try:
+            if ontology is not None:
+                self.progress.update_tracking(
+                    tracking_id, message="Generating SHACL from ontology"
+                )
+                shacl_str = self.to_shacl(ontology, **options)
+                shacl_format = "turtle"  # auto-generated shapes are always Turtle
+            else:
+                import os
+                from pathlib import Path
+
+                if isinstance(shacl, Path) or (
+                    isinstance(shacl, str) and os.path.exists(shacl)
+                ):
+                    shacl_str = Path(shacl).read_text(encoding="utf-8")
+                else:
+                    shacl_str = str(shacl)
+
+            if isinstance(data_graph, str):
+                data_graph_str = data_graph
+            else:
+                data_graph_str = data_graph.serialize(format=data_graph_format)
+
+            self.progress.update_tracking(tracking_id, message="Running pyshacl validator")
+            report = _run_pyshacl(
+                data_graph_str,
+                shacl_str,
+                data_graph_format=data_graph_format,
+                shacl_format=shacl_format,
+            )
+
+            if explain:
+                self.progress.update_tracking(
+                    tracking_id, message="Generating violation explanations"
+                )
+                report.explain_violations()
+
+            self.progress.stop_tracking(
+                tracking_id, status="completed", message="Validation complete"
+            )
+            return report
+        except Exception as e:
+            self.progress.stop_tracking(tracking_id, status="failed", message=str(e))
+            raise
+
+    # ── Ontology Evaluation / Validation ─────────────────────────────────────
+
     def evaluate(self, ontology: Dict[str, Any], **options):
         return self.evaluator.evaluate_ontology(ontology, **options)
 
