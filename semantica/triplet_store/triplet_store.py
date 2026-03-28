@@ -422,6 +422,157 @@ class TripletStore:
 
         return True
 
+    # ── SKOS helpers ─────────────────────────────────────────────────────────
+
+    _SKOS = "http://www.w3.org/2004/02/skos/core#"
+    _RDF_TYPE = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type"
+
+    def add_skos_concept(
+        self,
+        concept_uri: str,
+        scheme_uri: str,
+        pref_label: str,
+        alt_labels: Optional[List[str]] = None,
+        broader: Optional[List[str]] = None,
+        narrower: Optional[List[str]] = None,
+        related: Optional[List[str]] = None,
+        definition: Optional[str] = None,
+        notation: Optional[str] = None,
+        **options,
+    ) -> Dict[str, Any]:
+        """
+        Add a SKOS concept (and its scheme if not already present) to the store.
+
+        Core triples added:
+
+        * ``concept_uri  rdf:type             skos:Concept``
+        * ``concept_uri  skos:inScheme        scheme_uri``
+        * ``concept_uri  skos:prefLabel       pref_label``
+        * ``scheme_uri   rdf:type             skos:ConceptScheme``  (auto-created)
+        * Optional: altLabel, broader, narrower, related, definition, notation
+
+        Args:
+            concept_uri: Full URI for the concept.
+            scheme_uri: Full URI for the parent ConceptScheme.
+            pref_label: Preferred label string.
+            alt_labels: Optional list of alternative label strings.
+            broader: Optional list of broader concept URIs.
+            narrower: Optional list of narrower concept URIs.
+            related: Optional list of related concept URIs.
+            definition: Optional human-readable definition string.
+            notation: Optional notation / code string.
+            **options: Forwarded to :meth:`add_triplets`.
+
+        Returns:
+            :meth:`add_triplets` status dict.
+        """
+        SKOS = self._SKOS
+        RDF_TYPE = self._RDF_TYPE
+
+        triplets: List[Triplet] = [
+            # Scheme declaration
+            Triplet(scheme_uri, RDF_TYPE, f"{SKOS}ConceptScheme"),
+            # Concept core
+            Triplet(concept_uri, RDF_TYPE, f"{SKOS}Concept"),
+            Triplet(concept_uri, f"{SKOS}inScheme", scheme_uri),
+            Triplet(concept_uri, f"{SKOS}prefLabel", pref_label),
+        ]
+
+        for lbl in (alt_labels or []):
+            triplets.append(Triplet(concept_uri, f"{SKOS}altLabel", lbl))
+        for uri in (broader or []):
+            triplets.append(Triplet(concept_uri, f"{SKOS}broader", uri))
+        for uri in (narrower or []):
+            triplets.append(Triplet(concept_uri, f"{SKOS}narrower", uri))
+        for uri in (related or []):
+            triplets.append(Triplet(concept_uri, f"{SKOS}related", uri))
+        if definition:
+            triplets.append(Triplet(concept_uri, f"{SKOS}definition", definition))
+        if notation:
+            triplets.append(Triplet(concept_uri, f"{SKOS}notation", notation))
+
+        return self.add_triplets(triplets, **options)
+
+    def get_skos_concepts(
+        self, scheme_uri: Optional[str] = None, **options
+    ) -> List[Dict[str, Any]]:
+        """
+        Retrieve SKOS concepts from the store as plain dicts.
+
+        Each returned dict has at minimum ``uri`` and ``pref_label``; optional
+        keys ``alt_labels``, ``broader``, ``narrower``, and ``related`` are
+        populated when available.
+
+        Args:
+            scheme_uri: When given, only concepts ``skos:inScheme`` this URI
+                        are returned.  When omitted all concepts are returned.
+            **options: Forwarded to :meth:`execute_query`.
+
+        Returns:
+            List of concept dicts.
+        """
+        SKOS = self._SKOS
+        RDF_TYPE = self._RDF_TYPE
+
+        scheme_filter = (
+            f"?concept <{SKOS}inScheme> <{self.query_engine._sanitize_uri(scheme_uri)}> ."
+            if scheme_uri
+            else ""
+        )
+
+        query = f"""
+        SELECT DISTINCT ?concept ?prefLabel ?altLabel ?broader ?narrower ?related
+        WHERE {{
+            ?concept <{RDF_TYPE}> <{SKOS}Concept> .
+            {scheme_filter}
+            OPTIONAL {{ ?concept <{SKOS}prefLabel> ?prefLabel }}
+            OPTIONAL {{ ?concept <{SKOS}altLabel>  ?altLabel  }}
+            OPTIONAL {{ ?concept <{SKOS}broader>   ?broader   }}
+            OPTIONAL {{ ?concept <{SKOS}narrower>  ?narrower  }}
+            OPTIONAL {{ ?concept <{SKOS}related>   ?related   }}
+        }}
+        """
+
+        try:
+            result = self.execute_query(query, **options)
+        except Exception as e:
+            self.logger.error(f"get_skos_concepts query failed: {e}")
+            raise ProcessingError(f"Failed to retrieve SKOS concepts: {e}")
+
+        # Collapse multi-valued properties per concept URI
+        concepts: Dict[str, Dict[str, Any]] = {}
+        for b in result.bindings:
+            def _val(key: str) -> Optional[str]:
+                v = b.get(key)
+                return (v.get("value") if isinstance(v, dict) else v) if v else None
+
+            uri = _val("concept")
+            if not uri:
+                continue
+            if uri not in concepts:
+                concepts[uri] = {
+                    "uri": uri,
+                    "pref_label": _val("prefLabel") or "",
+                    "alt_labels": [],
+                    "broader": [],
+                    "narrower": [],
+                    "related": [],
+                }
+            entry = concepts[uri]
+            if not entry["pref_label"] and _val("prefLabel"):
+                entry["pref_label"] = _val("prefLabel")
+            for multi_key, sparql_key in [
+                ("alt_labels", "altLabel"),
+                ("broader", "broader"),
+                ("narrower", "narrower"),
+                ("related", "related"),
+            ]:
+                v = _val(sparql_key)
+                if v and v not in entry[multi_key]:
+                    entry[multi_key].append(v)
+
+        return list(concepts.values())
+
     def get_stats(self) -> Dict[str, Any]:
         """Get store statistics."""
         if hasattr(self._store_backend, "get_stats"):

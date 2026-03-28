@@ -431,5 +431,199 @@ class TestSHACLGeneration(unittest.TestCase):
         self.assertEqual(gen.quality_tier, "standard")
 
 
+class TestSKOSOntologyEngine(unittest.TestCase):
+    """Tests for SKOS vocabulary management APIs in OntologyEngine."""
+
+    def setUp(self):
+        self.mock_logger = MagicMock()
+        self.mock_tracker = MagicMock()
+        self.mock_tracker.start_tracking.return_value = "track_id"
+
+        patchers = [
+            patch('semantica.ontology.engine.get_logger', return_value=self.mock_logger),
+            patch('semantica.ontology.engine.get_progress_tracker', return_value=self.mock_tracker),
+            patch('semantica.ontology.ontology_generator.get_logger', return_value=self.mock_logger),
+            patch('semantica.ontology.ontology_generator.get_progress_tracker', return_value=self.mock_tracker),
+            patch('semantica.ontology.class_inferrer.get_logger', return_value=self.mock_logger),
+            patch('semantica.ontology.class_inferrer.get_progress_tracker', return_value=self.mock_tracker),
+            patch('semantica.ontology.property_generator.get_logger', return_value=self.mock_logger),
+            patch('semantica.ontology.property_generator.get_progress_tracker', return_value=self.mock_tracker),
+            patch('semantica.ontology.owl_generator.get_logger', return_value=self.mock_logger),
+            patch('semantica.ontology.owl_generator.get_progress_tracker', return_value=self.mock_tracker),
+            patch('semantica.ontology.ontology_evaluator.get_logger', return_value=self.mock_logger),
+            patch('semantica.ontology.ontology_evaluator.get_progress_tracker', return_value=self.mock_tracker),
+            patch('semantica.ontology.ontology_validator.get_logger', return_value=self.mock_logger),
+            patch('semantica.ontology.llm_generator.get_logger', return_value=self.mock_logger),
+            patch('semantica.ontology.llm_generator.get_progress_tracker', return_value=self.mock_tracker),
+            patch('semantica.change_management.ontology_version_manager.get_logger', return_value=self.mock_logger),
+            patch('semantica.change_management.ontology_version_manager.get_progress_tracker', return_value=self.mock_tracker),
+        ]
+        self.patchers = patchers
+        for p in self.patchers:
+            p.start()
+
+        # Mock store with a controllable execute_query
+        self.mock_store = MagicMock()
+        from semantica.ontology.engine import OntologyEngine
+        self.engine = OntologyEngine(store=self.mock_store)
+
+    def tearDown(self):
+        for p in self.patchers:
+            p.stop()
+
+    def _make_result(self, bindings):
+        """Build a fake QueryResult-like object."""
+        result = MagicMock()
+        result.bindings = bindings
+        return result
+
+    # --- NamespaceManager SKOS helpers ---
+
+    def test_get_skos_uri(self):
+        from semantica.ontology.namespace_manager import NamespaceManager
+        nm = NamespaceManager()
+        self.assertEqual(
+            nm.get_skos_uri("Concept"),
+            "http://www.w3.org/2004/02/skos/core#Concept",
+        )
+        self.assertEqual(
+            nm.get_skos_uri("prefLabel"),
+            "http://www.w3.org/2004/02/skos/core#prefLabel",
+        )
+
+    def test_build_concept_scheme_uri(self):
+        from semantica.ontology.namespace_manager import NamespaceManager
+        nm = NamespaceManager(base_uri="https://example.org/onto/")
+        uri = nm.build_concept_scheme_uri("My Vocabulary")
+        self.assertIn("my-vocabulary", uri)
+        self.assertTrue(uri.startswith("https://example.org/onto/"))
+
+    def test_build_concept_scheme_uri_special_chars(self):
+        from semantica.ontology.namespace_manager import NamespaceManager
+        nm = NamespaceManager()
+        uri = nm.build_concept_scheme_uri("ISO 3166 Countries")
+        self.assertIn("iso-3166-countries", uri)
+
+    # --- list_vocabularies ---
+
+    def test_list_vocabularies_returns_schemes(self):
+        self.mock_store.execute_query.return_value = self._make_result([
+            {"scheme": {"value": "http://example.org/vocab/colours"},
+             "label":  {"value": "Colours"}},
+            {"scheme": {"value": "http://example.org/vocab/sizes"},
+             "label":  None},
+        ])
+        vocabs = self.engine.list_vocabularies()
+        self.assertEqual(len(vocabs), 2)
+        uris = [v["uri"] for v in vocabs]
+        self.assertIn("http://example.org/vocab/colours", uris)
+        self.assertIn("http://example.org/vocab/sizes", uris)
+        colours = next(v for v in vocabs if "colours" in v["uri"])
+        self.assertEqual(colours["label"], "Colours")
+
+    def test_list_vocabularies_deduplicates(self):
+        # Same scheme URI appearing twice (multi-valued label rows)
+        self.mock_store.execute_query.return_value = self._make_result([
+            {"scheme": {"value": "http://example.org/vocab/colours"},
+             "label":  {"value": "Colours"}},
+            {"scheme": {"value": "http://example.org/vocab/colours"},
+             "label":  {"value": "Colors"}},
+        ])
+        vocabs = self.engine.list_vocabularies()
+        self.assertEqual(len(vocabs), 1)
+
+    def test_list_vocabularies_no_store_raises(self):
+        from semantica.utils.exceptions import ProcessingError
+        from semantica.ontology.engine import OntologyEngine
+        engine_no_store = OntologyEngine()
+        with self.assertRaises(ProcessingError):
+            engine_no_store.list_vocabularies()
+
+    # --- list_concepts ---
+
+    def test_list_concepts_returns_concepts(self):
+        self.mock_store.execute_query.return_value = self._make_result([
+            {"concept": {"value": "http://example.org/concept/red"},
+             "prefLabel": {"value": "Red"},
+             "altLabel":  {"value": "Crimson"}},
+            {"concept": {"value": "http://example.org/concept/red"},
+             "prefLabel": {"value": "Red"},
+             "altLabel":  {"value": "Rouge"}},
+            {"concept": {"value": "http://example.org/concept/blue"},
+             "prefLabel": {"value": "Blue"},
+             "altLabel":  None},
+        ])
+        concepts = self.engine.list_concepts("http://example.org/vocab/colours")
+        self.assertEqual(len(concepts), 2)
+        red = next(c for c in concepts if "red" in c["uri"])
+        self.assertEqual(red["pref_label"], "Red")
+        self.assertIn("Crimson", red["alt_labels"])
+        self.assertIn("Rouge", red["alt_labels"])
+        blue = next(c for c in concepts if "blue" in c["uri"])
+        self.assertEqual(blue["alt_labels"], [])
+
+    def test_list_concepts_no_store_raises(self):
+        from semantica.utils.exceptions import ProcessingError
+        from semantica.ontology.engine import OntologyEngine
+        engine_no_store = OntologyEngine()
+        with self.assertRaises(ProcessingError):
+            engine_no_store.list_concepts("http://example.org/vocab/colours")
+
+    # --- search_concepts ---
+
+    def test_search_concepts_returns_matches(self):
+        self.mock_store.execute_query.return_value = self._make_result([
+            {"concept": {"value": "http://example.org/concept/red"},
+             "label":   {"value": "Red"}},
+            {"concept": {"value": "http://example.org/concept/infrared"},
+             "label":   {"value": "Infrared"}},
+        ])
+        results = self.engine.search_concepts("red")
+        self.assertEqual(len(results), 2)
+        uris = [r["uri"] for r in results]
+        self.assertIn("http://example.org/concept/red", uris)
+        self.assertIn("http://example.org/concept/infrared", uris)
+
+    def test_search_concepts_with_scheme_filter(self):
+        self.mock_store.execute_query.return_value = self._make_result([
+            {"concept": {"value": "http://example.org/concept/red"},
+             "label":   {"value": "Red"}},
+        ])
+        results = self.engine.search_concepts("red", scheme_uri="http://example.org/vocab/colours")
+        self.assertEqual(len(results), 1)
+        # Scheme URI should appear in the SPARQL issued to the store
+        issued_sparql = self.mock_store.execute_query.call_args[0][0]
+        self.assertIn("http://example.org/vocab/colours", issued_sparql)
+
+    def test_search_concepts_empty_result(self):
+        self.mock_store.execute_query.return_value = self._make_result([])
+        results = self.engine.search_concepts("zzznomatch")
+        self.assertEqual(results, [])
+
+    def test_search_concepts_no_store_raises(self):
+        from semantica.utils.exceptions import ProcessingError
+        from semantica.ontology.engine import OntologyEngine
+        engine_no_store = OntologyEngine()
+        with self.assertRaises(ProcessingError):
+            engine_no_store.search_concepts("red")
+
+    def test_search_concepts_sanitizes_query(self):
+        """Ensure user input containing SPARQL-special chars doesn't break the query."""
+        self.mock_store.execute_query.return_value = self._make_result([])
+        # Should not raise
+        self.engine.search_concepts('red" } MALICIOUS { ?x ?y ?z')
+
+    def test_search_concepts_deduplicates(self):
+        # Same concept URI matched by both prefLabel and altLabel
+        self.mock_store.execute_query.return_value = self._make_result([
+            {"concept": {"value": "http://example.org/concept/red"},
+             "label":   {"value": "Red"}},
+            {"concept": {"value": "http://example.org/concept/red"},
+             "label":   {"value": "Reddish"}},
+        ])
+        results = self.engine.search_concepts("red")
+        self.assertEqual(len(results), 1)
+
+
 if __name__ == '__main__':
     unittest.main()

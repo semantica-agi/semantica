@@ -207,6 +207,35 @@ class NamespaceManager:
         """
         return dict(self.namespaces)
     
+    def get_skos_uri(self, local_name: str) -> str:
+        """
+        Build a full SKOS URI from a local name.
+
+        Args:
+            local_name: SKOS local term (e.g. ``"Concept"``, ``"prefLabel"``)
+
+        Returns:
+            Full SKOS URI string
+        """
+        skos_ns = self.namespaces["skos"]
+        return f"{skos_ns}{local_name}"
+
+    def build_concept_scheme_uri(self, name: str) -> str:
+        """
+        Build a ConceptScheme URI anchored at the current base URI.
+
+        The scheme name is slugified (spaces → hyphens, lower-cased) so that
+        ``"My Vocabulary"`` becomes ``<base>/vocab/my-vocabulary>``.
+
+        Args:
+            name: Human-readable vocabulary name
+
+        Returns:
+            ConceptScheme URI string
+        """
+        slug = re.sub(r"[^a-zA-Z0-9]+", "-", name).strip("-").lower()
+        return urljoin(self.get_base_uri(), f"vocab/{slug}")
+
     def get_alignment_predicates(self) -> Dict[str, str]:
         """
         Get standard alignment predicates for ontology mapping.

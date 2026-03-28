@@ -162,3 +162,183 @@ class TestTripletStore(unittest.TestCase):
         self.assertIn("http://aligned.org/2", sparql_query)
         self.assertIn("VALUES ?subject", sparql_query)
         mock_backend.execute_sparql.assert_called_once()
+
+
+class TestSKOSTripletStore(unittest.TestCase):
+    """Tests for SKOS helper methods on TripletStore."""
+
+    _SKOS = "http://www.w3.org/2004/02/skos/core#"
+    _RDF_TYPE = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type"
+
+    def setUp(self):
+        self.mock_logger = MagicMock()
+        self.mock_tracker = MagicMock()
+
+        self.logger_patcher = patch(
+            'semantica.triplet_store.triplet_store.get_logger', return_value=self.mock_logger
+        )
+        self.tracker_patcher = patch(
+            'semantica.triplet_store.triplet_store.get_progress_tracker', return_value=self.mock_tracker
+        )
+        self.logger_patcher.start()
+        self.tracker_patcher.start()
+
+    def tearDown(self):
+        self.logger_patcher.stop()
+        self.tracker_patcher.stop()
+
+    def _make_store(self, mock_blazegraph):
+        """Return a TripletStore backed by a MagicMock BlazegraphStore."""
+        mock_backend = MagicMock()
+        mock_blazegraph.return_value = mock_backend
+        store = TripletStore(backend="blazegraph")
+        # Provide a fast no-op bulk loader
+        mock_loader = MagicMock()
+        mock_progress = MagicMock()
+        mock_progress.metadata = {"success": True}
+        mock_progress.total_triplets = 0
+        mock_progress.loaded_triplets = 0
+        mock_progress.failed_triplets = 0
+        mock_progress.total_batches = 0
+        mock_loader.load_triplets.return_value = mock_progress
+        store.bulk_loader = mock_loader
+        return store, mock_backend, mock_loader
+
+    # --- add_skos_concept ---
+
+    @patch('semantica.triplet_store.blazegraph_store.BlazegraphStore')
+    def test_add_skos_concept_core_triples(self, mock_bg):
+        """add_skos_concept must produce ConceptScheme + Concept + inScheme + prefLabel triples."""
+        store, _, mock_loader = self._make_store(mock_bg)
+
+        store.add_skos_concept(
+            concept_uri="http://example.org/concept/red",
+            scheme_uri="http://example.org/vocab/colours",
+            pref_label="Red",
+        )
+
+        mock_loader.load_triplets.assert_called_once()
+        triplets = mock_loader.load_triplets.call_args[0][0]
+        subjects_predicates = {(t.subject, t.predicate) for t in triplets}
+
+        SKOS = self._SKOS
+        RDF_TYPE = self._RDF_TYPE
+
+        self.assertIn(("http://example.org/vocab/colours", RDF_TYPE), subjects_predicates)
+        self.assertIn(("http://example.org/concept/red", RDF_TYPE), subjects_predicates)
+        self.assertIn(("http://example.org/concept/red", f"{SKOS}inScheme"), subjects_predicates)
+        self.assertIn(("http://example.org/concept/red", f"{SKOS}prefLabel"), subjects_predicates)
+
+    @patch('semantica.triplet_store.blazegraph_store.BlazegraphStore')
+    def test_add_skos_concept_optional_fields(self, mock_bg):
+        """Optional fields produce extra triples."""
+        store, _, mock_loader = self._make_store(mock_bg)
+
+        store.add_skos_concept(
+            concept_uri="http://example.org/concept/red",
+            scheme_uri="http://example.org/vocab/colours",
+            pref_label="Red",
+            alt_labels=["Crimson", "Rouge"],
+            broader=["http://example.org/concept/colour"],
+            definition="The colour red.",
+            notation="RED",
+        )
+
+        triplets = mock_loader.load_triplets.call_args[0][0]
+        predicates = [t.predicate for t in triplets]
+        SKOS = self._SKOS
+
+        self.assertIn(f"{SKOS}altLabel", predicates)
+        self.assertEqual(predicates.count(f"{SKOS}altLabel"), 2)
+        self.assertIn(f"{SKOS}broader", predicates)
+        self.assertIn(f"{SKOS}definition", predicates)
+        self.assertIn(f"{SKOS}notation", predicates)
+
+    @patch('semantica.triplet_store.blazegraph_store.BlazegraphStore')
+    def test_add_skos_concept_scheme_triple_always_included(self, mock_bg):
+        """ConceptScheme rdf:type triple is always included even without optional args."""
+        store, _, mock_loader = self._make_store(mock_bg)
+
+        store.add_skos_concept(
+            concept_uri="http://example.org/concept/blue",
+            scheme_uri="http://example.org/vocab/colours",
+            pref_label="Blue",
+        )
+
+        triplets = mock_loader.load_triplets.call_args[0][0]
+        scheme_types = [
+            t for t in triplets
+            if t.subject == "http://example.org/vocab/colours"
+            and t.predicate == self._RDF_TYPE
+            and t.object == f"{self._SKOS}ConceptScheme"
+        ]
+        self.assertEqual(len(scheme_types), 1)
+
+    # --- get_skos_concepts ---
+
+    @patch('semantica.triplet_store.blazegraph_store.BlazegraphStore')
+    def test_get_skos_concepts_all(self, mock_bg):
+        """get_skos_concepts returns all concepts when no scheme_uri given."""
+        store, mock_backend, _ = self._make_store(mock_bg)
+
+        from semantica.triplet_store.query_engine import QueryResult
+        mock_result = QueryResult(
+            bindings=[
+                {"concept": {"value": "http://example.org/concept/red"},
+                 "prefLabel": {"value": "Red"},
+                 "altLabel": {"value": "Crimson"},
+                 "broader": None, "narrower": None, "related": None},
+                {"concept": {"value": "http://example.org/concept/red"},
+                 "prefLabel": {"value": "Red"},
+                 "altLabel": {"value": "Rouge"},
+                 "broader": None, "narrower": None, "related": None},
+                {"concept": {"value": "http://example.org/concept/blue"},
+                 "prefLabel": {"value": "Blue"},
+                 "altLabel": None,
+                 "broader": None, "narrower": None, "related": None},
+            ],
+            variables=["concept", "prefLabel", "altLabel"],
+        )
+        mock_backend.execute_sparql.return_value = {
+            "bindings": mock_result.bindings,
+            "variables": mock_result.variables,
+            "metadata": {},
+        }
+
+        # Patch query_engine.execute_query to return mock_result directly
+        store.query_engine.execute_query = MagicMock(return_value=mock_result)
+
+        concepts = store.get_skos_concepts()
+        self.assertEqual(len(concepts), 2)
+
+        red = next(c for c in concepts if "red" in c["uri"])
+        self.assertEqual(red["pref_label"], "Red")
+        self.assertIn("Crimson", red["alt_labels"])
+        self.assertIn("Rouge", red["alt_labels"])
+
+        blue = next(c for c in concepts if "blue" in c["uri"])
+        self.assertEqual(blue["alt_labels"], [])
+
+    @patch('semantica.triplet_store.blazegraph_store.BlazegraphStore')
+    def test_get_skos_concepts_scheme_filter_in_query(self, mock_bg):
+        """When scheme_uri is given the scheme URI appears in the issued SPARQL."""
+        store, _, _ = self._make_store(mock_bg)
+
+        from semantica.triplet_store.query_engine import QueryResult
+        empty_result = QueryResult(bindings=[], variables=[])
+        store.query_engine.execute_query = MagicMock(return_value=empty_result)
+
+        store.get_skos_concepts(scheme_uri="http://example.org/vocab/colours")
+
+        issued_sparql = store.query_engine.execute_query.call_args[0][0]
+        self.assertIn("http://example.org/vocab/colours", issued_sparql)
+
+    @patch('semantica.triplet_store.blazegraph_store.BlazegraphStore')
+    def test_get_skos_concepts_empty_store(self, mock_bg):
+        """Returns empty list when no concepts exist."""
+        store, _, _ = self._make_store(mock_bg)
+        from semantica.triplet_store.query_engine import QueryResult
+        store.query_engine.execute_query = MagicMock(
+            return_value=QueryResult(bindings=[], variables=[])
+        )
+        self.assertEqual(store.get_skos_concepts(), [])

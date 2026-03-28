@@ -385,6 +385,194 @@ class OntologyEngine:
             self.progress.stop_tracking(tracking_id, status="failed", message=str(e))
             raise
 
+    # ── SKOS Vocabulary Management ────────────────────────────────────────────
+
+    _SKOS = "http://www.w3.org/2004/02/skos/core#"
+    _RDF_TYPE = "http://www.w3.org/1999/02/22-rdf-syntax-ns#type"
+
+    def list_vocabularies(self, **options) -> List[Dict[str, Any]]:
+        """
+        List all SKOS ConceptSchemes stored in the triplet store.
+
+        Returns:
+            List of dicts with keys ``uri`` and ``label`` (may be empty string
+            when no ``skos:prefLabel`` is present).
+
+        Raises:
+            ProcessingError: If no store is configured or the query fails.
+        """
+        if not self.store:
+            raise ProcessingError("TripletStore instance not configured in OntologyEngine.")
+
+        SKOS = self._SKOS
+        RDF_TYPE = self._RDF_TYPE
+
+        query = f"""
+        SELECT DISTINCT ?scheme ?label WHERE {{
+            ?scheme <{RDF_TYPE}> <{SKOS}ConceptScheme> .
+            OPTIONAL {{ ?scheme <{SKOS}prefLabel> ?label }}
+        }}
+        """
+        tracking_id = self.progress.start_tracking(
+            module="ontology", submodule="OntologyEngine", message="Listing SKOS vocabularies"
+        )
+        try:
+            result = self.store.execute_query(query, **options)
+            vocabs = []
+            if hasattr(result, "bindings"):
+                seen: set = set()
+                for b in result.bindings:
+                    def _v(key):
+                        val = b.get(key)
+                        return (val.get("value") if isinstance(val, dict) else val) if val else None
+                    uri = _v("scheme")
+                    if uri and uri not in seen:
+                        seen.add(uri)
+                        vocabs.append({"uri": uri, "label": _v("label") or ""})
+            self.progress.stop_tracking(tracking_id, status="completed",
+                                        message=f"Found {len(vocabs)} vocabularies")
+            return vocabs
+        except Exception as e:
+            self.progress.stop_tracking(tracking_id, status="failed", message=str(e))
+            raise ProcessingError(f"list_vocabularies failed: {e}")
+
+    def list_concepts(self, scheme_uri: str, **options) -> List[Dict[str, Any]]:
+        """
+        List all SKOS concepts that belong to the given ConceptScheme.
+
+        Args:
+            scheme_uri: Full URI of the ``skos:ConceptScheme`` to inspect.
+
+        Returns:
+            List of dicts with keys ``uri``, ``pref_label``, and
+            ``alt_labels`` (list, may be empty).
+
+        Raises:
+            ProcessingError: If no store is configured or the query fails.
+        """
+        if not self.store:
+            raise ProcessingError("TripletStore instance not configured in OntologyEngine.")
+
+        SKOS = self._SKOS
+        RDF_TYPE = self._RDF_TYPE
+        safe_scheme = self._sanitize_uri(scheme_uri)
+
+        query = f"""
+        SELECT DISTINCT ?concept ?prefLabel ?altLabel WHERE {{
+            ?concept <{RDF_TYPE}> <{SKOS}Concept> .
+            ?concept <{SKOS}inScheme> <{safe_scheme}> .
+            OPTIONAL {{ ?concept <{SKOS}prefLabel> ?prefLabel }}
+            OPTIONAL {{ ?concept <{SKOS}altLabel>  ?altLabel  }}
+        }}
+        """
+        tracking_id = self.progress.start_tracking(
+            module="ontology", submodule="OntologyEngine",
+            message=f"Listing concepts in {scheme_uri}"
+        )
+        try:
+            result = self.store.execute_query(query, **options)
+            concepts: Dict[str, Dict[str, Any]] = {}
+            if hasattr(result, "bindings"):
+                for b in result.bindings:
+                    def _v(key):
+                        val = b.get(key)
+                        return (val.get("value") if isinstance(val, dict) else val) if val else None
+                    uri = _v("concept")
+                    if not uri:
+                        continue
+                    if uri not in concepts:
+                        concepts[uri] = {"uri": uri, "pref_label": _v("prefLabel") or "", "alt_labels": []}
+                    if not concepts[uri]["pref_label"] and _v("prefLabel"):
+                        concepts[uri]["pref_label"] = _v("prefLabel")
+                    lbl = _v("altLabel")
+                    if lbl and lbl not in concepts[uri]["alt_labels"]:
+                        concepts[uri]["alt_labels"].append(lbl)
+            self.progress.stop_tracking(tracking_id, status="completed",
+                                        message=f"Found {len(concepts)} concepts")
+            return list(concepts.values())
+        except Exception as e:
+            self.progress.stop_tracking(tracking_id, status="failed", message=str(e))
+            raise ProcessingError(f"list_concepts failed: {e}")
+
+    def search_concepts(
+        self,
+        query: str,
+        scheme_uri: Optional[str] = None,
+        **options,
+    ) -> List[Dict[str, Any]]:
+        """
+        Search SKOS concepts by matching ``skos:prefLabel`` or ``skos:altLabel``.
+
+        The search is case-insensitive substring matching performed at the
+        SPARQL level via ``CONTAINS(LCASE(…))``.
+
+        Args:
+            query: Substring to search for.
+            scheme_uri: When given, restrict results to this ConceptScheme.
+
+        Returns:
+            List of dicts with keys ``uri`` and ``label`` (the matching label).
+
+        Raises:
+            ProcessingError: If no store is configured or the query fails.
+        """
+        if not self.store:
+            raise ProcessingError("TripletStore instance not configured in OntologyEngine.")
+
+        SKOS = self._SKOS
+        RDF_TYPE = self._RDF_TYPE
+
+        # Sanitize user query for embedding in a SPARQL string literal
+        safe_query = (
+            query
+            .replace("\\", "\\\\")
+            .replace('"', '\\"')
+            .replace("\n", " ")
+            .replace("\r", " ")
+        )
+
+        scheme_filter = ""
+        if scheme_uri:
+            safe_scheme = self._sanitize_uri(scheme_uri)
+            scheme_filter = f"?concept <{SKOS}inScheme> <{safe_scheme}> ."
+
+        sparql = f"""
+        SELECT DISTINCT ?concept ?label WHERE {{
+            ?concept <{RDF_TYPE}> <{SKOS}Concept> .
+            {scheme_filter}
+            {{
+                ?concept <{SKOS}prefLabel> ?label
+            }} UNION {{
+                ?concept <{SKOS}altLabel> ?label
+            }}
+            FILTER(CONTAINS(LCASE(STR(?label)), LCASE("{safe_query}")))
+        }}
+        """
+        tracking_id = self.progress.start_tracking(
+            module="ontology", submodule="OntologyEngine",
+            message=f"Searching SKOS concepts: '{query}'"
+        )
+        try:
+            result = self.store.execute_query(sparql, **options)
+            matches = []
+            seen: set = set()
+            if hasattr(result, "bindings"):
+                for b in result.bindings:
+                    def _v(key):
+                        val = b.get(key)
+                        return (val.get("value") if isinstance(val, dict) else val) if val else None
+                    uri = _v("concept")
+                    lbl = _v("label")
+                    if uri and uri not in seen:
+                        seen.add(uri)
+                        matches.append({"uri": uri, "label": lbl or ""})
+            self.progress.stop_tracking(tracking_id, status="completed",
+                                        message=f"Found {len(matches)} matches")
+            return matches
+        except Exception as e:
+            self.progress.stop_tracking(tracking_id, status="failed", message=str(e))
+            raise ProcessingError(f"search_concepts failed: {e}")
+
     # ── Ontology Evaluation / Validation ─────────────────────────────────────
 
     def evaluate(self, ontology: Dict[str, Any], **options):

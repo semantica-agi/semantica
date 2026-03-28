@@ -335,6 +335,114 @@ else:
 
 ---
 
+## SKOS Vocabulary Management
+
+Semantica supports [SKOS (Simple Knowledge Organization System)](https://www.w3.org/TR/skos-reference/) vocabularies as first-class semantic assets.  SKOS triples are stored in the existing RDF triplet store and queried through the `OntologyEngine` — no additional packages are required.
+
+### Concepts and data model
+
+| SKOS element | RDF type / predicate |
+|---|---|
+| ConceptScheme | `skos:ConceptScheme` |
+| Concept | `skos:Concept` |
+| Preferred label | `skos:prefLabel` |
+| Alternative label | `skos:altLabel` |
+| Broader concept | `skos:broader` |
+| Narrower concept | `skos:narrower` |
+| Related concept | `skos:related` |
+| Human definition | `skos:definition` |
+| Notation / code | `skos:notation` |
+
+### Importing a SKOS vocabulary
+
+Use `TripletStore.add_skos_concept()` to load individual concepts.  The method automatically asserts the parent `skos:ConceptScheme` triple the first time any concept for that scheme is added.
+
+```python
+from semantica.triplet_store import TripletStore
+
+store = TripletStore(backend="blazegraph", endpoint="http://localhost:9999/blazegraph")
+
+SCHEME = "https://vocab.example.org/colours"
+
+store.add_skos_concept(
+    concept_uri="https://vocab.example.org/colours/red",
+    scheme_uri=SCHEME,
+    pref_label="Red",
+    alt_labels=["Crimson", "Rouge"],
+    broader=["https://vocab.example.org/colours/warm"],
+    definition="The colour at the long-wavelength end of the visible spectrum.",
+    notation="RED",
+)
+
+store.add_skos_concept(
+    concept_uri="https://vocab.example.org/colours/blue",
+    scheme_uri=SCHEME,
+    pref_label="Blue",
+    alt_labels=["Azure", "Cerulean"],
+)
+```
+
+For bulk ingestion of an existing SKOS/Turtle file use `TripletStore.add_triplets()` after parsing the file with [rdflib](https://rdflib.readthedocs.io/):
+
+```python
+import rdflib
+from semantica.semantic_extract.triplet_extractor import Triplet
+
+g = rdflib.Graph()
+g.parse("my_vocabulary.ttl", format="turtle")
+
+triplets = [
+    Triplet(subject=str(s), predicate=str(p), object=str(o))
+    for s, p, o in g
+]
+store.add_triplets(triplets)
+```
+
+### Listing and searching concepts
+
+Once a vocabulary is loaded, use `OntologyEngine` to browse and search it:
+
+```python
+from semantica.ontology import OntologyEngine
+
+engine = OntologyEngine(store=store)
+
+# 1. List all ConceptSchemes in the store
+vocabularies = engine.list_vocabularies()
+# [{"uri": "https://vocab.example.org/colours", "label": "Colours"}, ...]
+
+# 2. List every concept in a specific scheme
+concepts = engine.list_concepts("https://vocab.example.org/colours")
+# [{"uri": "...", "pref_label": "Red", "alt_labels": ["Crimson", "Rouge"]}, ...]
+
+# 3. Case-insensitive substring search across prefLabel and altLabel
+results = engine.search_concepts("crimson")
+# [{"uri": "https://vocab.example.org/colours/red", "label": "Crimson"}]
+
+# 4. Restrict search to one scheme
+results = engine.search_concepts("azure", scheme_uri="https://vocab.example.org/colours")
+```
+
+### Building SKOS URIs with NamespaceManager
+
+`NamespaceManager` provides helpers for constructing well-formed SKOS IRIs:
+
+```python
+from semantica.ontology import NamespaceManager
+
+nm = NamespaceManager(base_uri="https://vocab.example.org/")
+
+# Full SKOS predicate URI
+nm.get_skos_uri("prefLabel")
+# "http://www.w3.org/2004/02/skos/core#prefLabel"
+
+# Slug-based ConceptScheme URI anchored at the base
+nm.build_concept_scheme_uri("ISO 3166 Countries")
+# "https://vocab.example.org/vocab/iso-3166-countries"
+```
+
+---
+
 ## Best Practices
 
 1.  **Reuse Standard Ontologies**: Don't reinvent `Person` or `Organization`; import FOAF or Schema.org using `ReuseManager`.
