@@ -295,14 +295,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - Added full-URI validation in `create_alignment` — raises `ProcessingError` if predicate is a CURIE instead of a full URI, preventing silent storage of unqueryable triples
     - Fixed E2E test `test_end_to_end_cross_ontology_uri_flow` — previously mocked the method under test; now uses a real mock backend with `execute_sparql` to exercise the actual expansion and VALUES clause injection flow
   - 19 tests added covering: `create_alignment`, `get_alignments`, `suggest_alignments`, merge with alignment computation, `expand_entity_uri` (enabled/disabled), `build_values_clause`, and full E2E cross-ontology query flow
-- **Context Explainability Output Fixes** (PR pending on `context` by @KaifAhmad1):
+- **Context Explainability Output Fixes** (by @KaifAhmad1):
   - Fixed decision-node storage in `ContextGraph` so full human-readable `scenario`, `reasoning`, and decision metadata are preserved on graph nodes instead of degrading into opaque IDs or truncated display text
   - Fixed causal and precedent reconstruction paths in the context module so returned `Decision` objects prefer readable stored fields over raw node identifiers
   - Fixed context aggregate outputs to return enriched readable payloads for influence, causality, similarity, policy-impact, and entity-similarity workflows instead of bare UUID lists or tuple-only results
   - Fixed `PolicyEngine.get_affected_decisions()` so both Cypher and fallback branches return consistent decision metadata including `scenario`, `category`, `outcome`, and `confidence`
   - Fixed `EntityLinker` similarity flows so enriched similarity results are consumed correctly across internal linking paths and public search aliases
+  - Fixed `CentralityCalculator._build_adjacency()` to handle `ContextGraph` edges (dataclass `ContextEdge` objects with `source_id`/`target_id`) so `calculate_degree_centrality()` and related centrality algorithms work correctly when a `ContextGraph` is passed as the graph store
   - Fixed downstream KG integrations in `node_embeddings`, `link_predictor`, `centrality_calculator`, `path_finder`, and context retrieval fallbacks to normalize enriched neighbor/node outputs without breaking graph algorithms
-  - Added and updated regression tests covering readable decision text preservation, enriched causal/path outputs, policy-impact results, entity similarity payloads, and compatibility with KG consumers
+  - Added 23 regression tests in `tests/context/test_context_explainability_regression.py` covering readable decision text preservation, enriched causal/path outputs, policy-impact results, entity similarity payloads, and compatibility with KG consumers
 
 ## [0.3.0] - 2026-03-10
 

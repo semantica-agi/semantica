@@ -528,6 +528,22 @@ class CentralityCalculator:
             relationships = graph.get_relationships()
         elif isinstance(graph, dict):
             relationships = graph.get("relationships", graph.get("edges", []))
+        elif hasattr(graph, "edges") and not callable(graph.edges):
+            # ContextGraph-style: edges is a list of dataclass objects with source_id/target_id
+            for edge in (graph.edges or []):
+                if isinstance(edge, dict):
+                    src = edge.get("source") or edge.get("source_id")
+                    tgt = edge.get("target") or edge.get("target_id")
+                else:
+                    src = getattr(edge, "source_id", None) or getattr(edge, "source", None)
+                    tgt = getattr(edge, "target_id", None) or getattr(edge, "target", None)
+                if src and tgt:
+                    src, tgt = str(src), str(tgt)
+                    if tgt not in adjacency[src]:
+                        adjacency[src].append(tgt)
+                    if src not in adjacency[tgt]:
+                        adjacency[tgt].append(src)
+            return dict(adjacency)
 
         # Build adjacency
         for rel in relationships:
