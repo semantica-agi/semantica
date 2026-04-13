@@ -19,7 +19,7 @@ jobs:
           python-version: '3.11'
       - run: pip install build
       - run: python -m build
-      - uses: softprops/action-gh-release@v1
+      - uses: softprops/action-gh-release@v3
         with:
           files: dist/*
       - uses: pypa/gh-action-pypi-publish@release/v1
