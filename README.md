@@ -14,6 +14,7 @@
 [![CI](https://github.com/Hawksight-AI/semantica/workflows/CI/badge.svg)](https://github.com/Hawksight-AI/semantica/actions)
 [![Discord](https://img.shields.io/badge/Discord-Join%20Community-5865F2?logo=discord&logoColor=white)](https://discord.gg/sV34vps5hH)
 [![X](https://img.shields.io/badge/X-Follow%20Semantica-black?logo=x&logoColor=white)](https://x.com/BuildSemantica)
+[![OpenClaw](https://img.shields.io/badge/OpenClaw-Plugin-FF3B30?logo=github&logoColor=white)](https://openclaw.ai)
 
 ### ⭐ Give us a Star · 🍴 Fork us · 💬 Join our Discord · 🐦 Follow on X
 
@@ -55,39 +56,68 @@ pip install semantica
 
 ## 🔌 Works With Every AI Tool
 
-Semantica ships **native plugin bundles** for Claude Code, Cursor, and Codex, an **MCP server** (`python -m semantica.mcp_server`) for Windsurf, Cline, Continue, VS Code, and Claude Desktop, and a **REST API** (FastAPI, port 8000) for any other tool.
+Semantica ships **native plugin bundles** for Claude Code, Cursor, and Codex, an **MCP server** (`python -m semantica.mcp_server`) for Windsurf, Cline, Continue, VS Code, Claude Desktop, and OpenClaw, and a **REST API** (FastAPI, port 8000) for any other tool.
 
 <table>
+
+<!-- ── Native Plugin Bundle ──────────────────────────────────────────── -->
+<tr>
+<th colspan="3" align="left">🔌 Native Plugin Bundle</th>
+<th colspan="5" align="left">⚡ MCP Server + Plugin</th>
+</tr>
 <tr>
 <td align="center" width="12.5%">
 <a href="https://claude.com/product/claude-code"><img src="https://github.com/anthropics.png?size=120" alt="Claude Code" width="48" height="48" /></a><br/>
 <strong>Claude Code</strong><br/>
-<sub>Native plugin · 17 skills · 3 agents · hooks</sub>
+<sub>17 skills · 3 agents · hooks</sub>
 </td>
 <td align="center" width="12.5%">
 <a href="https://cursor.com"><img src="https://www.freelogovectors.net/wp-content/uploads/2025/06/cursor-logo-freelogovectors.net_.png" alt="Cursor" width="48" height="48" /></a><br/>
 <strong>Cursor</strong><br/>
-<sub>Native plugin · 17 skills · 3 agents</sub>
+<sub>17 skills · 3 agents</sub>
 </td>
 <td align="center" width="12.5%">
 <a href="https://github.com/openai/codex"><img src="https://github.com/openai.png?size=120" alt="Codex CLI" width="48" height="48" /></a><br/>
 <strong>Codex CLI</strong><br/>
-<sub>Native plugin · 17 skills · 3 agents</sub>
+<sub>17 skills · 3 agents</sub>
 </td>
 <td align="center" width="12.5%">
 <a href="https://windsurf.com"><img src="https://exafunction.github.io/public/brand/windsurf-black-symbol.svg" alt="Windsurf" width="48" height="48" /></a><br/>
 <strong>Windsurf</strong><br/>
-<sub>MCP server + plugin</sub>
+<sub><a href="plugins/.windsurf-plugin/">plugin</a></sub>
 </td>
 <td align="center" width="12.5%">
-<a href="https://claude.ai/download"><img src="https://github.com/anthropics.png?size=120" alt="Claude Desktop" width="48" height="48" /></a><br/>
-<strong>Claude Desktop</strong><br/>
-<sub>MCP server</sub>
+<a href="https://github.com/cline/cline"><img src="https://github.com/cline.png?size=120" alt="Cline" width="48" height="48" /></a><br/>
+<strong>Cline</strong><br/>
+<sub><a href="plugins/.cline-plugin/">plugin</a></sub>
+</td>
+<td align="center" width="12.5%">
+<a href="https://github.com/continuedev/continue"><img src="https://github.com/continuedev.png?size=120" alt="Continue" width="48" height="48" /></a><br/>
+<strong>Continue</strong><br/>
+<sub><a href="plugins/.continue-plugin/">plugin</a></sub>
 </td>
 <td align="center" width="12.5%">
 <a href="https://github.com/microsoft/vscode"><img src="https://github.com/microsoft.png?size=120" alt="VS Code" width="48" height="48" /></a><br/>
 <strong>VS Code</strong><br/>
-<sub>MCP server + plugin</sub>
+<sub><a href="plugins/.vscode-plugin/">plugin</a></sub>
+</td>
+<td align="center" width="12.5%">
+<a href="integrations/openclaw/"><img src="https://github.com/openclaw.png?size=120" alt="OpenClaw" width="48" height="48" /></a><br/>
+<strong>OpenClaw</strong><br/>
+<sub>MCP + <a href="integrations/openclaw/">plugin</a></sub>
+</td>
+</tr>
+
+<!-- ── MCP Server only · REST API ───────────────────────────────────── -->
+<tr>
+<th colspan="1" align="left">☁️ MCP Server</th>
+<th colspan="7" align="left">🌐 REST API</th>
+</tr>
+<tr>
+<td align="center" width="12.5%">
+<a href="https://claude.ai/download"><img src="https://github.com/anthropics.png?size=120" alt="Claude Desktop" width="48" height="48" /></a><br/>
+<strong>Claude Desktop</strong><br/>
+<sub>MCP server</sub>
 </td>
 <td align="center" width="12.5%">
 <a href="https://github.com/features/copilot"><img src="https://github.com/github.png?size=120" alt="GitHub Copilot" width="48" height="48" /></a><br/>
@@ -95,21 +125,9 @@ Semantica ships **native plugin bundles** for Claude Code, Cursor, and Codex, an
 <sub>REST API</sub>
 </td>
 <td align="center" width="12.5%">
-<a href="https://github.com/cline/cline"><img src="https://github.com/cline.png?size=120" alt="Cline" width="48" height="48" /></a><br/>
-<strong>Cline</strong><br/>
-<sub>MCP server + plugin</sub>
-</td>
-</tr>
-<tr>
-<td align="center" width="12.5%">
 <a href="https://github.com/RooCodeInc/Roo-Code"><img src="https://github.com/RooCodeInc.png?size=120" alt="Roo Code" width="48" height="48" /></a><br/>
 <strong>Roo Code</strong><br/>
 <sub>REST API</sub>
-</td>
-<td align="center" width="12.5%">
-<a href="https://github.com/continuedev/continue"><img src="https://github.com/continuedev.png?size=120" alt="Continue" width="48" height="48" /></a><br/>
-<strong>Continue</strong><br/>
-<sub>MCP server + plugin</sub>
 </td>
 <td align="center" width="12.5%">
 <a href="https://github.com/block/goose"><img src="https://github.com/block.png?size=120" alt="Goose" width="48" height="48" /></a><br/>
@@ -136,12 +154,20 @@ Semantica ships **native plugin bundles** for Claude Code, Cursor, and Codex, an
 <strong>Zed</strong><br/>
 <sub>REST API</sub>
 </td>
-<td align="center" width="12.5%">
+</tr>
+
+<!-- ── Any tool via REST ─────────────────────────────────────────────── -->
+<tr>
+<th colspan="8" align="left">🔧 Any Tool</th>
+</tr>
+<tr>
+<td align="center" colspan="8">
 <img src="https://img.shields.io/badge/109-endpoints-1f6feb?style=flat-square" alt="REST API" width="48" /><br/>
 <strong>Any agent</strong><br/>
-<sub>REST API</sub>
+<sub>109 REST endpoints · FastAPI · port 8000</sub>
 </td>
 </tr>
+
 </table>
 
 ### Plugin Bundles (Claude Code · Cursor · Codex)
@@ -157,6 +183,7 @@ Native plugin bundles live under [`plugins/`](plugins/). Each directory contains
 | Cline | [`plugins/.cline-plugin/`](plugins/.cline-plugin/) | 17 skills · 3 agents · MCP config |
 | Continue | [`plugins/.continue-plugin/`](plugins/.continue-plugin/) | 17 skills · 3 agents · MCP config |
 | VS Code | [`plugins/.vscode-plugin/`](plugins/.vscode-plugin/) | 17 skills · 3 agents · MCP config |
+| OpenClaw | [`plugins/.openclaw-plugin/`](plugins/.openclaw-plugin/) | 17 skills · 3 agents · MCP config |
 
 **17 domain skills:**
 
