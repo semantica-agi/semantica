@@ -1,135 +1,259 @@
 # Semantica Plugins (Community Guide)
 
-Semantica ships a shared plugin bundle under `plugins/` with skills, agents, and hooks for knowledge graphs, context graphs, decision intelligence, reasoning, explainability, provenance, ontology, and export workflows.
+> **v0.4.0** — 17 domain skills · 3 agents · 8 platform plugins · Knowledge Explorer UI
 
-This README is for community users who want to install or reuse the plugin package across Claude, Cursor, and Codex.
+Semantica ships a shared plugin bundle under `plugins/` that works across every major AI coding assistant. Connect any supported platform to Semantica's knowledge graph engine for semantic extraction, decision intelligence, reasoning, provenance, ontology, and export workflows.
 
-## Supported Platforms
+---
 
-- Claude Code
-- Cursor
-- Codex
+## Platform Plugins
+
+Semantica provides a dedicated plugin for each platform. Every plugin shares the same `skills/`, `agents/`, and `hooks/` bundle — only the manifest format differs.
+
+| # | Platform | Plugin Folder | Setup |
+|---|----------|--------------|-------|
+| 1 | **Claude Code** | `.claude-plugin/` | `claude --plugin-dir ./plugins` |
+| 2 | **Cursor** | `.cursor-plugin/` | Cursor Marketplace → refresh |
+| 3 | **Codex** | `.codex-plugin/` | Marketplace UI → install |
+| 4 | **Cline** | `.cline-plugin/` | Cline MCP settings |
+| 5 | **Windsurf** | `.windsurf-plugin/` | `mcp_config.json` |
+| 6 | **Continue** | `.continue-plugin/` | `~/.continue/config.json` |
+| 7 | **OpenClaw** | `.openclaw-plugin/` | `mcporter.json` |
+| 8 | **VS Code** | `.vscode-plugin/` | `settings.json` MCP entry |
+
+---
+
+## What's Included
+
+```
+plugins/
+├── skills/              # 17 domain skills (slash commands)
+├── agents/              # 3 specialized agents
+├── hooks/               # hooks.json
+├── .claude-plugin/      # Claude Code manifest + marketplace
+├── .cursor-plugin/      # Cursor manifest + marketplace
+├── .codex-plugin/       # Codex manifest + marketplace
+├── .cline-plugin/       # Cline manifest + marketplace
+├── .windsurf-plugin/    # Windsurf manifest + marketplace
+├── .continue-plugin/    # Continue manifest + marketplace
+├── .openclaw-plugin/    # OpenClaw manifest + marketplace
+└── .vscode-plugin/      # VS Code manifest + marketplace
+```
+
+### Skills (17)
+
+`extract` · `ingest` · `query` · `ontology` · `validate` · `deduplicate` · `embed` · `reason` · `decision` · `causal` · `temporal` · `provenance` · `policy` · `explain` · `export` · `change` · `visualize`
+
+### Agents (3)
+
+`decision-advisor` · `explainability` · `kg-assistant`
+
+---
 
 ## Prerequisites
-
-1. Clone the repository:
 
 ```bash
 git clone https://github.com/Hawksight-AI/semantica.git
 cd semantica
+pip install semantica        # Python 3.10+
 ```
 
-2. Ensure the plugin bundle exists at:
+---
 
-```text
-plugins/
-  skills/
-  agents/
-  hooks/
-  .claude-plugin/
-  .cursor-plugin/
-  .codex-plugin/
+## Knowledge Explorer (v0.4.0)
+
+Launch the interactive graph dashboard:
+
+```bash
+semantica-explorer --graph my_graph.json --port 8000
 ```
 
-## Plugin Contents
+Open **http://localhost:5174** to explore:
 
-- `skills/`: 17 domain skills (`causal`, `decision`, `explain`, `reason`, `temporal`, etc.)
-- `agents/`: specialized agents (`decision-advisor`, `explainability`, `kg-assistant`)
-- `hooks/hooks.json`: plugin hook configuration
-- `.claude-plugin/plugin.json`: Claude manifest
-- `.cursor-plugin/plugin.json`: Cursor manifest
-- `.codex-plugin/plugin.json`: Codex manifest
-- `*/marketplace.json`: local marketplace definitions
+- **Graph** — interactive canvas with ForceAtlas2 layout, path highlight, community coloring
+- **Decisions** — causal chains and outcome analysis
+- **Reasoning** — run deductive / abductive rules
+- **SPARQL** — Monaco editor for graph queries
+- **Vocabulary** — ontology concept tree
+- **Lineage** — provenance lineage diagram
+- **Import / Export** — JSON, RDF, Parquet, GraphML
 
-## Install and Use in Claude Code
+---
 
-### Local install (fastest)
+## Installation by Platform
 
-From the repository root:
+### Claude Code
 
 ```bash
 claude --plugin-dir ./plugins
 ```
 
-If your Claude setup uses plugin commands in-session, use:
+Or inside a session:
 
 ```bash
 /plugin install ./plugins
 ```
 
-### Install from a GitHub marketplace
+Verify:
 
-Add a marketplace hosted in git:
-
-```bash
-/plugin marketplace add <owner>/semantica
 ```
-
-Install Semantica from that marketplace:
-
-```bash
-/plugin install semantica@<marketplace-name>
-```
-
-### Verify in Claude
-
-Run one of these in chat:
-
-```text
 /semantica:decision list
 /semantica:explain decision <decision_id>
 ```
 
-If the plugin is installed correctly, Claude should recognize the `/semantica:*` skills.
+---
 
-## Install and Use in Codex
+### Cursor
+
+Cursor reads `.cursor-plugin/plugin.json` and `.cursor-plugin/marketplace.json` automatically. Publish the `plugins/` directory and refresh in Cursor Marketplace to pick up updates.
+
+Verify:
+
+```
+/semantica:visualize topology
+/semantica:reason deductive "IF Person(x) THEN Mortal(x)"
+```
+
+---
+
+### Codex
 
 1. Ensure your repo marketplace exists at `.agents/plugins/marketplace.json`.
-2. Point the plugin entry `source.path` to `./plugins` (or your chosen plugin directory).
+2. Set `source.path` to `./plugins` in the plugin entry.
 3. Restart Codex and install from the marketplace UI.
 
-Codex manifest used by this bundle:
+Verify:
 
-- `.codex-plugin/plugin.json`
-
-### Verify in Codex
-
-After install, run a Semantica skill command in chat, for example:
-
-```text
+```
 /semantica:causal chain --subject <decision_id> --depth 3
 ```
 
-## Install and Use in Cursor
+---
 
-Cursor reads plugin metadata from:
+### Cline
 
-- `.cursor-plugin/plugin.json`
-- `.cursor-plugin/marketplace.json`
+In Cline MCP settings, add:
 
-If you maintain a team/community plugin repo, publish this `plugins/` directory and refresh/reinstall in Cursor Marketplace to pick up updates.
-
-### Verify in Cursor
-
-Try one of these commands:
-
-```text
-/semantica:reason deductive "IF Person(x) THEN Mortal(x)"
-/semantica:visualize topology
+```json
+{
+  "semantica": {
+    "command": "python",
+    "args": ["-m", "semantica.mcp_server"],
+    "env": {}
+  }
+}
 ```
+
+---
+
+### Windsurf
+
+Add to `~/.codeium/windsurf/mcp_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "semantica": {
+      "command": "python",
+      "args": ["-m", "semantica.mcp_server"]
+    }
+  }
+}
+```
+
+---
+
+### Continue
+
+Add to `~/.continue/config.json`:
+
+```json
+{
+  "mcpServers": [
+    {
+      "name": "semantica",
+      "command": "python",
+      "args": ["-m", "semantica.mcp_server"]
+    }
+  ]
+}
+```
+
+All 17 Semantica skills appear in the `@semantica` context provider dropdown.
+
+---
+
+### OpenClaw
+
+Add to `~/.openclaw/mcporter.json`:
+
+```json
+{
+  "mcpServers": {
+    "semantica": {
+      "command": "python",
+      "args": ["-m", "semantica.mcp_server"],
+      "transport": "stdio"
+    }
+  }
+}
+```
+
+Then restart the gateway:
+
+```bash
+openclaw gateway restart
+```
+
+---
+
+### VS Code
+
+Add to `settings.json` (GitHub Copilot Chat):
+
+```json
+{
+  "github.copilot.chat.mcp.servers": {
+    "semantica": {
+      "command": "python",
+      "args": ["-m", "semantica.mcp_server"]
+    }
+  }
+}
+```
+
+Or for the VS Code MCP extension:
+
+```json
+{
+  "mcp.servers": {
+    "semantica": {
+      "command": "python",
+      "args": ["-m", "semantica.mcp_server"]
+    }
+  }
+}
+```
+
+---
 
 ## First Commands to Try
 
-After installing on any platform, these are good smoke tests:
+After installing on any platform:
 
-1. `/semantica:decision record <category> "<scenario>" "<reasoning>" <outcome> <confidence>`
-2. `/semantica:decision list`
-3. `/semantica:causal chain --subject <decision_id> --depth 3`
-4. `/semantica:explain decision <decision_id>`
-5. `/semantica:validate graph`
+```
+/semantica:decision record <category> "<scenario>" "<reasoning>" <outcome> <confidence>
+/semantica:decision list
+/semantica:causal chain --subject <decision_id> --depth 3
+/semantica:explain decision <decision_id>
+/semantica:validate graph
+/semantica:visualize topology
+```
+
+---
 
 ## Community Notes
 
-- Keep plugin name/version/keywords updated in each manifest before publishing.
-- Keep skill frontmatter consistent (`name` + `description`) for reliable discovery.
-- For open-source sharing, include this folder as-is so skills, agents, and hooks remain bundled.
+- Keep `name` / `version` / `keywords` updated in each manifest before publishing.
+- Keep skill frontmatter (`name` + `description`) consistent for reliable discovery.
+- Include `plugins/` as-is when sharing — skills, agents, and hooks must stay bundled.

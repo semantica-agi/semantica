@@ -1,6 +1,6 @@
 # Semantica — OpenClaw Plugin
 
-Adds all 17 Semantica skills, 3 agents, and the full MCP integration to [OpenClaw](https://openclaw.ai) — the open-source personal AI agent platform.
+> **v0.4.0** — Adds all 17 Semantica skills, 3 agents, and the full MCP integration to [OpenClaw](https://openclaw.ai) — the open-source personal AI agent platform.
 
 ## MCP Server Setup (recommended)
 
@@ -32,7 +32,7 @@ Paste the following into your OpenClaw `mcporter.json` (usually `~/.openclaw/mcp
 openclaw gateway restart
 ```
 
-OpenClaw will automatically discover all 12 Semantica tools and 3 resources.
+OpenClaw will automatically discover all 17 Semantica tools and 3 agents.
 
 ## Skills
 
@@ -57,6 +57,6 @@ See [`integrations/openclaw/README.md`](../../integrations/openclaw/README.md) f
 
 ## Requirements
 
-- Python 3.8+
+- Python 3.10+
 - `pip install semantica`
 - OpenClaw — [openclaw.ai](https://openclaw.ai)
