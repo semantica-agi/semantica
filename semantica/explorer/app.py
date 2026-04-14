@@ -127,6 +127,15 @@ def create_app(session: Optional[GraphSession] = None) -> FastAPI:
         except WebSocketDisconnect:
             manager.disconnect(websocket)
 
+    @app.get("/", include_in_schema=False)
+    async def root():
+        return {
+            "message": "Welcome to Semantica Knowledge Explorer",
+            "version": __version__,
+            "ui": "http://localhost:5174",
+            "docs": "http://localhost:8000/docs",
+        }
+
     @app.get("/api/health")
     async def health():
         return {"status": "healthy"}
