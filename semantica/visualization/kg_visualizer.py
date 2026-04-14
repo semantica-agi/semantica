@@ -118,9 +118,39 @@ class KGVisualizer:
                 "Install with: pip install plotly"
             )
 
+    def _normalize_graph(self, graph: Any) -> Dict[str, Any]:
+        """
+        Normalize graph input to the expected dict format.
+
+        Accepts either:
+        - A dict with "entities" and "relationships" keys (canonical format)
+        - Any object that exposes .entities and .relationships attributes
+          (e.g. a KnowledgeGraph dataclass returned by GraphBuilder.build())
+
+        Returns:
+            Dict with "entities", "relationships", and "metadata" keys.
+        """
+        if isinstance(graph, dict):
+            return graph
+
+        # Duck-type: accept any object with .entities / .relationships
+        entities = getattr(graph, "entities", None)
+        relationships = getattr(graph, "relationships", None)
+        if entities is None and relationships is None:
+            raise ProcessingError(
+                f"Cannot visualize object of type '{type(graph).__name__}': "
+                "expected a dict with 'entities'/'relationships' keys, or an object "
+                "with .entities and .relationships attributes."
+            )
+        return {
+            "entities": list(entities) if entities is not None else [],
+            "relationships": list(relationships) if relationships is not None else [],
+            "metadata": dict(getattr(graph, "metadata", None) or {}),
+        }
+
     def visualize_network(
         self,
-        graph: Dict[str, Any],
+        graph: Union[Dict[str, Any], Any],
         output: str = "interactive",
         file_path: Optional[Union[str, Path]] = None,
         node_color_by: str = "type",
@@ -139,7 +169,9 @@ class KGVisualizer:
         5. Interaction: rich hover data and zoom capabilities
 
         Args:
-            graph: Knowledge graph dictionary with entities and relationships
+            graph: Knowledge graph — either a dict with "entities"/"relationships"
+                keys, or any object exposing .entities and .relationships attributes
+                (e.g. the result of GraphBuilder.build())
             output: Output type ("interactive", "html", "png", "svg")
             file_path: Output file path (required for non-interactive)
             node_color_by: Property to map to node color (default: "type")
@@ -151,6 +183,7 @@ class KGVisualizer:
             Plotly figure (if interactive) or None
         """
         self._check_dependencies()
+        graph = self._normalize_graph(graph)
         tracking_id = self.progress_tracker.start_tracking(
             module="visualization",
             submodule="KGVisualizer",
@@ -237,6 +270,7 @@ class KGVisualizer:
             Visualization figure or None
         """
         self._check_dependencies()
+        graph = self._normalize_graph(graph)
         self.logger.info("Visualizing knowledge graph communities")
 
         entities = graph.get("entities", [])
@@ -296,6 +330,7 @@ class KGVisualizer:
             Visualization figure or None
         """
         self._check_dependencies()
+        graph = self._normalize_graph(graph)
         self.logger.info(
             f"Visualizing knowledge graph with {centrality_type} centrality"
         )
@@ -350,6 +385,7 @@ class KGVisualizer:
             Visualization figure or None
         """
         self._check_dependencies()
+        graph = self._normalize_graph(graph)
         self.logger.info("Visualizing entity type distribution")
 
         entities = graph.get("entities", [])
@@ -395,6 +431,7 @@ class KGVisualizer:
             Visualization figure or None
         """
         self._check_dependencies()
+        graph = self._normalize_graph(graph)
         self.logger.info("Visualizing relationship matrix")
 
         entities = graph.get("entities", [])

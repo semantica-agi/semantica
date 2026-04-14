@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **Fix: `KGVisualizer` now accepts `KnowledgeGraph` objects in all `visualize_*` methods** (PR `visualization` by @KaifAhmad1, closes #458): All five public methods (`visualize_network`, `visualize_communities`, `visualize_centrality`, `visualize_entity_types`, `visualize_relationship_matrix`) previously called `graph.get("entities", [])`, silently producing no output when passed a non-dict object. Added `_normalize_graph()` which duck-types the input — dicts pass through unchanged; any object exposing `.entities` / `.relationships` attributes (e.g. the result of `GraphBuilder.build()`) is converted to the canonical dict form; anything else raises a clear `ProcessingError` naming the offending type. 21 tests added in `tests/visualization/test_kg_visualizer_normalize_graph.py`.
+
 - **Security: 12 vulnerability fixes across CRITICAL → LOW severity** (PR `security-enhancement` by @KaifAhmad1):
 
   **Critical**
