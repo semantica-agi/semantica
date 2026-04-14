@@ -6,7 +6,7 @@ import asyncio
 from enum import Enum
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from ..dependencies import get_session
 from ..schemas import (
@@ -83,7 +83,7 @@ async def get_node(
 ):
     node = await asyncio.to_thread(session.get_node, node_id)
     if node is None:
-        raise KeyError(node_id)
+        raise HTTPException(status_code=404, detail=f"Node '{node_id}' not found")
     return _node_response(node)
 
 
@@ -150,7 +150,7 @@ async def find_path(
 ):
     path_finder = session.path_finder
     if path_finder is None:
-        raise ValueError("PathFinder not available; KG extras may not be installed.")
+        raise HTTPException(status_code=503, detail="PathFinder not available; KG extras may not be installed.")
 
     graph_dict = await asyncio.to_thread(session.build_graph_dict)
     path_fn = (
@@ -158,7 +158,10 @@ async def find_path(
         if algorithm == _PathAlgorithm.dijkstra
         else path_finder.bfs_shortest_path
     )
-    result = await asyncio.to_thread(path_fn, graph_dict, node_id, target)
+    try:
+        result = await asyncio.to_thread(path_fn, graph_dict, node_id, target)
+    except Exception as exc:
+        raise HTTPException(status_code=404, detail=f"No path found from '{node_id}' to '{target}': {exc}")
 
     path_nodes = result.get("path", []) if isinstance(result, dict) else (result or [])
     total_weight = result.get("total_weight", 0.0) if isinstance(result, dict) else 0.0

@@ -5,7 +5,7 @@ Decision routes using ContextGraph-native fallbacks.
 import asyncio
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from ..dependencies import get_session
 from ..schemas import CausalChainResponse, ComplianceResponse, DecisionResponse
@@ -59,7 +59,7 @@ async def get_decision(
 ):
     node = await asyncio.to_thread(session.get_node, decision_id)
     if node is None:
-        raise KeyError(decision_id)
+        raise HTTPException(status_code=404, detail=f"Decision '{decision_id}' not found")
     return _node_to_decision(node)
 
 
@@ -70,7 +70,7 @@ async def get_causal_chain(
 ):
     node = await asyncio.to_thread(session.get_node, decision_id)
     if node is None:
-        raise KeyError(decision_id)
+        raise HTTPException(status_code=404, detail=f"Decision '{decision_id}' not found")
 
     neighbors = await asyncio.to_thread(session.get_neighbors, decision_id, 5)
     chain = [
@@ -94,7 +94,7 @@ async def get_precedents(
 ):
     node = await asyncio.to_thread(session.get_node, decision_id)
     if node is None:
-        raise KeyError(decision_id)
+        raise HTTPException(status_code=404, detail=f"Decision '{decision_id}' not found")
 
     properties = node.get("properties", {})
     category = str(properties.get("category", ""))
@@ -132,7 +132,7 @@ async def check_compliance(
 ):
     node = await asyncio.to_thread(session.get_node, decision_id)
     if node is None:
-        raise KeyError(decision_id)
+        raise HTTPException(status_code=404, detail=f"Decision '{decision_id}' not found")
 
     edges, _ = await asyncio.to_thread(session.get_edges, skip=0, limit=999_999)
     violation_types = {"violates", "non_compliant", "breaches"}

@@ -8,7 +8,7 @@ modify Semantica core.
 import asyncio
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from ..dependencies import get_session
 from ..schemas import AnnotationCreate, AnnotationResponse
@@ -35,7 +35,7 @@ async def create_annotation(
     """Create a new annotation on a node."""
     node = await asyncio.to_thread(session.get_node, body.node_id)
     if node is None:
-        raise KeyError(body.node_id)
+        raise HTTPException(status_code=404, detail=f"Node '{body.node_id}' not found")
 
     ann_data = body.model_dump()
     ann_id = await asyncio.to_thread(session.add_annotation, ann_data)
@@ -61,5 +61,5 @@ async def delete_annotation(
     """Delete an annotation by ID."""
     deleted = await asyncio.to_thread(session.delete_annotation, annotation_id)
     if not deleted:
-        raise KeyError(annotation_id)
+        raise HTTPException(status_code=404, detail=f"Annotation '{annotation_id}' not found")
     return None

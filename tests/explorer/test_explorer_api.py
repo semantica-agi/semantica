@@ -372,7 +372,7 @@ class TestEnrichment:
 
     def test_extract(self, client):
         response = client.post("/api/enrich/extract", json={"text": "Alice works at Acme Corp."})
-        assert response.status_code in (200, 422)
+        assert response.status_code in (200, 422, 503)
 
     def test_link_prediction(self, client):
         response = client.post("/api/enrich/links", json={"node_id": "python", "top_n": 5})

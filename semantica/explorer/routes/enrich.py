@@ -6,7 +6,7 @@ import asyncio
 import re
 from typing import Dict, List, Optional, Tuple
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 
 from ..dependencies import get_session
 from ..schemas import (
@@ -173,11 +173,12 @@ async def extract_entities(
             relations=[_safe_dict(relation) for relation in rel_list],
         )
     except ImportError:
-        raise ValueError(
-            "semantic_extract module not available. Ensure spacy and transformers are installed."
+        raise HTTPException(
+            status_code=503,
+            detail="semantic_extract module not available. Ensure spacy and transformers are installed.",
         )
     except Exception as exc:
-        raise ValueError(f"Extraction failed: {exc}")
+        raise HTTPException(status_code=422, detail=f"Extraction failed: {exc}")
 
 
 @router.post("/api/enrich/links", response_model=LinkPredictionResponse)
@@ -187,11 +188,11 @@ async def predict_links(
 ):
     predictor = session.link_predictor
     if predictor is None:
-        raise ValueError("LinkPredictor not available; KG extras may not be installed.")
+        raise HTTPException(status_code=503, detail="LinkPredictor not available; KG extras may not be installed.")
 
     node = await asyncio.to_thread(session.get_node, body.node_id)
     if node is None:
-        raise KeyError(body.node_id)
+        raise HTTPException(status_code=404, detail=f"Node '{body.node_id}' not found")
 
     nodes, _ = await asyncio.to_thread(session.get_nodes, skip=0, limit=999_999)
     edges, _ = await asyncio.to_thread(session.get_edges, skip=0, limit=999_999)
@@ -248,9 +249,9 @@ async def detect_duplicates(
         duplicate_list = duplicates if isinstance(duplicates, list) else getattr(duplicates, "duplicates", [])
         return DedupResponse(duplicates=[_safe_dict(item) for item in duplicate_list], total_flagged=len(duplicate_list))
     except ImportError:
-        raise ValueError("Deduplication module not available.")
+        raise HTTPException(status_code=503, detail="Deduplication module not available.")
     except Exception as exc:
-        raise ValueError(f"Dedup scan failed: {exc}")
+        raise HTTPException(status_code=422, detail=f"Dedup scan failed: {exc}")
 
 
 @router.post("/api/reason", response_model=ReasoningResponse)
@@ -295,7 +296,7 @@ async def merge_nodes(
 
     node = await asyncio.to_thread(session.get_node, primary_id)
     if node is None:
-        raise ValueError(f"Primary node {primary_id} not found")
+        raise HTTPException(status_code=404, detail=f"Primary node '{primary_id}' not found")
 
     def _do_merge() -> tuple[list[str], int]:
         removed: list[str] = []

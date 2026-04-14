@@ -103,7 +103,7 @@ async def temporal_patterns(
 
         detector = TemporalPatternDetector()
         graph_dict = await asyncio.to_thread(session.build_graph_dict)
-        patterns = await asyncio.to_thread(detector.detect_patterns, graph_dict)
+        patterns = await asyncio.to_thread(detector.detect_temporal_patterns, graph_dict)
         if isinstance(patterns, dict):
             patterns = patterns.get("patterns", [])
         return TemporalPatternResponse(patterns=patterns if isinstance(patterns, list) else [])
