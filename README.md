@@ -46,7 +46,7 @@ Semantica is the **context and intelligence layer** you add on top of your exist
 - ✅ **Reasoning Engines** — forward chaining, Rete networks, deductive, abductive, and SPARQL. Explainable paths, not black boxes.
 - ✅ **Quality & Deduplication** — conflict detection, entity resolution, and pipeline validation built in.
 
-> Works alongside LangChain, LlamaIndex, AutoGen, CrewAI, and any LLM — Semantica is the **accountability layer** on top, not a replacement.
+> Works alongside **Agno** and any LLM — Semantica is the **accountability layer** on top, not a replacement. LangChain, LangGraph, CrewAI, and more coming soon.
 
 ```bash
 pip install semantica
@@ -169,6 +169,75 @@ Semantica ships **native plugin bundles** for Claude Code, Cursor, and Codex, an
 </tr>
 
 </table>
+
+### Agentic Frameworks
+
+Semantica integrates with **Agno** today. Coming soon: LangChain, LangGraph, CrewAI, LlamaIndex, AutoGen, OpenAI Agents SDK, Google ADK, and more.
+
+<table>
+<tr>
+<th colspan="8" align="left">✅ Supported</th>
+</tr>
+<tr>
+<td align="center" width="12.5%">
+<a href="https://github.com/agno-agi/agno"><img src="https://github.com/agno-agi.png?size=120" alt="Agno" width="48" height="48" /></a><br/>
+<strong>Agno</strong><br/>
+<sub>First-class · <code>pip install semantica[agno]</code></sub>
+</td>
+</tr>
+<tr>
+<th colspan="8" align="left">🔜 Coming Soon</th>
+</tr>
+<tr>
+<td align="center" width="12.5%">
+<a href="https://github.com/langchain-ai/langchain"><img src="https://github.com/langchain-ai.png?size=120" alt="LangChain" width="48" height="48" /></a><br/>
+<strong>LangChain</strong><br/>
+<sub>Coming soon</sub>
+</td>
+<td align="center" width="12.5%">
+<a href="https://github.com/langchain-ai/langgraph"><img src="https://github.com/langchain-ai.png?size=120" alt="LangGraph" width="48" height="48" /></a><br/>
+<strong>LangGraph</strong><br/>
+<sub>Coming soon</sub>
+</td>
+<td align="center" width="12.5%">
+<a href="https://github.com/crewAIInc/crewAI"><img src="https://github.com/crewAIInc.png?size=120" alt="CrewAI" width="48" height="48" /></a><br/>
+<strong>CrewAI</strong><br/>
+<sub>Coming soon</sub>
+</td>
+<td align="center" width="12.5%">
+<a href="https://github.com/run-llama/llama_index"><img src="https://github.com/run-llama.png?size=120" alt="LlamaIndex" width="48" height="48" /></a><br/>
+<strong>LlamaIndex</strong><br/>
+<sub>Coming soon</sub>
+</td>
+<td align="center" width="12.5%">
+<a href="https://github.com/microsoft/autogen"><img src="https://github.com/microsoft.png?size=120" alt="AutoGen" width="48" height="48" /></a><br/>
+<strong>AutoGen</strong><br/>
+<sub>Coming soon</sub>
+</td>
+<td align="center" width="12.5%">
+<a href="https://github.com/openai/openai-agents-python"><img src="https://github.com/openai.png?size=120" alt="OpenAI Agents SDK" width="48" height="48" /></a><br/>
+<strong>OpenAI Agents</strong><br/>
+<sub>Coming soon</sub>
+</td>
+<td align="center" width="12.5%">
+<a href="https://github.com/google/adk-python"><img src="https://github.com/google.png?size=120" alt="Google ADK" width="48" height="48" /></a><br/>
+<strong>Google ADK</strong><br/>
+<sub>Coming soon</sub>
+</td>
+</tr>
+</table>
+
+> **Agno — First-Class Integration** · `pip install semantica[agno]`
+>
+> Five integration modules live in [`integrations/agno/`](integrations/agno/):
+>
+> | Module | Class | What it does |
+> |---|---|---|
+> | `context_store.py` | `AgnoContextStore` | Graph-backed agent memory — store and retrieve structured context |
+> | `knowledge_graph.py` | `AgnoKnowledgeGraph` | Implements Agno's `AgentKnowledge` protocol; full extraction pipeline |
+> | `decision_kit.py` | `AgnoDecisionKit` | 6 decision-intelligence tools for Agno agents |
+> | `kg_toolkit.py` | `AgnoKGToolkit` | 7 KG pipeline tools (build, query, enrich, export) |
+> | `shared_context.py` | `AgnoSharedContext` | Shared context graph for multi-agent team coordination |
 
 ### Plugin Bundles (Claude Code · Cursor · Codex)
 
@@ -875,53 +944,6 @@ if result.valid:
 - **`semantica.llms`** — Groq, OpenAI, Novita AI, HuggingFace, LiteLLM
 - **[`explorer/`](explorer/)** — **Semantica Knowledge Explorer** — browser UI for live graph inspection, decisions, entity resolution, and ontology browsing (`npm run dev` in `explorer/`)
 
-
----
-
-## 🔌 Integrations
-
-### AI Coding Tools & IDEs
-
-Start the Semantica server (`python -m semantica.server`, port 8000) and point any tool at `http://localhost:8000`. Tools marked **Native plugin** also get 17 skills, 3 agents, and hook config out of the box.
-
-| Tool | Connection | Notes |
-|---|---|---|
-| [Claude Code](https://claude.com/product/claude-code) | **Native plugin** | `plugins/.claude-plugin/` — 17 skills, 3 agents, `hooks.json` |
-| [Cursor](https://cursor.com) | **Native plugin** | `plugins/.cursor-plugin/` — same 17 skills + 3 agents |
-| [Codex CLI](https://github.com/openai/codex) | **Native plugin** | `plugins/.codex-plugin/` — same 17 skills + 3 agents |
-| [Windsurf](https://windsurf.com) | **MCP server** + plugin | `plugins/.windsurf-plugin/` · add `python -m semantica.mcp_server` to `~/.codeium/windsurf/mcp_config.json` |
-| [Claude Desktop](https://claude.ai/download) | **MCP server** | Add `python -m semantica.mcp_server` to `claude_desktop_config.json` |
-| [VS Code](https://github.com/microsoft/vscode) | **MCP server** + plugin | `plugins/.vscode-plugin/` · add to `settings.json` under `mcp.servers` |
-| [GitHub Copilot](https://github.com/features/copilot) | REST API | Use via Copilot Chat custom tools |
-| [Cline](https://github.com/cline/cline) | **MCP server** + plugin | `plugins/.cline-plugin/` · add server in Cline MCP settings panel |
-| [Roo Code](https://github.com/RooCodeInc/Roo-Code) | **MCP server** | Add `python -m semantica.mcp_server` in Roo Code MCP settings |
-| [Continue](https://github.com/continuedev/continue) | **MCP server** + plugin | `plugins/.continue-plugin/` · add to `~/.continue/config.json` under `mcpServers` |
-| [Goose](https://github.com/block/goose) | REST API | Add to Goose toolset config |
-| [Kilo Code](https://github.com/Kilo-Org/kilocode) | REST API | Add as custom REST tool |
-| [Aider](https://github.com/Aider-AI/aider) | REST API | Pass context from the API into prompts |
-| [Amazon Q Developer](https://github.com/aws/amazon-q-developer-cli) | REST API | Use via Q Developer custom tools |
-| [Zed](https://zed.dev) | REST API | Integrate via Zed assistant context |
-| Any agent | REST API | 109 endpoints — drop-in with any HTTP client |
-
-### REST API Server
-
-Run `python -m semantica.server` (or `python -m semantica`) — FastAPI on port 8000 with the following route groups:
-
-| Route group | Module | Endpoints |
-|---|---|---|
-| `/api/graph` | `routes/graph.py` | Nodes, edges, traversal, graph topology |
-| `/api/analytics` | `routes/analytics.py` | Centrality, communities, metrics |
-| `/api/decisions` | `routes/decisions.py` | Decision CRUD, precedent search, causal chains |
-| `/api/temporal` | `routes/temporal.py` | Point-in-time queries, snapshots, timelines |
-| `/api/export` | `routes/export_import.py` | Import/export in RDF, Parquet, JSON, CSV, GraphML |
-| `/api/annotations` | `routes/annotations.py` | Entity and edge annotation |
-| `/api/enrich` | `routes/enrich.py` | Graph enrichment — embeddings, vectors, metadata |
-| `/api/sparql` | `routes/sparql.py` | SPARQL query execution |
-| `/api/provenance` | `routes/provenance.py` | Data lineage and audit trails |
-| `/api/vocabulary` | `routes/vocabulary.py` | Ontology, SKOS concepts, schema definitions |
-| `/ws` | `ws.py` | WebSocket — real-time graph mutation events |
-| `/health` | `server.py` | Health check |
-
 ### Graph Databases
 - **Neo4j** — Cypher queries via `semantica.graph_store`
 - **FalkorDB** — native support; `DecisionQuery` and `CausalChainAnalyzer` work directly with FalkorDB row/header shapes
@@ -951,67 +973,6 @@ Run `python -m semantica.server` (or `python -m semantica`) — FastAPI on port 
 - **Groq** — ultra-low latency inference · set `GROQ_API_KEY`
 - **HuggingFace** — local and hosted models via `HuggingFaceProvider`
 - **Ollama** — local models including remote server support
-
-### Agentic Frameworks
-
-Semantica complements — not replaces — every major agentic framework. Use it as the accountability layer on top.
-
-<table>
-<tr>
-<td align="center" width="12.5%">
-<a href="https://github.com/agno-agi/agno"><img src="https://github.com/agno-agi.png?size=120" alt="Agno" width="40" height="40" /></a><br/>
-<strong>Agno</strong><br/>
-<sub>First-class · <code>pip install semantica[agno]</code></sub>
-</td>
-<td align="center" width="12.5%">
-<a href="https://github.com/langchain-ai/langchain"><img src="https://github.com/langchain-ai.png?size=120" alt="LangChain" width="40" height="40" /></a><br/>
-<strong>LangChain</strong><br/>
-<sub>Context layer</sub>
-</td>
-<td align="center" width="12.5%">
-<a href="https://github.com/langchain-ai/langgraph"><img src="https://github.com/langchain-ai.png?size=120" alt="LangGraph" width="40" height="40" /></a><br/>
-<strong>LangGraph</strong><br/>
-<sub>Stateful agent graph</sub>
-</td>
-<td align="center" width="12.5%">
-<a href="https://github.com/run-llama/llama_index"><img src="https://github.com/run-llama.png?size=120" alt="LlamaIndex" width="40" height="40" /></a><br/>
-<strong>LlamaIndex</strong><br/>
-<sub>GraphRAG retriever</sub>
-</td>
-<td align="center" width="12.5%">
-<a href="https://github.com/microsoft/autogen"><img src="https://github.com/microsoft.png?size=120" alt="AutoGen" width="40" height="40" /></a><br/>
-<strong>AutoGen</strong><br/>
-<sub>Shared context graph</sub>
-</td>
-<td align="center" width="12.5%">
-<a href="https://github.com/crewAIInc/crewAI"><img src="https://github.com/crewAIInc.png?size=120" alt="CrewAI" width="40" height="40" /></a><br/>
-<strong>CrewAI</strong><br/>
-<sub>Decision + provenance</sub>
-</td>
-<td align="center" width="12.5%">
-<a href="https://github.com/openai/openai-agents-python"><img src="https://github.com/openai.png?size=120" alt="OpenAI Agents SDK" width="40" height="40" /></a><br/>
-<strong>OpenAI Agents</strong><br/>
-<sub>Context + KG tools</sub>
-</td>
-<td align="center" width="12.5%">
-<a href="https://github.com/google/adk-python"><img src="https://github.com/google.png?size=120" alt="Google ADK" width="40" height="40" /></a><br/>
-<strong>Google ADK</strong><br/>
-<sub>Context layer</sub>
-</td>
-</tr>
-</table>
-
-> **Agno — First-Class Integration** · `pip install semantica[agno]`
->
-> Five integration modules live in [`integrations/agno/`](integrations/agno/):
->
-> | Module | Class | What it does |
-> |---|---|---|
-> | `context_store.py` | `AgnoContextStore` | Graph-backed agent memory — store and retrieve structured context |
-> | `knowledge_graph.py` | `AgnoKnowledgeGraph` | Implements Agno's `AgentKnowledge` protocol; full extraction pipeline |
-> | `decision_kit.py` | `AgnoDecisionKit` | 6 decision-intelligence tools for Agno agents |
-> | `kg_toolkit.py` | `AgnoKGToolkit` | 7 KG pipeline tools (build, query, enrich, export) |
-> | `shared_context.py` | `AgnoSharedContext` | Shared context graph for multi-agent team coordination |
 
 ---
 
