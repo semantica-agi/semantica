@@ -347,19 +347,31 @@ A real-time visual interface for exploring every dimension of your knowledge gra
 
 ### Run locally
 
-```bash
-# 1. Start the Semantica backend (port 8000)
-python -m semantica.server
+**Requirements:** Python 3.8+ · Node 18+ · npm 9+
 
-# 2. In a second terminal
+```bash
+# 1. Install the Python package (if not already installed)
+pip install semantica
+
+# 2. Start the Knowledge Explorer backend with a graph file (port 8000)
+python -m semantica.explorer --graph path/to/your_graph.json
+
+# 3. In a second terminal — install frontend deps and start the dev server
 cd explorer
 npm install
 npm run dev
 ```
 
-Open **http://localhost:5173** — the Explorer connects automatically. All `/api` and `/ws` traffic is proxied to `127.0.0.1:8000` by Vite, so no CORS configuration is needed.
+Open **http://localhost:5173** in your browser. The Explorer connects automatically — all `/api` and `/ws` traffic is proxied to `http://127.0.0.1:8000` by Vite, so no CORS configuration is needed.
 
-> **Requirements:** Node 18+ · Python 3.8+ · npm 9+
+**CLI options:**
+
+| Flag | Default | Description |
+|---|---|---|
+| `--graph` / `-g` | *(required)* | Path to the graph JSON file to load |
+| `--port` / `-p` | `8000` | Port to bind the backend on |
+| `--host` | `127.0.0.1` | Host to bind the backend on |
+| `--no-browser` | off | Skip auto-opening the browser |
 
 For the full setup guide, troubleshooting, and production build instructions see [`explorer/README.md`](explorer/README.md).
 

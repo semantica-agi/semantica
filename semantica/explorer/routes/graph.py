@@ -153,13 +153,25 @@ async def find_path(
         raise HTTPException(status_code=503, detail="PathFinder not available; KG extras may not be installed.")
 
     graph_dict = await asyncio.to_thread(session.build_graph_dict)
+
+    # PathFinder expects a NetworkX graph; build one from the session dict.
+    # Use undirected Graph so paths are found in both directions.
+    import networkx as _nx
+    nx_graph = _nx.Graph()
+    for entity in graph_dict.get("entities", []):
+        nx_graph.add_node(entity["id"])
+    for rel in graph_dict.get("relationships", []):
+        src, tgt = rel.get("source"), rel.get("target")
+        if src and tgt:
+            nx_graph.add_edge(src, tgt, weight=float(rel.get("weight") or 1.0))
+
     path_fn = (
         path_finder.dijkstra_shortest_path
         if algorithm == _PathAlgorithm.dijkstra
         else path_finder.bfs_shortest_path
     )
     try:
-        result = await asyncio.to_thread(path_fn, graph_dict, node_id, target)
+        result = await asyncio.to_thread(path_fn, nx_graph, node_id, target)
     except Exception as exc:
         raise HTTPException(status_code=404, detail=f"No path found from '{node_id}' to '{target}': {exc}")
 

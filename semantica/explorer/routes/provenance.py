@@ -67,7 +67,7 @@ def _build_provenance(session: GraphSession, node_id: Optional[str] = None) -> d
         if edge.source_id in hop_nodes or edge.target_id in hop_nodes:
             graph.add_edge(edge.source_id, edge.target_id, label=edge.edge_type)
 
-    subgraph = nx.ego_graph(graph, node_id, radius=2, undirected=False)
+    subgraph = nx.ego_graph(graph, node_id, radius=2, undirected=True)
     provenance_nodes: List[Dict[str, Any]] = []
     for graph_node_id in subgraph.nodes():
         node = session.graph.nodes.get(graph_node_id)
