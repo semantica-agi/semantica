@@ -13,7 +13,7 @@ COPY semantica-explorer/ ./
 RUN npm run build
 
 
-FROM python:3.12-slim AS runtime
+FROM python:3.14-slim AS runtime
 
 WORKDIR /app
 
