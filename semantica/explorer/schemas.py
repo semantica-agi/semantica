@@ -67,6 +67,7 @@ class PathResponse(BaseModel):
     path: List[str]
     edge_ids: List[str] = Field(default_factory=list)
     total_weight: float = 0.0
+    directed: bool = True
 
 
 class GraphStatsResponse(BaseModel):

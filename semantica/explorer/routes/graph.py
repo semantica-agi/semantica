@@ -146,6 +146,7 @@ async def find_path(
     node_id: str,
     target: str = Query(..., description="Target node ID"),
     algorithm: _PathAlgorithm = Query(_PathAlgorithm.bfs, description="Algorithm: bfs or dijkstra"),
+    directed: bool = Query(True, description="If false, treat edges as undirected for traversal"),
     session: GraphSession = Depends(get_session),
 ):
     path_finder = session.path_finder
@@ -159,11 +160,14 @@ async def find_path(
         else path_finder.bfs_shortest_path
     )
     try:
-        result = await asyncio.to_thread(path_fn, graph_dict, node_id, target)
+        result = await asyncio.to_thread(path_fn, graph_dict, node_id, target, directed=directed)
     except Exception as exc:
         raise HTTPException(status_code=404, detail=f"No path found from '{node_id}' to '{target}': {exc}")
 
     path_nodes = result.get("path", []) if isinstance(result, dict) else (result or [])
+    if not path_nodes:
+        raise HTTPException(status_code=404, detail=f"No path found from '{node_id}' to '{target}'")
+
     total_weight = result.get("total_weight", 0.0) if isinstance(result, dict) else 0.0
     edge_ids = await asyncio.to_thread(session.resolve_path_edge_ids, path_nodes)
 
@@ -174,6 +178,7 @@ async def find_path(
         path=path_nodes,
         edge_ids=edge_ids,
         total_weight=total_weight,
+        directed=directed,
     )
 
 

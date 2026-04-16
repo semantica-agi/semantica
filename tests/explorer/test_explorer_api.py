@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 import uuid
 
+import networkx as nx
 import pytest
 
 from semantica.context.context_graph import ContextGraph
@@ -638,3 +639,122 @@ class TestGenericGraphFileLoading:
             assert repeat.status_code == 200
             repeat_ids = [edge["id"] for edge in repeat.json()["edges"]]
             assert repeat_ids == ["edge-alpha", "edge-beta"]
+
+
+# ---------------------------------------------------------------------------
+# Bidirectional path-finding tests (issue #469)
+# ---------------------------------------------------------------------------
+
+def _make_path_session() -> GraphSession:
+    """Return a GraphSession whose build_graph_dict yields an nx.DiGraph with A→B only.
+
+    GraphSession wraps a ContextGraph (required by create_app), but we patch
+    build_graph_dict so PathFinder receives an actual NetworkX DiGraph — the
+    graph type the Explorer is designed to traverse for path queries.
+    """
+    cg = ContextGraph(advanced_analytics=False)
+    cg.add_node("A", node_type="entity", content="Node A")
+    cg.add_node("B", node_type="entity", content="Node B")
+    cg.add_edge("A", "B", edge_type="connects")
+
+    session = GraphSession(cg)
+
+    # Patch build_graph_dict to return the directed NetworkX graph that
+    # PathFinder needs.  The ContextGraph dict format is not traversable by
+    # PathFinder; this mimics how a KG-backed session would expose the graph.
+    digraph = nx.DiGraph()
+    digraph.add_edge("A", "B")
+    session.build_graph_dict = lambda node_ids=None: digraph  # type: ignore[method-assign]
+
+    return session
+
+
+@pytest.fixture
+def path_client():
+    session = _make_path_session()
+    app = create_app(session=session)
+    with TestClient(app) as c:
+        yield c
+
+
+class TestBidirectionalPathRoute:
+    """API-level tests for directed=true/false on GET /api/graph/node/{id}/path."""
+
+    # ------------------------------------------------------------------
+    # directed=true (default) — existing directed-only behaviour
+    # ------------------------------------------------------------------
+
+    def test_directed_true_forward_path_found(self, path_client):
+        """A→B exists: forward query with directed=true must succeed."""
+        resp = path_client.get("/api/graph/node/A/path?target=B&directed=true")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["path"] == ["A", "B"]
+        assert body["directed"] is True
+
+    def test_directed_true_reverse_returns_404(self, path_client):
+        """Only A→B exists: reverse query with directed=true must return 404."""
+        resp = path_client.get("/api/graph/node/B/path?target=A&directed=true")
+        assert resp.status_code == 404
+
+    def test_default_param_reverse_returns_404(self, path_client):
+        """Omitting directed= must preserve current directed behaviour (404 for reverse)."""
+        resp = path_client.get("/api/graph/node/B/path?target=A")
+        assert resp.status_code == 404
+
+    # ------------------------------------------------------------------
+    # directed=false — new undirected traversal
+    # ------------------------------------------------------------------
+
+    def test_directed_false_reverse_path_found(self, path_client):
+        """directed=false must find B→A even though only A→B exists."""
+        resp = path_client.get("/api/graph/node/B/path?target=A&directed=false")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["path"] == ["B", "A"]
+        assert body["directed"] is False
+
+    def test_directed_false_forward_path_found(self, path_client):
+        """directed=false must not break the natural A→B direction."""
+        resp = path_client.get("/api/graph/node/A/path?target=B&directed=false")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["path"] == ["A", "B"]
+        assert body["directed"] is False
+
+    # ------------------------------------------------------------------
+    # Algorithm variants
+    # ------------------------------------------------------------------
+
+    def test_dijkstra_directed_false_reverse(self, path_client):
+        resp = path_client.get(
+            "/api/graph/node/B/path?target=A&algorithm=dijkstra&directed=false"
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["path"] == ["B", "A"]
+        assert body["algorithm"] == "dijkstra"
+        assert body["directed"] is False
+
+    def test_dijkstra_directed_true_reverse_returns_404(self, path_client):
+        resp = path_client.get(
+            "/api/graph/node/B/path?target=A&algorithm=dijkstra&directed=true"
+        )
+        assert resp.status_code == 404
+
+    # ------------------------------------------------------------------
+    # PathResponse schema
+    # ------------------------------------------------------------------
+
+    def test_response_schema_includes_directed_field(self, path_client):
+        """PathResponse must always include the directed field."""
+        resp = path_client.get("/api/graph/node/A/path?target=B")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert "directed" in body
+
+    def test_response_directed_reflects_query_param(self, path_client):
+        resp_true = path_client.get("/api/graph/node/A/path?target=B&directed=true")
+        resp_false = path_client.get("/api/graph/node/A/path?target=B&directed=false")
+        assert resp_true.json()["directed"] is True
+        assert resp_false.json()["directed"] is False
