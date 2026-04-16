@@ -126,12 +126,14 @@ from .temporal_query import (
     TemporalPatternDetector,
     TemporalVersionManager,
 )
+from .knowledge_graph import KnowledgeGraph
 from .temporal_model import BiTemporalFact, TemporalBound
 from .temporal_normalizer import TemporalNormalizer
 from .temporal_query_rewriter import TemporalQueryRewriter, TemporalQueryResult
 
 __all__ = [
     # Core Classes
+    "KnowledgeGraph",
     "GraphBuilder",
     "GraphBuilderWithProvenance",
     "EntityResolver",
