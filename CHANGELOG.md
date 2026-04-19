@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **Fix: DeepSeekProvider now uses OpenAI SDK instead of unmaintained deepseek SDK** (closes #482, PR #482 by @liling, review fixes by @KaifAhmad1):
+  - **Root cause**: The `deepseek` PyPI package has no `deepseek.Client`, causing `AttributeError` on every `DeepSeekProvider` instantiation. The DeepSeek API is OpenAI-compatible, so the `openai` SDK is the correct client.
+  - **`_init_client` rewritten**: Replaced `import deepseek; deepseek.Client(api_key=...)` with `from openai import OpenAI; OpenAI(api_key=..., base_url=self.base_url)`, matching the pattern already used by `NovitaProvider`.
+  - **`self.base_url` added to `__init__`**: Set to `"https://api.deepseek.com/v1"` (with `/v1` suffix required by the OpenAI SDK for correct endpoint resolution). This was missing from the original PR, causing a second `AttributeError` at `_init_client` call time.
+  - **`generate_typed` `verbose_mode` fix**: `verbose_mode` was referenced before assignment inside the instructor path. Added assignment `verbose_mode = kwargs.get("verbose", False) or self.config.get("verbose", False)` at the correct scope.
+  - **`pyproject.toml` updated**: `llm-deepseek` extra now declares `openai>=1.0.0` instead of the defunct `deepseek>=0.1.0`.
+  - **Warning message updated**: `_init_client` ImportError warning now references the `openai` library and `llm-openai` extra.
+  - **Instructor path improved**: Since `self.client` is now an `OpenAI` instance, the `isinstance(self.client, OpenAI)` check in `generate_typed` passes correctly, avoiding a redundant second client construction.
+  - 19 new tests in `tests/semantic_extract/test_pr482_deepseek_openai.py` across five suites: `TestDeepSeekProviderInit` (8 — covers `base_url`, OpenAI instantiation, no `deepseek` import, ImportError handling, `is_available`), `TestDeepSeekProviderGenerate` (5 — `generate`, `generate_structured`, no-client error paths), `TestDeepSeekInstructorPath` (1 — `isinstance` check), `TestVerboseModeAssignment` (4 — no NameError, verbose kwarg, config verbose, no-print default), `TestDeepSeekGenerateTypedInstructorIntegration` (1 — end-to-end instructor path reuses existing client).
+
 - **Performance: Indexed search for large knowledge graphs** (closes #467, PR #481 by @ZohaibHassan16, review fixes by @KaifAhmad1):
   - **Root cause**: The previous `GraphSession.search()` ran a full O(n) scan over all nodes per query, serializing every node's properties to JSON for string matching. On a 118 k-node graph warm queries took 24–471 ms; a session with 500 k nodes was effectively unusable.
   - **New `semantica/explorer/search_index.py`**: Purpose-built in-memory inverted index with three lookup tiers — exact-term index (full normalized strings), token index (individual words), and prefix index (2–12 character prefixes of every token). A linear secondary-scan fallback (capped at 12 k nodes) handles queries that miss all three tiers. An LRU result cache (128 slots, `OrderedDict`) serves repeat queries at zero cost. Warm query times on the same 118 k-node graph: 24 ms → 0.004 ms (exact), 471 ms → 0.009 ms (ID lookup), 475 ms → 0.002 ms (no-match).

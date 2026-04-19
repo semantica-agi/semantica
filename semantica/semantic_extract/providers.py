@@ -397,6 +397,7 @@ class BaseProvider:
                         create_kwargs["response_format"] = {"type": "json_object"}
                     
                     response = client.chat.completions.create(**create_kwargs)
+                    verbose_mode = kwargs.get("verbose", False) or self.config.get("verbose", False)
                     if verbose_mode:
                         import sys
                         print(f"    [BaseProvider.generate_typed] Typed response received via instructor ({provider_name}).", flush=True, file=sys.stdout)
@@ -940,19 +941,20 @@ class DeepSeekProvider(BaseProvider):
         super().__init__(**kwargs)
         self.api_key = api_key or config.get_api_key("deepseek")
         self.model = model
+        self.base_url = "https://api.deepseek.com/v1"
         self.client = None
         self._init_client()
 
     def _init_client(self):
         try:
-            import deepseek  # type: ignore[import-untyped]
+            from openai import OpenAI
 
             if self.api_key:
-                self.client = deepseek.Client(api_key=self.api_key)
+                self.client = OpenAI(api_key=self.api_key, base_url=self.base_url)
         except (ImportError, OSError):
             self.client = None
             self.logger.warning(
-                "deepseek library not installed. Install with: pip install semantica[llm-deepseek]"
+                "openai library not installed. Install with: pip install semantica[llm-openai]"
             )
 
     def is_available(self) -> bool:
