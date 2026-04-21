@@ -5,6 +5,8 @@ import { graph, type EdgeAttributes, type NodeAttributes } from "../../store/gra
 import type {
   GraphAnalyticsSnapshot,
   GraphCameraState,
+  GraphDisplayMeta,
+  GraphDisplayStateSnapshot,
   GraphDiagnosticsSnapshot,
   GraphEffectsState,
   GraphInteractionState,
@@ -22,6 +24,8 @@ export interface GraphSceneRuntime {
   scene: unknown;
   graph: GraphSceneGraph;
   displayGraph: GraphSceneGraph;
+  graphVersion: number;
+  layoutMode?: GraphDisplayMeta["layoutMode"];
   requestRender: () => void;
   getCameraState: () => GraphCameraState | null;
 }
@@ -37,6 +41,11 @@ export interface GraphSceneEventMap {
 }
 
 export interface GraphSceneProps extends GraphSceneEventMap {
+  graphVersion: number;
+  graphReady: boolean;
+  displayGraph: GraphSceneGraph;
+  displayMeta: GraphDisplayMeta;
+  displayState?: GraphDisplayStateSnapshot;
   selectedNodeId: string;
   selectedEdgeId: string;
   activePath?: string[];
@@ -48,8 +57,6 @@ export interface GraphSceneProps extends GraphSceneEventMap {
   layoutSource?: GraphLayoutSource;
   onLayoutStatusChange?: (status: GraphLayoutStatus) => void;
   viewMode: GraphViewMode;
-  aggregationEnabled?: boolean;
-  collapsedNeighborhoodNodeIds?: string[];
   className?: string;
   showFitViewButton?: boolean;
   pluginOverlays?: ReactNode[];
@@ -58,6 +65,8 @@ export interface GraphSceneProps extends GraphSceneEventMap {
 export interface GraphSceneHandle {
   fitView: () => void;
   focusNode: (nodeId: string) => void;
+  zoomIn: () => void;
+  zoomOut: () => void;
   getRuntime: () => GraphSceneRuntime | null;
   setLayoutRunning?: (running: boolean) => void;
 }

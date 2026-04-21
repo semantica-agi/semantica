@@ -18,7 +18,7 @@ import {
   zoomTierAtLeast,
 } from "./graphTheme";
 import { computeGraphAnalyticsBase } from "./graphAnalytics";
-import type { GraphDisplayStateSnapshot, GraphInteractionState, GraphViewMode } from "./types";
+import type { GraphDisplayMeta, GraphDisplayStateSnapshot, GraphInteractionState, GraphViewMode } from "./types";
 
 const MAX_FOCUS_NEIGHBORS = GRAPH_THEME.focus.maxNeighbors;
 const FOCUS_RING_CAPACITY = GRAPH_THEME.focus.ringCapacity;
@@ -34,6 +34,28 @@ type GraphRef = typeof graph | Graph<NodeAttributes, EdgeAttributes>;
 export type GraphDisplayResult = {
   graph: GraphRef;
   state: GraphDisplayStateSnapshot;
+  meta: GraphDisplayMeta;
+};
+
+const BASE_DISPLAY_META: GraphDisplayMeta = {
+  layoutMode: "base",
+  positionSource: "store",
+  tracksStoreNodePositions: true,
+  hasSyntheticNodes: false,
+};
+
+const MIRRORED_DISPLAY_META: GraphDisplayMeta = {
+  layoutMode: "mirrored",
+  positionSource: "store",
+  tracksStoreNodePositions: true,
+  hasSyntheticNodes: false,
+};
+
+const OWNED_DISPLAY_META: GraphDisplayMeta = {
+  layoutMode: "owned",
+  positionSource: "display",
+  tracksStoreNodePositions: false,
+  hasSyntheticNodes: true,
 };
 
 function getOverviewPresenceBoost(cameraRatio: number) {
@@ -1068,7 +1090,7 @@ function buildCommunityGroupedGraph(): GraphDisplayResult {
   const state = createEmptyDisplayState("", true);
   state.groupedViewAvailable = base.communitiesByNode.size > 0;
   if (base.communitiesByNode.size === 0) {
-    return { graph: aggregateDisplayGraph(graph), state };
+    return { graph: aggregateDisplayGraph(graph), state, meta: MIRRORED_DISPLAY_META };
   }
 
   const grouped = new Graph<NodeAttributes, EdgeAttributes>({
@@ -1209,7 +1231,48 @@ function buildCommunityGroupedGraph(): GraphDisplayResult {
       selectedVisibleNeighborIds: [],
       selectedCollapsedNeighborIds: [],
     },
+    meta: OWNED_DISPLAY_META,
   };
+}
+
+export function resolveDisplayStateSnapshot(
+  selectedNodeId: string,
+  activePath: string[],
+  viewMode: GraphViewMode,
+  options?: {
+    aggregationEnabled?: boolean;
+    collapsedNeighborhoodNodeIds?: Iterable<string>;
+  },
+): GraphDisplayStateSnapshot {
+  const aggregationEnabled = options?.aggregationEnabled ?? true;
+  const collapsedNeighborhoodNodeIds = new Set(
+    Array.from(options?.collapsedNeighborhoodNodeIds ?? []).filter((nodeId) => typeof nodeId === "string"),
+  );
+  const displayState = createEmptyDisplayState(selectedNodeId, aggregationEnabled);
+  displayState.groupedViewAvailable = computeGraphAnalyticsBase(graph, {
+    computeCommunities: true,
+    computeCentrality: false,
+  }).communitiesByNode.size > 0;
+
+  if (!selectedNodeId || !graph.hasNode(selectedNodeId)) {
+    return displayState;
+  }
+
+  const shouldCollapseNeighborhood = Boolean(
+    viewMode !== "grouped"
+    && collapsedNeighborhoodNodeIds.has(selectedNodeId),
+  );
+  const collapsedState = shouldCollapseNeighborhood
+    ? buildCollapsedNeighborhoodState(selectedNodeId, activePath)
+    : {
+        selectedVisibleNeighborIds: rankNeighbors(selectedNodeId),
+        selectedCollapsedNeighborIds: [],
+      };
+
+  displayState.selectedRootNodeId = selectedNodeId;
+  displayState.selectedVisibleNeighborIds = collapsedState.selectedVisibleNeighborIds;
+  displayState.selectedCollapsedNeighborIds = collapsedState.selectedCollapsedNeighborIds;
+  return displayState;
 }
 
 export function createFocusedGraph(
@@ -1247,8 +1310,8 @@ export function createFocusedGraph(
   const selectedState = resolveNodeElementStyle(GRAPH_THEME, "inspection", "selected", selectedAttrs, selectedAttrs.label);
   addNode(nodeId, {
     ...selectedAttrs,
-    x: 0,
-    y: 0,
+    x: Number.isFinite(selectedAttrs.x) ? selectedAttrs.x : 0,
+    y: Number.isFinite(selectedAttrs.y) ? selectedAttrs.y : 0,
     color: selectedState.color,
     size: Math.max(selectedState.size, 22),
     baseColor: selectedState.color,
@@ -1286,8 +1349,8 @@ export function createFocusedGraph(
 
     addNode(neighborId, {
       ...baseAttrs,
-      x: Math.cos(angle) * radius,
-      y: Math.sin(angle) * radius,
+      x: Number.isFinite(baseAttrs.x) ? baseAttrs.x : Math.cos(angle) * radius,
+      y: Number.isFinite(baseAttrs.y) ? baseAttrs.y : Math.sin(angle) * radius,
       color: style.color,
       size: Math.max(style.size, 8.5),
       baseColor: style.color,
@@ -1338,26 +1401,13 @@ export function resolveDisplayGraph(
   const collapsedNeighborhoodNodeIds = new Set(
     Array.from(options?.collapsedNeighborhoodNodeIds ?? []).filter((nodeId) => typeof nodeId === "string"),
   );
-  const displayState = createEmptyDisplayState(selectedNodeId, aggregationEnabled);
-  displayState.groupedViewAvailable = computeGraphAnalyticsBase(graph, {
-    computeCommunities: true,
-    computeCentrality: false,
-  }).communitiesByNode.size > 0;
+  const displayState = resolveDisplayStateSnapshot(selectedNodeId, activePath, viewMode, {
+    aggregationEnabled,
+    collapsedNeighborhoodNodeIds,
+  });
   const isFocusedView = viewMode === "focused" && Boolean(selectedNodeId) && graph.hasNode(selectedNodeId);
   const isGroupedView = viewMode === "grouped";
   const shouldCollapseNeighborhood = Boolean(selectedNodeId && collapsedNeighborhoodNodeIds.has(selectedNodeId));
-
-  if (selectedNodeId && graph.hasNode(selectedNodeId)) {
-    const collapsedState = shouldCollapseNeighborhood
-      ? buildCollapsedNeighborhoodState(selectedNodeId, activePath)
-      : {
-          selectedVisibleNeighborIds: rankNeighbors(selectedNodeId),
-          selectedCollapsedNeighborIds: [],
-        };
-    displayState.selectedRootNodeId = selectedNodeId;
-    displayState.selectedVisibleNeighborIds = collapsedState.selectedVisibleNeighborIds;
-    displayState.selectedCollapsedNeighborIds = collapsedState.selectedCollapsedNeighborIds;
-  }
 
   if (isGroupedView) {
     const grouped = buildCommunityGroupedGraph();
@@ -1369,6 +1419,7 @@ export function resolveDisplayGraph(
         selectedVisibleNeighborIds: displayState.selectedVisibleNeighborIds,
         selectedCollapsedNeighborIds: displayState.selectedCollapsedNeighborIds,
       },
+      meta: grouped.meta,
     };
   }
 
@@ -1376,6 +1427,7 @@ export function resolveDisplayGraph(
     return {
       graph: createFocusedGraph(selectedNodeId, activePath, activePathEdgeIds, shouldCollapseNeighborhood),
       state: displayState,
+      meta: MIRRORED_DISPLAY_META,
     };
   }
 
@@ -1386,6 +1438,11 @@ export function resolveDisplayGraph(
   return {
     graph: aggregationEnabled ? aggregateDisplayGraph(baseGraph) : baseGraph,
     state: displayState,
+    meta: aggregationEnabled
+      ? MIRRORED_DISPLAY_META
+      : baseGraph === graph
+        ? BASE_DISPLAY_META
+        : MIRRORED_DISPLAY_META,
   };
 }
 

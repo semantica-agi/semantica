@@ -26,7 +26,6 @@ import {
   collectInteractionRefreshTargets,
   createInteractionState,
   isEdgeInteractable,
-  resolveDisplayGraph,
   resolveEdgeElementStyle,
   resolveEdgeVisualState,
   resolveNodeElementStyle,
@@ -52,6 +51,8 @@ import {
 import type {
   GraphAnalyticsSnapshot,
   GraphCameraState,
+  GraphDisplayMeta,
+  GraphDisplayStateSnapshot,
   GraphDiagnosticsSnapshot,
   GraphEffectsState,
   GraphInteractionState,
@@ -59,18 +60,25 @@ import type {
   GraphTemporalState,
   GraphViewMode,
 } from "./types";
-import type { GraphSceneRuntime } from "./scene";
+import type { GraphSceneGraph, GraphSceneRuntime } from "./scene";
 
 export type { GraphViewMode } from "./types";
 
 export interface GraphCanvasHandle {
   fitView: () => void;
   focusNode: (nodeId: string) => void;
+  zoomIn: () => void;
+  zoomOut: () => void;
   requestRender: () => void;
   getCameraState: () => GraphCameraState | null;
 }
 
 export interface GraphCanvasProps {
+  graphVersion: number;
+  graphReady: boolean;
+  displayGraph: GraphSceneGraph;
+  displayMeta: GraphDisplayMeta;
+  displayState?: GraphDisplayStateSnapshot;
   onNodeClick: (nodeId: string) => void;
   onEdgeClick?: (edgeId: string) => void;
   selectedNodeId: string;
@@ -84,8 +92,6 @@ export interface GraphCanvasProps {
   layoutSource?: string;
   onLayoutStatusChange?: (status: GraphLayoutStatus) => void;
   viewMode: GraphViewMode;
-  aggregationEnabled?: boolean;
-  collapsedNeighborhoodNodeIds?: string[];
   className?: string;
   showFitViewButton?: boolean;
   pluginOverlays?: ReactNode[];
@@ -116,8 +122,8 @@ const SIGMA_SETTINGS = {
   labelRenderedSizeThreshold: 6,
   defaultNodeType: "circle",
   defaultEdgeType: "line",
-  hideLabelsOnMove: false,
-  hideEdgesOnMove: false,
+  hideLabelsOnMove: true,
+  hideEdgesOnMove: true,
   enableEdgeEvents: true,
   renderEdgeLabels: false,
   labelDensity: 0.7,
@@ -131,6 +137,306 @@ const SIGMA_SETTINGS = {
   defaultDrawNodeLabel: drawSemanticaNodeLabel,
   defaultDrawNodeHover: drawSemanticaNodeHover,
 };
+
+const DEBUG_GRAPH_RUNTIME = import.meta.env.DEV;
+
+function debugGraphRuntime(message: string, payload?: Record<string, unknown>) {
+  if (!DEBUG_GRAPH_RUNTIME) {
+    return;
+  }
+  console.debug(`[GraphCanvas] ${message}`, payload ?? {});
+}
+
+function syncDisplayNodePositionsFromStore(
+  targetGraph: GraphSceneGraph,
+  storeGraph: typeof graph,
+): number {
+  let changed = 0;
+
+  targetGraph.forEachNode((nodeId, attrs) => {
+    if (!storeGraph.hasNode(nodeId)) {
+      return;
+    }
+
+    const sourceAttrs = storeGraph.getNodeAttributes(nodeId) as NodeAttributes;
+    const nextX = Number(sourceAttrs.x);
+    const nextY = Number(sourceAttrs.y);
+    const currentAttrs = attrs as NodeAttributes;
+    if (!Number.isFinite(nextX) || !Number.isFinite(nextY)) {
+      return;
+    }
+
+    const currentX = Number(currentAttrs.x);
+    const currentY = Number(currentAttrs.y);
+    if (Math.abs(currentX - nextX) <= 0.001 && Math.abs(currentY - nextY) <= 0.001) {
+      return;
+    }
+
+    targetGraph.mergeNodeAttributes(nodeId, {
+      x: nextX,
+      y: nextY,
+    });
+    changed += 1;
+  });
+
+  return changed;
+}
+
+function resolveGroupedSelectionNodeId(
+  displayGraph: GraphSceneGraph,
+  nodeId: string,
+): string | null {
+  if (!nodeId) {
+    return null;
+  }
+  if (displayGraph.hasNode(nodeId)) {
+    return nodeId;
+  }
+
+  let resolvedNodeId: string | null = null;
+  displayGraph.forEachNode((candidateId, attrs) => {
+    if (resolvedNodeId) {
+      return;
+    }
+    const communityGroup = (attrs as NodeAttributes).properties?.__communityGroup as
+      | {
+          anchorNodeId?: string | null;
+          memberNodeIds?: string[];
+          sampleNodeIds?: string[];
+        }
+      | undefined;
+    if (!communityGroup) {
+      return;
+    }
+
+    if (communityGroup.anchorNodeId === nodeId) {
+      resolvedNodeId = candidateId;
+      return;
+    }
+
+    if (communityGroup.sampleNodeIds?.includes(nodeId) || communityGroup.memberNodeIds?.includes(nodeId)) {
+      resolvedNodeId = candidateId;
+    }
+  });
+
+  return resolvedNodeId;
+}
+
+function collectSelectionContextNodeIds(
+  displayGraph: GraphSceneGraph,
+  displayState: GraphDisplayStateSnapshot | undefined,
+  nodeId: string,
+): string[] {
+  if (!nodeId) {
+    return [];
+  }
+
+  const resolvedNodeId = resolveGroupedSelectionNodeId(displayGraph, nodeId);
+  if (!resolvedNodeId) {
+    return [];
+  }
+
+  const neighborIds = (displayState?.selectedVisibleNeighborIds ?? [])
+    .filter((neighborId) => displayGraph.hasNode(neighborId))
+    .slice(0, GRAPH_THEME.focus.maxNeighbors);
+
+  return Array.from(new Set([resolvedNodeId, ...neighborIds]));
+}
+
+function computeGraphSpaceBounds(
+  displayGraph: GraphSceneGraph,
+  nodeIds: string[],
+): { minX: number; maxX: number; minY: number; maxY: number; count: number } | null {
+  let minX = Infinity;
+  let maxX = -Infinity;
+  let minY = Infinity;
+  let maxY = -Infinity;
+  let count = 0;
+
+  nodeIds.forEach((nodeId) => {
+    if (!displayGraph.hasNode(nodeId)) {
+      return;
+    }
+
+    const attrs = displayGraph.getNodeAttributes(nodeId) as NodeAttributes;
+    const x = Number(attrs.x);
+    const y = Number(attrs.y);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) {
+      return;
+    }
+
+    minX = Math.min(minX, x);
+    maxX = Math.max(maxX, x);
+    minY = Math.min(minY, y);
+    maxY = Math.max(maxY, y);
+    count += 1;
+  });
+
+  if (count === 0) {
+    return null;
+  }
+
+  return { minX, maxX, minY, maxY, count };
+}
+
+type GraphSpaceBounds = NonNullable<ReturnType<typeof computeGraphSpaceBounds>>;
+type SigmaCustomBBox = {
+  x: [number, number];
+  y: [number, number];
+};
+
+type DisplayFitSignature = {
+  graphVersion: number;
+  viewMode: GraphViewMode;
+  layoutMode: GraphDisplayMeta["layoutMode"];
+  displayGraph: GraphSceneGraph;
+};
+
+function isSameDisplayFitSignature(
+  left: DisplayFitSignature | null,
+  right: DisplayFitSignature,
+): boolean {
+  if (!left) {
+    return false;
+  }
+
+  return left.graphVersion === right.graphVersion
+    && left.viewMode === right.viewMode
+    && left.layoutMode === right.layoutMode
+    && left.displayGraph === right.displayGraph;
+}
+
+function computeDisplayedNodeBounds(
+  sigma: Sigma,
+  nodeIds: string[],
+): GraphSpaceBounds | null {
+  let minX = Infinity;
+  let maxX = -Infinity;
+  let minY = Infinity;
+  let maxY = -Infinity;
+  let count = 0;
+
+  nodeIds.forEach((nodeId) => {
+    const displayData = sigma.getNodeDisplayData(nodeId);
+    if (!displayData) {
+      return;
+    }
+
+    const x = Number(displayData.x);
+    const y = Number(displayData.y);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) {
+      return;
+    }
+
+    minX = Math.min(minX, x);
+    maxX = Math.max(maxX, x);
+    minY = Math.min(minY, y);
+    maxY = Math.max(maxY, y);
+    count += 1;
+  });
+
+  if (count === 0) {
+    return null;
+  }
+
+  return { minX, maxX, minY, maxY, count };
+}
+
+function computeDisplayedGraphBounds(
+  sigma: Sigma,
+  displayGraph: GraphSceneGraph,
+): GraphSpaceBounds | null {
+  const nodeIds: string[] = [];
+  displayGraph.forEachNode((nodeId) => {
+    nodeIds.push(nodeId);
+  });
+  return computeDisplayedNodeBounds(sigma, nodeIds);
+}
+
+function computeCameraTargetFromBounds(
+  sigma: Sigma,
+  bounds: SigmaCustomBBox,
+): { x: number; y: number; ratio: number; angle: number } | null {
+  const camera = sigma.getCamera();
+  const cameraState = camera.getState();
+  const viewRect = sigma.viewRectangle();
+
+  const currentWidth = Math.abs(viewRect.x2 - viewRect.x1);
+  const currentHeight = Math.abs(viewRect.height);
+  const targetWidth = Math.abs(bounds.x[1] - bounds.x[0]);
+  const targetHeight = Math.abs(bounds.y[1] - bounds.y[0]);
+  const centerX = (bounds.x[0] + bounds.x[1]) / 2;
+  const centerY = (bounds.y[0] + bounds.y[1]) / 2;
+
+  if (
+    ![currentWidth, currentHeight, targetWidth, targetHeight, centerX, centerY].every(Number.isFinite)
+    || currentWidth <= 0
+    || currentHeight <= 0
+    || targetWidth <= 0
+    || targetHeight <= 0
+  ) {
+    return null;
+  }
+
+  const fitScale = Math.max(targetWidth / currentWidth, targetHeight / currentHeight);
+  const nextRatio = camera.getBoundedRatio(cameraState.ratio * fitScale);
+  if (!Number.isFinite(nextRatio) || nextRatio <= 0) {
+    return null;
+  }
+
+  return {
+    x: centerX,
+    y: centerY,
+    ratio: nextRatio,
+    angle: cameraState.angle,
+  };
+}
+
+function expandGraphSpaceBounds(
+  bounds: GraphSpaceBounds,
+  referenceBounds: GraphSpaceBounds | null,
+  options?: {
+    paddingRatio?: number;
+    minSpanRatio?: number;
+    minSpanFloor?: number;
+  },
+): SigmaCustomBBox | null {
+  const paddingRatio = options?.paddingRatio ?? 0.12;
+  const minSpanRatio = options?.minSpanRatio ?? 0.03;
+  const minSpanFloor = options?.minSpanFloor ?? 1;
+
+  const referenceSpanX = Math.max(
+    referenceBounds ? referenceBounds.maxX - referenceBounds.minX : 0,
+    minSpanFloor,
+  );
+  const referenceSpanY = Math.max(
+    referenceBounds ? referenceBounds.maxY - referenceBounds.minY : 0,
+    minSpanFloor,
+  );
+
+  const spanX = Math.max(bounds.maxX - bounds.minX, 0);
+  const spanY = Math.max(bounds.maxY - bounds.minY, 0);
+  const minSpanX = Math.max(referenceSpanX * minSpanRatio, minSpanFloor);
+  const minSpanY = Math.max(referenceSpanY * minSpanRatio, minSpanFloor);
+  const targetSpanX = Math.max(spanX, minSpanX);
+  const targetSpanY = Math.max(spanY, minSpanY);
+  const centerX = (bounds.minX + bounds.maxX) / 2;
+  const centerY = (bounds.minY + bounds.maxY) / 2;
+  if (![targetSpanX, targetSpanY, centerX, centerY].every(Number.isFinite)) {
+    return null;
+  }
+
+  const paddedSpanX = targetSpanX * (1 + paddingRatio * 2);
+  const paddedSpanY = targetSpanY * (1 + paddingRatio * 2);
+  if (paddedSpanX <= 0 || paddedSpanY <= 0) {
+    return null;
+  }
+
+  return {
+    x: [centerX - paddedSpanX / 2, centerX + paddedSpanX / 2],
+    y: [centerY - paddedSpanY / 2, centerY + paddedSpanY / 2],
+  };
+}
 
 function isPointNearViewport(point: ViewportPoint, width: number, height: number, padding = 96) {
   return point.x >= -padding
@@ -195,6 +501,7 @@ function buildEffectAvailability(
   effectsState: GraphEffectsState,
   temporalState: GraphTemporalState | null | undefined,
   analytics: GraphAnalyticsSnapshot | null,
+  isLayoutRunning: boolean,
   sigma: Sigma | null,
   viewportWidth: number,
   viewportHeight: number,
@@ -217,9 +524,12 @@ function buildEffectAvailability(
   const regionsTierReady = zoomTierAtLeast(interactionState.zoomTier, GRAPH_THEME.effects.semanticRegions.minZoomTier);
   const contoursTierReady = zoomTierAtLeast(interactionState.zoomTier, GRAPH_THEME.effects.contours.minZoomTier);
   const hasPrimaryNode = Boolean(interactionState.hoveredNodeId || interactionState.selectedNodeId);
+  const layoutReason = "Layout is still settling";
 
   const pathPulse = !effectsState.pathPulseEnabled
     ? { enabled: false, available: false, reason: "Disabled by toggle" }
+    : isLayoutRunning
+      ? { enabled: true, available: false, reason: layoutReason }
     : !hasActivePath
       ? { enabled: true, available: false, reason: "No active path" }
       : !pulseTierReady
@@ -250,6 +560,8 @@ function buildEffectAvailability(
 
   const pathFlow = !effectsState.pathFlowEnabled
     ? { enabled: false, available: false, reason: "Disabled by toggle" }
+    : isLayoutRunning
+      ? { enabled: true, available: false, reason: layoutReason }
     : !hasActivePath
       ? { enabled: true, available: false, reason: "No active path" }
       : !flowTierReady
@@ -280,6 +592,8 @@ function buildEffectAvailability(
 
   const lens = !effectsState.lensEnabled
     ? { enabled: false, available: false, reason: "Disabled by toggle" }
+    : isLayoutRunning
+      ? { enabled: true, available: false, reason: layoutReason }
     : !hasPrimaryNode
       ? { enabled: true, available: false, reason: "No focal node" }
       : !lensTierReady
@@ -293,6 +607,8 @@ function buildEffectAvailability(
 
   const temporalEmphasis = !effectsState.temporalEmphasisEnabled
     ? { enabled: false, available: false, reason: "Disabled by toggle" }
+    : isLayoutRunning
+      ? { enabled: true, available: false, reason: layoutReason }
     : !temporalState?.currentTime
       ? { enabled: true, available: false, reason: "No temporal focus time" }
       : !temporalTierReady
@@ -306,6 +622,8 @@ function buildEffectAvailability(
 
   const semanticRegions = !effectsState.semanticRegionsEnabled
     ? { enabled: false, available: false, reason: "Disabled by toggle" }
+    : isLayoutRunning
+      ? { enabled: true, available: false, reason: layoutReason }
     : !regionsTierReady
       ? {
           enabled: true,
@@ -323,6 +641,8 @@ function buildEffectAvailability(
 
   const contours = !effectsState.contoursEnabled
     ? { enabled: false, available: false, reason: "Disabled by toggle" }
+    : isLayoutRunning
+      ? { enabled: true, available: false, reason: layoutReason }
     : !contoursTierReady
       ? {
           enabled: true,
@@ -571,6 +891,11 @@ function dispatchBehaviorAction(
 export const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(
   function GraphCanvas(
     {
+      graphVersion,
+      graphReady,
+      displayGraph,
+      displayMeta,
+      displayState,
       onNodeClick,
       onEdgeClick,
       selectedNodeId,
@@ -581,8 +906,6 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(
       temporalState,
       isLayoutRunning,
       viewMode,
-      aggregationEnabled = true,
-      collapsedNeighborhoodNodeIds = [],
       className,
       showFitViewButton = true,
       pluginOverlays = [],
@@ -599,9 +922,38 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(
     const sigmaRef = useRef<Sigma | null>(null);
     const fa2Ref = useRef<FA2Layout | null>(null);
     const behaviorContextRef = useRef<GraphBehaviorContext | null>(null);
+    const runtimeRef = useRef<GraphSceneRuntime | null>(null);
+    const sigmaResizeObserverRef = useRef<ResizeObserver | null>(null);
+    const sigmaCameraSyncRef = useRef<(() => void) | null>(null);
+    const displayGraphRef = useRef<GraphSceneGraph>(displayGraph);
+    const displayStateRef = useRef(displayState);
+    const displayMetaRef = useRef(displayMeta);
+    const graphVersionRef = useRef(graphVersion);
+    const selectedNodeIdRef = useRef(selectedNodeId);
+    const viewModeRef = useRef(viewMode);
+    const onNodeClickRef = useRef(onNodeClick);
+    const onEdgeClickRef = useRef(onEdgeClick);
+    const onSceneRuntimeChangeRef = useRef(onSceneRuntimeChange);
+    const onCameraStateChangeRef = useRef(onCameraStateChange);
     const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
     const [zoomTier, setZoomTier] = useState<GraphZoomTier>("overview");
     const [analyticsSnapshot, setAnalyticsSnapshot] = useState<GraphAnalyticsSnapshot | null>(null);
+    const appliedGraphVersionRef = useRef<number | null>(null);
+    const fittedDisplaySignatureRef = useRef<DisplayFitSignature | null>(null);
+    const layoutSyncFrameRef = useRef<number | null>(null);
+    const layoutSyncTickRef = useRef(0);
+    const deferredFocusFrameRef = useRef<number | null>(null);
+
+    displayGraphRef.current = displayGraph;
+    displayStateRef.current = displayState;
+    displayMetaRef.current = displayMeta;
+    graphVersionRef.current = graphVersion;
+    selectedNodeIdRef.current = selectedNodeId;
+    viewModeRef.current = viewMode;
+    onNodeClickRef.current = onNodeClick;
+    onEdgeClickRef.current = onEdgeClick;
+    onSceneRuntimeChangeRef.current = onSceneRuntimeChange;
+    onCameraStateChangeRef.current = onCameraStateChange;
 
     const behaviors = useMemo<GraphBehavior[]>(
       () => [
@@ -614,15 +966,6 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(
         createViewModeSwitchBehavior(),
       ],
       [],
-    );
-
-    const isFocusedView = viewMode === "focused" && Boolean(selectedNodeId) && graph.hasNode(selectedNodeId);
-    const displayGraph = useMemo(
-      () => resolveDisplayGraph(selectedNodeId, activePath, activePathEdgeIds, viewMode, {
-        aggregationEnabled,
-        collapsedNeighborhoodNodeIds,
-      }).graph,
-      [activePath, activePathEdgeIds, aggregationEnabled, collapsedNeighborhoodNodeIds, selectedNodeId, viewMode],
     );
 
     const interactionState = useMemo(
@@ -650,6 +993,187 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(
       }),
       [displayGraph, shouldComputeCentrality, shouldComputeCommunities],
     );
+    const displayFitSignature = useMemo<DisplayFitSignature>(() => ({
+      graphVersion,
+      viewMode,
+      layoutMode: displayMeta.layoutMode,
+      displayGraph,
+    }), [displayGraph, displayMeta.layoutMode, graphVersion, viewMode]);
+
+    const animateCameraToBounds = useCallback((
+      intent: "fit-display-graph" | "fit-selection-context" | "fit-focused-graph",
+      targetBounds: SigmaCustomBBox | null,
+      diagnostics?: Record<string, unknown>,
+    ) => {
+      const sigma = sigmaRef.current;
+      if (!sigma) {
+        return;
+      }
+
+      if (sigma.getCustomBBox()) {
+        sigma.setCustomBBox(null);
+      }
+
+      const container = containerRef.current;
+      const dimensions = sigma.getDimensions();
+      const currentCameraState = sigma.getCamera().getState();
+      const target = targetBounds
+        ? computeCameraTargetFromBounds(sigma, targetBounds)
+        : {
+            x: 0.5,
+            y: 0.5,
+            ratio: 1,
+            angle: currentCameraState.angle,
+          };
+      if (!target) {
+        debugGraphRuntime("camera-fit-target-invalid", {
+          intent,
+          graphVersion: graphVersionRef.current,
+          viewMode: viewModeRef.current,
+          order: displayGraphRef.current.order,
+          size: displayGraphRef.current.size,
+          boundsX: targetBounds?.x ?? null,
+          boundsY: targetBounds?.y ?? null,
+          ...diagnostics,
+        });
+        return;
+      }
+
+      debugGraphRuntime("camera-fit-target", {
+        intent,
+        graphVersion: graphVersionRef.current,
+        viewMode: viewModeRef.current,
+        order: displayGraphRef.current.order,
+        size: displayGraphRef.current.size,
+        selectionPreserved: Boolean(selectedNodeIdRef.current),
+        containerWidth: container?.clientWidth ?? dimensions.width,
+        containerHeight: container?.clientHeight ?? dimensions.height,
+        targetX: target.x,
+        targetY: target.y,
+        targetRatio: target.ratio,
+        boundsX: targetBounds?.x ?? null,
+        boundsY: targetBounds?.y ?? null,
+        ...diagnostics,
+      });
+
+      void sigma.getCamera().animate(
+        target,
+        { duration: GRAPH_THEME.motion.cameraMs, easing: "quadraticOut" },
+      );
+    }, []);
+
+    const fitDisplayGraphInView = useCallback(() => {
+      const sigma = sigmaRef.current;
+      if (!sigma) {
+        return;
+      }
+
+      const bounds = computeDisplayedGraphBounds(sigma, displayGraphRef.current);
+      if (!bounds) {
+        debugGraphRuntime("camera-fit-display-graph-fallback", {
+          graphVersion: graphVersionRef.current,
+          viewMode: viewModeRef.current,
+          reason: "display-bounds-unavailable",
+          order: displayGraphRef.current.order,
+          size: displayGraphRef.current.size,
+        });
+        animateCameraToBounds("fit-display-graph", null, {
+          fallback: "reset-empty-bounds",
+        });
+        return;
+      }
+
+      const displayBBox = expandGraphSpaceBounds(bounds, bounds, {
+        paddingRatio: 0.14,
+        minSpanRatio: 0.02,
+        minSpanFloor: 0.04,
+      });
+      animateCameraToBounds("fit-display-graph", displayBBox, {
+        boundsCount: bounds.count,
+        minX: bounds.minX,
+        maxX: bounds.maxX,
+        minY: bounds.minY,
+        maxY: bounds.maxY,
+      });
+    }, [animateCameraToBounds]);
+
+    const centerSelectionInView = useCallback(function centerSelectionInViewInternal(nodeId: string, attempt = 0) {
+      const sigma = sigmaRef.current;
+      if (!sigma) {
+        return;
+      }
+
+      const currentDisplayGraph = displayGraphRef.current;
+      const selectionNodeIds = collectSelectionContextNodeIds(
+        currentDisplayGraph,
+        displayStateRef.current,
+        nodeId,
+      );
+      if (selectionNodeIds.length === 0) {
+        debugGraphRuntime("camera-selection-missing-node", {
+          nodeId,
+          graphVersion: graphVersionRef.current,
+          viewMode: viewModeRef.current,
+        });
+        fitDisplayGraphInView();
+        return;
+      }
+
+      const bounds = computeGraphSpaceBounds(currentDisplayGraph, selectionNodeIds);
+      if (!bounds) {
+        if (attempt < 3) {
+          debugGraphRuntime("camera-selection-deferred", {
+            nodeId,
+            graphVersion: graphVersionRef.current,
+            attempt: attempt + 1,
+          });
+          if (deferredFocusFrameRef.current !== null) {
+            window.cancelAnimationFrame(deferredFocusFrameRef.current);
+          }
+          deferredFocusFrameRef.current = window.requestAnimationFrame(() => {
+            deferredFocusFrameRef.current = null;
+            centerSelectionInViewInternal(nodeId, attempt + 1);
+          });
+        } else {
+          debugGraphRuntime("camera-selection-fallback-fit", {
+            nodeId,
+            graphVersion: graphVersionRef.current,
+            viewMode: viewModeRef.current,
+          });
+          fitDisplayGraphInView();
+        }
+        return;
+      }
+
+      const globalBounds = computeDisplayedGraphBounds(sigma, currentDisplayGraph);
+      const selectionBBox = expandGraphSpaceBounds(bounds, globalBounds, {
+        paddingRatio: 0.2,
+        minSpanRatio: 0.035,
+        minSpanFloor: 0.02,
+      });
+      if (!selectionBBox) {
+        debugGraphRuntime("camera-selection-invalid-bounds", {
+          nodeId,
+          graphVersion: graphVersionRef.current,
+          count: bounds.count,
+        });
+        fitDisplayGraphInView();
+        return;
+      }
+
+      animateCameraToBounds("fit-selection-context", selectionBBox, {
+        nodeId,
+        contextCount: bounds.count,
+        minX: bounds.minX,
+        maxX: bounds.maxX,
+        minY: bounds.minY,
+        maxY: bounds.maxY,
+        referenceMinX: globalBounds?.minX ?? null,
+        referenceMaxX: globalBounds?.maxX ?? null,
+        referenceMinY: globalBounds?.minY ?? null,
+        referenceMaxY: globalBounds?.maxY ?? null,
+      });
+    }, [animateCameraToBounds, fitDisplayGraphInView]);
 
     const focusNodeInView = useCallback((nodeId: string) => {
       const sigma = sigmaRef.current;
@@ -657,37 +1181,35 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(
         return;
       }
 
-      if (isFocusedView) {
-        sigma.getCamera().animatedReset({ duration: GRAPH_THEME.motion.cameraMs });
-        sigma.refresh();
+      const focusedView = viewModeRef.current === "focused"
+        && Boolean(selectedNodeIdRef.current)
+        && graph.hasNode(selectedNodeIdRef.current);
+      if (focusedView) {
+        const focusedBounds = computeDisplayedGraphBounds(sigma, displayGraphRef.current);
+        const focusedBBox = focusedBounds
+          ? expandGraphSpaceBounds(focusedBounds, focusedBounds, {
+              paddingRatio: 0.14,
+              minSpanRatio: 0.08,
+              minSpanFloor: 0.02,
+            })
+          : null;
+        animateCameraToBounds("fit-focused-graph", focusedBBox, {
+          nodeId,
+          focusedCount: focusedBounds?.count ?? 0,
+          focusedMinX: focusedBounds?.minX ?? null,
+          focusedMaxX: focusedBounds?.maxX ?? null,
+          focusedMinY: focusedBounds?.minY ?? null,
+          focusedMaxY: focusedBounds?.maxY ?? null,
+        });
         return;
       }
 
-      const data = sigma.getNodeDisplayData(nodeId);
-      if (!data) {
-        sigma.getCamera().animatedReset({ duration: GRAPH_THEME.motion.cameraMs });
-        return;
-      }
-
-      void sigma.getCamera().animate(
-        { x: data.x, y: data.y, ratio: 0.3 },
-        { duration: GRAPH_THEME.motion.cameraMs, easing: "quadraticOut" },
-      );
-    }, [isFocusedView]);
+      centerSelectionInView(nodeId);
+    }, [animateCameraToBounds, centerSelectionInView]);
 
     const fitCurrentView = useCallback(() => {
-      const sigma = sigmaRef.current;
-      if (!sigma) {
-        return;
-      }
-
-      if (selectedNodeId) {
-        focusNodeInView(selectedNodeId);
-        return;
-      }
-
-      sigma.getCamera().animatedReset({ duration: GRAPH_THEME.motion.cameraMs });
-    }, [focusNodeInView, selectedNodeId]);
+      fitDisplayGraphInView();
+    }, [fitDisplayGraphInView]);
 
     const dispatchAction = useCallback((action: GraphBehaviorActionRequest) => {
       const context = behaviorContextRef.current;
@@ -707,18 +1229,19 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(
       const context: GraphBehaviorContext = {
         sigma: runtimeSigma,
         graph,
-        displayGraph,
+        displayGraph: displayGraphRef.current,
         getInteractionState: () => interactionStateRef.current,
         setHoveredNodeId,
-        onNodeSelectionChange: onNodeClick,
-        onEdgeSelectionChange: onEdgeClick ?? (() => {}),
+        onNodeSelectionChange: (nodeId: string) => onNodeClickRef.current(nodeId),
+        onEdgeSelectionChange: (edgeId: string) => onEdgeClickRef.current?.(edgeId),
         focusNodeInView,
+        centerSelectionInView,
         fitCurrentView,
         dispatchAction,
       };
       behaviorContextRef.current = context;
       return context;
-    }, [displayGraph, dispatchAction, fitCurrentView, focusNodeInView, onEdgeClick, onNodeClick]);
+    }, [centerSelectionInView, dispatchAction, fitCurrentView, focusNodeInView]);
 
     const dispatchToBehaviors = useCallback((
       hook: "onNodeEnter" | "onNodeLeave" | "onNodeClick" | "onEdgeClick" | "onStageClick" | "onCameraChange",
@@ -740,6 +1263,28 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(
     useImperativeHandle(ref, () => ({
       fitView: () => dispatchAction({ type: "fitView" }),
       focusNode: (nodeId: string) => dispatchAction({ type: "focusNode", nodeId }),
+      zoomIn: () => {
+        const sigma = sigmaRef.current;
+        if (!sigma) {
+          return;
+        }
+        debugGraphRuntime("camera-zoom-in", {
+          graphVersion: graphVersionRef.current,
+          ratioBefore: sigma.getCamera().getState().ratio,
+        });
+        sigma.getCamera().animatedZoom({ duration: GRAPH_THEME.motion.cameraMs });
+      },
+      zoomOut: () => {
+        const sigma = sigmaRef.current;
+        if (!sigma) {
+          return;
+        }
+        debugGraphRuntime("camera-zoom-out", {
+          graphVersion: graphVersionRef.current,
+          ratioBefore: sigma.getCamera().getState().ratio,
+        });
+        sigma.getCamera().animatedUnzoom({ duration: GRAPH_THEME.motion.cameraMs });
+      },
       requestRender: () => sigmaRef.current?.scheduleRefresh(),
       getCameraState: () => {
         const sigma = sigmaRef.current;
@@ -751,59 +1296,84 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(
       },
     }), [dispatchAction]);
 
-    useEffect(() => {
-      if (!containerRef.current) return;
+    const syncCameraState = useCallback((sigma: Sigma) => {
+      const camera = sigma.getCamera();
+      const state = camera.getState();
+      const cameraState: GraphCameraState = {
+        x: state.x,
+        y: state.y,
+        ratio: state.ratio,
+      };
+      const nextTier = getZoomTier(cameraState.ratio);
+      setZoomTier((current) => (current === nextTier ? current : nextTier));
+      onCameraStateChangeRef.current?.(cameraState);
+      dispatchToBehaviors("onCameraChange", cameraState);
+      debugGraphRuntime("camera-updated", {
+        graphVersion: graphVersionRef.current,
+        ratio: cameraState.ratio,
+      });
+    }, [dispatchToBehaviors]);
 
-      const sigma = new Sigma(displayGraph, containerRef.current, SIGMA_SETTINGS);
+    useEffect(() => {
+      if (!graphReady || sigmaRef.current || !containerRef.current) {
+        return;
+      }
+
+      const sigma = new Sigma(displayGraphRef.current, containerRef.current, SIGMA_SETTINGS);
       sigmaRef.current = sigma;
+      appliedGraphVersionRef.current = graphVersionRef.current;
+
       const camera = sigma.getCamera();
       const runtime: GraphSceneRuntime = {
         renderer: "sigma",
         scene: sigma,
         graph,
-        displayGraph,
+        displayGraph: displayGraphRef.current,
+        graphVersion: graphVersionRef.current,
+        layoutMode: displayMetaRef.current.layoutMode,
         requestRender: () => sigma.scheduleRefresh(),
         getCameraState: () => {
           const state = camera.getState();
           return { x: state.x, y: state.y, ratio: state.ratio };
         },
       };
-      onSceneRuntimeChange?.(runtime);
-      const context = getBehaviorContext(sigma);
+      runtimeRef.current = runtime;
+      onSceneRuntimeChangeRef.current?.(runtime);
+      debugGraphRuntime("sigma-created", {
+        graphVersion: graphVersionRef.current,
+        layoutMode: displayMetaRef.current.layoutMode,
+        order: displayGraphRef.current.order,
+        size: displayGraphRef.current.size,
+      });
 
+      const context = getBehaviorContext(sigma);
       if (context) {
         for (const behavior of behaviors) {
           behavior.attach(context);
         }
       }
 
-      const syncTier = () => {
-        const cameraState: GraphCameraState = {
-          x: camera.getState().x,
-          y: camera.getState().y,
-          ratio: camera.getState().ratio,
-        };
-        const nextTier = getZoomTier(cameraState.ratio);
-        setZoomTier((current) => (current === nextTier ? current : nextTier));
-        onCameraStateChange?.(cameraState);
-        dispatchToBehaviors("onCameraChange", cameraState);
-      };
-
-      const resizeObserver = new ResizeObserver(() => {
+      const handleResize = () => {
         if (containerRef.current && containerRef.current.offsetWidth > 0) {
           sigma.scheduleRefresh();
         }
-      });
-      resizeObserver.observe(containerRef.current);
+      };
 
-      camera.on("updated", syncTier);
+      const resizeObserver = new ResizeObserver(handleResize);
+      resizeObserver.observe(containerRef.current);
+      sigmaResizeObserverRef.current = resizeObserver;
+
+      const handleCameraUpdated = () => syncCameraState(sigma);
+      sigmaCameraSyncRef.current = handleCameraUpdated;
+      camera.on("updated", handleCameraUpdated);
       sigma.on("clickNode", ({ node }) => dispatchToBehaviors("onNodeClick", node));
       sigma.on("clickEdge", ({ edge }) => {
-        const [source, target] = displayGraph.extremities(edge);
+        const currentDisplayGraph = displayGraphRef.current;
+        const [source, target] = currentDisplayGraph.extremities(edge);
         const stableEdgeId = String(edge);
-        const attrs = displayGraph.getEdgeAttributes(edge) as EdgeAttributes;
+        const attrs = currentDisplayGraph.getEdgeAttributes(edge) as EdgeAttributes;
 
-        if (isEdgeInteractable(displayGraph, interactionStateRef.current, stableEdgeId, source, target, attrs)) {
+        if (isEdgeInteractable(currentDisplayGraph, interactionStateRef.current, stableEdgeId, source, target, attrs)) {
           dispatchToBehaviors("onEdgeClick", stableEdgeId);
         }
       });
@@ -816,10 +1386,11 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(
           return;
         }
 
-        const [source, target] = displayGraph.extremities(edge);
+        const currentDisplayGraph = displayGraphRef.current;
+        const [source, target] = currentDisplayGraph.extremities(edge);
         const stableEdgeId = String(edge);
-        const attrs = displayGraph.getEdgeAttributes(edge) as EdgeAttributes;
-        container.style.cursor = isEdgeInteractable(displayGraph, interactionStateRef.current, stableEdgeId, source, target, attrs)
+        const attrs = currentDisplayGraph.getEdgeAttributes(edge) as EdgeAttributes;
+        container.style.cursor = isEdgeInteractable(currentDisplayGraph, interactionStateRef.current, stableEdgeId, source, target, attrs)
           ? "pointer"
           : "";
       });
@@ -830,27 +1401,134 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(
       });
 
       requestAnimationFrame(() => {
-        syncTier();
-        dispatchAction({ type: "fitView" });
+        syncCameraState(sigma);
       });
+    }, [behaviors, dispatchToBehaviors, getBehaviorContext, graphReady, syncCameraState]);
 
+    useEffect(() => {
       return () => {
+        const sigma = sigmaRef.current;
+        const context = behaviorContextRef.current;
         if (context) {
           for (const behavior of behaviors) {
             behavior.detach(context);
           }
         }
-        camera.off("updated", syncTier);
-        resizeObserver.disconnect();
         if (containerRef.current) {
           containerRef.current.style.cursor = "";
         }
-        sigma.kill();
+        sigmaResizeObserverRef.current?.disconnect();
+        sigmaResizeObserverRef.current = null;
+        if (sigma && sigmaCameraSyncRef.current) {
+          sigma.getCamera().off("updated", sigmaCameraSyncRef.current);
+        }
+        sigmaCameraSyncRef.current = null;
+        if (sigma) {
+          debugGraphRuntime("sigma-killed", {
+            graphVersion: graphVersionRef.current,
+          });
+          sigma.kill();
+        }
+        if (deferredFocusFrameRef.current !== null) {
+          window.cancelAnimationFrame(deferredFocusFrameRef.current);
+          deferredFocusFrameRef.current = null;
+        }
+        runtimeRef.current = null;
         behaviorContextRef.current = null;
         sigmaRef.current = null;
-        onSceneRuntimeChange?.(null);
+        onSceneRuntimeChangeRef.current?.(null);
       };
-    }, [behaviors, dispatchAction, dispatchToBehaviors, displayGraph, getBehaviorContext, onCameraStateChange, onSceneRuntimeChange]);
+    }, [behaviors]);
+
+    useEffect(() => {
+      const sigma = sigmaRef.current;
+      if (!graphReady || !sigma) {
+        return;
+      }
+
+      if (appliedGraphVersionRef.current === graphVersion && sigma.getGraph() === displayGraph) {
+        return;
+      }
+
+      debugGraphRuntime("sigma-set-graph", {
+        graphVersion,
+        displayFitViewMode: displayFitSignature.viewMode,
+        displayFitLayoutMode: displayFitSignature.layoutMode,
+        layoutMode: displayMeta.layoutMode,
+        order: displayGraph.order,
+        size: displayGraph.size,
+      });
+      if (deferredFocusFrameRef.current !== null) {
+        window.cancelAnimationFrame(deferredFocusFrameRef.current);
+        deferredFocusFrameRef.current = null;
+      }
+      sigma.setCustomBBox(null);
+      sigma.setGraph(displayGraph);
+      appliedGraphVersionRef.current = graphVersion;
+      fittedDisplaySignatureRef.current = null;
+      previousInteractionStateRef.current = null;
+      behaviorContextRef.current = getBehaviorContext(sigma);
+      if (runtimeRef.current) {
+        runtimeRef.current.displayGraph = displayGraph;
+        runtimeRef.current.graphVersion = graphVersion;
+        runtimeRef.current.layoutMode = displayMeta.layoutMode;
+      }
+      sigma.scheduleRefresh();
+    }, [displayFitSignature.layoutMode, displayFitSignature.viewMode, displayGraph, displayMeta.layoutMode, getBehaviorContext, graphReady, graphVersion]);
+
+    useEffect(() => {
+      const sigma = sigmaRef.current;
+      if (!graphReady || !sigma || isSameDisplayFitSignature(fittedDisplaySignatureRef.current, displayFitSignature)) {
+        return;
+      }
+
+      const frame = window.requestAnimationFrame(() => {
+        if (
+          !sigmaRef.current
+          || graphVersionRef.current !== graphVersion
+          || displayGraphRef.current !== displayFitSignature.displayGraph
+          || viewModeRef.current !== displayFitSignature.viewMode
+          || displayMetaRef.current.layoutMode !== displayFitSignature.layoutMode
+        ) {
+          return;
+        }
+
+        fittedDisplaySignatureRef.current = displayFitSignature;
+        debugGraphRuntime("display-fit-signature-applied", {
+          graphVersion: displayFitSignature.graphVersion,
+          viewMode: displayFitSignature.viewMode,
+          layoutMode: displayFitSignature.layoutMode,
+          order: displayFitSignature.displayGraph.order,
+          size: displayFitSignature.displayGraph.size,
+        });
+        if (selectedNodeIdRef.current && viewModeRef.current === "focused") {
+          debugGraphRuntime("initial-focused-fit", {
+            graphVersion,
+            nodeId: selectedNodeIdRef.current,
+          });
+          focusNodeInView(selectedNodeIdRef.current);
+          return;
+        }
+
+        if (selectedNodeIdRef.current) {
+          debugGraphRuntime("initial-focus-node", {
+            graphVersion,
+            nodeId: selectedNodeIdRef.current,
+          });
+          centerSelectionInView(selectedNodeIdRef.current);
+          return;
+        }
+
+        debugGraphRuntime("initial-fit-view", {
+          graphVersion,
+        });
+        dispatchAction({ type: "fitView" });
+      });
+
+      return () => {
+        window.cancelAnimationFrame(frame);
+      };
+    }, [centerSelectionInView, dispatchAction, displayFitSignature, focusNodeInView, graphReady, graphVersion]);
 
     useEffect(() => {
       const context = getBehaviorContext();
@@ -906,12 +1584,13 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(
         effectsState,
         temporalState,
         analyticsSnapshot,
+        isLayoutRunning,
         sigma,
         container?.clientWidth ?? 0,
         container?.clientHeight ?? 0,
       );
       onDiagnosticsChange(availability);
-    }, [analyticsSnapshot, effectsState, interactionState, onDiagnosticsChange, temporalState]);
+    }, [analyticsSnapshot, effectsState, interactionState, isLayoutRunning, onDiagnosticsChange, temporalState]);
 
     useEffect(() => {
       previousInteractionStateRef.current = null;
@@ -932,152 +1611,247 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(
       previousInteractionStateRef.current = interactionState;
     }, [analyticsSnapshot, displayGraph, interactionState]);
 
-    useEffect(() => {
+    const drawOverlayFrame = useCallback(() => {
       const sigma = sigmaRef.current;
       const overlay = overlayRef.current;
       const container = containerRef.current;
       if (!sigma || !overlay || !container) {
+        return false;
+      }
+
+      const rect = container.getBoundingClientRect();
+      const pixelRatio = window.devicePixelRatio || 1;
+      if (overlay.width !== Math.floor(rect.width * pixelRatio) || overlay.height !== Math.floor(rect.height * pixelRatio)) {
+        overlay.width = Math.floor(rect.width * pixelRatio);
+        overlay.height = Math.floor(rect.height * pixelRatio);
+        overlay.style.width = `${rect.width}px`;
+        overlay.style.height = `${rect.height}px`;
+      }
+
+      const context = overlay.getContext("2d");
+      if (!context) {
+        return false;
+      }
+
+      context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+      context.clearRect(0, 0, rect.width, rect.height);
+
+      const primaryNodeId = interactionState.hoveredNodeId || interactionState.selectedNodeId;
+      const focusIds = primaryNodeId && graph.hasNode(primaryNodeId) ? buildFocusSet(primaryNodeId) : new Set<string>();
+      const edgeEndpointIds = buildEdgeEndpointSet(displayGraph, interactionState.selectedEdgeId);
+      const pathNodeIds = new Set(interactionState.activePath);
+      const pathSegments = collectPathSegments(
+        sigma,
+        interactionState.activePath,
+        interactionState.activePathEdgeIds,
+        interactionState.zoomTier,
+        rect.width,
+        rect.height,
+      );
+      const visibleNodeSamples = collectVisibleNodeSamples(sigma, displayGraph, rect.width, rect.height);
+      const effectAvailability = buildEffectAvailability(
+        interactionState,
+        effectsState,
+        temporalState,
+        analyticsSnapshot,
+        isLayoutRunning,
+        sigma,
+        rect.width,
+        rect.height,
+      );
+      const cameraRatio = sigma.getCamera().getState().ratio;
+      const nodesToDecorate = new Set<string>([
+        ...focusIds,
+        ...edgeEndpointIds,
+        ...pathNodeIds,
+        ...(primaryNodeId ? [primaryNodeId] : []),
+      ]);
+      const now = performance.now() / 1000;
+
+      if (!isLayoutRunning) {
+        drawContourLayer(context, analyticsSnapshot, visibleNodeSamples, interactionState, effectsState);
+        drawSemanticRegionsLayer(context, analyticsSnapshot, visibleNodeSamples, interactionState, effectsState);
+        drawTemporalEmphasisLayer(context, visibleNodeSamples, temporalState, interactionState, effectsState);
+      }
+
+      nodesToDecorate.forEach((nodeId) => {
+        const displayData = sigma.getNodeDisplayData(nodeId);
+        if (!displayData) return;
+        const attrs = graph.getNodeAttributes(nodeId) as NodeAttributes;
+        const state = resolveNodeVisualState(
+          nodeId,
+          interactionState.zoomTier,
+          interactionState.hoveredNodeId,
+          interactionState.selectedNodeId,
+          interactionState.selectedEdgeId,
+          focusIds,
+          edgeEndpointIds,
+          pathNodeIds,
+        );
+        const style = resolveNodeElementStyle(
+          GRAPH_THEME,
+          interactionState.zoomTier,
+          state,
+          attrs,
+          attrs.label,
+          cameraRatio,
+        );
+        const point = sigma.graphToViewport({ x: displayData.x, y: displayData.y });
+        if (style.showHalo) {
+          const radius = Math.max(
+            displayData.size * GRAPH_THEME.overlays.glowRadiusMultiplier * (style.nodeVariant === "selected" ? 1.08 : 1),
+            GRAPH_THEME.overlays.minGlowRadius,
+          );
+          drawGlowHalo(
+            context,
+            point.x,
+            point.y,
+            radius,
+            withAlpha(
+              style.haloColor,
+              nodeId === primaryNodeId ? GRAPH_THEME.overlays.hoverGlowAlpha : GRAPH_THEME.overlays.pathGlowAlpha,
+            ),
+          );
+        }
+
+        if (style.showBadge && style.badgeKind) {
+          drawNodeBadge(context, point.x, point.y, displayData.size, style.badgeKind, style.badgeCount);
+        }
+      });
+
+      if (!isLayoutRunning && primaryNodeId && effectAvailability.lens.available) {
+        drawLensLayer(context, sigma, primaryNodeId, focusIds);
+      }
+
+      drawPathEffectsLayer(context, pathSegments, effectsState, effectAvailability, now);
+      return effectAvailability.pathPulse.available || effectAvailability.pathFlow.available;
+    }, [analyticsSnapshot, displayGraph, effectsState, interactionState, isLayoutRunning, temporalState]);
+
+    useEffect(() => {
+      const sigma = sigmaRef.current;
+      const container = containerRef.current;
+      if (!graphReady || !sigma || !container) {
         return;
       }
 
       let frame = 0;
+      let disposed = false;
 
-      const draw = () => {
-        const rect = container.getBoundingClientRect();
-        const pixelRatio = window.devicePixelRatio || 1;
-        if (overlay.width !== Math.floor(rect.width * pixelRatio) || overlay.height !== Math.floor(rect.height * pixelRatio)) {
-          overlay.width = Math.floor(rect.width * pixelRatio);
-          overlay.height = Math.floor(rect.height * pixelRatio);
-          overlay.style.width = `${rect.width}px`;
-          overlay.style.height = `${rect.height}px`;
-        }
-
-        const context = overlay.getContext("2d");
-        if (!context) {
-          frame = window.requestAnimationFrame(draw);
+      const render = () => {
+        if (disposed) {
           return;
         }
 
-        context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
-        context.clearRect(0, 0, rect.width, rect.height);
-
-        const primaryNodeId = interactionState.hoveredNodeId || interactionState.selectedNodeId;
-        const focusIds = primaryNodeId && graph.hasNode(primaryNodeId) ? buildFocusSet(primaryNodeId) : new Set<string>();
-        const edgeEndpointIds = buildEdgeEndpointSet(displayGraph, interactionState.selectedEdgeId);
-        const pathNodeIds = new Set(interactionState.activePath);
-        const pathSegments = collectPathSegments(
-          sigma,
-          interactionState.activePath,
-          interactionState.activePathEdgeIds,
-          interactionState.zoomTier,
-          rect.width,
-          rect.height,
-        );
-        const visibleNodeSamples = collectVisibleNodeSamples(sigma, displayGraph, rect.width, rect.height);
-        const effectAvailability = buildEffectAvailability(
-          interactionState,
-          effectsState,
-          temporalState,
-          analyticsSnapshot,
-          sigma,
-          rect.width,
-          rect.height,
-        );
-        const cameraRatio = sigma.getCamera().getState().ratio;
-        const nodesToDecorate = new Set<string>([
-          ...focusIds,
-          ...edgeEndpointIds,
-          ...pathNodeIds,
-          ...(primaryNodeId ? [primaryNodeId] : []),
-        ]);
-        const now = performance.now() / 1000;
-
-        drawContourLayer(context, analyticsSnapshot, visibleNodeSamples, interactionState, effectsState);
-        drawSemanticRegionsLayer(context, analyticsSnapshot, visibleNodeSamples, interactionState, effectsState);
-        drawTemporalEmphasisLayer(context, visibleNodeSamples, temporalState, interactionState, effectsState);
-
-        nodesToDecorate.forEach((nodeId) => {
-          const displayData = sigma.getNodeDisplayData(nodeId);
-          if (!displayData) return;
-          const attrs = graph.getNodeAttributes(nodeId) as NodeAttributes;
-      const state = resolveNodeVisualState(
-        nodeId,
-        interactionState.zoomTier,
-        interactionState.hoveredNodeId,
-        interactionState.selectedNodeId,
-        interactionState.selectedEdgeId,
-            focusIds,
-            edgeEndpointIds,
-            pathNodeIds,
-          );
-          const style = resolveNodeElementStyle(
-            GRAPH_THEME,
-            interactionState.zoomTier,
-            state,
-            attrs,
-            attrs.label,
-            cameraRatio,
-          );
-          const point = sigma.graphToViewport({ x: displayData.x, y: displayData.y });
-          if (style.showHalo) {
-            const radius = Math.max(
-              displayData.size * GRAPH_THEME.overlays.glowRadiusMultiplier * (style.nodeVariant === "selected" ? 1.08 : 1),
-              GRAPH_THEME.overlays.minGlowRadius,
-            );
-            drawGlowHalo(
-              context,
-              point.x,
-              point.y,
-              radius,
-              withAlpha(
-                style.haloColor,
-                nodeId === primaryNodeId ? GRAPH_THEME.overlays.hoverGlowAlpha : GRAPH_THEME.overlays.pathGlowAlpha,
-              ),
-            );
-          }
-
-          if (style.showBadge && style.badgeKind) {
-            drawNodeBadge(context, point.x, point.y, displayData.size, style.badgeKind, style.badgeCount);
-          }
-        });
-
-        if (primaryNodeId && effectAvailability.lens.available) {
-          drawLensLayer(context, sigma, primaryNodeId, focusIds);
+        const animated = drawOverlayFrame();
+        if (animated) {
+          frame = window.requestAnimationFrame(render);
         }
-
-        drawPathEffectsLayer(context, pathSegments, effectsState, effectAvailability, now);
-
-        frame = window.requestAnimationFrame(draw);
       };
 
-      draw();
+      const redrawStatic = () => {
+        if (frame !== 0) {
+          return;
+        }
+        drawOverlayFrame();
+      };
+
+      const camera = sigma.getCamera();
+      const resizeObserver = new ResizeObserver(redrawStatic);
+      resizeObserver.observe(container);
+      camera.on("updated", redrawStatic);
+
+      render();
       return () => {
-        window.cancelAnimationFrame(frame);
+        disposed = true;
+        resizeObserver.disconnect();
+        camera.off("updated", redrawStatic);
+        if (frame !== 0) {
+          window.cancelAnimationFrame(frame);
+        }
       };
-    }, [analyticsSnapshot, displayGraph, effectsState, interactionState, temporalState]);
+    }, [drawOverlayFrame, graphReady]);
 
     useEffect(() => {
-      if (selectedNodeId || isFocusedView) {
+      const sigma = sigmaRef.current;
+      const layoutTargetGraph = displayMeta.layoutMode === "owned" ? displayGraph : graph;
+      const targetKey = displayMeta.layoutMode === "owned"
+        ? `display:${graphVersion}:${viewMode}`
+        : `store:${displayMeta.layoutMode}`;
+      const currentTargetKey = (fa2Ref.current as (FA2Layout & { __targetKey?: string }) | null)?.__targetKey;
+
+      if (!isLayoutRunning) {
         fa2Ref.current?.stop();
+        if (layoutSyncFrameRef.current !== null) {
+          window.cancelAnimationFrame(layoutSyncFrameRef.current);
+          layoutSyncFrameRef.current = null;
+        }
         return;
       }
 
-      if (isLayoutRunning) {
-        if (!fa2Ref.current) {
-          fa2Ref.current = new FA2Layout(graph, FA2_SETTINGS);
-        }
-        fa2Ref.current.start();
-      } else {
-        fa2Ref.current?.stop();
+      if (!fa2Ref.current || currentTargetKey !== targetKey) {
+        fa2Ref.current?.kill();
+        const nextLayout = new FA2Layout(layoutTargetGraph, FA2_SETTINGS) as FA2Layout & { __targetKey?: string };
+        nextLayout.__targetKey = targetKey;
+        fa2Ref.current = nextLayout;
+        debugGraphRuntime("layout-target-changed", {
+          graphVersion,
+          layoutMode: displayMeta.layoutMode,
+          target: displayMeta.layoutMode === "owned" ? "display-owned" : displayMeta.layoutMode === "base" ? "base" : "store-for-mirror",
+          order: layoutTargetGraph.order,
+          size: layoutTargetGraph.size,
+        });
+      }
+
+      fa2Ref.current.start();
+
+      if (displayMeta.layoutMode === "mirrored" && sigma) {
+        let disposed = false;
+
+        const syncTick = () => {
+          if (disposed || !sigmaRef.current || !isLayoutRunning) {
+            return;
+          }
+
+          const changed = syncDisplayNodePositionsFromStore(displayGraphRef.current, graph);
+          if (changed > 0) {
+            sigmaRef.current.scheduleRefresh();
+            layoutSyncTickRef.current += 1;
+            if (layoutSyncTickRef.current === 1 || layoutSyncTickRef.current % 30 === 0) {
+              debugGraphRuntime("layout-mirror-sync", {
+                graphVersion: graphVersionRef.current,
+                changedNodes: changed,
+                tick: layoutSyncTickRef.current,
+              });
+            }
+          }
+
+          layoutSyncFrameRef.current = window.requestAnimationFrame(syncTick);
+        };
+
+        layoutSyncTickRef.current = 0;
+        layoutSyncFrameRef.current = window.requestAnimationFrame(syncTick);
+
+        return () => {
+          disposed = true;
+          if (layoutSyncFrameRef.current !== null) {
+            window.cancelAnimationFrame(layoutSyncFrameRef.current);
+            layoutSyncFrameRef.current = null;
+          }
+          fa2Ref.current?.stop();
+        };
       }
 
       return () => {
         fa2Ref.current?.stop();
       };
-    }, [isFocusedView, isLayoutRunning, selectedNodeId]);
+    }, [displayGraph, displayMeta.layoutMode, graphVersion, isLayoutRunning, viewMode]);
 
     useEffect(() => {
       return () => {
+        if (layoutSyncFrameRef.current !== null) {
+          window.cancelAnimationFrame(layoutSyncFrameRef.current);
+          layoutSyncFrameRef.current = null;
+        }
         fa2Ref.current?.kill();
         fa2Ref.current = null;
       };

@@ -39,6 +39,15 @@ export interface GraphDisplayStateSnapshot {
   selectedCollapsedNeighborIds: string[];
 }
 
+export type GraphDisplayLayoutMode = "base" | "mirrored" | "owned";
+
+export interface GraphDisplayMeta {
+  layoutMode: GraphDisplayLayoutMode;
+  positionSource: "store" | "display";
+  tracksStoreNodePositions: boolean;
+  hasSyntheticNodes: boolean;
+}
+
 export type GraphEffectToggle =
   | "pathPulseEnabled"
   | "pathFlowEnabled"

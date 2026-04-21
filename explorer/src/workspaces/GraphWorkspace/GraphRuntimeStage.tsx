@@ -3,6 +3,7 @@ import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState }
 import { batchMergeEdges, batchMergeNodes, clearGraph, graph, type EdgeAttributes, type NodeAttributes } from "../../store/graphStore";
 import { SigmaSceneAdapter } from "./SigmaSceneAdapter";
 import { createGraphLoadProgress } from "./graphLoading";
+import { resolveDisplayGraph } from "./graphSceneState";
 import {
   chooseColorAccessor,
   colorForNodeKey,
@@ -41,6 +42,7 @@ const STAGE_EFFECTS_STATE: GraphEffectsState = {
   lensMode: "neighborhood",
   effectQuality: "bounded",
 };
+const EMPTY_PATH: string[] = [];
 
 const socketProtocol = () => (window.location.protocol === "https:" ? "wss:" : "ws:");
 
@@ -117,6 +119,10 @@ export const GraphRuntimeStage = forwardRef<GraphStageHandle, GraphRuntimeStageP
     const prevActiveIdsRef = useRef<Set<string>>(new Set());
     const [graphVersion, setGraphVersion] = useState(0);
     const [runtimeLayoutSource, setRuntimeLayoutSource] = useState<GraphLayoutSource>(snapshot?.summary.layoutSource ?? "runtime");
+    const displayResult = useMemo(
+      () => resolveDisplayGraph(selectedNodeId, activePath, EMPTY_PATH, viewMode, { aggregationEnabled: true }),
+      [activePath, graphVersion, selectedNodeId, viewMode],
+    );
 
     const stageSignature = useMemo(() => (snapshot ? `${snapshot.fetchedAt}:${snapshot.summary.nodeCount}:${snapshot.summary.edgeCount}` : null), [snapshot]);
 
@@ -451,9 +457,15 @@ export const GraphRuntimeStage = forwardRef<GraphStageHandle, GraphRuntimeStageP
       <SigmaSceneAdapter
         ref={sceneRef}
         onNodeSelect={onNodeSelect}
+        graphVersion={graphVersion}
+        graphReady={Boolean(snapshot)}
+        displayGraph={displayResult.graph}
+        displayMeta={displayResult.meta}
+        displayState={displayResult.state}
         selectedEdgeId=""
         selectedNodeId={selectedNodeId}
         activePath={activePath}
+        activePathEdgeIds={EMPTY_PATH}
         effectsState={STAGE_EFFECTS_STATE}
         isLayoutRunning={isLayoutRunning}
         onLayoutRunningChange={onLayoutRunningChange}
