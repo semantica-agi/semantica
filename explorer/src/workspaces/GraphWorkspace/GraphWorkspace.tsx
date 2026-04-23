@@ -899,7 +899,7 @@ export function GraphWorkspace() {
     setPathResult(null);
     setSearchResults([]);
     setSearchError("");
-    if (nodeId && viewMode === "focused") {
+    if (viewMode === "focused") {
       setIsLayoutRunning(false);
     }
   }, [viewMode]);
