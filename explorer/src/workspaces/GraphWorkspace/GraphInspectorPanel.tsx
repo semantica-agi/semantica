@@ -173,6 +173,14 @@ export function GraphInspectorPanel({
     );
   }
 
+  if (!graph.hasNode(nodeId)) {
+    return (
+      <div style={{ padding: 24, color: "#8b949e", fontSize: 13, lineHeight: 1.6 }}>
+        Selected item is not available for inspection in the current graph.
+      </div>
+    );
+  }
+
   const attributes = graph.getNodeAttributes(nodeId) as {
     color?: string;
     content?: string;
