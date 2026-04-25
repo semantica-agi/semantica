@@ -1241,13 +1241,15 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(
         return;
       }
 
-      const bounds = computeGraphSpaceBounds(currentDisplayGraph, selectionNodeIds);
+      const bounds = computeDisplayedNodeBounds(sigma, selectionNodeIds);
       if (!bounds) {
         if (attempt < 3) {
-          debugGraphRuntime("camera-selection-deferred", {
+          debugGraphRuntime("camera-selection-display-bounds-deferred", {
             nodeId,
             graphVersion: graphVersionRef.current,
             attempt: attempt + 1,
+            viewMode: viewModeRef.current,
+            contextCount: selectionNodeIds.length,
           });
           if (deferredFocusFrameRef.current !== null) {
             window.cancelAnimationFrame(deferredFocusFrameRef.current);
@@ -1257,10 +1259,11 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(
             centerSelectionInViewInternal(nodeId, attempt + 1);
           });
         } else {
-          debugGraphRuntime("camera-selection-fallback-fit", {
+          debugGraphRuntime("camera-selection-display-bounds-fallback-fit", {
             nodeId,
             graphVersion: graphVersionRef.current,
             viewMode: viewModeRef.current,
+            contextCount: selectionNodeIds.length,
           });
           fitDisplayGraphInView();
         }
@@ -1286,6 +1289,7 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(
       animateCameraToBounds("fit-selection-context", selectionBBox, {
         nodeId,
         contextCount: bounds.count,
+        boundsSource: "displayed-selection-context",
         minX: bounds.minX,
         maxX: bounds.maxX,
         minY: bounds.minY,
@@ -1296,6 +1300,63 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(
         referenceMaxY: globalBounds?.maxY ?? null,
       });
     }, [animateCameraToBounds, fitDisplayGraphInView]);
+
+    const centerFocusedSelectionInView = useCallback((nodeId: string) => {
+      const sigma = sigmaRef.current;
+      if (!sigma) {
+        return;
+      }
+
+      const currentDisplayGraph = displayGraphRef.current;
+      const selectionNodeIds = collectSelectionContextNodeIds(
+        currentDisplayGraph,
+        displayStateRef.current,
+        nodeId,
+      );
+      if (selectionNodeIds.length === 0) {
+        debugGraphRuntime("camera-focused-selection-missing-node", {
+          nodeId,
+          graphVersion: graphVersionRef.current,
+          viewMode: viewModeRef.current,
+        });
+        return;
+      }
+
+      const bounds = computeDisplayedNodeBounds(sigma, selectionNodeIds);
+      if (!bounds) {
+        debugGraphRuntime("camera-focused-selection-display-bounds-missing", {
+          nodeId,
+          graphVersion: graphVersionRef.current,
+          viewMode: viewModeRef.current,
+          contextCount: selectionNodeIds.length,
+        });
+        return;
+      }
+
+      const camera = sigma.getCamera();
+      const currentCameraState = camera.getState();
+      const target = {
+        x: (bounds.minX + bounds.maxX) / 2,
+        y: (bounds.minY + bounds.maxY) / 2,
+        ratio: currentCameraState.ratio,
+        angle: currentCameraState.angle,
+      };
+
+      debugGraphRuntime("camera-focused-selection-center", {
+        nodeId,
+        graphVersion: graphVersionRef.current,
+        viewMode: viewModeRef.current,
+        contextCount: bounds.count,
+        targetX: target.x,
+        targetY: target.y,
+        preservedRatio: target.ratio,
+      });
+
+      void camera.animate(
+        target,
+        { duration: GRAPH_THEME.motion.cameraMs, easing: "quadraticOut" },
+      );
+    }, []);
 
     const centerGroupedSelectionInView = useCallback((nodeId: string) => {
       const sigma = sigmaRef.current;
@@ -1415,13 +1476,14 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(
         onEdgeSelectionChange: (edgeId: string) => onEdgeClickRef.current?.(edgeId),
         focusNodeInView,
         centerSelectionInView,
+        centerFocusedSelectionInView,
         centerGroupedSelectionInView,
         fitCurrentView,
         dispatchAction,
       };
       behaviorContextRef.current = context;
       return context;
-    }, [centerGroupedSelectionInView, centerSelectionInView, dispatchAction, fitCurrentView, focusNodeInView]);
+    }, [centerFocusedSelectionInView, centerGroupedSelectionInView, centerSelectionInView, dispatchAction, fitCurrentView, focusNodeInView]);
 
     const dispatchToBehaviors = useCallback((
       hook: "onNodeEnter" | "onNodeLeave" | "onNodeClick" | "onEdgeClick" | "onStageClick" | "onCameraChange",

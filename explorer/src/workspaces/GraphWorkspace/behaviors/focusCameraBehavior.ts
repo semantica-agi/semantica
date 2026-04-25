@@ -15,6 +15,11 @@ export const focusCameraBehavior: GraphBehavior = {
       return true;
     }
 
+    if (action.type === "centerFocusedSelection") {
+      context.centerFocusedSelectionInView(action.nodeId);
+      return true;
+    }
+
     if (action.type === "centerGroupedSelection") {
       context.centerGroupedSelectionInView(action.nodeId);
       return true;

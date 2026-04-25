@@ -8,6 +8,7 @@ export type GraphBehaviorActionRequest =
   | { type: "fitView" }
   | { type: "focusNode"; nodeId: string }
   | { type: "centerSelection"; nodeId: string }
+  | { type: "centerFocusedSelection"; nodeId: string }
   | { type: "centerGroupedSelection"; nodeId: string };
 
 export interface GraphBehaviorContext {
@@ -20,6 +21,7 @@ export interface GraphBehaviorContext {
   onEdgeSelectionChange: (edgeId: string) => void;
   focusNodeInView: (nodeId: string) => void;
   centerSelectionInView: (nodeId: string) => void;
+  centerFocusedSelectionInView: (nodeId: string) => void;
   centerGroupedSelectionInView: (nodeId: string) => void;
   fitCurrentView: () => void;
   dispatchAction: (action: GraphBehaviorActionRequest) => void;

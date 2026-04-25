@@ -28,7 +28,11 @@ export function createSearchFocusBehavior(): GraphBehavior {
       lastSelectedNodeId = nextSelectedNodeId;
       lastViewMode = nextViewMode;
       context.dispatchAction({
-        type: nextViewMode === "grouped" ? "centerGroupedSelection" : "centerSelection",
+        type: nextViewMode === "grouped"
+          ? "centerGroupedSelection"
+          : nextViewMode === "focused"
+            ? "centerFocusedSelection"
+            : "centerSelection",
         nodeId: nextSelectedNodeId,
       });
     },

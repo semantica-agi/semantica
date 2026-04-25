@@ -28,8 +28,6 @@ import type {
 } from "./types";
 
 const MAX_FOCUS_NEIGHBORS = GRAPH_THEME.focus.maxNeighbors;
-const FOCUS_RING_CAPACITY = GRAPH_THEME.focus.ringCapacity;
-const FOCUS_RING_GAP = GRAPH_THEME.focus.ringGap;
 const FOCUS_PRIMARY_LABELS = GRAPH_THEME.focus.primaryLabels;
 const COLLAPSE_VISIBLE_NEIGHBORS = 8;
 const GROUP_SAMPLE_MEMBERS = 8;
@@ -64,6 +62,13 @@ const OWNED_DISPLAY_META: GraphDisplayMeta = {
   positionSource: "display",
   tracksStoreNodePositions: false,
   hasSyntheticNodes: true,
+};
+
+const FOCUSED_DISPLAY_META: GraphDisplayMeta = {
+  layoutMode: "owned",
+  positionSource: "display",
+  tracksStoreNodePositions: false,
+  hasSyntheticNodes: false,
 };
 
 function getOverviewPresenceBoost(cameraRatio: number) {
@@ -1395,6 +1400,188 @@ function createCollapsedNeighborhoodGraph(
   return collapsedGraph;
 }
 
+type FocusedNeighborZone = "primary" | "secondary";
+
+type FocusedNeighborEntry = {
+  id: string;
+  attrs: NodeAttributes;
+  isPath: boolean;
+  zone: FocusedNeighborZone;
+  weight: number;
+  degree: number;
+  score: number;
+  labelPriority: number;
+  radius: number;
+  x: number;
+  y: number;
+  size: number;
+};
+
+const FOCUS_PRIMARY_ANCHOR_DEGREES = [-90, -18, 42, 110, 180, -150, -72];
+const FOCUS_SECONDARY_ANCHOR_DEGREES = [-56, -6, 54, 122, 174, -140, -92, -34, 90, 146];
+
+function angleDegreesToRadians(angle: number) {
+  return (angle * Math.PI) / 180;
+}
+
+function getAnchoredAngles(count: number, anchorDegrees: readonly number[]): number[] {
+  if (count <= 0) {
+    return [];
+  }
+  if (count <= anchorDegrees.length) {
+    return anchorDegrees.slice(0, count).map(angleDegreesToRadians);
+  }
+  return Array.from({ length: count }, (_value, index) => ((Math.PI * 2 * index) / count) - Math.PI / 2);
+}
+
+function seedFocusedRing(
+  entries: FocusedNeighborEntry[],
+  radius: number,
+  anchorDegrees: readonly number[],
+) {
+  const anchors = getAnchoredAngles(entries.length, anchorDegrees);
+  entries.forEach((entry, index) => {
+    const angle = anchors[index] ?? ((Math.PI * 2 * index) / Math.max(entries.length, 1)) - Math.PI / 2;
+    entry.radius = radius;
+    entry.x = Math.cos(angle) * radius;
+    entry.y = Math.sin(angle) * radius;
+  });
+}
+
+function relaxFocusedNeighborPositions(
+  entries: FocusedNeighborEntry[],
+  selectedRadius: number,
+) {
+  if (entries.length === 0) {
+    return;
+  }
+
+  const iterations = GRAPH_THEME.focus.overlapIterations;
+  const padding = GRAPH_THEME.focus.overlapPadding;
+  for (let iteration = 0; iteration < iterations; iteration += 1) {
+    for (let leftIndex = 0; leftIndex < entries.length; leftIndex += 1) {
+      const left = entries[leftIndex];
+      for (let rightIndex = leftIndex + 1; rightIndex < entries.length; rightIndex += 1) {
+        const right = entries[rightIndex];
+        const dx = right.x - left.x;
+        const dy = right.y - left.y;
+        const distance = Math.hypot(dx, dy) || 0.001;
+        const minimumDistance = (left.size / 2) + (right.size / 2) + padding;
+        if (distance >= minimumDistance) {
+          continue;
+        }
+
+        const overlap = minimumDistance - distance;
+        const ux = dx / distance;
+        const uy = dy / distance;
+        const shift = overlap * 0.5;
+        left.x -= ux * shift;
+        left.y -= uy * shift;
+        right.x += ux * shift;
+        right.y += uy * shift;
+      }
+    }
+
+    entries.forEach((entry) => {
+      const distanceFromCenter = Math.hypot(entry.x, entry.y) || 0.001;
+      const centerMinimum = selectedRadius + (entry.size / 2) + padding * 0.8;
+      if (distanceFromCenter < centerMinimum) {
+        const push = centerMinimum - distanceFromCenter;
+        entry.x += (entry.x / distanceFromCenter) * push;
+        entry.y += (entry.y / distanceFromCenter) * push;
+      }
+
+      const desiredRadius = entry.radius;
+      if (desiredRadius > 0) {
+        const drift = desiredRadius - Math.hypot(entry.x, entry.y);
+        const currentDistance = Math.hypot(entry.x, entry.y) || 0.001;
+        entry.x += (entry.x / currentDistance) * drift * 0.1;
+        entry.y += (entry.y / currentDistance) * drift * 0.1;
+      }
+    });
+  }
+}
+
+function buildFocusedNeighbors(
+  nodeId: string,
+  visibleNeighborIds: string[],
+  rankedNeighbors: string[],
+  pathNodeIds: Set<string>,
+): FocusedNeighborEntry[] {
+  const rankedIndex = new Map(rankedNeighbors.map((neighborId, index) => [neighborId, index]));
+  const neighbors = visibleNeighborIds
+    .map((neighborId) => {
+      const attrs = graph.getNodeAttributes(neighborId) as NodeAttributes;
+      const weight = getEdgeWeightBetween(nodeId, neighborId);
+      const degree = graph.hasNode(neighborId) ? graph.degree(neighborId) : 0;
+      const rank = rankedIndex.get(neighborId) ?? rankedNeighbors.length;
+      const isPath = pathNodeIds.has(neighborId);
+      const score = (isPath ? 10_000 : 0) + (weight * 100) + (degree * 2) + Math.max(0, MAX_FOCUS_NEIGHBORS - rank);
+      return {
+        id: neighborId,
+        attrs,
+        isPath,
+        zone: "secondary" as FocusedNeighborZone,
+        weight,
+        degree,
+        score,
+        labelPriority: 0,
+        radius: 0,
+        x: 0,
+        y: 0,
+        size: Math.max(Number(attrs.baseSize ?? attrs.size ?? 4), 1),
+      };
+    })
+    .sort((left, right) => {
+      if (right.score !== left.score) {
+        return right.score - left.score;
+      }
+      return left.id.localeCompare(right.id);
+    });
+
+  const primaryTarget = Math.min(
+    GRAPH_THEME.focus.primaryRingSlots,
+    Math.max(FOCUS_PRIMARY_LABELS, Math.ceil(neighbors.length * 0.45)),
+  );
+  let primaryCount = 0;
+  neighbors.forEach((entry) => {
+    if (primaryCount < primaryTarget || entry.isPath) {
+      entry.zone = "primary";
+      primaryCount += 1;
+    }
+  });
+
+  const primaryEntries = neighbors.filter((entry) => entry.zone === "primary");
+  const secondaryEntries = neighbors.filter((entry) => entry.zone === "secondary");
+  seedFocusedRing(primaryEntries, GRAPH_THEME.focus.primaryRadius, FOCUS_PRIMARY_ANCHOR_DEGREES);
+  seedFocusedRing(secondaryEntries, GRAPH_THEME.focus.secondaryRadius, FOCUS_SECONDARY_ANCHOR_DEGREES);
+
+  neighbors.forEach((entry, index) => {
+    const primaryLabelBoost = entry.zone === "primary" && index < FOCUS_PRIMARY_LABELS;
+    entry.labelPriority = entry.isPath || primaryLabelBoost ? 1.15 : entry.zone === "primary" ? 0.7 : 0.35;
+    entry.size = entry.isPath
+      ? Math.max(Number(entry.attrs.baseSize ?? entry.attrs.size ?? 4) * 1.16, GRAPH_THEME.focus.primaryNeighborMinSize)
+      : entry.zone === "primary"
+        ? Math.max(Number(entry.attrs.baseSize ?? entry.attrs.size ?? 4) * 1.08, GRAPH_THEME.focus.primaryNeighborMinSize)
+        : Math.max(Number(entry.attrs.baseSize ?? entry.attrs.size ?? 4) * 0.86, GRAPH_THEME.focus.secondaryNeighborMinSize);
+  });
+
+  relaxFocusedNeighborPositions(neighbors, GRAPH_THEME.focus.selectedMinSize);
+  return neighbors;
+}
+
+function scoreFocusedSupportEdge(
+  attrs: EdgeAttributes,
+  sourceId: string,
+  targetId: string,
+  primaryNeighborIds: Set<string>,
+) {
+  const rawEdgeCount = collectRawEdgeIds(attrs).length;
+  const weight = Number(attrs.representativeWeight ?? attrs.weight ?? 1);
+  const primaryBoost = primaryNeighborIds.has(sourceId) && primaryNeighborIds.has(targetId) ? 1.5 : 0;
+  return weight * 4 + rawEdgeCount + primaryBoost;
+}
+
 function aggregateDisplayGraph(graphRef: GraphRef): Graph<NodeAttributes, EdgeAttributes> {
   const aggregated = new Graph<NodeAttributes, EdgeAttributes>({
     type: "directed",
@@ -1826,9 +2013,12 @@ export function createFocusedGraph(
       };
   const visibleNeighborIds = rankedNeighbors.filter((neighborId) => collapsedState.selectedVisibleNeighborIds.includes(neighborId));
   const focusIds = new Set<string>([nodeId, ...visibleNeighborIds]);
-  const labelledNeighborIds = new Set(visibleNeighborIds.slice(0, FOCUS_PRIMARY_LABELS));
   const pathNodeIds = new Set(activePath);
   const pathEdgeIds = buildPathEdgeSet(graph, activePath, activePathEdgeIds);
+  const neighborEntries = buildFocusedNeighbors(nodeId, visibleNeighborIds, rankedNeighbors, pathNodeIds);
+  const primaryNeighborIds = new Set(
+    neighborEntries.filter((entry) => entry.zone === "primary").map((entry) => entry.id),
+  );
 
   const addNode = (id: string, attrs: NodeAttributes) => {
     if (!focused.hasNode(id)) {
@@ -1837,31 +2027,37 @@ export function createFocusedGraph(
   };
 
   const selectedAttrs = graph.getNodeAttributes(nodeId) as NodeAttributes;
-  const selectedState = resolveNodeElementStyle(GRAPH_THEME, "inspection", "selected", selectedAttrs, selectedAttrs.label);
+  const selectedState = resolveNodeElementStyle(
+    GRAPH_THEME,
+    "inspection",
+    "selected",
+    {
+      ...selectedAttrs,
+      labelPriority: 2,
+      labelVisibilityPolicy: "always",
+      haloColor: withAlpha(GRAPH_THEME.palette.accent.selected, 0.26),
+    },
+    selectedAttrs.label,
+  );
   addNode(nodeId, {
     ...selectedAttrs,
-    x: Number.isFinite(selectedAttrs.x) ? selectedAttrs.x : 0,
-    y: Number.isFinite(selectedAttrs.y) ? selectedAttrs.y : 0,
+    x: 0,
+    y: 0,
     color: selectedState.color,
-    size: Math.max(selectedState.size, 22),
+    size: Math.max(selectedState.size * 1.08, GRAPH_THEME.focus.selectedMinSize),
     baseColor: selectedState.color,
-    baseSize: Math.max(selectedState.size, 22),
+    baseSize: Math.max(selectedState.size * 1.08, GRAPH_THEME.focus.selectedMinSize),
     label: selectedState.label,
+    labelPriority: 2,
+    labelVisibilityPolicy: "always",
+    ringColor: GRAPH_THEME.palette.accent.selected,
+    haloColor: withAlpha(GRAPH_THEME.palette.accent.selected, 0.24),
   });
 
-  visibleNeighborIds.forEach((neighborId, index) => {
-    const baseAttrs = graph.getNodeAttributes(neighborId) as NodeAttributes;
-    const ring = Math.floor(index / FOCUS_RING_CAPACITY);
-    const ringIndex = index % FOCUS_RING_CAPACITY;
-    const itemsInRing = Math.min(
-      FOCUS_RING_CAPACITY,
-      rankedNeighbors.length - ring * FOCUS_RING_CAPACITY,
-    );
-    const radius = FOCUS_RING_GAP * (ring + 1);
-    const angle = (Math.PI * 2 * ringIndex) / itemsInRing - Math.PI / 2;
-    const visualState: GraphNodeVisualState = pathNodeIds.has(neighborId)
+  neighborEntries.forEach((entry) => {
+    const visualState: GraphNodeVisualState = entry.isPath
       ? "path"
-      : labelledNeighborIds.has(neighborId)
+      : entry.zone === "primary"
         ? "neighbor"
         : "default";
     const style = resolveNodeElementStyle(
@@ -1869,50 +2065,137 @@ export function createFocusedGraph(
       "inspection",
       visualState,
       {
-        ...baseAttrs,
-        labelPriority: labelledNeighborIds.has(neighborId) || pathNodeIds.has(neighborId)
-          ? Math.max(Number(baseAttrs.labelPriority ?? 0), 1)
-          : 0,
+        ...entry.attrs,
+        labelPriority: entry.labelPriority,
+        labelVisibilityPolicy: entry.isPath || entry.zone === "primary" ? "priority" : "none",
+        haloColor: entry.isPath
+          ? withAlpha(GRAPH_THEME.palette.accent.path, 0.16)
+          : entry.zone === "primary"
+            ? withAlpha(entry.attrs.color, 0.12)
+            : withAlpha(entry.attrs.color, 0.06),
       },
-      baseAttrs.label,
+      entry.attrs.label,
     );
 
-    addNode(neighborId, {
-      ...baseAttrs,
-      x: Number.isFinite(baseAttrs.x) ? baseAttrs.x : Math.cos(angle) * radius,
-      y: Number.isFinite(baseAttrs.y) ? baseAttrs.y : Math.sin(angle) * radius,
+    addNode(entry.id, {
+      ...entry.attrs,
+      x: entry.x,
+      y: entry.y,
       color: style.color,
-      size: Math.max(style.size, 8.5),
+      size: Math.max(entry.size, style.size),
       baseColor: style.color,
-      baseSize: Math.max(style.size, 8.5),
+      baseSize: Math.max(entry.size, style.size),
       label: style.label,
+      labelPriority: entry.labelPriority,
+      labelVisibilityPolicy: entry.isPath || entry.zone === "primary" ? "priority" : "none",
+      haloColor: entry.isPath
+        ? withAlpha(GRAPH_THEME.palette.accent.path, 0.16)
+        : entry.zone === "primary"
+          ? withAlpha(style.color, 0.1)
+          : withAlpha(style.color, 0.05),
     });
   });
 
-  for (const source of focusIds) {
-    for (const target of focusIds) {
-      if (source === target) {
-        continue;
-      }
-      forEachDirectedEdgeBetween(graph, source, target, (edgeId, attrs) => {
-        const state: GraphEdgeVisualState = pathEdgeIds.has(edgeId)
-          ? "path"
-          : source === nodeId || target === nodeId
-            ? "selected"
-            : "neighbor";
-        const style = resolveEdgeElementStyle(GRAPH_THEME, "inspection", state, attrs, source, target);
-        focused.mergeDirectedEdgeWithKey(edgeId, source, target, {
-          ...attrs,
-          type: style.type,
-          size: style.size,
-          color: style.color,
-          baseSize: style.size,
-          baseColor: style.color,
-          curvature: style.curvature,
-        });
-      });
-    }
+  const focusedEdgeIds = collectFocusEdgeIds(graph, focusIds);
+  const retainedSupportEdgeIds = new Set(
+    Array.from(focusedEdgeIds)
+      .filter((edgeId) => {
+        if (!graph.hasEdge(edgeId) || pathEdgeIds.has(edgeId)) {
+          return false;
+        }
+        const [edgeSourceId, edgeTargetId] = graph.extremities(edgeId);
+        return edgeSourceId !== nodeId && edgeTargetId !== nodeId;
+      })
+      .sort((leftEdgeId, rightEdgeId) => {
+        const leftAttrs = graph.getEdgeAttributes(leftEdgeId) as EdgeAttributes;
+        const rightAttrs = graph.getEdgeAttributes(rightEdgeId) as EdgeAttributes;
+        const [leftSourceId, leftTargetId] = graph.extremities(leftEdgeId);
+        const [rightSourceId, rightTargetId] = graph.extremities(rightEdgeId);
+        const scoreDelta = scoreFocusedSupportEdge(
+          rightAttrs,
+          rightSourceId,
+          rightTargetId,
+          primaryNeighborIds,
+        ) - scoreFocusedSupportEdge(
+          leftAttrs,
+          leftSourceId,
+          leftTargetId,
+          primaryNeighborIds,
+        );
+        if (scoreDelta !== 0) {
+          return scoreDelta;
+        }
+        return leftEdgeId.localeCompare(rightEdgeId);
+      })
+      .slice(0, GRAPH_THEME.focus.supportEdgeBudget),
+  );
+  let loggedFocusedEdgeSkip = false;
+
+  if (DEBUG_GRAPH_SCENE_STATE) {
+    console.debug("[graphSceneState]", "focused-graph-build", {
+      nodeId,
+      focusedNodeCount: focusIds.size,
+      focusedEdgeCount: focusedEdgeIds.size,
+      retainedSupportEdgeCount: retainedSupportEdgeIds.size,
+    });
   }
+
+  focusedEdgeIds.forEach((edgeId) => {
+    if (!graph.hasEdge(edgeId)) {
+      return;
+    }
+
+    const [edgeSourceId, edgeTargetId] = graph.extremities(edgeId);
+    if (!focusIds.has(edgeSourceId) || !focusIds.has(edgeTargetId)) {
+      if (DEBUG_GRAPH_SCENE_STATE && !loggedFocusedEdgeSkip) {
+        loggedFocusedEdgeSkip = true;
+        console.debug("[graphSceneState]", "focused-edge-skipped-outside-focus", {
+          nodeId,
+          edgeId,
+          edgeSourceId,
+          edgeTargetId,
+          focusedNodeCount: focusIds.size,
+        });
+      }
+      return;
+    }
+
+    const attrs = graph.getEdgeAttributes(edgeId) as EdgeAttributes;
+    const isPathEdge = pathEdgeIds.has(edgeId);
+    const isSelectedIncidentEdge = edgeSourceId === nodeId || edgeTargetId === nodeId;
+    if (!isPathEdge && !isSelectedIncidentEdge && !retainedSupportEdgeIds.has(edgeId)) {
+      return;
+    }
+    const state: GraphEdgeVisualState = pathEdgeIds.has(edgeId)
+      ? "path"
+      : edgeSourceId === nodeId || edgeTargetId === nodeId
+        ? "selected"
+        : "neighbor";
+    const style = resolveEdgeElementStyle(GRAPH_THEME, "inspection", state, attrs, edgeSourceId, edgeTargetId);
+    const styledEdgeSize = Number(style.size ?? attrs.size ?? attrs.baseSize ?? 1);
+    const styledEdgeColor = style.color ?? attrs.color ?? GRAPH_THEME.palette.muted.edgeFocus;
+    const renderedSize = isSelectedIncidentEdge
+      ? Math.max(styledEdgeSize, 2)
+      : isPathEdge
+        ? Math.max(styledEdgeSize, 2.4)
+        : Math.max(styledEdgeSize * 0.62, 0.85);
+    const renderedColor = isSelectedIncidentEdge
+      ? styledEdgeColor
+      : isPathEdge
+        ? styledEdgeColor
+        : withAlpha(styledEdgeColor, 0.34);
+    focused.mergeDirectedEdgeWithKey(edgeId, edgeSourceId, edgeTargetId, {
+      ...attrs,
+      type: isSelectedIncidentEdge || isPathEdge ? style.type : "line",
+      size: renderedSize,
+      color: renderedColor,
+      baseSize: renderedSize,
+      baseColor: renderedColor,
+      curvature: isSelectedIncidentEdge || isPathEdge ? style.curvature : 0,
+      arrowVisibilityPolicy: isSelectedIncidentEdge || isPathEdge ? attrs.arrowVisibilityPolicy : "hidden",
+      visualPriority: isPathEdge ? 1.5 : isSelectedIncidentEdge ? 1.2 : 0.34,
+    });
+  });
 
   return aggregateDisplayGraph(focused);
 }
@@ -1964,7 +2247,7 @@ export function resolveDisplayGraph(
     return {
       graph: createFocusedGraph(selectedNodeId, activePath, activePathEdgeIds, shouldCollapseNeighborhood),
       state: displayState,
-      meta: MIRRORED_DISPLAY_META,
+      meta: FOCUSED_DISPLAY_META,
     };
   }
 
