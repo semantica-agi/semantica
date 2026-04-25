@@ -425,7 +425,7 @@ function computeStableReferenceViewBounds(
     count += 1;
   });
 
-  if (count === 0) {
+  if (count < 4) {
     return null;
   }
 
@@ -492,6 +492,7 @@ function computeCameraTargetFromBounds(
       unclampedRatio,
       validatedRatio: nextRatio,
       ratioClamped: Math.abs(nextRatio - unclampedRatio) > 1e-6,
+      positionValidated: validatedTarget.x != null,
     },
   };
 }
@@ -1235,6 +1236,9 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(
             },
             diagnostics: {
               referenceMode: "fallback-reset",
+              containerWidth: containerRef.current?.clientWidth ?? dimensions.width,
+              containerHeight: containerRef.current?.clientHeight ?? dimensions.height,
+              currentRatio: currentCameraState.ratio,
             },
           };
       const target = targetComputation?.target ?? null;
