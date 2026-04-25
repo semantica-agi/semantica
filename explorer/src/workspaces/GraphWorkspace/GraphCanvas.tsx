@@ -461,11 +461,10 @@ function computeCameraTargetFromBounds(
   }
 
   const fitScale = Math.max(targetWidth / referenceWidth, targetHeight / referenceHeight);
-  const unclampedRatio = fitScale;
   const validatedTarget = camera.validateState({
     x: centerX,
     y: centerY,
-    ratio: unclampedRatio,
+    ratio: fitScale,
     angle: cameraState.angle,
   });
   const nextRatio = Number(validatedTarget.ratio);
@@ -475,10 +474,10 @@ function computeCameraTargetFromBounds(
 
   return {
     target: {
-      x: Number(validatedTarget.x ?? centerX),
-      y: Number(validatedTarget.y ?? centerY),
+      x: Number(validatedTarget.x),
+      y: Number(validatedTarget.y),
       ratio: nextRatio,
-      angle: Number(validatedTarget.angle ?? cameraState.angle),
+      angle: Number(validatedTarget.angle),
     },
     diagnostics: {
       referenceMinX: referenceBounds.minX,
@@ -489,9 +488,9 @@ function computeCameraTargetFromBounds(
       referenceHeight,
       targetWidth,
       targetHeight,
-      unclampedRatio,
+      fitScale,
       validatedRatio: nextRatio,
-      ratioClamped: Math.abs(nextRatio - unclampedRatio) > 1e-6,
+      ratioClamped: Math.abs(nextRatio - fitScale) > 1e-4,
     },
   };
 }
@@ -1224,6 +1223,10 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(
       const container = containerRef.current;
       const dimensions = sigma.getDimensions();
       const currentCameraState = sigma.getCamera().getState();
+      // Custom bbox is intentionally not cleared here. Clearing it during a
+      // fit-view in bounded modes (focused, grouped) would corrupt the stable
+      // reference bounds that computeStableReferenceViewBounds() depends on.
+      // Each mode-transition already manages its own bbox lifecycle.
       const targetComputation = targetBounds
         ? computeCameraTargetFromBounds(sigma, targetBounds)
         : {
