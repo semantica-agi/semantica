@@ -368,42 +368,131 @@ function computeDisplayedGraphBounds(
   return computeDisplayedNodeBounds(sigma, nodeIds);
 }
 
+type CameraTarget = {
+  x: number;
+  y: number;
+  ratio: number;
+  angle: number;
+};
+
+type CameraTargetComputation = {
+  target: CameraTarget;
+  diagnostics: Record<string, unknown>;
+};
+
+function computeStableReferenceViewBounds(
+  sigma: Sigma,
+  angle: number,
+): GraphSpaceBounds | null {
+  const dimensions = sigma.getDimensions();
+  const width = Number(dimensions.width);
+  const height = Number(dimensions.height);
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+    return null;
+  }
+
+  const referenceCameraState = {
+    x: 0.5,
+    y: 0.5,
+    ratio: 1,
+    angle,
+  };
+
+  const corners = [
+    sigma.viewportToFramedGraph({ x: 0, y: 0 }, { cameraState: referenceCameraState }),
+    sigma.viewportToFramedGraph({ x: width, y: 0 }, { cameraState: referenceCameraState }),
+    sigma.viewportToFramedGraph({ x: 0, y: height }, { cameraState: referenceCameraState }),
+    sigma.viewportToFramedGraph({ x: width, y: height }, { cameraState: referenceCameraState }),
+  ];
+
+  let minX = Infinity;
+  let maxX = -Infinity;
+  let minY = Infinity;
+  let maxY = -Infinity;
+  let count = 0;
+
+  corners.forEach((point) => {
+    const x = Number(point.x);
+    const y = Number(point.y);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) {
+      return;
+    }
+
+    minX = Math.min(minX, x);
+    maxX = Math.max(maxX, x);
+    minY = Math.min(minY, y);
+    maxY = Math.max(maxY, y);
+    count += 1;
+  });
+
+  if (count === 0) {
+    return null;
+  }
+
+  return { minX, maxX, minY, maxY, count };
+}
+
 function computeCameraTargetFromBounds(
   sigma: Sigma,
   bounds: SigmaCustomBBox,
-): { x: number; y: number; ratio: number; angle: number } | null {
+): CameraTargetComputation | null {
   const camera = sigma.getCamera();
   const cameraState = camera.getState();
-  const viewRect = sigma.viewRectangle();
+  const referenceBounds = computeStableReferenceViewBounds(sigma, cameraState.angle);
+  if (!referenceBounds) {
+    return null;
+  }
 
-  const currentWidth = Math.abs(viewRect.x2 - viewRect.x1);
-  const currentHeight = Math.abs(viewRect.height);
+  const referenceWidth = Math.abs(referenceBounds.maxX - referenceBounds.minX);
+  const referenceHeight = Math.abs(referenceBounds.maxY - referenceBounds.minY);
   const targetWidth = Math.abs(bounds.x[1] - bounds.x[0]);
   const targetHeight = Math.abs(bounds.y[1] - bounds.y[0]);
   const centerX = (bounds.x[0] + bounds.x[1]) / 2;
   const centerY = (bounds.y[0] + bounds.y[1]) / 2;
 
   if (
-    ![currentWidth, currentHeight, targetWidth, targetHeight, centerX, centerY].every(Number.isFinite)
-    || currentWidth <= 0
-    || currentHeight <= 0
+    ![referenceWidth, referenceHeight, targetWidth, targetHeight, centerX, centerY].every(Number.isFinite)
+    || referenceWidth <= 0
+    || referenceHeight <= 0
     || targetWidth <= 0
     || targetHeight <= 0
   ) {
     return null;
   }
 
-  const fitScale = Math.max(targetWidth / currentWidth, targetHeight / currentHeight);
-  const nextRatio = camera.getBoundedRatio(cameraState.ratio * fitScale);
+  const fitScale = Math.max(targetWidth / referenceWidth, targetHeight / referenceHeight);
+  const unclampedRatio = fitScale;
+  const validatedTarget = camera.validateState({
+    x: centerX,
+    y: centerY,
+    ratio: unclampedRatio,
+    angle: cameraState.angle,
+  });
+  const nextRatio = Number(validatedTarget.ratio);
   if (!Number.isFinite(nextRatio) || nextRatio <= 0) {
     return null;
   }
 
   return {
-    x: centerX,
-    y: centerY,
-    ratio: nextRatio,
-    angle: cameraState.angle,
+    target: {
+      x: Number(validatedTarget.x ?? centerX),
+      y: Number(validatedTarget.y ?? centerY),
+      ratio: nextRatio,
+      angle: Number(validatedTarget.angle ?? cameraState.angle),
+    },
+    diagnostics: {
+      referenceMinX: referenceBounds.minX,
+      referenceMaxX: referenceBounds.maxX,
+      referenceMinY: referenceBounds.minY,
+      referenceMaxY: referenceBounds.maxY,
+      referenceWidth,
+      referenceHeight,
+      targetWidth,
+      targetHeight,
+      unclampedRatio,
+      validatedRatio: nextRatio,
+      ratioClamped: Math.abs(nextRatio - unclampedRatio) > 1e-6,
+    },
   };
 }
 
@@ -1132,21 +1221,23 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(
         return;
       }
 
-      if (sigma.getCustomBBox()) {
-        sigma.setCustomBBox(null);
-      }
-
       const container = containerRef.current;
       const dimensions = sigma.getDimensions();
       const currentCameraState = sigma.getCamera().getState();
-      const target = targetBounds
+      const targetComputation = targetBounds
         ? computeCameraTargetFromBounds(sigma, targetBounds)
         : {
-            x: 0.5,
-            y: 0.5,
-            ratio: 1,
-            angle: currentCameraState.angle,
+            target: {
+              x: 0.5,
+              y: 0.5,
+              ratio: 1,
+              angle: currentCameraState.angle,
+            },
+            diagnostics: {
+              referenceMode: "fallback-reset",
+            },
           };
+      const target = targetComputation?.target ?? null;
       if (!target) {
         debugGraphRuntime("camera-fit-target-invalid", {
           intent,
@@ -1156,6 +1247,7 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(
           size: displayGraphRef.current.size,
           boundsX: targetBounds?.x ?? null,
           boundsY: targetBounds?.y ?? null,
+          customBBoxActive: Boolean(sigma.getCustomBBox()),
           ...diagnostics,
         });
         return;
@@ -1175,6 +1267,8 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(
         targetRatio: target.ratio,
         boundsX: targetBounds?.x ?? null,
         boundsY: targetBounds?.y ?? null,
+        customBBoxActive: Boolean(sigma.getCustomBBox()),
+        ...targetComputation?.diagnostics,
         ...diagnostics,
       });
 
