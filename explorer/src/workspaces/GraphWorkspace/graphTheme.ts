@@ -184,9 +184,17 @@ export interface GraphTheme {
   };
   focus: {
     maxNeighbors: number;
-    ringCapacity: number;
-    ringGap: number;
     primaryLabels: number;
+    primaryRingSlots: number;
+    secondaryRingSlots: number;
+    primaryRadius: number;
+    secondaryRadius: number;
+    overlapPadding: number;
+    overlapIterations: number;
+    selectedMinSize: number;
+    primaryNeighborMinSize: number;
+    secondaryNeighborMinSize: number;
+    supportEdgeBudget: number;
   };
   motion: {
     cameraMs: number;
@@ -496,9 +504,17 @@ export const GRAPH_THEME: GraphTheme = {
   },
   focus: {
     maxNeighbors: 16,
-    ringCapacity: 6,
-    ringGap: 250,
     primaryLabels: 6,
+    primaryRingSlots: 7,
+    secondaryRingSlots: 10,
+    primaryRadius: 170,
+    secondaryRadius: 310,
+    overlapPadding: 18,
+    overlapIterations: 18,
+    selectedMinSize: 24,
+    primaryNeighborMinSize: 11.5,
+    secondaryNeighborMinSize: 7.2,
+    supportEdgeBudget: 10,
   },
   motion: {
     cameraMs: 380,
