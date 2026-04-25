@@ -12,7 +12,7 @@ import { useLoadGraph, useReloadGraph } from "./useLoadGraph";
 import { GraphLoadingOverlay } from "./GraphLoadingOverlay";
 import { createGraphLoadProgress, getGraphLoadTitle } from "./graphLoading";
 import { GRAPH_THEME, withAlpha } from "./graphTheme";
-import { resolveDisplayGraph, resolveDisplayStateSnapshot, resolveGroupedDisplayStateSnapshot } from "./graphSceneState";
+import { checkGroupedViewAvailability, resolveDisplayGraph, resolveDisplayStateSnapshot, resolveGroupedDisplayNodeId, resolveGroupedDisplayStateSnapshot } from "./graphSceneState";
 import {
   type GraphPlugin,
   type GraphPluginActionRequest,
@@ -548,47 +548,6 @@ type FocusResolution = {
   reason: string | null;
 };
 
-function resolveGroupedDisplayNodeId(
-  displayGraph: GraphSceneRuntime["displayGraph"],
-  nodeId: string,
-): string | null {
-  if (!nodeId) {
-    return null;
-  }
-
-  if (displayGraph.hasNode(nodeId)) {
-    return nodeId;
-  }
-
-  let resolvedNodeId: string | null = null;
-  displayGraph.forEachNode((candidateId, attrs) => {
-    if (resolvedNodeId) {
-      return;
-    }
-
-    const communityGroup = (attrs as NodeAttributes).properties?.__communityGroup as
-      | {
-          anchorNodeId?: string | null;
-          memberNodeIds?: string[];
-          sampleNodeIds?: string[];
-        }
-      | undefined;
-    if (!communityGroup) {
-      return;
-    }
-
-    if (
-      communityGroup.anchorNodeId === nodeId
-      || communityGroup.sampleNodeIds?.includes(nodeId)
-      || communityGroup.memberNodeIds?.includes(nodeId)
-    ) {
-      resolvedNodeId = candidateId;
-    }
-  });
-
-  return resolvedNodeId;
-}
-
 function buildSelectedEdgeState(
   edgeId: string,
   displayGraph: typeof graph | Graph<NodeAttributes, EdgeAttributes>,
@@ -953,15 +912,19 @@ export function GraphWorkspace() {
   );
   const inspectableNodeId = focusedSelectionResolution.resolvedNodeId ?? "";
   const canActivateFocusedMode = Boolean(focusedSelectionResolution.resolvedNodeId);
-  const groupedDisplayCandidate = useMemo(
-    () => resolveDisplayGraph("", EMPTY_PATH, EMPTY_PATH, "grouped", {
-      aggregationEnabled,
-      collapsedNeighborhoodNodeIds,
-    }),
-    [aggregationEnabled, collapsedNeighborhoodNodeIds, graphVersion],
+  const { available: groupedViewAvailable, reason: groupedViewReason } = useMemo(
+    () => checkGroupedViewAvailability(),
+    [graphVersion],
   );
-  const groupedViewAvailable = groupedDisplayCandidate.state.groupedViewAvailable;
-  const groupedViewReason = groupedDisplayCandidate.state.groupedViewReason;
+  const groupedDisplayCandidate = useMemo(
+    () => viewMode === "grouped"
+      ? resolveDisplayGraph("", EMPTY_PATH, EMPTY_PATH, "grouped", {
+          aggregationEnabled,
+          collapsedNeighborhoodNodeIds,
+        })
+      : null,
+    [viewMode, aggregationEnabled, collapsedNeighborhoodNodeIds, graphVersion],
+  );
 
   const requestViewMode = useCallback((nextViewMode: GraphViewMode) => {
     if (nextViewMode === "focused") {
@@ -986,7 +949,11 @@ export function GraphWorkspace() {
         return;
       }
 
-      const groupedDisplayGraph = groupedDisplayCandidate.graph;
+      const groupedDisplayGraph = groupedDisplayCandidate?.graph
+        ?? resolveDisplayGraph("", EMPTY_PATH, EMPTY_PATH, "grouped", {
+          aggregationEnabled,
+          collapsedNeighborhoodNodeIds,
+        }).graph;
       const nextGroupedSelection = [
         lastGroupedSelectedNodeId,
         selectedNodeId,
@@ -1016,7 +983,7 @@ export function GraphWorkspace() {
     collapsedNeighborhoodNodeIds,
     focusedNodeId,
     graphVersion,
-    groupedDisplayCandidate.graph,
+    groupedDisplayCandidate,
     groupedViewAvailable,
     groupedViewReason,
     lastGroupedSelectedNodeId,
@@ -1030,9 +997,7 @@ export function GraphWorkspace() {
     }
 
     const currentDisplayGraph = pluginRuntimeRef.current?.displayGraph ?? graph;
-    const nextSelectedNodeId = viewMode === "focused" && graph.hasNode(nodeId)
-      ? nodeId
-      : nodeId;
+    const nextSelectedNodeId = nodeId;
 
     if (!graph.hasNode(nodeId) && currentDisplayGraph.hasNode(nodeId)) {
       setLastGroupedSelectedNodeId(nodeId);
@@ -1218,7 +1183,10 @@ export function GraphWorkspace() {
   const displayResult = useMemo(
     () => (
       viewMode === "grouped"
-        ? groupedDisplayCandidate
+        ? (groupedDisplayCandidate ?? resolveDisplayGraph("", EMPTY_PATH, EMPTY_PATH, "grouped", {
+            aggregationEnabled,
+            collapsedNeighborhoodNodeIds,
+          }))
         : resolveDisplayGraph(structuralSelectedNodeId, structuralActivePath, structuralActivePathEdgeIds, viewMode, {
             aggregationEnabled,
             collapsedNeighborhoodNodeIds,

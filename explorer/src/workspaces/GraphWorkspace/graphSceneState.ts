@@ -35,7 +35,7 @@ const COLLAPSE_VISIBLE_NEIGHBORS = 8;
 const GROUP_SAMPLE_MEMBERS = 8;
 const AGGREGATED_EDGE_PREFIX = "__agg__:";
 const COMMUNITY_NODE_PREFIX = "__community__:";
-const DEBUG_GRAPH_SCENE_STATE = import.meta.env.DEV;
+const DEBUG_GRAPH_SCENE_STATE = typeof import.meta !== "undefined" && import.meta.env?.DEV === true;
 
 type GraphRef = typeof graph | Graph<NodeAttributes, EdgeAttributes>;
 
@@ -159,7 +159,7 @@ function createEmptyDisplayState(
   };
 }
 
-function resolveGroupedDisplayNodeId(
+export function resolveGroupedDisplayNodeId(
   displayGraph: GraphRef,
   nodeId: string,
 ): string | null {
@@ -199,6 +199,18 @@ function resolveGroupedDisplayNodeId(
   });
 
   return resolvedNodeId;
+}
+
+export function checkGroupedViewAvailability(): { available: boolean; reason: string | null } {
+  const base = computeGraphAnalyticsBase(graph, {
+    computeCommunities: true,
+    computeCentrality: false,
+  });
+  const available = base.communitiesByNode.size > 0;
+  return {
+    available,
+    reason: available ? null : "Grouped view is unavailable until communities can be detected.",
+  };
 }
 
 function rankGroupedNeighbors(
