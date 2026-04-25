@@ -1493,10 +1493,12 @@ function relaxFocusedNeighborPositions(
 
       const desiredRadius = entry.radius;
       if (desiredRadius > 0) {
-        const drift = desiredRadius - Math.hypot(entry.x, entry.y);
-        const currentDistance = Math.hypot(entry.x, entry.y) || 0.001;
-        entry.x += (entry.x / currentDistance) * drift * 0.1;
-        entry.y += (entry.y / currentDistance) * drift * 0.1;
+        const currentDistance = Math.hypot(entry.x, entry.y);
+        if (currentDistance > centerMinimum) {
+          const drift = desiredRadius - currentDistance;
+          entry.x += (entry.x / currentDistance) * drift * GRAPH_THEME.focus.ringAttractionStrength;
+          entry.y += (entry.y / currentDistance) * drift * GRAPH_THEME.focus.ringAttractionStrength;
+        }
       }
     });
   }
@@ -1516,7 +1518,7 @@ function buildFocusedNeighbors(
       const degree = graph.hasNode(neighborId) ? graph.degree(neighborId) : 0;
       const rank = rankedIndex.get(neighborId) ?? rankedNeighbors.length;
       const isPath = pathNodeIds.has(neighborId);
-      const score = (isPath ? 10_000 : 0) + (weight * 100) + (degree * 2) + Math.max(0, MAX_FOCUS_NEIGHBORS - rank);
+      const score = (isPath ? GRAPH_THEME.focus.pathScoreBoost : 0) + (weight * GRAPH_THEME.focus.weightScoreScale) + (degree * GRAPH_THEME.focus.degreeScoreScale) + Math.max(0, MAX_FOCUS_NEIGHBORS - rank);
       return {
         id: neighborId,
         attrs,
@@ -1543,11 +1545,13 @@ function buildFocusedNeighbors(
     GRAPH_THEME.focus.primaryRingSlots,
     Math.max(FOCUS_PRIMARY_LABELS, Math.ceil(neighbors.length * 0.45)),
   );
-  let primaryCount = 0;
+  let nonPathPrimaryCount = 0;
   neighbors.forEach((entry) => {
-    if (primaryCount < primaryTarget || entry.isPath) {
+    if (entry.isPath || nonPathPrimaryCount < primaryTarget) {
       entry.zone = "primary";
-      primaryCount += 1;
+      if (!entry.isPath) {
+        nonPathPrimaryCount += 1;
+      }
     }
   });
 
@@ -1559,11 +1563,12 @@ function buildFocusedNeighbors(
   neighbors.forEach((entry, index) => {
     const primaryLabelBoost = entry.zone === "primary" && index < FOCUS_PRIMARY_LABELS;
     entry.labelPriority = entry.isPath || primaryLabelBoost ? 1.15 : entry.zone === "primary" ? 0.7 : 0.35;
+    const baseNodeSize = Number(entry.attrs.baseSize ?? entry.attrs.size ?? 4);
     entry.size = entry.isPath
-      ? Math.max(Number(entry.attrs.baseSize ?? entry.attrs.size ?? 4) * 1.16, GRAPH_THEME.focus.primaryNeighborMinSize)
+      ? Math.max(baseNodeSize * GRAPH_THEME.focus.pathNodeSizeScale, GRAPH_THEME.focus.primaryNeighborMinSize)
       : entry.zone === "primary"
-        ? Math.max(Number(entry.attrs.baseSize ?? entry.attrs.size ?? 4) * 1.08, GRAPH_THEME.focus.primaryNeighborMinSize)
-        : Math.max(Number(entry.attrs.baseSize ?? entry.attrs.size ?? 4) * 0.86, GRAPH_THEME.focus.secondaryNeighborMinSize);
+        ? Math.max(baseNodeSize * GRAPH_THEME.focus.primaryNodeSizeScale, GRAPH_THEME.focus.primaryNeighborMinSize)
+        : Math.max(baseNodeSize * GRAPH_THEME.focus.secondaryNodeSizeScale, GRAPH_THEME.focus.secondaryNeighborMinSize);
   });
 
   relaxFocusedNeighborPositions(neighbors, GRAPH_THEME.focus.selectedMinSize);
@@ -1578,8 +1583,8 @@ function scoreFocusedSupportEdge(
 ) {
   const rawEdgeCount = collectRawEdgeIds(attrs).length;
   const weight = Number(attrs.representativeWeight ?? attrs.weight ?? 1);
-  const primaryBoost = primaryNeighborIds.has(sourceId) && primaryNeighborIds.has(targetId) ? 1.5 : 0;
-  return weight * 4 + rawEdgeCount + primaryBoost;
+  const primaryBoost = primaryNeighborIds.has(sourceId) && primaryNeighborIds.has(targetId) ? GRAPH_THEME.focus.primaryEdgeBoost : 0;
+  return weight * GRAPH_THEME.focus.edgeWeightScoreScale + rawEdgeCount + primaryBoost;
 }
 
 function aggregateDisplayGraph(graphRef: GraphRef): Graph<NodeAttributes, EdgeAttributes> {
@@ -2068,11 +2073,6 @@ export function createFocusedGraph(
         ...entry.attrs,
         labelPriority: entry.labelPriority,
         labelVisibilityPolicy: entry.isPath || entry.zone === "primary" ? "priority" : "none",
-        haloColor: entry.isPath
-          ? withAlpha(GRAPH_THEME.palette.accent.path, 0.16)
-          : entry.zone === "primary"
-            ? withAlpha(entry.attrs.color, 0.12)
-            : withAlpha(entry.attrs.color, 0.06),
       },
       entry.attrs.label,
     );
@@ -2129,8 +2129,6 @@ export function createFocusedGraph(
       })
       .slice(0, GRAPH_THEME.focus.supportEdgeBudget),
   );
-  let loggedFocusedEdgeSkip = false;
-
   if (DEBUG_GRAPH_SCENE_STATE) {
     console.debug("[graphSceneState]", "focused-graph-build", {
       nodeId,
@@ -2146,20 +2144,6 @@ export function createFocusedGraph(
     }
 
     const [edgeSourceId, edgeTargetId] = graph.extremities(edgeId);
-    if (!focusIds.has(edgeSourceId) || !focusIds.has(edgeTargetId)) {
-      if (DEBUG_GRAPH_SCENE_STATE && !loggedFocusedEdgeSkip) {
-        loggedFocusedEdgeSkip = true;
-        console.debug("[graphSceneState]", "focused-edge-skipped-outside-focus", {
-          nodeId,
-          edgeId,
-          edgeSourceId,
-          edgeTargetId,
-          focusedNodeCount: focusIds.size,
-        });
-      }
-      return;
-    }
-
     const attrs = graph.getEdgeAttributes(edgeId) as EdgeAttributes;
     const isPathEdge = pathEdgeIds.has(edgeId);
     const isSelectedIncidentEdge = edgeSourceId === nodeId || edgeTargetId === nodeId;
