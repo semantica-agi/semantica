@@ -191,10 +191,19 @@ export interface GraphTheme {
     secondaryRadius: number;
     overlapPadding: number;
     overlapIterations: number;
+    ringAttractionStrength: number;
     selectedMinSize: number;
     primaryNeighborMinSize: number;
     secondaryNeighborMinSize: number;
+    pathNodeSizeScale: number;
+    primaryNodeSizeScale: number;
+    secondaryNodeSizeScale: number;
     supportEdgeBudget: number;
+    pathScoreBoost: number;
+    weightScoreScale: number;
+    degreeScoreScale: number;
+    edgeWeightScoreScale: number;
+    primaryEdgeBoost: number;
   };
   motion: {
     cameraMs: number;
@@ -511,10 +520,19 @@ export const GRAPH_THEME: GraphTheme = {
     secondaryRadius: 310,
     overlapPadding: 18,
     overlapIterations: 18,
+    ringAttractionStrength: 0.1,
     selectedMinSize: 24,
     primaryNeighborMinSize: 11.5,
     secondaryNeighborMinSize: 7.2,
+    pathNodeSizeScale: 1.16,
+    primaryNodeSizeScale: 1.08,
+    secondaryNodeSizeScale: 0.86,
     supportEdgeBudget: 10,
+    pathScoreBoost: 10_000,
+    weightScoreScale: 100,
+    degreeScoreScale: 2,
+    edgeWeightScoreScale: 4,
+    primaryEdgeBoost: 1.5,
   },
   motion: {
     cameraMs: 380,
