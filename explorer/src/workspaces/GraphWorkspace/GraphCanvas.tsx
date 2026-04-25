@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useRef, useCallback, forwardRef, useImperativeHandle, useState, type ReactNode } from "react";
-import type Graph from "graphology";
 import Sigma from "sigma";
 import FA2Layout from "graphology-layout-forceatlas2/worker";
 import { graph, type EdgeAttributes, type NodeAttributes } from "../../store/graphStore";
@@ -20,7 +19,7 @@ import {
   zoomTierAtLeast,
 } from "./graphTheme";
 import {
-  buildFocusSet,
+  buildFocusSetInGraph,
   buildEdgeEndpointSet,
   buildPathEdgeSet,
   collectInteractionRefreshTargets,
@@ -82,6 +81,7 @@ export interface GraphCanvasProps {
   onNodeClick: (nodeId: string) => void;
   onEdgeClick?: (edgeId: string) => void;
   selectedNodeId: string;
+  focusedNodeId: string;
   selectedEdgeId: string;
   activePath?: string[];
   activePathEdgeIds?: string[];
@@ -114,6 +114,21 @@ const FA2_SETTINGS = {
     linLogMode: true,
     strongGravityMode: false,
     slowDown: 18,
+  },
+};
+
+const GROUPED_FA2_SETTINGS = {
+  iterations: GRAPH_THEME.grouped.layout.iterations,
+  settings: {
+    barnesHutOptimize: true,
+    barnesHutTheta: 0.5,
+    adjustSizes: true,
+    gravity: GRAPH_THEME.grouped.layout.gravity,
+    scalingRatio: GRAPH_THEME.grouped.layout.scalingRatio,
+    edgeWeightInfluence: GRAPH_THEME.grouped.layout.edgeWeightInfluence,
+    linLogMode: false,
+    strongGravityMode: false,
+    slowDown: GRAPH_THEME.grouped.layout.slowDown,
   },
 };
 
@@ -784,38 +799,96 @@ function drawNodeBadge(
   context.fillText(label, badgeX, badgeY + 0.5);
 }
 
-function applySceneState(
-  sigma: Sigma,
-  displayGraph: typeof graph | Graph<NodeAttributes, EdgeAttributes>,
+type ReducerSceneState = {
+  zoomTier: GraphZoomTier;
+  hoveredNodeId: string | null;
+  selectedNodeId: string;
+  selectedEdgeId: string;
+  activePath: string[];
+  activePathEdgeIds: string[];
+  focusIds: Set<string>;
+  edgeEndpointIds: Set<string>;
+  pathNodeIds: Set<string>;
+  pathEdgeIds: Set<string>;
+  overviewBackboneEdgeIds: Set<string>;
+};
+
+function buildReducerSceneState(
+  displayGraph: GraphSceneGraph,
   interactionState: GraphInteractionState,
   analyticsSnapshot: GraphAnalyticsSnapshot | null,
+): ReducerSceneState {
+  const { zoomTier, hoveredNodeId, selectedNodeId, selectedEdgeId, activePath } = interactionState;
+  const primaryNodeId = hoveredNodeId || selectedNodeId;
+  const focusIds = primaryNodeId
+    ? (
+      displayGraph.hasNode(primaryNodeId)
+        ? buildFocusSetInGraph(displayGraph, primaryNodeId)
+        : new Set<string>()
+    )
+    : new Set<string>();
+
+  return {
+    zoomTier,
+    hoveredNodeId,
+    selectedNodeId,
+    selectedEdgeId,
+    activePath,
+    activePathEdgeIds: interactionState.activePathEdgeIds,
+    focusIds,
+    edgeEndpointIds: buildEdgeEndpointSet(displayGraph, selectedEdgeId),
+    pathNodeIds: new Set(activePath),
+    pathEdgeIds: buildPathEdgeSet(displayGraph, activePath, interactionState.activePathEdgeIds),
+    overviewBackboneEdgeIds: new Set(analyticsSnapshot?.overviewBackbone.edgeIds ?? []),
+  };
+}
+
+function applySceneState(
+  sigma: Sigma,
+  reducerSceneStateRef: { current: ReducerSceneState },
+  reducerWarningStateRef: { current: { missingEdges: Set<string>; missingNodes: Set<string> } },
   refreshTargets?: {
     nodes?: string[];
     edges?: string[];
   },
 ) {
-  const { zoomTier, hoveredNodeId, selectedNodeId, selectedEdgeId, activePath } = interactionState;
-  const primaryNodeId = hoveredNodeId || selectedNodeId;
-  const focusIds = primaryNodeId && graph.hasNode(primaryNodeId) ? buildFocusSet(primaryNodeId) : new Set<string>();
-  const edgeEndpointIds = buildEdgeEndpointSet(displayGraph, selectedEdgeId);
-  const pathNodeIds = new Set(activePath);
-  const pathEdgeIds = buildPathEdgeSet(displayGraph, activePath, interactionState.activePathEdgeIds);
-  const overviewBackboneEdgeIds = new Set(analyticsSnapshot?.overviewBackbone.edgeIds ?? []);
-  const cameraRatio = sigma.getCamera().getState().ratio;
-
   sigma.setSetting("nodeReducer", (node, data) => {
+    const currentGraph = sigma.getGraph() as GraphSceneGraph;
+    const currentState = reducerSceneStateRef.current;
+    const cameraRatio = sigma.getCamera().getState().ratio;
+    if (!currentGraph.hasNode(node)) {
+      if (!reducerWarningStateRef.current.missingNodes.has(node)) {
+        reducerWarningStateRef.current.missingNodes.add(node);
+        debugGraphRuntime("node-reducer-node-missing", {
+          nodeId: node,
+          order: currentGraph.order,
+          size: currentGraph.size,
+        });
+      }
+      return {
+        ...data,
+        hidden: true,
+      };
+    }
     const attrs = data as NodeAttributes;
     const state = resolveNodeVisualState(
       node,
-      zoomTier,
-      hoveredNodeId,
-      selectedNodeId,
-      selectedEdgeId,
-      focusIds,
-      edgeEndpointIds,
-      pathNodeIds,
+      currentState.zoomTier,
+      currentState.hoveredNodeId,
+      currentState.selectedNodeId,
+      currentState.selectedEdgeId,
+      currentState.focusIds,
+      currentState.edgeEndpointIds,
+      currentState.pathNodeIds,
     );
-    const style = resolveNodeElementStyle(GRAPH_THEME, zoomTier, state, attrs, data.label, cameraRatio);
+    const style = resolveNodeElementStyle(
+      GRAPH_THEME,
+      currentState.zoomTier,
+      state,
+      attrs,
+      data.label,
+      cameraRatio,
+    );
 
       return {
         ...data,
@@ -835,22 +908,45 @@ function applySceneState(
     });
 
   sigma.setSetting("edgeReducer", (edge, data) => {
+    const currentGraph = sigma.getGraph() as GraphSceneGraph;
+    const currentState = reducerSceneStateRef.current;
+    if (!currentGraph.hasEdge(edge)) {
+      if (!reducerWarningStateRef.current.missingEdges.has(edge)) {
+        reducerWarningStateRef.current.missingEdges.add(edge);
+        debugGraphRuntime("edge-reducer-edge-missing", {
+          edgeId: edge,
+          order: currentGraph.order,
+          size: currentGraph.size,
+        });
+      }
+      return {
+        ...data,
+        hidden: true,
+      };
+    }
     const attrs = data as EdgeAttributes;
-    const [source, target] = displayGraph.extremities(edge);
+    const [source, target] = currentGraph.extremities(edge);
     const stableEdgeId = String(edge);
     const state = resolveEdgeVisualState(
       stableEdgeId,
       source,
       target,
-      zoomTier,
-      hoveredNodeId,
-      selectedNodeId,
-      selectedEdgeId,
-      focusIds,
-      pathEdgeIds,
-      overviewBackboneEdgeIds,
+      currentState.zoomTier,
+      currentState.hoveredNodeId,
+      currentState.selectedNodeId,
+      currentState.selectedEdgeId,
+      currentState.focusIds,
+      currentState.pathEdgeIds,
+      currentState.overviewBackboneEdgeIds,
     );
-    const style = resolveEdgeElementStyle(GRAPH_THEME, zoomTier, state, attrs, source, target);
+    const style = resolveEdgeElementStyle(
+      GRAPH_THEME,
+      currentState.zoomTier,
+      state,
+      attrs,
+      source,
+      target,
+    );
 
     return {
       ...data,
@@ -899,12 +995,14 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(
       onNodeClick,
       onEdgeClick,
       selectedNodeId,
+      focusedNodeId,
       selectedEdgeId,
       activePath = [],
       activePathEdgeIds = [],
       effectsState,
       temporalState,
       isLayoutRunning,
+      onLayoutRunningChange,
       viewMode,
       className,
       showFitViewButton = true,
@@ -930,6 +1028,7 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(
     const displayMetaRef = useRef(displayMeta);
     const graphVersionRef = useRef(graphVersion);
     const selectedNodeIdRef = useRef(selectedNodeId);
+    const focusedNodeIdRef = useRef(focusedNodeId);
     const viewModeRef = useRef(viewMode);
     const onNodeClickRef = useRef(onNodeClick);
     const onEdgeClickRef = useRef(onEdgeClick);
@@ -943,12 +1042,18 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(
     const layoutSyncFrameRef = useRef<number | null>(null);
     const layoutSyncTickRef = useRef(0);
     const deferredFocusFrameRef = useRef<number | null>(null);
+    const groupedLayoutSettleTimeoutRef = useRef<number | null>(null);
+    const reducerWarningStateRef = useRef<{ missingEdges: Set<string>; missingNodes: Set<string> }>({
+      missingEdges: new Set<string>(),
+      missingNodes: new Set<string>(),
+    });
 
     displayGraphRef.current = displayGraph;
     displayStateRef.current = displayState;
     displayMetaRef.current = displayMeta;
     graphVersionRef.current = graphVersion;
     selectedNodeIdRef.current = selectedNodeId;
+    focusedNodeIdRef.current = focusedNodeId;
     viewModeRef.current = viewMode;
     onNodeClickRef.current = onNodeClick;
     onEdgeClickRef.current = onEdgeClick;
@@ -972,6 +1077,7 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(
       () => createInteractionState(
         hoveredNodeId,
         selectedNodeId,
+        focusedNodeId,
         selectedEdgeId,
         activePath,
         activePathEdgeIds,
@@ -979,7 +1085,17 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(
         zoomTier,
         isLayoutRunning,
       ),
-      [activePath, activePathEdgeIds, hoveredNodeId, isLayoutRunning, selectedEdgeId, selectedNodeId, viewMode, zoomTier],
+      [
+        activePath,
+        activePathEdgeIds,
+        focusedNodeId,
+        hoveredNodeId,
+        isLayoutRunning,
+        selectedEdgeId,
+        selectedNodeId,
+        viewMode,
+        zoomTier,
+      ],
     );
     const interactionStateRef = useRef<GraphInteractionState>(interactionState);
     interactionStateRef.current = interactionState;
@@ -993,6 +1109,12 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(
       }),
       [displayGraph, shouldComputeCentrality, shouldComputeCommunities],
     );
+    const reducerSceneState = useMemo(
+      () => buildReducerSceneState(displayGraph, interactionState, analyticsSnapshot),
+      [analyticsSnapshot, displayGraph, interactionState],
+    );
+    const reducerSceneStateRef = useRef<ReducerSceneState>(reducerSceneState);
+    reducerSceneStateRef.current = reducerSceneState;
     const displayFitSignature = useMemo<DisplayFitSignature>(() => ({
       graphVersion,
       viewMode,
@@ -1175,6 +1297,63 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(
       });
     }, [animateCameraToBounds, fitDisplayGraphInView]);
 
+    const centerGroupedSelectionInView = useCallback((nodeId: string) => {
+      const sigma = sigmaRef.current;
+      if (!sigma) {
+        return;
+      }
+
+      const currentDisplayGraph = displayGraphRef.current;
+      const selectionNodeIds = collectSelectionContextNodeIds(
+        currentDisplayGraph,
+        displayStateRef.current,
+        nodeId,
+      );
+      if (selectionNodeIds.length === 0) {
+        debugGraphRuntime("camera-grouped-selection-missing-node", {
+          nodeId,
+          graphVersion: graphVersionRef.current,
+          viewMode: viewModeRef.current,
+        });
+        return;
+      }
+
+      const bounds = computeDisplayedNodeBounds(sigma, selectionNodeIds);
+      if (!bounds) {
+        debugGraphRuntime("camera-grouped-selection-display-bounds-missing", {
+          nodeId,
+          graphVersion: graphVersionRef.current,
+          viewMode: viewModeRef.current,
+          contextCount: selectionNodeIds.length,
+        });
+        return;
+      }
+
+      const camera = sigma.getCamera();
+      const currentCameraState = camera.getState();
+      const target = {
+        x: (bounds.minX + bounds.maxX) / 2,
+        y: (bounds.minY + bounds.maxY) / 2,
+        ratio: currentCameraState.ratio,
+        angle: currentCameraState.angle,
+      };
+
+      debugGraphRuntime("camera-grouped-selection-center", {
+        nodeId,
+        graphVersion: graphVersionRef.current,
+        viewMode: viewModeRef.current,
+        contextCount: bounds.count,
+        targetX: target.x,
+        targetY: target.y,
+        preservedRatio: target.ratio,
+      });
+
+      void camera.animate(
+        target,
+        { duration: GRAPH_THEME.motion.cameraMs, easing: "quadraticOut" },
+      );
+    }, []);
+
     const focusNodeInView = useCallback((nodeId: string) => {
       const sigma = sigmaRef.current;
       if (!sigma) {
@@ -1236,12 +1415,13 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(
         onEdgeSelectionChange: (edgeId: string) => onEdgeClickRef.current?.(edgeId),
         focusNodeInView,
         centerSelectionInView,
+        centerGroupedSelectionInView,
         fitCurrentView,
         dispatchAction,
       };
       behaviorContextRef.current = context;
       return context;
-    }, [centerSelectionInView, dispatchAction, fitCurrentView, focusNodeInView]);
+    }, [centerGroupedSelectionInView, centerSelectionInView, dispatchAction, fitCurrentView, focusNodeInView]);
 
     const dispatchToBehaviors = useCallback((
       hook: "onNodeEnter" | "onNodeLeave" | "onNodeClick" | "onEdgeClick" | "onStageClick" | "onCameraChange",
@@ -1462,6 +1642,8 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(
         window.cancelAnimationFrame(deferredFocusFrameRef.current);
         deferredFocusFrameRef.current = null;
       }
+      reducerWarningStateRef.current.missingEdges.clear();
+      reducerWarningStateRef.current.missingNodes.clear();
       sigma.setCustomBBox(null);
       sigma.setGraph(displayGraph);
       appliedGraphVersionRef.current = graphVersion;
@@ -1501,26 +1683,19 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(
           order: displayFitSignature.displayGraph.order,
           size: displayFitSignature.displayGraph.size,
         });
-        if (selectedNodeIdRef.current && viewModeRef.current === "focused") {
+        if (focusedNodeIdRef.current && viewModeRef.current === "focused") {
           debugGraphRuntime("initial-focused-fit", {
             graphVersion,
-            nodeId: selectedNodeIdRef.current,
+            nodeId: focusedNodeIdRef.current,
           });
-          focusNodeInView(selectedNodeIdRef.current);
-          return;
-        }
-
-        if (selectedNodeIdRef.current) {
-          debugGraphRuntime("initial-focus-node", {
-            graphVersion,
-            nodeId: selectedNodeIdRef.current,
-          });
-          centerSelectionInView(selectedNodeIdRef.current);
+          focusNodeInView(focusedNodeIdRef.current);
           return;
         }
 
         debugGraphRuntime("initial-fit-view", {
           graphVersion,
+          selectedNodeId: selectedNodeIdRef.current || null,
+          viewMode: viewModeRef.current,
         });
         dispatchAction({ type: "fitView" });
       });
@@ -1607,9 +1782,9 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(
         ? collectInteractionRefreshTargets(displayGraph, previousInteractionState, interactionState)
         : undefined;
 
-      applySceneState(sigma, displayGraph, interactionState, analyticsSnapshot, refreshTargets);
+      applySceneState(sigma, reducerSceneStateRef, reducerWarningStateRef, refreshTargets);
       previousInteractionStateRef.current = interactionState;
-    }, [analyticsSnapshot, displayGraph, interactionState]);
+    }, [displayGraph, interactionState, reducerSceneStateRef]);
 
     const drawOverlayFrame = useCallback(() => {
       const sigma = sigmaRef.current;
@@ -1637,7 +1812,13 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(
       context.clearRect(0, 0, rect.width, rect.height);
 
       const primaryNodeId = interactionState.hoveredNodeId || interactionState.selectedNodeId;
-      const focusIds = primaryNodeId && graph.hasNode(primaryNodeId) ? buildFocusSet(primaryNodeId) : new Set<string>();
+      const focusIds = primaryNodeId
+        ? (
+          displayGraph.hasNode(primaryNodeId)
+            ? buildFocusSetInGraph(displayGraph, primaryNodeId)
+            : new Set<string>()
+        )
+        : new Set<string>();
       const edgeEndpointIds = buildEdgeEndpointSet(displayGraph, interactionState.selectedEdgeId);
       const pathNodeIds = new Set(interactionState.activePath);
       const pathSegments = collectPathSegments(
@@ -1677,7 +1858,15 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(
       nodesToDecorate.forEach((nodeId) => {
         const displayData = sigma.getNodeDisplayData(nodeId);
         if (!displayData) return;
-        const attrs = graph.getNodeAttributes(nodeId) as NodeAttributes;
+        if (!displayGraph.hasNode(nodeId)) {
+          debugGraphRuntime("overlay-node-missing-from-display-graph", {
+            nodeId,
+            graphVersion: graphVersionRef.current,
+            viewMode: viewModeRef.current,
+          });
+          return;
+        }
+        const attrs = displayGraph.getNodeAttributes(nodeId) as NodeAttributes;
         const state = resolveNodeVisualState(
           nodeId,
           interactionState.zoomTier,
@@ -1774,6 +1963,7 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(
     useEffect(() => {
       const sigma = sigmaRef.current;
       const layoutTargetGraph = displayMeta.layoutMode === "owned" ? displayGraph : graph;
+      const usingGroupedOwnedLayout = displayMeta.layoutMode === "owned" && viewMode === "grouped";
       const targetKey = displayMeta.layoutMode === "owned"
         ? `display:${graphVersion}:${viewMode}`
         : `store:${displayMeta.layoutMode}`;
@@ -1781,6 +1971,10 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(
 
       if (!isLayoutRunning) {
         fa2Ref.current?.stop();
+        if (groupedLayoutSettleTimeoutRef.current !== null) {
+          window.clearTimeout(groupedLayoutSettleTimeoutRef.current);
+          groupedLayoutSettleTimeoutRef.current = null;
+        }
         if (layoutSyncFrameRef.current !== null) {
           window.cancelAnimationFrame(layoutSyncFrameRef.current);
           layoutSyncFrameRef.current = null;
@@ -1790,7 +1984,10 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(
 
       if (!fa2Ref.current || currentTargetKey !== targetKey) {
         fa2Ref.current?.kill();
-        const nextLayout = new FA2Layout(layoutTargetGraph, FA2_SETTINGS) as FA2Layout & { __targetKey?: string };
+        const nextLayout = new FA2Layout(
+          layoutTargetGraph,
+          usingGroupedOwnedLayout ? GROUPED_FA2_SETTINGS : FA2_SETTINGS,
+        ) as FA2Layout & { __targetKey?: string };
         nextLayout.__targetKey = targetKey;
         fa2Ref.current = nextLayout;
         debugGraphRuntime("layout-target-changed", {
@@ -1803,6 +2000,25 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(
       }
 
       fa2Ref.current.start();
+
+      if (groupedLayoutSettleTimeoutRef.current !== null) {
+        window.clearTimeout(groupedLayoutSettleTimeoutRef.current);
+        groupedLayoutSettleTimeoutRef.current = null;
+      }
+
+      if (usingGroupedOwnedLayout) {
+        groupedLayoutSettleTimeoutRef.current = window.setTimeout(() => {
+          fa2Ref.current?.stop();
+          groupedLayoutSettleTimeoutRef.current = null;
+          onLayoutRunningChange?.(false);
+          debugGraphRuntime("grouped-layout-auto-settled", {
+            graphVersion: graphVersionRef.current,
+            viewMode: viewModeRef.current,
+            order: displayGraphRef.current.order,
+            size: displayGraphRef.current.size,
+          });
+        }, GRAPH_THEME.grouped.layout.settleMs);
+      }
 
       if (displayMeta.layoutMode === "mirrored" && sigma) {
         let disposed = false;
@@ -1833,6 +2049,10 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(
 
         return () => {
           disposed = true;
+          if (groupedLayoutSettleTimeoutRef.current !== null) {
+            window.clearTimeout(groupedLayoutSettleTimeoutRef.current);
+            groupedLayoutSettleTimeoutRef.current = null;
+          }
           if (layoutSyncFrameRef.current !== null) {
             window.cancelAnimationFrame(layoutSyncFrameRef.current);
             layoutSyncFrameRef.current = null;
@@ -1842,12 +2062,20 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(
       }
 
       return () => {
+        if (groupedLayoutSettleTimeoutRef.current !== null) {
+          window.clearTimeout(groupedLayoutSettleTimeoutRef.current);
+          groupedLayoutSettleTimeoutRef.current = null;
+        }
         fa2Ref.current?.stop();
       };
     }, [displayGraph, displayMeta.layoutMode, graphVersion, isLayoutRunning, viewMode]);
 
     useEffect(() => {
       return () => {
+        if (groupedLayoutSettleTimeoutRef.current !== null) {
+          window.clearTimeout(groupedLayoutSettleTimeoutRef.current);
+          groupedLayoutSettleTimeoutRef.current = null;
+        }
         if (layoutSyncFrameRef.current !== null) {
           window.cancelAnimationFrame(layoutSyncFrameRef.current);
           layoutSyncFrameRef.current = null;

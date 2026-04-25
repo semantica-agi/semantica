@@ -16,10 +16,10 @@ export function createViewModeSwitchBehavior(): GraphBehavior {
       }
 
       lastViewMode = interactionState.viewMode;
-      const nextSelectedNodeId = interactionState.selectedNodeId;
+      const nextFocusedNodeId = interactionState.focusedNodeId;
 
-      if (interactionState.viewMode === "focused" && nextSelectedNodeId) {
-        context.dispatchAction({ type: "focusNode", nodeId: nextSelectedNodeId });
+      if (interactionState.viewMode === "focused" && nextFocusedNodeId) {
+        context.dispatchAction({ type: "focusNode", nodeId: nextFocusedNodeId });
         return;
       }
 

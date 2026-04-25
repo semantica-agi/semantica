@@ -2,6 +2,7 @@ import type { CSSProperties } from "react";
 import { Loader2 } from "lucide-react";
 import { graph } from "../../store/graphStore";
 import { GRAPH_THEME } from "./graphTheme";
+import type { GraphSelectedNodeKind } from "./types";
 
 export type LinkPrediction = {
   target: string;
@@ -20,6 +21,10 @@ export type PathResponse = {
 
 export interface GraphInspectorPanelProps {
   nodeId: string;
+  inspectableNodeId?: string | null;
+  selectedNodeKind?: GraphSelectedNodeKind;
+  canActivateFocused?: boolean;
+  focusedUnavailableReason?: string | null;
   predictions: LinkPrediction[];
   predictionType: string;
   onPredictionTypeChange: (value: string) => void;
@@ -148,6 +153,10 @@ function PathFlowViz({
 
 export function GraphInspectorPanel({
   nodeId,
+  inspectableNodeId,
+  selectedNodeKind = "none",
+  canActivateFocused = false,
+  focusedUnavailableReason = null,
   predictions,
   predictionType,
   onPredictionTypeChange,
@@ -173,15 +182,38 @@ export function GraphInspectorPanel({
     );
   }
 
-  if (!graph.hasNode(nodeId)) {
+  const resolvedNodeId = inspectableNodeId && graph.hasNode(inspectableNodeId) ? inspectableNodeId : null;
+  const directlyInspectable = graph.hasNode(nodeId);
+  const effectiveNodeId = directlyInspectable ? nodeId : resolvedNodeId;
+  const actionNodeId = directlyInspectable ? nodeId : resolvedNodeId;
+  const groupedDisplaySelection = selectedNodeKind === "grouped" && !directlyInspectable;
+
+  if (!effectiveNodeId) {
     return (
-      <div style={{ padding: 24, color: "#8b949e", fontSize: 13, lineHeight: 1.6 }}>
-        Selected item is not available for inspection in the current graph.
-      </div>
+      <aside style={{ padding: 24, display: "flex", flexDirection: "column", gap: 16 }}>
+        <div style={{ borderBottom: "1px solid rgba(88, 166, 255, 0.2)", paddingBottom: 16 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+            <span style={{ background: "#58a6ff", boxShadow: "0 0 10px rgba(88,166,255,0.45)", width: 8, height: 8, borderRadius: "50%" }} />
+            <span style={{ color: "#58a6ff", fontSize: 12, fontWeight: 700 }}>Selection</span>
+          </div>
+          <h3 style={{ margin: 0, color: "#fff", fontSize: 20, fontWeight: 700, wordBreak: "break-word" }}>
+            {nodeId}
+          </h3>
+          <div style={{ color: "#8b949e", fontSize: 12, marginTop: 6, fontFamily: "monospace", wordBreak: "break-all" }}>{nodeId}</div>
+        </div>
+        <div style={groupedSelectionNoticeStyle}>
+          <div style={{ color: "#dbe9f7", fontWeight: 600, marginBottom: 6 }}>Selected item is not directly inspectable in the current graph.</div>
+          <div style={{ color: "#8fa8c6", fontSize: 13, lineHeight: 1.6 }}>
+            {canActivateFocused
+              ? "Activate Focused mode to resolve this grouped selection to its canonical node."
+              : (focusedUnavailableReason ?? "Focused mode is unavailable for the current selection.")}
+          </div>
+        </div>
+      </aside>
     );
   }
 
-  const attributes = graph.getNodeAttributes(nodeId) as {
+  const attributes = graph.getNodeAttributes(effectiveNodeId) as {
     color?: string;
     content?: string;
     label?: string;
@@ -204,12 +236,26 @@ export function GraphInspectorPanel({
       <div style={{ borderBottom: "1px solid rgba(88, 166, 255, 0.2)", paddingBottom: 16 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
           <span style={{ background: accentColor, boxShadow: `0 0 10px ${accentColor}`, width: 8, height: 8, borderRadius: "50%" }} />
-          <span style={{ color: accentColor, fontSize: 12, fontWeight: 700 }}>{attributes?.nodeType || "Entity"}</span>
+          <span style={{ color: accentColor, fontSize: 12, fontWeight: 700 }}>
+            {groupedDisplaySelection ? "Grouped Selection" : (attributes?.nodeType || "Entity")}
+          </span>
         </div>
         <h3 style={{ margin: 0, color: "#fff", fontSize: 20, fontWeight: 700, wordBreak: "break-word" }}>
-          {String(attributes?.label ?? nodeId)}
+          {String(attributes?.label ?? effectiveNodeId)}
         </h3>
-        <div style={{ color: "#8b949e", fontSize: 12, marginTop: 6, fontFamily: "monospace", wordBreak: "break-all" }}>{nodeId}</div>
+        <div style={{ color: "#8b949e", fontSize: 12, marginTop: 6, fontFamily: "monospace", wordBreak: "break-all" }}>
+          {groupedDisplaySelection ? nodeId : effectiveNodeId}
+        </div>
+        {groupedDisplaySelection ? (
+          <div style={groupedSelectionNoticeStyle}>
+            <div style={{ color: "#dbe9f7", fontWeight: 600, marginBottom: 6 }}>This grouped item stays display-level until you explicitly enter Focused mode.</div>
+            <div style={{ color: "#8fa8c6", fontSize: 13, lineHeight: 1.6 }}>
+              {canActivateFocused
+                ? `Canonical node available: ${effectiveNodeId}`
+                : (focusedUnavailableReason ?? "Focused mode is unavailable for the current selection.")}
+            </div>
+          </div>
+        ) : null}
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 12 }}>
           {attributes?.valid_from || attributes?.valid_until ? (
             <span style={subtleChipStyle}>temporal</span>
@@ -234,7 +280,7 @@ export function GraphInspectorPanel({
           <button
             style={{ ...actionButtonStyle, width: "100%", justifyContent: "center", opacity: isRunningPredictions ? 0.7 : 1 }}
             onClick={onRunPredictions}
-            disabled={isRunningPredictions}
+            disabled={isRunningPredictions || !actionNodeId}
           >
             {isRunningPredictions ? (
               <Loader2 size={14} className="animate-spin" style={{ marginRight: 6 }} />
@@ -242,10 +288,10 @@ export function GraphInspectorPanel({
             {isRunningPredictions ? "Running…" : "Run Link Prediction"}
           </button>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-            <button style={secondaryActionButtonStyle} onClick={() => onDownloadProvenance("json")}>
+            <button style={secondaryActionButtonStyle} onClick={() => onDownloadProvenance("json")} disabled={!actionNodeId}>
               Provenance JSON
             </button>
-            <button style={secondaryActionButtonStyle} onClick={() => onDownloadProvenance("markdown")}>
+            <button style={secondaryActionButtonStyle} onClick={() => onDownloadProvenance("markdown")} disabled={!actionNodeId}>
               Provenance MD
             </button>
           </div>
@@ -267,7 +313,7 @@ export function GraphInspectorPanel({
           placeholder="Target node ID"
           style={inputStyle}
         />
-        <button style={actionButtonStyle} onClick={onTracePath}>Trace Causal Path</button>
+        <button style={actionButtonStyle} onClick={onTracePath} disabled={!actionNodeId}>Trace Causal Path</button>
 
         {pathResult?.path?.length ? (
           <PathFlowViz
@@ -384,6 +430,14 @@ const inputStyle: CSSProperties = {
   padding: "11px 13px",
   fontSize: 13,
   boxShadow: "inset 0 1px 0 rgba(255,255,255,0.03)",
+};
+
+const groupedSelectionNoticeStyle: CSSProperties = {
+  marginTop: 12,
+  padding: "10px 12px",
+  background: "rgba(88,166,255,0.08)",
+  border: "1px solid rgba(88,166,255,0.2)",
+  borderRadius: 12,
 };
 
 const actionButtonStyle: CSSProperties = {

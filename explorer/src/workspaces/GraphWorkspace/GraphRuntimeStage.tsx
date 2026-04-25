@@ -464,6 +464,7 @@ export const GraphRuntimeStage = forwardRef<GraphStageHandle, GraphRuntimeStageP
         displayState={displayResult.state}
         selectedEdgeId=""
         selectedNodeId={selectedNodeId}
+        focusedNodeId={viewMode === "focused" ? selectedNodeId : ""}
         activePath={activePath}
         activePathEdgeIds={EMPTY_PATH}
         effectsState={STAGE_EFFECTS_STATE}

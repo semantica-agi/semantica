@@ -7,7 +7,8 @@ import type { GraphCameraState, GraphInteractionState } from "../types";
 export type GraphBehaviorActionRequest =
   | { type: "fitView" }
   | { type: "focusNode"; nodeId: string }
-  | { type: "centerSelection"; nodeId: string };
+  | { type: "centerSelection"; nodeId: string }
+  | { type: "centerGroupedSelection"; nodeId: string };
 
 export interface GraphBehaviorContext {
   sigma: Sigma;
@@ -19,6 +20,7 @@ export interface GraphBehaviorContext {
   onEdgeSelectionChange: (edgeId: string) => void;
   focusNodeInView: (nodeId: string) => void;
   centerSelectionInView: (nodeId: string) => void;
+  centerGroupedSelectionInView: (nodeId: string) => void;
   fitCurrentView: () => void;
   dispatchAction: (action: GraphBehaviorActionRequest) => void;
 }

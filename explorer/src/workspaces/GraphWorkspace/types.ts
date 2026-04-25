@@ -12,6 +12,7 @@ export type GraphLoadPhase =
 export type GraphLoadProgressKind = "determinate" | "indeterminate";
 export type GraphNodeInteractionState = "default" | "hovered" | "selected" | "neighbor" | "path" | "inactive" | "muted";
 export type GraphEdgeInteractionState = "default" | "backbone" | "hovered" | "selected" | "neighbor" | "path" | "inactive" | "muted";
+export type GraphSelectedNodeKind = "none" | "base" | "grouped" | "unavailable";
 
 export interface GraphCameraState {
   x: number;
@@ -34,9 +35,14 @@ export interface GraphInteractionState {
 export interface GraphDisplayStateSnapshot {
   aggregationEnabled: boolean;
   groupedViewAvailable: boolean;
+  groupedViewReason: string | null;
   selectedRootNodeId: string | null;
   selectedVisibleNeighborIds: string[];
   selectedCollapsedNeighborIds: string[];
+  selectedNodeKind: GraphSelectedNodeKind;
+  canActivateFocused: boolean;
+  resolvedFocusedNodeId: string | null;
+  focusedUnavailableReason: string | null;
 }
 
 export type GraphDisplayLayoutMode = "base" | "mirrored" | "owned";

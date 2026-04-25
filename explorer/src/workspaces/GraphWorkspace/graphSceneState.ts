@@ -14,11 +14,18 @@ import {
   type GraphNodeVisualState,
   type GraphTheme,
   type GraphZoomTier,
+  hashString,
   withAlpha,
   zoomTierAtLeast,
 } from "./graphTheme";
 import { computeGraphAnalyticsBase } from "./graphAnalytics";
-import type { GraphDisplayMeta, GraphDisplayStateSnapshot, GraphInteractionState, GraphViewMode } from "./types";
+import type {
+  GraphDisplayMeta,
+  GraphDisplayStateSnapshot,
+  GraphInteractionState,
+  GraphSelectedNodeKind,
+  GraphViewMode,
+} from "./types";
 
 const MAX_FOCUS_NEIGHBORS = GRAPH_THEME.focus.maxNeighbors;
 const FOCUS_RING_CAPACITY = GRAPH_THEME.focus.ringCapacity;
@@ -28,6 +35,7 @@ const COLLAPSE_VISIBLE_NEIGHBORS = 8;
 const GROUP_SAMPLE_MEMBERS = 8;
 const AGGREGATED_EDGE_PREFIX = "__agg__:";
 const COMMUNITY_NODE_PREFIX = "__community__:";
+const DEBUG_GRAPH_SCENE_STATE = typeof import.meta !== "undefined" && import.meta.env?.DEV === true;
 
 type GraphRef = typeof graph | Graph<NodeAttributes, EdgeAttributes>;
 
@@ -140,10 +148,183 @@ function createEmptyDisplayState(
   return {
     aggregationEnabled,
     groupedViewAvailable: false,
+    groupedViewReason: null,
     selectedRootNodeId: selectedNodeId || null,
     selectedVisibleNeighborIds: [],
     selectedCollapsedNeighborIds: [],
+    selectedNodeKind: selectedNodeId ? "unavailable" : "none",
+    canActivateFocused: false,
+    resolvedFocusedNodeId: null,
+    focusedUnavailableReason: selectedNodeId ? "Selected item is not available in the current graph." : null,
   };
+}
+
+export function resolveGroupedDisplayNodeId(
+  displayGraph: GraphRef,
+  nodeId: string,
+): string | null {
+  if (!nodeId) {
+    return null;
+  }
+
+  if (displayGraph.hasNode(nodeId)) {
+    return nodeId;
+  }
+
+  let resolvedNodeId: string | null = null;
+  displayGraph.forEachNode((candidateId, attrs) => {
+    if (resolvedNodeId) {
+      return;
+    }
+
+    const communityGroup = (attrs as NodeAttributes).properties?.__communityGroup as
+      | {
+          anchorNodeId?: string | null;
+          memberNodeIds?: string[];
+          sampleNodeIds?: string[];
+        }
+      | undefined;
+    if (!communityGroup) {
+      return;
+    }
+
+    if (communityGroup.anchorNodeId === nodeId) {
+      resolvedNodeId = candidateId;
+      return;
+    }
+
+    if (communityGroup.sampleNodeIds?.includes(nodeId) || communityGroup.memberNodeIds?.includes(nodeId)) {
+      resolvedNodeId = candidateId;
+    }
+  });
+
+  return resolvedNodeId;
+}
+
+export function checkGroupedViewAvailability(): { available: boolean; reason: string | null } {
+  const base = computeGraphAnalyticsBase(graph, {
+    computeCommunities: true,
+    computeCentrality: false,
+  });
+  const available = base.communitiesByNode.size > 0;
+  return {
+    available,
+    reason: available ? null : "Grouped view is unavailable until communities can be detected.",
+  };
+}
+
+function rankGroupedNeighbors(
+  displayGraph: GraphRef,
+  nodeId: string,
+): string[] {
+  const resolvedNodeId = resolveGroupedDisplayNodeId(displayGraph, nodeId);
+  if (!resolvedNodeId) {
+    return [];
+  }
+
+  const scoredNeighbors = new Map<string, number>();
+  displayGraph.forEachEdge((_, attrs, source, target) => {
+    const sourceId = String(source);
+    const targetId = String(target);
+    if (sourceId !== resolvedNodeId && targetId !== resolvedNodeId) {
+      return;
+    }
+
+    const neighborId = sourceId === resolvedNodeId ? targetId : sourceId;
+    if (!neighborId || neighborId === resolvedNodeId || !displayGraph.hasNode(neighborId)) {
+      return;
+    }
+
+    const weightCandidate = Number(
+      (attrs as EdgeAttributes).aggregateCount
+      ?? (attrs as EdgeAttributes).baseSize
+      ?? (attrs as EdgeAttributes).size
+      ?? (attrs as EdgeAttributes).weight
+      ?? 1,
+    );
+    const weight = Number.isFinite(weightCandidate) && weightCandidate > 0 ? weightCandidate : 1;
+    scoredNeighbors.set(neighborId, (scoredNeighbors.get(neighborId) ?? 0) + weight);
+  });
+
+  return Array.from(scoredNeighbors.entries())
+    .sort((left, right) => {
+      if (right[1] !== left[1]) {
+        return right[1] - left[1];
+      }
+      return left[0].localeCompare(right[0]);
+    })
+    .map(([neighborId]) => neighborId);
+}
+
+export function resolveGroupedDisplayStateSnapshot(
+  displayGraph: GraphRef,
+  selectedNodeId: string,
+  options?: {
+    groupedViewAvailable?: boolean;
+    groupedViewReason?: string | null;
+    selectedNodeKind?: GraphSelectedNodeKind;
+    resolvedFocusedNodeId?: string | null;
+    focusedUnavailableReason?: string | null;
+  },
+): GraphDisplayStateSnapshot {
+  const displayState = createEmptyDisplayState(selectedNodeId, true);
+  displayState.groupedViewAvailable = options?.groupedViewAvailable ?? true;
+  displayState.groupedViewReason = options?.groupedViewReason ?? null;
+  displayState.selectedNodeKind = options?.selectedNodeKind ?? (selectedNodeId ? "grouped" : "none");
+  displayState.resolvedFocusedNodeId = options?.resolvedFocusedNodeId ?? null;
+  displayState.canActivateFocused = Boolean(displayState.resolvedFocusedNodeId);
+  displayState.focusedUnavailableReason = displayState.canActivateFocused
+    ? null
+    : (options?.focusedUnavailableReason ?? displayState.focusedUnavailableReason);
+
+  if (!selectedNodeId) {
+    return displayState;
+  }
+
+  const resolvedNodeId = resolveGroupedDisplayNodeId(displayGraph, selectedNodeId);
+  if (!resolvedNodeId) {
+    return displayState;
+  }
+
+  const rankedNeighbors = rankGroupedNeighbors(displayGraph, resolvedNodeId);
+  displayState.selectedRootNodeId = resolvedNodeId;
+  displayState.selectedVisibleNeighborIds = rankedNeighbors.slice(0, MAX_FOCUS_NEIGHBORS);
+  displayState.selectedCollapsedNeighborIds = rankedNeighbors.slice(MAX_FOCUS_NEIGHBORS);
+  return displayState;
+}
+
+function validateGroupedDisplayGraph(grouped: Graph<NodeAttributes, EdgeAttributes>): string | null {
+  if (grouped.order === 0) {
+    return "Grouped view is unavailable because no community nodes could be created.";
+  }
+
+  let invalidReason: string | null = null;
+  grouped.forEachNode((nodeId, attrs) => {
+    if (invalidReason) {
+      return;
+    }
+
+    const nodeAttrs = attrs as NodeAttributes;
+    if (!Number.isFinite(Number(nodeAttrs.x)) || !Number.isFinite(Number(nodeAttrs.y))) {
+      invalidReason = `Grouped node ${nodeId} has invalid coordinates.`;
+    }
+  });
+
+  if (invalidReason) {
+    return invalidReason;
+  }
+
+  grouped.forEachEdge((edgeId, _attrs, sourceId, targetId) => {
+    if (invalidReason) {
+      return;
+    }
+
+    if (!grouped.hasNode(sourceId) || !grouped.hasNode(targetId)) {
+      invalidReason = `Grouped edge ${edgeId} references a missing grouped node.`;
+    }
+  });
+
+  return invalidReason;
 }
 
 export function buildPathEdgeSet(
@@ -229,7 +410,7 @@ function collectImpactedNodeIds(
   const impacted = new Set<string>(interactionState.activePath);
   const primaryNodeId = interactionState.hoveredNodeId || interactionState.selectedNodeId;
   if (primaryNodeId && graphRef.hasNode(primaryNodeId)) {
-    buildFocusSet(primaryNodeId).forEach((nodeId) => impacted.add(nodeId));
+    buildFocusSetInGraph(graphRef, primaryNodeId).forEach((nodeId) => impacted.add(nodeId));
   }
 
   buildEdgeEndpointSet(graphRef, interactionState.selectedEdgeId)
@@ -249,7 +430,7 @@ function collectImpactedEdgeKeys(
   const impacted = new Set<string>(buildPathEdgeSet(graphRef, interactionState.activePath, interactionState.activePathEdgeIds));
   const primaryNodeId = interactionState.hoveredNodeId || interactionState.selectedNodeId;
   if (primaryNodeId && graphRef.hasNode(primaryNodeId)) {
-    collectFocusEdgeIds(graphRef, buildFocusSet(primaryNodeId)).forEach((edgeId) => impacted.add(edgeId));
+    collectFocusEdgeIds(graphRef, buildFocusSetInGraph(graphRef, primaryNodeId)).forEach((edgeId) => impacted.add(edgeId));
   }
 
   if (interactionState.selectedEdgeId) {
@@ -299,27 +480,48 @@ export function collectInteractionRefreshTargets(
   };
 }
 
-export function getEdgeWeightBetween(source: string, target: string): number {
+function logGroupedGraphSkip(kind: "focus" | "neighbors", graphRef: GraphRef, nodeId: string) {
+  if (!DEBUG_GRAPH_SCENE_STATE || !nodeId.startsWith(COMMUNITY_NODE_PREFIX)) {
+    return;
+  }
+
+  console.debug("[graphSceneState]", `${kind}-skipped-missing-display-node`, {
+    nodeId,
+    order: graphRef.order,
+    size: graphRef.size,
+  });
+}
+
+export function getEdgeWeightBetweenInGraph(graphRef: GraphRef, source: string, target: string): number {
   let weight = 0;
 
-  forEachDirectedEdgeBetween(graph, source, target, (_edgeId, attrs) => {
+  forEachDirectedEdgeBetween(graphRef, source, target, (_edgeId, attrs) => {
     weight = Math.max(weight, Number(attrs?.weight ?? 0));
   });
 
-  forEachDirectedEdgeBetween(graph, target, source, (_edgeId, attrs) => {
+  forEachDirectedEdgeBetween(graphRef, target, source, (_edgeId, attrs) => {
     weight = Math.max(weight, Number(attrs?.weight ?? 0));
   });
 
   return weight;
 }
 
-export function rankNeighbors(nodeId: string): string[] {
-  return graph
+export function getEdgeWeightBetween(source: string, target: string): number {
+  return getEdgeWeightBetweenInGraph(graph, source, target);
+}
+
+export function rankNeighborsInGraph(graphRef: GraphRef, nodeId: string): string[] {
+  if (!nodeId || !graphRef.hasNode(nodeId)) {
+    logGroupedGraphSkip("neighbors", graphRef, nodeId);
+    return [];
+  }
+
+  return graphRef
     .neighbors(nodeId)
     .map((neighborId) => ({
       id: neighborId,
-      weight: getEdgeWeightBetween(nodeId, neighborId),
-      degree: graph.degree(neighborId),
+      weight: getEdgeWeightBetweenInGraph(graphRef, nodeId, neighborId),
+      degree: graphRef.hasNode(neighborId) ? graphRef.degree(neighborId) : 0,
     }))
     .sort((left, right) => {
       if (right.weight !== left.weight) {
@@ -333,9 +535,22 @@ export function rankNeighbors(nodeId: string): string[] {
     .map((item) => item.id);
 }
 
-export function buildFocusSet(nodeId: string): Set<string> {
-  const ranked = rankNeighbors(nodeId).slice(0, MAX_FOCUS_NEIGHBORS);
+export function rankNeighbors(nodeId: string): string[] {
+  return rankNeighborsInGraph(graph, nodeId);
+}
+
+export function buildFocusSetInGraph(graphRef: GraphRef, nodeId: string): Set<string> {
+  if (!nodeId || !graphRef.hasNode(nodeId)) {
+    logGroupedGraphSkip("focus", graphRef, nodeId);
+    return new Set<string>();
+  }
+
+  const ranked = rankNeighborsInGraph(graphRef, nodeId).slice(0, MAX_FOCUS_NEIGHBORS);
   return new Set<string>([nodeId, ...ranked]);
+}
+
+export function buildFocusSet(nodeId: string): Set<string> {
+  return buildFocusSetInGraph(graph, nodeId);
 }
 
 export function isEdgeInteractable(
@@ -361,7 +576,7 @@ export function isEdgeInteractable(
       return true;
     }
 
-    const focusIds = buildFocusSet(primaryNodeId);
+    const focusIds = buildFocusSetInGraph(graphRef, primaryNodeId);
     return focusIds.has(source) && focusIds.has(target);
   }
 
@@ -381,6 +596,7 @@ function resolveNodeColor(
   fallbackColor?: string,
 ) {
   const semanticColor = String(attrs.baseColor || fallbackColor || theme.palette.semantic[0]);
+  const isCommunityGroup = Boolean(attrs.isCommunityGroup);
   const overviewTint = state === "neighbor"
     ? theme.palette.overview.nodeTintMix + 0.09
     : theme.palette.overview.nodeTintMix;
@@ -406,9 +622,16 @@ function resolveNodeColor(
       if (zoomTier === "overview") {
         const presenceBoost = getOverviewPresenceBoost(cameraRatio);
         const boostedCore = blendHex(overviewCore, semanticColor, 0.3 + 0.26 * presenceBoost);
-        return withAlpha(boostedCore, Math.min(0.98, theme.palette.overview.nodeCoreAlpha + presenceBoost * 0.18));
+        const overviewAlpha = Math.min(
+          0.98,
+          theme.palette.overview.nodeCoreAlpha + presenceBoost * 0.18,
+        );
+        return withAlpha(
+          boostedCore,
+          isCommunityGroup ? Math.min(overviewAlpha, theme.grouped.style.fillAlpha) : overviewAlpha,
+        );
       }
-      return semanticColor;
+      return isCommunityGroup ? withAlpha(semanticColor, theme.grouped.style.fillAlpha) : semanticColor;
   }
 }
 
@@ -421,6 +644,7 @@ function resolveNodeShellColor(
   fallbackColor?: string,
 ) {
   const semanticColor = String(attrs.baseColor || fallbackColor || theme.palette.semantic[0]);
+  const isCommunityGroup = Boolean(attrs.isCommunityGroup);
   const presenceBoost = getOverviewPresenceBoost(cameraRatio);
   const overviewShell = blendHex(
     theme.palette.overview.nodeBase,
@@ -429,7 +653,10 @@ function resolveNodeShellColor(
   );
 
   if (zoomTier !== "overview") {
-    return withAlpha(blendHex(theme.palette.overview.nodeBase, semanticColor, 0.26), 0.95);
+    return withAlpha(
+      blendHex(theme.palette.overview.nodeBase, semanticColor, 0.26),
+      isCommunityGroup ? theme.grouped.style.shellAlpha : 0.95,
+    );
   }
 
   if (state === "selected") {
@@ -448,7 +675,10 @@ function resolveNodeShellColor(
     return withAlpha(theme.palette.overview.nodeMuted, 0.22);
   }
 
-  return withAlpha(overviewShell, theme.palette.overview.nodeShellAlpha);
+  return withAlpha(
+    overviewShell,
+    isCommunityGroup ? theme.grouped.style.shellAlpha : theme.palette.overview.nodeShellAlpha,
+  );
 }
 
 function resolveNodeCoreScale(
@@ -664,6 +894,10 @@ export function resolveEdgeVariant(state: GraphEdgeVisualState, attrs: EdgeAttri
     return "pathSignal";
   }
 
+  if (attrs.bundleKind === "community") {
+    return "line";
+  }
+
   if ((attrs.parallelCount ?? 1) > 1) {
     return "parallelCurve";
   }
@@ -767,11 +1001,14 @@ export function resolveNodeElementStyle(
   const stateConfig = theme.nodes.states[state];
   const nodeVariant = resolveNodeVariant(state, attrs);
   const variantConfig = theme.nodes.variants[nodeVariant];
+  const isCommunityGroup = Boolean(attrs.isCommunityGroup);
   const baseSize = Number(attrs.baseSize || attrs.size || 4);
   const labelPriority = Number(attrs.labelPriority ?? 0);
   const color = resolveNodeColor(theme, zoomTier, state, attrs, cameraRatio, attrs.color);
   const shellColor = resolveNodeShellColor(theme, zoomTier, state, attrs, cameraRatio, attrs.color);
-  const sizeMultiplier = (state === "default" ? tierConfig.nodeScale : stateConfig.sizeMultiplier) * variantConfig.sizeMultiplier;
+  const sizeMultiplier = (state === "default" ? tierConfig.nodeScale : stateConfig.sizeMultiplier)
+    * variantConfig.sizeMultiplier
+    * (isCommunityGroup ? theme.grouped.style.nodeSizeScale : 1);
   const overviewPresence = zoomTier === "overview" ? 1 + getOverviewPresenceBoost(cameraRatio) * 1.2 : 1;
   const forceLabel = shouldForceNodeLabel(theme, zoomTier, state, attrs, labelPriority);
   const badgeKind = attrs.badgeKind || variantConfig.badgeKind;
@@ -804,7 +1041,12 @@ export function resolveNodeElementStyle(
     borderColor: resolveNodeBorderColor(theme, zoomTier, state, nodeVariant, attrs, color),
     borderSize: Math.max(
       0.4,
-      Number(attrs.borderSize ?? 0.85) + strokeBase + stateConfig.borderBoost + variantConfig.borderBoost - 0.8,
+      Number(attrs.borderSize ?? 0.85)
+        + strokeBase
+        + stateConfig.borderBoost
+        + variantConfig.borderBoost
+        + (isCommunityGroup ? theme.grouped.style.nodeBorderBoost : 0)
+        - 0.8,
     ),
     nodeVariant,
     badgeKind,
@@ -814,7 +1056,10 @@ export function resolveNodeElementStyle(
     ringColor,
     ringSize,
     showHalo,
-    haloColor: attrs.haloColor || attrs.glowColor || withAlpha(color, theme.overlays.hoverGlowAlpha + variantConfig.haloBoost),
+    haloColor: attrs.haloColor || attrs.glowColor || withAlpha(
+      color,
+      (isCommunityGroup ? theme.grouped.style.glowAlpha : theme.overlays.hoverGlowAlpha) + variantConfig.haloBoost,
+    ),
   };
 }
 
@@ -885,6 +1130,7 @@ export function resolveEdgeElementStyle(
   const stateConfig = theme.edges.states[state];
   const edgeVariant = resolveEdgeVariant(state, attrs);
   const variantConfig = theme.edges.variants[edgeVariant];
+  const isCommunityBundle = attrs.bundleKind === "community";
   const baseSize = Number(attrs.baseSize || attrs.size || 0.9);
   const visualPriority = Number(attrs.visualPriority ?? 0);
   const belowPriorityThreshold = state === "default"
@@ -920,8 +1166,13 @@ export function resolveEdgeElementStyle(
     type: useCurvedRenderer
       ? (straightType === "arrow" ? "curvedArrow" : "curve")
       : straightType,
-    color: resolveEdgeColor(theme, zoomTier, state, attrs, attrs.color),
-    size: Math.max(baseSize * sizeMultiplier, stateConfig.minSize),
+    color: isCommunityBundle
+      ? withAlpha(resolveEdgeColor(theme, zoomTier, state, attrs, attrs.color), theme.grouped.style.edgeAlpha)
+      : resolveEdgeColor(theme, zoomTier, state, attrs, attrs.color),
+    size: Math.max(
+      baseSize * sizeMultiplier * (isCommunityBundle ? theme.grouped.style.edgeSizeScale : 1),
+      stateConfig.minSize,
+    ),
     zIndex: stateConfig.zIndex,
     edgeVariant,
     arrowVisibilityPolicy: variantConfig.arrowPolicy,
@@ -934,6 +1185,162 @@ function addNodeIfMissing(targetGraph: GraphRef, nodeId: string, attrs: NodeAttr
   if (!targetGraph.hasNode(nodeId)) {
     targetGraph.addNode(nodeId, attrs);
   }
+}
+
+function truncateGroupedLabel(label: string | null | undefined): string {
+  const value = String(label || "").trim();
+  if (value.length <= 22) {
+    return value;
+  }
+  return `${value.slice(0, 21).trimEnd()}…`;
+}
+
+function estimateGroupedRingCapacity(radius: number): number {
+  const circumference = 2 * Math.PI * Math.max(radius, 1);
+  return Math.max(6, Math.floor(circumference / GRAPH_THEME.grouped.initialLayout.minNodeSpacing));
+}
+
+function getGroupedCommunityNodeSize(memberCount: number): number {
+  return Math.max(16, 10 + Math.log2(memberCount + 1) * 4.6);
+}
+
+function assignGroupedCommunityPositions(
+  communities: Array<{
+    communityId: number;
+    memberCount: number;
+    centralityScore: number;
+    connectivityWeight: number;
+    radius: number;
+  }>,
+): Map<number, {
+  x: number;
+  y: number;
+  labelPriority: number;
+  visualPriority: number;
+}> {
+  const positioned = new Map<number, {
+    x: number;
+    y: number;
+    labelPriority: number;
+    visualPriority: number;
+  }>();
+  const ranked = communities
+    .slice()
+    .sort((left, right) => {
+      const leftProminence = Math.log2(left.memberCount + 1) * 2.2 + Math.log2(left.connectivityWeight + 1) * 1.6 + left.centralityScore * 5;
+      const rightProminence = Math.log2(right.memberCount + 1) * 2.2 + Math.log2(right.connectivityWeight + 1) * 1.6 + right.centralityScore * 5;
+      if (rightProminence !== leftProminence) {
+        return rightProminence - leftProminence;
+      }
+      return left.communityId - right.communityId;
+    });
+
+  if (ranked.length === 0) {
+    return positioned;
+  }
+
+  const seeded = new Map<number, { x: number; y: number }>();
+
+  const primaryLabelCount = Math.min(GRAPH_THEME.grouped.initialLayout.primaryLabelCount, ranked.length);
+  const normalizedVisual = (index: number) => Math.max(0.24, 1.24 - index * 0.055);
+  const normalizedLabel = (index: number) => (index < primaryLabelCount ? Math.max(1.02, 1.42 - index * 0.05) : 0.56);
+
+  const centerPosition = {
+    x: 0,
+    y: 0,
+  };
+  seeded.set(ranked[0].communityId, centerPosition);
+  positioned.set(ranked[0].communityId, {
+    ...centerPosition,
+    labelPriority: normalizedLabel(0),
+    visualPriority: normalizedVisual(0),
+  });
+
+  let cursor = 1;
+  let ring = 1;
+  while (cursor < ranked.length) {
+    const radius = GRAPH_THEME.grouped.initialLayout.innerRadius + (ring - 1) * GRAPH_THEME.grouped.initialLayout.ringSpacing;
+    const capacity = estimateGroupedRingCapacity(radius);
+    const count = Math.min(capacity, ranked.length - cursor);
+    const angleOffset = ((hashString(`community-ring:${ring}`) % 360) * Math.PI) / 180;
+
+    for (let index = 0; index < count; index += 1) {
+      const entry = ranked[cursor + index];
+      const angle = angleOffset + (Math.PI * 2 * index) / count;
+      const seedPosition = {
+        x: Number((radius * Math.cos(angle)).toFixed(3)),
+        y: Number((radius * Math.sin(angle)).toFixed(3)),
+      };
+      seeded.set(entry.communityId, seedPosition);
+      positioned.set(entry.communityId, {
+        ...seedPosition,
+        labelPriority: normalizedLabel(cursor + index),
+        visualPriority: normalizedVisual(cursor + index),
+      });
+    }
+
+    cursor += count;
+    ring += 1;
+  }
+
+  for (let iteration = 0; iteration < GRAPH_THEME.grouped.initialLayout.overlapIterations; iteration += 1) {
+    let moved = false;
+
+    for (let leftIndex = 0; leftIndex < ranked.length; leftIndex += 1) {
+      for (let rightIndex = leftIndex + 1; rightIndex < ranked.length; rightIndex += 1) {
+        const leftCommunity = ranked[leftIndex];
+        const rightCommunity = ranked[rightIndex];
+        const leftPosition = positioned.get(leftCommunity.communityId);
+        const rightPosition = positioned.get(rightCommunity.communityId);
+        if (!leftPosition || !rightPosition) {
+          continue;
+        }
+
+        let dx = rightPosition.x - leftPosition.x;
+        let dy = rightPosition.y - leftPosition.y;
+        let distance = Math.hypot(dx, dy);
+        if (distance < 0.001) {
+          const angle = ((hashString(`grouped-collision:${leftCommunity.communityId}:${rightCommunity.communityId}`) % 360) * Math.PI) / 180;
+          dx = Math.cos(angle);
+          dy = Math.sin(angle);
+          distance = 1;
+        }
+
+        const minimumDistance = leftCommunity.radius + rightCommunity.radius + GRAPH_THEME.grouped.initialLayout.nodePadding;
+        if (distance >= minimumDistance) {
+          continue;
+        }
+
+        const overlap = minimumDistance - distance;
+        const ux = dx / distance;
+        const uy = dy / distance;
+        const leftMobility = rightCommunity.radius / (leftCommunity.radius + rightCommunity.radius);
+        const rightMobility = leftCommunity.radius / (leftCommunity.radius + rightCommunity.radius);
+
+        leftPosition.x -= ux * overlap * 0.52 * leftMobility;
+        leftPosition.y -= uy * overlap * 0.52 * leftMobility;
+        rightPosition.x += ux * overlap * 0.52 * rightMobility;
+        rightPosition.y += uy * overlap * 0.52 * rightMobility;
+        moved = true;
+      }
+    }
+
+    ranked.forEach((community) => {
+      const position = positioned.get(community.communityId);
+      const seedPosition = seeded.get(community.communityId);
+      if (!position || !seedPosition) {
+        return;
+      }
+      position.x += (seedPosition.x - position.x) * 0.08;
+      position.y += (seedPosition.y - position.y) * 0.08;
+    });
+
+    if (!moved) {
+      break;
+    }
+  }
+
+  return positioned;
 }
 
 function buildCollapsedNeighborhoodState(
@@ -1090,6 +1497,7 @@ function buildCommunityGroupedGraph(): GraphDisplayResult {
   const state = createEmptyDisplayState("", true);
   state.groupedViewAvailable = base.communitiesByNode.size > 0;
   if (base.communitiesByNode.size === 0) {
+    state.groupedViewReason = "Grouped view is unavailable until communities can be detected.";
     return { graph: aggregateDisplayGraph(graph), state, meta: MIRRORED_DISPLAY_META };
   }
 
@@ -1108,6 +1516,17 @@ function buildCommunityGroupedGraph(): GraphDisplayResult {
     bucket.push(nodeId);
     communityMembers.set(communityId, bucket);
   });
+
+  const communitySummaries = new Map<number, {
+    memberIds: string[];
+    rankedMembers: string[];
+    anchorNodeId: string | null;
+    anchorAttrs: NodeAttributes | null;
+    dominantSemanticGroup: string;
+    color: string;
+    memberCount: number;
+    centralityScore: number;
+  }>();
 
   communityMembers.forEach((memberIds, communityId) => {
     const rankedMembers = memberIds
@@ -1130,38 +1549,15 @@ function buildCommunityGroupedGraph(): GraphDisplayResult {
     });
     const dominantSemanticGroup = [...semanticCounts.entries()].sort((left, right) => right[1] - left[1])[0]?.[0] ?? "entity";
     const color = anchorAttrs?.baseColor || anchorAttrs?.color || GRAPH_THEME.palette.semantic[communityId % GRAPH_THEME.palette.semantic.length];
-    const communityNodeId = `${COMMUNITY_NODE_PREFIX}${communityId}`;
-    addNodeIfMissing(grouped, communityNodeId, {
-      label: anchorAttrs?.label || `Community ${communityId}`,
-      content: anchorAttrs?.content || anchorAttrs?.label || `Community ${communityId}`,
-      x: anchorAttrs?.x ?? 0,
-      y: anchorAttrs?.y ?? 0,
-      size: Math.max(14, 8 + Math.log2(memberIds.length + 1) * 5),
-      baseSize: Math.max(14, 8 + Math.log2(memberIds.length + 1) * 5),
-      color,
-      baseColor: color,
-      mutedColor: withAlpha(color, 0.32),
-      glowColor: withAlpha(color, 0.22),
-      nodeType: "community",
-      semanticGroup: dominantSemanticGroup,
-      properties: {
-        __communityGroup: {
-          communityId: String(communityId),
-          memberCount: memberIds.length,
-          memberNodeIds: memberIds,
-          sampleNodeIds: rankedMembers.slice(0, GROUP_SAMPLE_MEMBERS),
-          anchorNodeId,
-          anchorLabel: anchorAttrs?.label || anchorNodeId || `Community ${communityId}`,
-          dominantSemanticGroup,
-          color,
-        },
-      },
-      isCommunityGroup: true,
-      communityId: String(communityId),
-      memberCount: memberIds.length,
+    communitySummaries.set(communityId, {
+      memberIds,
+      rankedMembers,
       anchorNodeId,
-      labelPriority: Math.max(2, Math.log2(memberIds.length + 1)),
-      visualPriority: Math.max(1, Math.log2(memberIds.length + 1)),
+      anchorAttrs,
+      dominantSemanticGroup,
+      color,
+      memberCount: memberIds.length,
+      centralityScore: anchorNodeId ? (base.centralityByNode.get(anchorNodeId)?.score ?? 0) : 0,
     });
   });
 
@@ -1197,10 +1593,121 @@ function buildCommunityGroupedGraph(): GraphDisplayResult {
     groupedEdges.set(key, bucket);
   });
 
+  const connectivityByCommunity = new Map<number, number>();
+  groupedEdges.forEach((bundle) => {
+    const sourceCommunityId = Number(bundle.sourceId.replace(COMMUNITY_NODE_PREFIX, ""));
+    const targetCommunityId = Number(bundle.targetId.replace(COMMUNITY_NODE_PREFIX, ""));
+    const weight = bundle.rawEdgeIds.length + bundle.weight * 0.35;
+    connectivityByCommunity.set(sourceCommunityId, (connectivityByCommunity.get(sourceCommunityId) ?? 0) + weight);
+    connectivityByCommunity.set(targetCommunityId, (connectivityByCommunity.get(targetCommunityId) ?? 0) + weight);
+  });
+
+  const groupedEdgeStrength = new Map<string, number>();
+  const incidentEdgeStrengths = new Map<string, Array<{ key: string; strength: number }>>();
+  let strongestGroupedEdge = 0;
   groupedEdges.forEach((bundle, key) => {
+    const strength = bundle.rawEdgeIds.length + bundle.weight * 0.35;
+    groupedEdgeStrength.set(key, strength);
+    strongestGroupedEdge = Math.max(strongestGroupedEdge, strength);
+
+    const sourceBucket = incidentEdgeStrengths.get(bundle.sourceId) ?? [];
+    sourceBucket.push({ key, strength });
+    incidentEdgeStrengths.set(bundle.sourceId, sourceBucket);
+
+    const targetBucket = incidentEdgeStrengths.get(bundle.targetId) ?? [];
+    targetBucket.push({ key, strength });
+    incidentEdgeStrengths.set(bundle.targetId, targetBucket);
+  });
+
+  const visibleGroupedEdgeKeys = new Set<string>();
+  const groupedEdgeStrengthCutoff = Math.max(1.25, strongestGroupedEdge * GRAPH_THEME.grouped.style.edgeVisibilityRatio);
+  groupedEdges.forEach((_bundle, key) => {
+    const strength = groupedEdgeStrength.get(key) ?? 0;
+    if (strength >= groupedEdgeStrengthCutoff) {
+      visibleGroupedEdgeKeys.add(key);
+    }
+  });
+  incidentEdgeStrengths.forEach((entries) => {
+    entries
+      .slice()
+      .sort((left, right) => right.strength - left.strength)
+      .slice(0, GRAPH_THEME.grouped.style.topIncidentEdges)
+      .forEach(({ key }) => visibleGroupedEdgeKeys.add(key));
+  });
+  if (visibleGroupedEdgeKeys.size === 0 && groupedEdges.size > 0) {
+    const strongestKey = Array.from(groupedEdges.keys()).sort(
+      (left, right) => (groupedEdgeStrength.get(right) ?? 0) - (groupedEdgeStrength.get(left) ?? 0),
+    )[0];
+    if (strongestKey) {
+      visibleGroupedEdgeKeys.add(strongestKey);
+    }
+  }
+
+  const groupedPositions = assignGroupedCommunityPositions(
+    Array.from(communitySummaries.entries()).map(([communityId, summary]) => ({
+      communityId,
+      memberCount: summary.memberCount,
+      centralityScore: summary.centralityScore,
+      connectivityWeight: connectivityByCommunity.get(communityId) ?? 0,
+      radius: getGroupedCommunityNodeSize(summary.memberCount) * GRAPH_THEME.grouped.style.nodeSizeScale * 0.92,
+    })),
+  );
+
+  communitySummaries.forEach((summary, communityId) => {
+    const communityNodeId = `${COMMUNITY_NODE_PREFIX}${communityId}`;
+    const position = groupedPositions.get(communityId) ?? {
+      x: 0,
+      y: 0,
+      labelPriority: 0.56,
+      visualPriority: 0.42,
+    };
+    const size = getGroupedCommunityNodeSize(summary.memberCount);
+    const anchorLabel = summary.anchorAttrs?.label || summary.anchorNodeId || `Community ${communityId}`;
+    addNodeIfMissing(grouped, communityNodeId, {
+      label: truncateGroupedLabel(anchorLabel),
+      content: summary.anchorAttrs?.content || anchorLabel,
+      x: position.x,
+      y: position.y,
+      size,
+      baseSize: size,
+      color: summary.color,
+      baseColor: summary.color,
+      mutedColor: withAlpha(summary.color, 0.22),
+      glowColor: withAlpha(summary.color, GRAPH_THEME.grouped.style.glowAlpha),
+      borderColor: withAlpha(summary.color, 0.74),
+      nodeType: "community",
+      semanticGroup: summary.dominantSemanticGroup,
+      labelVisibilityPolicy: position.labelPriority > 0.9 ? "priority" : "none",
+      properties: {
+        __communityGroup: {
+          communityId: String(communityId),
+          memberCount: summary.memberCount,
+          memberNodeIds: summary.memberIds,
+          sampleNodeIds: summary.rankedMembers.slice(0, GROUP_SAMPLE_MEMBERS),
+          anchorNodeId: summary.anchorNodeId,
+          anchorLabel,
+          dominantSemanticGroup: summary.dominantSemanticGroup,
+          color: summary.color,
+        },
+      },
+      isCommunityGroup: true,
+      communityId: String(communityId),
+      memberCount: summary.memberCount,
+      anchorNodeId: summary.anchorNodeId,
+      labelPriority: position.labelPriority,
+      visualPriority: position.visualPriority,
+    });
+  });
+
+  groupedEdges.forEach((bundle, key) => {
+    if (!visibleGroupedEdgeKeys.has(key)) {
+      return;
+    }
     const dominantEdgeType = [...bundle.typeCounts.entries()].sort((left, right) => right[1] - left[1])[0]?.[0] ?? "related_to";
     const reverseKey = `${bundle.targetId}→${bundle.sourceId}`;
     const syntheticEdgeId = `${AGGREGATED_EDGE_PREFIX}${key}`;
+    const aggregateCount = bundle.rawEdgeIds.length;
+    const baseSize = Math.max(0.9, 0.72 + Math.log2(aggregateCount + 1) * 0.2);
     grouped.mergeDirectedEdgeWithKey(syntheticEdgeId, bundle.sourceId, bundle.targetId, {
       edgeId: syntheticEdgeId,
       familyId: syntheticEdgeId,
@@ -1213,23 +1720,45 @@ function buildCommunityGroupedGraph(): GraphDisplayResult {
       properties: {},
       rawEdgeIds: bundle.rawEdgeIds,
       isAggregated: true,
-      aggregateCount: bundle.rawEdgeIds.length,
-      familySize: bundle.rawEdgeIds.length,
-      parallelCount: bundle.rawEdgeIds.length,
+      aggregateCount,
+      familySize: aggregateCount,
+      parallelCount: aggregateCount,
       isBidirectional: groupedEdges.has(reverseKey),
       bundleKind: "community",
-      visualPriority: 2,
+      edgeVariant: "line",
+      arrowVisibilityPolicy: "hidden",
+      baseSize,
+      size: baseSize,
+      color: withAlpha("#9BB7D6", GRAPH_THEME.grouped.style.edgeAlpha),
+      mutedColor: withAlpha("#9BB7D6", Math.max(0.14, GRAPH_THEME.grouped.style.edgeAlpha * 0.4)),
+      visualPriority: Math.min(1.05, 0.38 + Math.log2(aggregateCount + 1) * 0.14),
     });
   });
+
+  const groupedValidationError = validateGroupedDisplayGraph(grouped);
+  if (groupedValidationError) {
+    state.groupedViewAvailable = false;
+    state.groupedViewReason = groupedValidationError;
+    return {
+      graph: aggregateDisplayGraph(graph),
+      state,
+      meta: MIRRORED_DISPLAY_META,
+    };
+  }
 
   return {
     graph: grouped,
     state: {
       aggregationEnabled: true,
       groupedViewAvailable: true,
+      groupedViewReason: null,
       selectedRootNodeId: null,
       selectedVisibleNeighborIds: [],
       selectedCollapsedNeighborIds: [],
+      selectedNodeKind: "none",
+      canActivateFocused: false,
+      resolvedFocusedNodeId: null,
+      focusedUnavailableReason: null,
     },
     meta: OWNED_DISPLAY_META,
   };
@@ -1243,6 +1772,10 @@ export function resolveDisplayStateSnapshot(
     aggregationEnabled?: boolean;
     collapsedNeighborhoodNodeIds?: Iterable<string>;
     groupedViewAvailable?: boolean;
+    groupedViewReason?: string | null;
+    selectedNodeKind?: GraphSelectedNodeKind;
+    resolvedFocusedNodeId?: string | null;
+    focusedUnavailableReason?: string | null;
   },
 ): GraphDisplayStateSnapshot {
   const aggregationEnabled = options?.aggregationEnabled ?? true;
@@ -1250,10 +1783,18 @@ export function resolveDisplayStateSnapshot(
     Array.from(options?.collapsedNeighborhoodNodeIds ?? []).filter((nodeId) => typeof nodeId === "string"),
   );
   const displayState = createEmptyDisplayState(selectedNodeId, aggregationEnabled);
+  displayState.selectedNodeKind = options?.selectedNodeKind ?? (selectedNodeId ? "unavailable" : "none");
+  displayState.resolvedFocusedNodeId = options?.resolvedFocusedNodeId ?? null;
+  displayState.canActivateFocused = Boolean(displayState.resolvedFocusedNodeId);
+  displayState.focusedUnavailableReason = displayState.canActivateFocused
+    ? null
+    : (options?.focusedUnavailableReason ?? displayState.focusedUnavailableReason);
   displayState.groupedViewAvailable = options?.groupedViewAvailable ?? computeGraphAnalyticsBase(graph, {
     computeCommunities: true,
     computeCentrality: false,
   }).communitiesByNode.size > 0;
+  displayState.groupedViewReason = options?.groupedViewReason
+    ?? (displayState.groupedViewAvailable ? null : "Grouped view is unavailable until communities can be detected.");
 
   if (!selectedNodeId || !graph.hasNode(selectedNodeId)) {
     return displayState;
@@ -1421,6 +1962,11 @@ export function resolveDisplayGraph(
         selectedRootNodeId: displayState.selectedRootNodeId,
         selectedVisibleNeighborIds: displayState.selectedVisibleNeighborIds,
         selectedCollapsedNeighborIds: displayState.selectedCollapsedNeighborIds,
+        groupedViewReason: grouped.state.groupedViewReason,
+        selectedNodeKind: displayState.selectedNodeKind,
+        canActivateFocused: displayState.canActivateFocused,
+        resolvedFocusedNodeId: displayState.resolvedFocusedNodeId,
+        focusedUnavailableReason: displayState.focusedUnavailableReason,
       },
       meta: grouped.meta,
     };
@@ -1452,6 +1998,7 @@ export function resolveDisplayGraph(
 export function createInteractionState(
   hoveredNodeId: string | null,
   selectedNodeId: string,
+  focusedNodeId: string,
   selectedEdgeId: string,
   activePath: string[],
   activePathEdgeIds: string[],
@@ -1463,7 +2010,7 @@ export function createInteractionState(
     hoveredNodeId,
     selectedNodeId,
     selectedEdgeId,
-    focusedNodeId: selectedNodeId,
+    focusedNodeId,
     activePath,
     activePathEdgeIds,
     viewMode,

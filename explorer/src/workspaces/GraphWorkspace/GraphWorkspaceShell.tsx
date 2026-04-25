@@ -563,6 +563,19 @@ export function GraphWorkspaceShell() {
     return `${visibleSelectedNode.neighborCount} direct neighbors highlighted`;
   }, [viewMode, visibleSelectedNode]);
 
+  const requestViewMode = useCallback((nextViewMode: GraphViewMode) => {
+    if (nextViewMode === "focused") {
+      if (!selectedNodeId) {
+        return;
+      }
+      setViewMode("focused");
+      setIsLayoutRunning(false);
+      return;
+    }
+
+    setViewMode("full");
+  }, [selectedNodeId]);
+
   const showLoadingOverlay =
     isLoading
     || isFetching
@@ -639,8 +652,8 @@ export function GraphWorkspaceShell() {
               <div className="graph-toggle-cluster">
               {selectedNodeId ? (
                   <>
-                    <button onClick={() => setViewMode("focused")} style={{ ...actionButtonStyle, background: viewMode === "focused" ? "rgba(31, 111, 235, 0.38)" : actionButtonStyle.background, borderColor: viewMode === "focused" ? "rgba(127, 208, 255, 0.42)" : "rgba(88, 166, 255, 0.2)" }}>Focused View</button>
-                    <button onClick={() => setViewMode("full")} style={{ ...actionButtonStyle, background: viewMode === "full" ? "rgba(31, 111, 235, 0.38)" : actionButtonStyle.background, borderColor: viewMode === "full" ? "rgba(127, 208, 255, 0.42)" : "rgba(88, 166, 255, 0.2)" }}>Full Graph</button>
+                    <button onClick={() => requestViewMode("focused")} style={{ ...actionButtonStyle, background: viewMode === "focused" ? "rgba(31, 111, 235, 0.38)" : actionButtonStyle.background, borderColor: viewMode === "focused" ? "rgba(127, 208, 255, 0.42)" : "rgba(88, 166, 255, 0.2)" }}>Focused View</button>
+                    <button onClick={() => requestViewMode("full")} style={{ ...actionButtonStyle, background: viewMode === "full" ? "rgba(31, 111, 235, 0.38)" : actionButtonStyle.background, borderColor: viewMode === "full" ? "rgba(127, 208, 255, 0.42)" : "rgba(88, 166, 255, 0.2)" }}>Full Graph</button>
                   </>
                 ) : (
                   <span style={{ color: "#7f95b3", fontSize: 12 }}>Select a node to switch graph views</span>

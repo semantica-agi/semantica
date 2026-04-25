@@ -47,6 +47,7 @@ export interface GraphSceneProps extends GraphSceneEventMap {
   displayMeta: GraphDisplayMeta;
   displayState?: GraphDisplayStateSnapshot;
   selectedNodeId: string;
+  focusedNodeId: string;
   selectedEdgeId: string;
   activePath?: string[];
   activePathEdgeIds?: string[];

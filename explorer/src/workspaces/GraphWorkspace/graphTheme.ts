@@ -191,6 +191,35 @@ export interface GraphTheme {
   motion: {
     cameraMs: number;
   };
+  grouped: {
+    initialLayout: {
+      innerRadius: number;
+      ringSpacing: number;
+      minNodeSpacing: number;
+      nodePadding: number;
+      overlapIterations: number;
+      primaryLabelCount: number;
+    };
+    style: {
+      nodeSizeScale: number;
+      nodeBorderBoost: number;
+      fillAlpha: number;
+      shellAlpha: number;
+      edgeSizeScale: number;
+      edgeAlpha: number;
+      glowAlpha: number;
+      edgeVisibilityRatio: number;
+      topIncidentEdges: number;
+    };
+    layout: {
+      iterations: number;
+      gravity: number;
+      scalingRatio: number;
+      edgeWeightInfluence: number;
+      slowDown: number;
+      settleMs: number;
+    };
+  };
   effects: {
     pathPulse: {
       minZoomTier: GraphZoomTier;
@@ -473,6 +502,35 @@ export const GRAPH_THEME: GraphTheme = {
   },
   motion: {
     cameraMs: 380,
+  },
+  grouped: {
+    initialLayout: {
+      innerRadius: 92,
+      ringSpacing: 138,
+      minNodeSpacing: 112,
+      nodePadding: 28,
+      overlapIterations: 18,
+      primaryLabelCount: 6,
+    },
+    style: {
+      nodeSizeScale: 0.9,
+      nodeBorderBoost: 0.42,
+      fillAlpha: 0.68,
+      shellAlpha: 0.28,
+      edgeSizeScale: 0.62,
+      edgeAlpha: 0.32,
+      glowAlpha: 0.14,
+      edgeVisibilityRatio: 0.18,
+      topIncidentEdges: 2,
+    },
+    layout: {
+      iterations: 18,
+      gravity: 0.06,
+      scalingRatio: 18,
+      edgeWeightInfluence: 0.08,
+      slowDown: 34,
+      settleMs: 1500,
+    },
   },
   effects: {
     pathPulse: {
