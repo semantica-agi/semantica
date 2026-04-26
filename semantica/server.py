@@ -188,10 +188,22 @@ async def serve_spa(full_path: str):
     if full_path.startswith("api/"):
         raise HTTPException(status_code=404, detail="API route not found")
 
+    # Root path — serve index.html if built, otherwise a welcome JSON response
+    if full_path in ("", "/"):
+        index_file = STATIC_DIR / "index.html"
+        if index_file.is_file():
+            return FileResponse(index_file)
+        return JSONResponse({
+            "name": "Semantica Knowledge Explorer",
+            "version": __version__,
+            "message": "Welcome to Semantica. The frontend is not built yet — run `npm run build` inside the explorer/ directory, or open the Vite dev server at http://localhost:5173.",
+            "docs": "/docs",
+            "health": "/health",
+        })
+
     normalized_path = os.path.normpath(full_path)
     if (
-        normalized_path in ("", ".")
-        or os.path.isabs(normalized_path)
+        os.path.isabs(normalized_path)
         or normalized_path == ".."
         or normalized_path.startswith(".." + os.sep)
     ):
@@ -200,7 +212,7 @@ async def serve_spa(full_path: str):
     # Ensure join remains relative to STATIC_DIR even if input includes leading separators
     safe_rel_path = normalized_path.lstrip("/\\")
     rel_parts = Path(safe_rel_path).parts
-    if any(part in ("", ".", "..") for part in rel_parts):
+    if any(part in (".", "..") for part in rel_parts):
         raise HTTPException(status_code=400, detail="Invalid path")
 
     static_dir_resolved = STATIC_DIR.resolve()
