@@ -15,7 +15,7 @@ const EntityResolutionTab = lazy(() => import('./workspaces/EnrichWorkspace/Enti
 const KGOverviewTab = lazy(() => import('./workspaces/ManageWorkspace/KGOverviewTab').then((module) => ({ default: module.KGOverviewTab })));
 const OntologySummaryTab = lazy(() => import('./workspaces/ManageWorkspace/OntologySummaryTab').then((module) => ({ default: module.OntologySummaryTab })));
 
-type WorkspaceId = 'explore' | 'analyze' | 'decisions' | 'enrich' | 'manage';
+type WorkspaceId = 'welcome' | 'explore' | 'analyze' | 'decisions' | 'enrich' | 'manage';
 type ExploreView = 'graph' | 'vocabulary';
 type AnalyzeView = 'sparql' | 'reasoning';
 type EnrichView = 'import' | 'merge' | 'registry' | 'resolve';
@@ -311,14 +311,39 @@ function WorkspaceFallback() {
   return <div className="workspace-loading">Loading workspace…</div>;
 }
 
+function WelcomeScreen() {
+  return (
+    <div style={{
+      flex: 1,
+      display: 'flex',
+      flexDirection: 'column',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 12,
+      color: 'var(--text-muted)',
+    }}>
+      <h1 style={{ margin: 0, fontSize: 28, fontWeight: 700, color: 'var(--text-main)', letterSpacing: '-0.03em' }}>
+        Welcome to Semantica
+      </h1>
+      <p style={{ margin: 0, fontSize: 14 }}>
+        Select a workspace from the sidebar to get started.
+      </p>
+    </div>
+  );
+}
+
 export default function App() {
-  const [activeWorkspace, setActiveWorkspace] = useState<WorkspaceId>('explore');
+  const [activeWorkspace, setActiveWorkspace] = useState<WorkspaceId>('welcome');
   const [exploreView, setExploreView] = useState<ExploreView>('graph');
   const [analyzeView, setAnalyzeView] = useState<AnalyzeView>('reasoning');
   const [enrichView, setEnrichView] = useState<EnrichView>('import');
   const [manageView, setManageView] = useState<ManageView>('lineage');
 
   const renderWorkspace = () => {
+    if (activeWorkspace === 'welcome') {
+      return <WelcomeScreen />;
+    }
+
     if (activeWorkspace === 'explore') {
       return (
         <WorkspaceShell
@@ -451,7 +476,7 @@ export default function App() {
       <style>{shellStyles}</style>
       <div className="app-shell">
         <aside className="app-rail">
-          <div className="brand-pill" title="Semantica Knowledge Explorer">SKE</div>
+          <button className="brand-pill" title="Semantica Knowledge Explorer" onClick={() => setActiveWorkspace('welcome')} style={{ cursor: 'pointer', border: '1px solid rgba(127,208,255,0.18)' }}>SKE</button>
           {navItems.map(({ id, label, hint, icon: Icon }) => (
             <button
               key={id}
