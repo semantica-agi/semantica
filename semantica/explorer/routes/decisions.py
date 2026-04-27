@@ -8,7 +8,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from ..dependencies import get_session
-from ..schemas import CausalChainResponse, ComplianceResponse, DecisionResponse
+from ..schemas import CausalChainResponse, CausalDistanceReport, ComplianceResponse, DecisionResponse
 from ..session import GraphSession
 
 router = APIRouter(prefix="/api/decisions", tags=["Decisions"])
@@ -123,6 +123,20 @@ async def get_precedents(
 
     scored.sort(key=lambda item: item[0], reverse=True)
     return [_node_to_decision(decision) for _, decision in scored[:limit]]
+
+
+@router.get("/causal-distance", response_model=CausalDistanceReport)
+async def causal_distance(
+    source: str = Query(..., description="Source node/decision ID"),
+    target: str = Query(..., description="Target node/decision ID"),
+    session: GraphSession = Depends(get_session),
+):
+    """FR-8 — Compute causal distance between two decisions via causal-edge-only traversal."""
+    from ...context.causal_analyzer import CausalChainAnalyzer
+
+    analyzer = CausalChainAnalyzer(session.graph)
+    report = await asyncio.to_thread(analyzer.interpret_causal_distance, source, target)
+    return CausalDistanceReport(**report)
 
 
 @router.get("/{decision_id}/compliance", response_model=ComplianceResponse)

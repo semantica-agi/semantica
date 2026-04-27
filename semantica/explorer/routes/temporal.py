@@ -5,14 +5,20 @@ Temporal routes for snapshots, diffs, and pattern detection.
 import asyncio
 import logging
 import re
-from datetime import datetime, timezone, UTC
+from datetime import datetime, timedelta, timezone, UTC
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 
 from ..dependencies import get_session
-from ..schemas import TemporalDiffResponse, TemporalPatternResponse
+from ..schemas import (
+    DistanceEvent,
+    DistanceHistoryResponse,
+    DistanceSnapshot,
+    TemporalDiffResponse,
+    TemporalPatternResponse,
+)
 from ..session import GraphSession
 
 logger = logging.getLogger(__name__)
@@ -120,3 +126,115 @@ async def temporal_bounds(
 ):
     bounds = await asyncio.to_thread(session.get_temporal_bounds)
     return TemporalBoundsResponse(**bounds)
+
+
+@router.get("/distance-history", response_model=DistanceHistoryResponse)
+async def distance_history(
+    source: str = Query(..., description="Source node ID"),
+    target: str = Query(..., description="Target node ID"),
+    metric: str = Query("hops", description="Distance metric: hops | weighted"),
+    session: GraphSession = Depends(get_session),
+):
+    """FR-9 — Track distance changes between two nodes across temporal snapshots."""
+    from ...utils.helpers import classify_path_distance
+
+    bounds = await asyncio.to_thread(session.get_temporal_bounds)
+    min_bound_str = bounds.get("min")
+    max_bound_str = bounds.get("max")
+
+    if not min_bound_str or not max_bound_str:
+        # No temporal data — return current-only snapshot
+        pf = session.path_finder
+        hop_count: Optional[int] = None
+        if pf is not None:
+            try:
+                graph_dict = await asyncio.to_thread(session.build_graph_dict)
+                path_fn = pf.dijkstra_shortest_path if metric == "weighted" else pf.bfs_shortest_path
+                result = await asyncio.to_thread(path_fn, graph_dict, source, target)
+                path_nodes = result.get("path", []) if isinstance(result, dict) else (result or [])
+                hop_count = len(path_nodes) - 1 if path_nodes else None
+            except Exception:
+                pass
+        now = datetime.now(UTC).replace(tzinfo=None)
+        snap = DistanceSnapshot(
+            timestamp=now,
+            hop_count=hop_count,
+            distance_band=classify_path_distance(hop_count) if hop_count is not None else "distant",
+        )
+        return DistanceHistoryResponse(
+            source_id=source, target_id=target, metric=metric,
+            history=[snap], events=[],
+        )
+
+    min_bound = _parse_query_dt(min_bound_str)
+    max_bound = _parse_query_dt(max_bound_str)
+
+    # Sample up to 10 snapshots evenly between min and max
+    total_seconds = max(1, int((max_bound - min_bound).total_seconds()))
+    step = total_seconds / min(10, total_seconds)
+    sample_times = [
+        min_bound + timedelta(seconds=int(i * step))
+        for i in range(11)
+    ]
+
+    pf = session.path_finder
+    history: List[DistanceSnapshot] = []
+    events: List[DistanceEvent] = []
+    prev_hop: Optional[int] = None
+
+    for sample_time in sample_times:
+        active_nodes = await asyncio.to_thread(session.get_active_nodes, at_time=sample_time)
+        active_ids = {n.get("id") for n in active_nodes if n.get("id")}
+        hop_count = None
+        if source in active_ids and target in active_ids and pf is not None:
+            try:
+                graph_dict = await asyncio.to_thread(
+                    session.build_graph_dict, list(active_ids)
+                )
+                path_fn = pf.dijkstra_shortest_path if metric == "weighted" else pf.bfs_shortest_path
+                result = await asyncio.to_thread(path_fn, graph_dict, source, target)
+                path_nodes = result.get("path", []) if isinstance(result, dict) else (result or [])
+                hop_count = len(path_nodes) - 1 if path_nodes else None
+            except Exception:
+                pass
+
+        band = classify_path_distance(hop_count) if hop_count is not None else "distant"
+        snap = DistanceSnapshot(timestamp=sample_time, hop_count=hop_count, distance_band=band)
+        history.append(snap)
+
+        # Detect events relative to previous snapshot
+        if prev_hop is not None or hop_count is not None:
+            if prev_hop is None and hop_count is not None:
+                events.append(DistanceEvent(
+                    timestamp=sample_time,
+                    event_type="reconnected",
+                    hop_count_before=None,
+                    hop_count_after=hop_count,
+                    description=f"Nodes reconnected at {hop_count} hop(s) on {sample_time.date()}.",
+                ))
+            elif prev_hop is not None and hop_count is None:
+                events.append(DistanceEvent(
+                    timestamp=sample_time,
+                    event_type="disconnected",
+                    hop_count_before=prev_hop,
+                    hop_count_after=None,
+                    description=f"Nodes became unreachable on {sample_time.date()}.",
+                ))
+            elif prev_hop is not None and hop_count is not None and hop_count != prev_hop:
+                etype = "convergence" if hop_count < prev_hop else "divergence"
+                events.append(DistanceEvent(
+                    timestamp=sample_time,
+                    event_type=etype,
+                    hop_count_before=prev_hop,
+                    hop_count_after=hop_count,
+                    description=(
+                        f"Nodes {etype}d from {prev_hop} hops to {hop_count} hops "
+                        f"on {sample_time.date()}."
+                    ),
+                ))
+        prev_hop = hop_count
+
+    return DistanceHistoryResponse(
+        source_id=source, target_id=target, metric=metric,
+        history=history, events=events,
+    )

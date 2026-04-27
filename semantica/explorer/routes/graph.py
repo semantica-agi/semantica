@@ -3,14 +3,20 @@ Graph routes for explorer node, edge, path, and search APIs.
 """
 
 import asyncio
+import logging
+import time
 from enum import Enum
-from typing import Optional
+from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+logger = logging.getLogger(__name__)
+
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 
 from ...utils.helpers import classify_path_distance
 from ..dependencies import get_session
 from ..schemas import (
+    DistanceMatrixRequest,
+    DistanceMatrixResponse,
     EdgeListResponse,
     EdgeResponse,
     GraphStatsResponse,
@@ -21,10 +27,43 @@ from ..schemas import (
     SearchRequest,
     SearchResultItem,
     SearchResultResponse,
+    SemanticNeighborItem,
+    SemanticNeighborhoodResponse,
 )
 from ..session import GraphSession
 
 router = APIRouter(prefix="/api/graph", tags=["Graph"])
+
+
+def _build_interpretation(
+    distance_band: str,
+    hop_count: int,
+    bottleneck_node: Optional[str],
+    confidence_decay: Optional[float],
+) -> str:
+    if distance_band == "direct":
+        base = "Direct relationship"
+    elif distance_band == "near":
+        base = f"Closely related via {hop_count - 1} intermediate node(s)"
+    elif distance_band == "mid-range":
+        base = f"Reachable in {hop_count} steps across topic boundaries"
+    else:
+        base = f"Distal connection spanning {hop_count} hops"
+
+    if bottleneck_node:
+        base += f", routed through bottleneck '{bottleneck_node}'"
+
+    if confidence_decay is not None:
+        if confidence_decay > 0.7:
+            base += " — high confidence."
+        elif confidence_decay > 0.4:
+            base += " — moderate confidence."
+        else:
+            base += " — low confidence, treat as weak evidence."
+    else:
+        base += "."
+
+    return base
 
 
 def _parse_bbox(raw_bbox: Optional[str]) -> Optional[tuple[float, float, float, float]]:
@@ -175,6 +214,92 @@ async def find_path(
     edge_ids = await asyncio.to_thread(session.resolve_path_edge_ids, path_nodes)
 
     hop_count = len(path_nodes) - 1 if path_nodes else 0
+    distance_band = classify_path_distance(hop_count)
+
+    # FR-4 enrichment — compute optional fields from existing session analytics
+    confidence_decay: Optional[float] = None
+    bottleneck_node: Optional[str] = None
+    semantic_similarity: Optional[float] = None
+    path_coherence_score: Optional[float] = None
+    alternative_path_count: int = 0
+
+    try:
+        graph_dict = await asyncio.to_thread(session.build_graph_dict)
+
+        # Build edge weight index once in O(E) so each hop lookup is O(1)
+        edge_weight_index: dict = {}
+        for _e in graph_dict.get("edges", []):
+            _s, _t = _e.get("source"), _e.get("target")
+            _w = float(_e.get("weight", 1.0))
+            edge_weight_index[(_s, _t)] = _w
+            if not directed:
+                edge_weight_index.setdefault((_t, _s), _w)
+
+        # Confidence decay — product of edge weights along the path (O(L))
+        decay = 1.0
+        for i in range(len(path_nodes) - 1):
+            decay *= edge_weight_index.get((path_nodes[i], path_nodes[i + 1]), 1.0)
+        confidence_decay = decay
+
+        # Bottleneck — intermediate node with highest betweenness in subgraph
+        intermediates = path_nodes[1:-1] if len(path_nodes) > 2 else []
+        if intermediates and session.centrality is not None:
+            sub_dict = await asyncio.to_thread(session.build_graph_dict, path_nodes)
+            centrality_result = await asyncio.to_thread(
+                session.centrality.calculate_betweenness_centrality, sub_dict
+            )
+            scores = centrality_result.get("betweenness", {}) if isinstance(centrality_result, dict) else {}
+            if scores:
+                bottleneck_node = max(
+                    (n for n in intermediates if n in scores),
+                    key=lambda n: scores.get(n, 0.0),
+                    default=None,
+                )
+
+        # Alternative paths — count simple paths within hop_count + 2
+        if path_finder is not None and hop_count > 0:
+            try:
+                k_paths = await asyncio.to_thread(
+                    path_finder.find_k_shortest_paths,
+                    graph_dict, node_id, target, hop_count + 2, directed=directed
+                )
+                alternative_path_count = max(0, len(k_paths) - 1)
+            except Exception as exc:
+                logger.debug("k_shortest_paths unavailable for enrichment: %s", exc)
+
+        # Semantic similarity (source ↔ target)
+        if session.similarity is not None:
+            try:
+                sim_result = await asyncio.to_thread(
+                    session.similarity.cosine_similarity,
+                    graph_dict, node_id, target
+                )
+                if isinstance(sim_result, (int, float)):
+                    semantic_similarity = float(sim_result)
+            except Exception as exc:
+                logger.debug("semantic_similarity unavailable for enrichment: %s", exc)
+
+        # Path coherence — mean pairwise similarity of consecutive nodes
+        if session.similarity is not None and len(path_nodes) >= 2:
+            try:
+                pair_sims: List[float] = []
+                for i in range(len(path_nodes) - 1):
+                    sim = await asyncio.to_thread(
+                        session.similarity.cosine_similarity,
+                        graph_dict, path_nodes[i], path_nodes[i + 1]
+                    )
+                    if isinstance(sim, (int, float)):
+                        pair_sims.append(float(sim))
+                if pair_sims:
+                    path_coherence_score = sum(pair_sims) / len(pair_sims)
+            except Exception as exc:
+                logger.debug("path_coherence unavailable for enrichment: %s", exc)
+
+    except Exception as exc:
+        logger.debug("FR-4 enrichment skipped: %s", exc)
+
+    interpretation = _build_interpretation(distance_band, hop_count, bottleneck_node, confidence_decay)
+
     return PathResponse(
         source=node_id,
         target=target,
@@ -184,7 +309,13 @@ async def find_path(
         total_weight=total_weight,
         directed=directed,
         hop_count=hop_count,
-        distance_band=classify_path_distance(hop_count),
+        distance_band=distance_band,
+        semantic_similarity=semantic_similarity,
+        path_coherence_score=path_coherence_score,
+        confidence_decay=confidence_decay,
+        bottleneck_node=bottleneck_node,
+        alternative_path_count=alternative_path_count,
+        interpretation=interpretation,
     )
 
 
@@ -194,11 +325,170 @@ async def search_nodes(
     session: GraphSession = Depends(get_session),
 ):
     results = await asyncio.to_thread(session.search, body.query, body.limit, body.filters)
-    items = [
-        SearchResultItem(node=_node_response(result.get("node", {})), score=result.get("score", 0.0))
-        for result in results
-    ]
+
+    # FR-7 — compute hop distances from anchor when requested
+    hop_by_id: dict = {}
+    if body.anchor_node:
+        neighbors = await asyncio.to_thread(
+            session.graph.get_neighbor_distances,
+            body.anchor_node,
+            hops=body.max_hops if body.max_hops is not None else 10,
+        )
+        hop_by_id = {n.get("id"): n.get("hop") for n in neighbors}
+        hop_by_id[body.anchor_node] = 0
+
+    items: List[SearchResultItem] = []
+    for result in results:
+        node_data = result.get("node", {})
+        node_id = node_data.get("id", "")
+        raw_score = result.get("score", 0.0)
+
+        hop_distance: Optional[int] = hop_by_id.get(node_id) if body.anchor_node else None
+
+        # Drop results beyond max_hops
+        if body.anchor_node and body.max_hops is not None:
+            if hop_distance is None or hop_distance > body.max_hops:
+                continue
+
+        # Compute combined ranking score
+        final_score = raw_score
+        if body.anchor_node and hop_distance is not None:
+            proximity = 1.0 if hop_distance == 0 else 1.0 / hop_distance
+            if body.rank_by == "proximity":
+                final_score = proximity
+            elif body.rank_by == "hybrid":
+                final_score = 0.6 * raw_score + 0.4 * proximity
+
+        items.append(
+            SearchResultItem(
+                node=_node_response(node_data),
+                score=final_score,
+                hop_distance=hop_distance,
+            )
+        )
+
+    if body.rank_by in ("proximity", "hybrid") and body.anchor_node:
+        items.sort(key=lambda item: item.score, reverse=True)
+
     return SearchResultResponse(results=items, total=len(items), query=body.query)
+
+
+@router.post("/distance-matrix", response_model=DistanceMatrixResponse)
+async def distance_matrix(
+    body: DistanceMatrixRequest,
+    session: GraphSession = Depends(get_session),
+):
+    if len(body.node_ids) > 50:
+        raise HTTPException(
+            status_code=413,
+            detail=f"Too many nodes: {len(body.node_ids)} requested; maximum is 50 per request.",
+        )
+
+    started = time.perf_counter()
+    graph_dict = await asyncio.to_thread(session.build_graph_dict)
+    path_finder = session.path_finder
+
+    n = len(body.node_ids)
+    matrix: List[List[Optional[float]]] = [[None] * n for _ in range(n)]
+    unreachable: List[tuple] = []
+
+    for i in range(n):
+        matrix[i][i] = 0.0
+        for j in range(i + 1, n):
+            src, tgt = body.node_ids[i], body.node_ids[j]
+            try:
+                if body.metric == "semantic" and session.similarity is not None:
+                    sim = await asyncio.to_thread(
+                        session.similarity.cosine_similarity, graph_dict, src, tgt
+                    )
+                    val = 1.0 - float(sim) if isinstance(sim, (int, float)) else None
+                    matrix[i][j] = val
+                    matrix[j][i] = val
+                elif path_finder is not None:
+                    path_fn = (
+                        path_finder.dijkstra_shortest_path
+                        if body.metric == "weighted"
+                        else path_finder.bfs_shortest_path
+                    )
+                    result = await asyncio.to_thread(path_fn, graph_dict, src, tgt)
+                    path_nodes = result.get("path", []) if isinstance(result, dict) else (result or [])
+                    if path_nodes:
+                        val = (
+                            float(result.get("total_weight", len(path_nodes) - 1))
+                            if body.metric == "weighted"
+                            else float(len(path_nodes) - 1)
+                        )
+                        matrix[i][j] = val
+                        matrix[j][i] = val
+                    else:
+                        unreachable.append((src, tgt))
+                        unreachable.append((tgt, src))
+            except Exception as exc:
+                logger.debug("distance_matrix pair (%s, %s) failed: %s", src, tgt, exc)
+                unreachable.append((src, tgt))
+                unreachable.append((tgt, src))
+
+    elapsed_ms = round((time.perf_counter() - started) * 1000, 2)
+    return DistanceMatrixResponse(
+        nodes=body.node_ids,
+        metric=body.metric,
+        matrix=matrix,
+        unreachable_pairs=unreachable,
+        computation_time_ms=elapsed_ms,
+    )
+
+
+@router.get("/node/{node_id}/semantic-neighborhood", response_model=SemanticNeighborhoodResponse)
+async def semantic_neighborhood(
+    node_id: str,
+    top_k: int = Query(20, ge=1, le=200),
+    min_similarity: float = Query(0.0, ge=0.0, le=1.0),
+    session: GraphSession = Depends(get_session),
+):
+    node = await asyncio.to_thread(session.get_node, node_id)
+    if node is None:
+        raise HTTPException(status_code=404, detail=f"Node '{node_id}' not found")
+
+    neighbors: List[SemanticNeighborItem] = []
+    if session.similarity is not None:
+        graph_dict = await asyncio.to_thread(session.build_graph_dict)
+        try:
+            similar = await asyncio.to_thread(
+                session.similarity.find_most_similar,
+                graph_dict, node_id, top_k=top_k * 2
+            )
+            # find_most_similar returns list of (node_id, score) or dicts
+            for item in similar:
+                if isinstance(item, (list, tuple)) and len(item) >= 2:
+                    nid, sim_score = item[0], item[1]
+                elif isinstance(item, dict):
+                    nid = item.get("node_id") or item.get("id", "")
+                    sim_score = item.get("similarity", item.get("score", 0.0))
+                else:
+                    continue
+                if float(sim_score) < min_similarity or nid == node_id:
+                    continue
+                neighbor_node = await asyncio.to_thread(session.get_node, nid)
+                if neighbor_node is None:
+                    continue
+                neighbors.append(
+                    SemanticNeighborItem(
+                        id=nid,
+                        type=neighbor_node.get("type", ""),
+                        content=neighbor_node.get("content", ""),
+                        similarity=float(sim_score),
+                    )
+                )
+                if len(neighbors) >= top_k:
+                    break
+        except Exception as exc:
+            logger.debug("semantic_neighborhood similarity search failed: %s", exc)
+
+    return SemanticNeighborhoodResponse(
+        anchor_node=node_id,
+        neighbors=neighbors,
+        total=len(neighbors),
+    )
 
 
 @router.get("/stats", response_model=GraphStatsResponse)

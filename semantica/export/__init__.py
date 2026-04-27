@@ -162,6 +162,7 @@ License: MIT
 """
 
 from .arango_aql_exporter import ArangoAQLExporter
+from .distance_exporter import DistanceExporter
 from .config import ExportConfig, export_config
 
 try:
@@ -220,6 +221,7 @@ __all__ = [
     # Core Exporters
     "ArrowExporter",
     "ArangoAQLExporter",
+    "DistanceExporter",
     "RDFExporter",
     "RDFSerializer",
     "RDFValidator",

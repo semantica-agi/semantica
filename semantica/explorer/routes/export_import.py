@@ -11,7 +11,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.responses import Response
 
 from ..dependencies import get_session
-from ..schemas import ExportRequest, ImportResponse
+from ..schemas import DistanceExportRequest, ExportRequest, ImportResponse
 from ..session import GraphSession
 
 logger = logging.getLogger(__name__)
@@ -236,3 +236,51 @@ async def export_graph(
         media_type=media_type,
         headers={"Content-Disposition": f'attachment; filename="semantica_export.{extension}"'},
     )
+
+
+_DISTANCE_EXPORT_MAX_NODES = 200
+
+
+@router.post("/api/export/distance-enriched")
+async def export_distance_enriched(
+    body: DistanceExportRequest,
+    session: GraphSession = Depends(get_session),
+):
+    """FR-10 — Export pairwise distance metrics as CSV or JSONL for ML pipelines."""
+    if body.node_subset and len(body.node_subset) > _DISTANCE_EXPORT_MAX_NODES:
+        raise HTTPException(
+            status_code=413,
+            detail=(
+                f"node_subset exceeds limit: {len(body.node_subset)} nodes requested; "
+                f"maximum is {_DISTANCE_EXPORT_MAX_NODES}."
+            ),
+        )
+
+    import asyncio
+
+    from ...export.distance_exporter import DistanceExporter
+
+    exporter = DistanceExporter(session.graph)
+
+    if body.format == "csv":
+        content = await asyncio.to_thread(
+            exporter.to_csv_string,
+            include=body.include,
+            node_subset=body.node_subset,
+        )
+        return Response(
+            content=content,
+            media_type="text/csv",
+            headers={"Content-Disposition": 'attachment; filename="distances.csv"'},
+        )
+    else:
+        content = await asyncio.to_thread(
+            exporter.to_jsonl_string,
+            include=body.include,
+            node_subset=body.node_subset,
+        )
+        return Response(
+            content=content,
+            media_type="application/x-ndjson",
+            headers={"Content-Disposition": 'attachment; filename="distances.jsonl"'},
+        )

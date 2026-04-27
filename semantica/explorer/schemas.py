@@ -2,7 +2,8 @@
 Shared Pydantic schemas for the Semantica Knowledge Explorer API.
 """
 
-from typing import Any, Dict, List, Optional
+from datetime import datetime
+from typing import Any, Dict, List, Literal, Optional, Tuple
 
 from pydantic import BaseModel, Field
 
@@ -70,6 +71,13 @@ class PathResponse(BaseModel):
     directed: bool = True
     hop_count: int = 0
     distance_band: str = "direct"
+    # FR-4 enrichment fields — all optional; existing callers unaffected
+    semantic_similarity: Optional[float] = None
+    path_coherence_score: Optional[float] = None
+    confidence_decay: Optional[float] = None
+    bottleneck_node: Optional[str] = None
+    alternative_path_count: int = 0
+    interpretation: str = ""
 
 
 class GraphStatsResponse(BaseModel):
@@ -84,11 +92,19 @@ class SearchRequest(BaseModel):
     query: str
     filters: Dict[str, Any] = Field(default_factory=dict)
     limit: int = Field(default=20, ge=1, le=200)
+    # FR-7 proximity constraint fields
+    anchor_node: Optional[str] = None
+    max_hops: Optional[int] = None
+    min_semantic_similarity: Optional[float] = None
+    rank_by: Literal["relevance", "proximity", "hybrid"] = "relevance"
 
 
 class SearchResultItem(BaseModel):
     node: NodeResponse
     score: float = 0.0
+    # FR-7 distance metadata
+    hop_distance: Optional[int] = None
+    semantic_similarity: Optional[float] = None
 
 
 class SearchResultResponse(BaseModel):
@@ -308,3 +324,91 @@ class ProvenanceEdge(BaseModel):
 class ProvenanceResponse(BaseModel):
     nodes: List[ProvenanceNode]
     edges: List[ProvenanceEdge]
+
+
+# ---------------------------------------------------------------------------
+# FR-6 — Distance Matrix API
+# ---------------------------------------------------------------------------
+
+class DistanceMatrixRequest(BaseModel):
+    node_ids: List[str]
+    metric: Literal["hops", "weighted", "semantic"] = "hops"
+
+
+class DistanceMatrixResponse(BaseModel):
+    nodes: List[str]
+    metric: str
+    matrix: List[List[Optional[float]]]
+    unreachable_pairs: List[Tuple[str, str]] = Field(default_factory=list)
+    computation_time_ms: float
+
+
+# ---------------------------------------------------------------------------
+# FR-3 backend — Semantic Neighborhood
+# ---------------------------------------------------------------------------
+
+class SemanticNeighborItem(BaseModel):
+    id: str
+    type: str
+    content: str = ""
+    similarity: float
+    hop_distance: Optional[int] = None
+
+
+class SemanticNeighborhoodResponse(BaseModel):
+    anchor_node: str
+    neighbors: List[SemanticNeighborItem]
+    total: int
+
+
+# ---------------------------------------------------------------------------
+# FR-8 — Causal Distance Report
+# ---------------------------------------------------------------------------
+
+class CausalDistanceReport(BaseModel):
+    source_id: str
+    target_id: str
+    causal_path: List[str]
+    causal_hop_count: int
+    intermediate_decisions: List[str]
+    confidence_decay: float
+    weakest_link: Optional[Dict[str, Any]] = None
+    interpretation: str
+
+
+# ---------------------------------------------------------------------------
+# FR-9 — Temporal Distance Alerts
+# ---------------------------------------------------------------------------
+
+class DistanceSnapshot(BaseModel):
+    timestamp: datetime
+    hop_count: Optional[int] = None
+    distance_band: str
+
+
+class DistanceEvent(BaseModel):
+    timestamp: datetime
+    event_type: Literal["convergence", "divergence", "disconnected", "reconnected"]
+    hop_count_before: Optional[int] = None
+    hop_count_after: Optional[int] = None
+    description: str
+
+
+class DistanceHistoryResponse(BaseModel):
+    source_id: str
+    target_id: str
+    metric: str
+    history: List[DistanceSnapshot]
+    events: List[DistanceEvent]
+
+
+# ---------------------------------------------------------------------------
+# FR-10 — Distance-Enriched Export
+# ---------------------------------------------------------------------------
+
+class DistanceExportRequest(BaseModel):
+    format: Literal["csv", "jsonl"] = "csv"
+    node_subset: Optional[List[str]] = None
+    include: List[str] = Field(
+        default_factory=lambda: ["hops", "distance_band"],
+    )
