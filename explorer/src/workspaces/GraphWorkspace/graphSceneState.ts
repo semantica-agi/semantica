@@ -9,6 +9,7 @@ import {
   type GraphBadgeKind,
   type GraphEdgeVariant,
   type GraphEdgeVisualState,
+  type GraphEntityShapeVariant,
   type GraphLabelVisibilityPolicy,
   type GraphNodeShapeVariant,
   type GraphNodeVisualState,
@@ -18,10 +19,12 @@ import {
   withAlpha,
   zoomTierAtLeast,
 } from "./graphTheme";
+import { classifyEntityShape } from "./graphEntityShape";
 import { computeGraphAnalyticsBase } from "./graphAnalytics";
 import type {
   GraphDisplayMeta,
   GraphDisplayStateSnapshot,
+  GraphFullEdgeClass,
   GraphInteractionState,
   GraphSelectedNodeKind,
   GraphViewMode,
@@ -84,6 +87,9 @@ export type ResolvedNodeStyle = {
   borderColor: string;
   borderSize: number;
   nodeVariant: GraphNodeShapeVariant;
+  entityShape: GraphEntityShapeVariant;
+  entityShapeKind: number;
+  entityAspectRatio: number;
   badgeKind?: GraphBadgeKind;
   badgeCount?: number;
   showBadge: boolean;
@@ -597,6 +603,7 @@ function resolveNodeColor(
 ) {
   const semanticColor = String(attrs.baseColor || fallbackColor || theme.palette.semantic[0]);
   const isCommunityGroup = Boolean(attrs.isCommunityGroup);
+  const entityShapeConfig = theme.nodes.entityShapes[resolveEntityShape(attrs)];
   const overviewTint = state === "neighbor"
     ? theme.palette.overview.nodeTintMix + 0.09
     : theme.palette.overview.nodeTintMix;
@@ -628,10 +635,10 @@ function resolveNodeColor(
         );
         return withAlpha(
           boostedCore,
-          isCommunityGroup ? Math.min(overviewAlpha, theme.grouped.style.fillAlpha) : overviewAlpha,
+          isCommunityGroup ? Math.min(overviewAlpha, theme.grouped.style.fillAlpha) : Math.min(overviewAlpha, entityShapeConfig.fillAlpha),
         );
       }
-      return isCommunityGroup ? withAlpha(semanticColor, theme.grouped.style.fillAlpha) : semanticColor;
+      return withAlpha(semanticColor, isCommunityGroup ? theme.grouped.style.fillAlpha : entityShapeConfig.fillAlpha);
   }
 }
 
@@ -645,39 +652,36 @@ function resolveNodeShellColor(
 ) {
   const semanticColor = String(attrs.baseColor || fallbackColor || theme.palette.semantic[0]);
   const isCommunityGroup = Boolean(attrs.isCommunityGroup);
+  const entityShapeConfig = theme.nodes.entityShapes[resolveEntityShape(attrs)];
   const presenceBoost = getOverviewPresenceBoost(cameraRatio);
-  const overviewShell = blendHex(
-    theme.palette.overview.nodeBase,
-    semanticColor,
-    (state === "neighbor" ? 0.02 : 0.012) + presenceBoost * 0.024,
-  );
+  const overviewGlyph = blendHex(semanticColor, theme.ui.text.strong, 0.34 + presenceBoost * 0.12);
 
   if (zoomTier !== "overview") {
     return withAlpha(
-      blendHex(theme.palette.overview.nodeBase, semanticColor, 0.26),
-      isCommunityGroup ? theme.grouped.style.shellAlpha : 0.95,
+      blendHex(semanticColor, theme.ui.text.strong, state === "default" ? 0.26 : 0.42),
+      isCommunityGroup ? theme.grouped.style.shellAlpha : Math.min(0.72, entityShapeConfig.shellAlpha + 0.12),
     );
   }
 
   if (state === "selected") {
-    return withAlpha(blendHex(theme.palette.overview.nodeBase, theme.palette.accent.selected, 0.05), 0.98);
+    return withAlpha(blendHex(theme.palette.accent.selected, theme.ui.text.strong, 0.24), 0.92);
   }
 
   if (state === "hovered") {
-    return withAlpha(blendHex(theme.palette.overview.nodeBase, theme.palette.accent.hovered, 0.06), 0.98);
+    return withAlpha(blendHex(theme.palette.accent.hovered, theme.ui.text.strong, 0.22), 0.9);
   }
 
   if (state === "path") {
-    return withAlpha(blendHex(theme.palette.overview.nodeBase, theme.palette.accent.path, 0.06), 0.97);
+    return withAlpha(blendHex(theme.palette.accent.path, theme.ui.text.strong, 0.22), 0.9);
   }
 
   if (state === "muted" || state === "inactive") {
-    return withAlpha(theme.palette.overview.nodeMuted, 0.22);
+    return withAlpha(theme.palette.overview.nodeBorder, 0.16);
   }
 
   return withAlpha(
-    overviewShell,
-    isCommunityGroup ? theme.grouped.style.shellAlpha : theme.palette.overview.nodeShellAlpha,
+    overviewGlyph,
+    isCommunityGroup ? theme.grouped.style.shellAlpha : Math.min(0.58, entityShapeConfig.shellAlpha + 0.08),
   );
 }
 
@@ -730,11 +734,16 @@ function resolveEdgeColor(
   state: GraphEdgeVisualState,
   attrs: EdgeAttributes,
   fallbackColor?: string,
+  fullEdgeClass?: GraphFullEdgeClass,
 ) {
   const defaultInspectionColor = zoomTier === "overview"
     ? theme.palette.overview.edgeInspection
     : theme.palette.muted.edgeInspection;
   const baseColor = String(attrs.baseColor || fallbackColor || defaultInspectionColor);
+
+  if (fullEdgeClass === "bridge") {
+    return theme.palette.muted.edgeFocus;
+  }
 
   switch (theme.edges.states[state].color) {
     case "hover":
@@ -760,10 +769,115 @@ function resolveEdgeColor(
     case "muted":
       return zoomTier === "overview"
         ? theme.palette.overview.edgeStructure
-        : String(attrs.mutedColor || theme.palette.muted.edgeOverview);
+        : theme.palette.muted.edgeOverview;
     default:
       return baseColor;
   }
+}
+
+function resolveEdgeVisibilityPolicy(
+  theme: GraphTheme,
+  viewMode: GraphViewMode,
+  zoomTier: GraphZoomTier,
+  isCommunityBundle: boolean,
+) {
+  const policyMode = isCommunityBundle ? "grouped" : viewMode;
+  return theme.edges.visibility[policyMode][zoomTier];
+}
+
+function isContextEdgeState(state: GraphEdgeVisualState): boolean {
+  return state === "path"
+    || state === "selected"
+    || state === "hovered"
+    || state === "neighbor"
+    || state === "backbone";
+}
+
+function isNonCriticalEdgeVariant(variant: GraphEdgeVariant): boolean {
+  return variant === "line"
+    || variant === "directional"
+    || variant === "parallelCurve"
+    || variant === "bidirectionalCurve";
+}
+
+function shouldSampleOutBackgroundEdge(
+  sampleRate: number,
+  visualPriority: number,
+  edgeId?: string,
+  sourceId?: string,
+  targetId?: string,
+): boolean {
+  if (sampleRate >= 1) {
+    return false;
+  }
+
+  const sampleKey = edgeId || `${sourceId ?? "?"}->${targetId ?? "?"}`;
+  const bucket = (hashString(sampleKey) % 10000) / 10000;
+  const priorityAdjustedSampleRate = Math.min(1, sampleRate + visualPriority * 0.08);
+  return bucket > priorityAdjustedSampleRate;
+}
+
+function resolveEdgeLodAlpha(
+  theme: GraphTheme,
+  viewMode: GraphViewMode,
+  zoomTier: GraphZoomTier,
+  state: GraphEdgeVisualState,
+  attrs: EdgeAttributes,
+  isCommunityBundle: boolean,
+  fullEdgeClass?: GraphFullEdgeClass,
+): number | null {
+  const policy = resolveEdgeVisibilityPolicy(theme, viewMode, zoomTier, isCommunityBundle);
+  if (viewMode === "full") {
+    if (fullEdgeClass === "path" || state === "path") {
+      return theme.interaction.pathEdgeAlpha;
+    }
+    if (fullEdgeClass === "selected" || state === "selected") {
+      return theme.interaction.selectedEdgeAlpha;
+    }
+    if (fullEdgeClass === "local-context" || state === "hovered") {
+      return theme.interaction.localContextAlpha;
+    }
+    if (fullEdgeClass === "bridge") {
+      return theme.edges.fullGraphStructure.bridgeAlpha;
+    }
+    if (fullEdgeClass === "backbone") {
+      return theme.edges.fullGraphStructure.backboneAlpha;
+    }
+    if (state === "backbone") {
+      return theme.edges.fullGraphStructure.ambientBackboneAlpha;
+    }
+    if (state === "default" && zoomTier === "structure") {
+      return theme.edges.fullGraphStructure.structureEdgeAlpha;
+    }
+    if (state === "default" && zoomTier === "inspection") {
+      return theme.edges.fullGraphStructure.inspectionEdgeAlpha;
+    }
+  }
+  if (state === "path") {
+    return theme.interaction.pathEdgeAlpha;
+  }
+  if (state === "selected" || state === "hovered") {
+    return state === "selected" ? theme.interaction.selectedEdgeAlpha : theme.interaction.hoverContextAlpha;
+  }
+  if (state === "default") {
+    return policy.defaultAlpha;
+  }
+  if (state === "muted") {
+    return policy.mutedAlpha;
+  }
+  if (state === "inactive") {
+    return policy.inactiveAlpha;
+  }
+  if (state === "neighbor") {
+    if (attrs.bundleKind === "community") {
+      return Math.max(policy.neighborAlpha, theme.grouped.style.edgeAlpha);
+    }
+    return policy.neighborAlpha;
+  }
+  if (isCommunityBundle && !isContextEdgeState(state)) {
+    return theme.grouped.style.edgeAlpha;
+  }
+  return null;
 }
 
 function resolveNodeRingColor(
@@ -846,7 +960,7 @@ export function resolveEdgeVisualState(
   selectedEdgeId: string,
   focusIds: Set<string>,
   pathEdgeIds: Set<string>,
-  overviewBackboneEdgeIds: Set<string>,
+  highlightedIncidentEdgeIds: Set<string> = new Set(),
 ): GraphEdgeVisualState {
   const primaryNodeId = hoveredNodeId || selectedNodeId;
 
@@ -859,15 +973,14 @@ export function resolveEdgeVisualState(
   }
 
   if (primaryNodeId && (source === primaryNodeId || target === primaryNodeId)) {
-    return hoveredNodeId ? "hovered" : "selected";
+    if (highlightedIncidentEdgeIds.has(edgeId)) {
+      return hoveredNodeId ? "hovered" : "selected";
+    }
+    return "muted";
   }
 
   if (zoomTier !== "overview" && focusIds.has(source) && focusIds.has(target)) {
     return "neighbor";
-  }
-
-  if (zoomTier === "overview" && overviewBackboneEdgeIds.has(edgeId)) {
-    return "backbone";
   }
 
   if (hoveredNodeId || selectedNodeId || selectedEdgeId || pathEdgeIds.size > 0) {
@@ -881,12 +994,112 @@ export function resolveEdgeVisualState(
   return "default";
 }
 
+function getNodeBridgeGroup(attrs?: NodeAttributes): string {
+  if (!attrs) {
+    return "";
+  }
+  return String(attrs.communityId || attrs.semanticGroup || attrs.nodeType || "");
+}
+
+function isCuratedBridgeEdge(sourceAttrs?: NodeAttributes, targetAttrs?: NodeAttributes): boolean {
+  const sourceGroup = getNodeBridgeGroup(sourceAttrs);
+  const targetGroup = getNodeBridgeGroup(targetAttrs);
+  return Boolean(sourceGroup && targetGroup && sourceGroup !== targetGroup);
+}
+
+export function classifyFullGraphEdge(
+  edgeId: string,
+  source: string,
+  target: string,
+  zoomTier: GraphZoomTier,
+  hoveredNodeId: string | null,
+  selectedNodeId: string,
+  selectedEdgeId: string,
+  focusIds: Set<string>,
+  pathEdgeIds: Set<string>,
+  highlightedIncidentEdgeIds: Set<string> = new Set(),
+  overviewBackboneEdgeIds: Set<string> = new Set(),
+  sourceAttrs?: NodeAttributes,
+  targetAttrs?: NodeAttributes,
+): GraphFullEdgeClass {
+  const primaryNodeId = hoveredNodeId || selectedNodeId;
+
+  if (pathEdgeIds.has(edgeId)) {
+    return "path";
+  }
+
+  if (selectedEdgeId && edgeId === selectedEdgeId) {
+    return "selected";
+  }
+
+  if (highlightedIncidentEdgeIds.has(edgeId)) {
+    return "local-context";
+  }
+
+  if (primaryNodeId && (source === primaryNodeId || target === primaryNodeId)) {
+    return "muted";
+  }
+
+  if (overviewBackboneEdgeIds.has(edgeId)) {
+    return isCuratedBridgeEdge(sourceAttrs, targetAttrs) ? "bridge" : "backbone";
+  }
+
+  if (zoomTier === "overview") {
+    return "hidden";
+  }
+
+  if (focusIds.has(source) && focusIds.has(target)) {
+    return "muted";
+  }
+
+  return "muted";
+}
+
+export function mapFullEdgeClassToVisualState(
+  edgeClass: GraphFullEdgeClass,
+  options: { hoveredNodeId: string | null; hasActiveInteraction: boolean },
+): GraphEdgeVisualState {
+  switch (edgeClass) {
+    case "path":
+      return "path";
+    case "selected":
+      return "selected";
+    case "local-context":
+      return options.hoveredNodeId ? "hovered" : "selected";
+    case "backbone":
+      return "backbone";
+    case "bridge":
+      return "backbone";
+    case "hidden":
+      return "inactive";
+    case "muted":
+    default:
+      return options.hasActiveInteraction ? "muted" : "default";
+  }
+}
+
 export function resolveNodeVariant(state: GraphNodeVisualState, attrs: NodeAttributes): GraphNodeShapeVariant {
   if (state === "selected") {
     return "selected";
   }
 
   return attrs.nodeShapeVariant || attrs.nodeVariant || "default";
+}
+
+export function resolveEntityShape(attrs: NodeAttributes): GraphEntityShapeVariant {
+  if (attrs.isCommunityGroup) {
+    return "community";
+  }
+
+  // Prefer the shape stamped at load time; fall back to classifyEntityShape for
+  // nodes created programmatically that bypassed useLoadGraph.
+  return attrs.entityShape
+    || classifyEntityShape(
+      attrs.nodeType,
+      attrs.semanticGroup,
+      attrs.content,
+      attrs.properties as Record<string, unknown> | undefined,
+    );
 }
 
 export function resolveEdgeVariant(state: GraphEdgeVisualState, attrs: EdgeAttributes): GraphEdgeVariant {
@@ -1001,6 +1214,8 @@ export function resolveNodeElementStyle(
   const stateConfig = theme.nodes.states[state];
   const nodeVariant = resolveNodeVariant(state, attrs);
   const variantConfig = theme.nodes.variants[nodeVariant];
+  const entityShape = resolveEntityShape(attrs);
+  const entityShapeConfig = theme.nodes.entityShapes[entityShape];
   const isCommunityGroup = Boolean(attrs.isCommunityGroup);
   const baseSize = Number(attrs.baseSize || attrs.size || 4);
   const labelPriority = Number(attrs.labelPriority ?? 0);
@@ -1028,12 +1243,17 @@ export function resolveNodeElementStyle(
     : forceVisibleState
       ? theme.nodes.strokeHierarchy[zoomTier].emphasis
       : theme.nodes.strokeHierarchy[zoomTier].base;
+  const rawCoreScale = resolveNodeCoreScale(zoomTier, state, cameraRatio) * entityShapeConfig.coreScale;
+  const shouldShowGlyphHint = zoomTier !== "overview"
+    || state === "hovered"
+    || state === "selected"
+    || state === "path";
 
   return {
     color,
     shellColor,
-    coreScale: resolveNodeCoreScale(zoomTier, state, cameraRatio),
-    size: Math.max(baseSize * sizeMultiplier * overviewPresence, stateConfig.minSize),
+    coreScale: shouldShowGlyphHint ? clamp(0.06, rawCoreScale, 0.5) : 0,
+    size: Math.max(baseSize * sizeMultiplier * overviewPresence, stateConfig.minSize, entityShapeConfig.minSize),
     forceLabel,
     label: forceLabel ? label : "",
     zIndex: forceLabel && stateConfig.zIndex === 0 ? 1 : stateConfig.zIndex,
@@ -1045,10 +1265,14 @@ export function resolveNodeElementStyle(
         + strokeBase
         + stateConfig.borderBoost
         + variantConfig.borderBoost
+        + entityShapeConfig.borderBoost
         + (isCommunityGroup ? theme.grouped.style.nodeBorderBoost : 0)
         - 0.8,
     ),
     nodeVariant,
+    entityShape,
+    entityShapeKind: entityShapeConfig.shapeKind,
+    entityAspectRatio: entityShapeConfig.aspectRatio,
     badgeKind,
     badgeCount: attrs.badgeCount,
     showBadge,
@@ -1069,11 +1293,20 @@ function resolveStraightEdgeType(
   state: GraphEdgeVisualState,
   variant: GraphEdgeVariant,
   attrs: EdgeAttributes,
+  viewMode: GraphViewMode,
 ): "line" | "arrow" {
   const variantConfig = theme.edges.variants[variant];
 
   if (theme.edges.states[state].forceArrow || variantConfig.arrowPolicy === "always") {
     return "arrow";
+  }
+
+  if ((viewMode === "full" || viewMode === "grouped") && state === "default") {
+    return "line";
+  }
+
+  if (viewMode === "full" && state === "backbone") {
+    return "line";
   }
 
   if (variantConfig.arrowPolicy === "contextual" && theme.zoomTiers[zoomTier].showContextualArrows) {
@@ -1125,6 +1358,9 @@ export function resolveEdgeElementStyle(
   attrs: EdgeAttributes,
   sourceId?: string,
   targetId?: string,
+  viewMode: GraphViewMode = "full",
+  edgeId?: string,
+  fullEdgeClass?: GraphFullEdgeClass,
 ): ResolvedEdgeStyle {
   const tierConfig = theme.zoomTiers[zoomTier];
   const stateConfig = theme.edges.states[state];
@@ -1133,11 +1369,29 @@ export function resolveEdgeElementStyle(
   const isCommunityBundle = attrs.bundleKind === "community";
   const baseSize = Number(attrs.baseSize || attrs.size || 0.9);
   const visualPriority = Number(attrs.visualPriority ?? 0);
+  const isFullBridgeEdge = viewMode === "full" && fullEdgeClass === "bridge";
+  const isFullBackboneEdge = viewMode === "full" && fullEdgeClass === "backbone";
+  const shouldCurveBridge = isFullBridgeEdge
+    && visualPriority >= theme.edges.fullGraphStructure.bridgeCurvePriorityThreshold;
+  const visibilityPolicy = resolveEdgeVisibilityPolicy(theme, viewMode, zoomTier, isCommunityBundle);
+  const isContextEdge = isContextEdgeState(state);
+  const isNonCriticalEdge = isNonCriticalEdgeVariant(edgeVariant);
   const belowPriorityThreshold = state === "default"
-    && visualPriority < tierConfig.edgePriorityThreshold
-    && edgeVariant === "line";
+    && visualPriority < Math.max(tierConfig.edgePriorityThreshold, visibilityPolicy.defaultPriorityThreshold)
+    && isNonCriticalEdge;
+  const hiddenByMutedState = (state === "muted" || state === "inactive") && visibilityPolicy.hideMuted;
+  const sampledOut = isNonCriticalEdge
+    && (
+      (state === "default" && !isContextEdge && shouldSampleOutBackgroundEdge(visibilityPolicy.backgroundSampleRate, visualPriority, edgeId, sourceId, targetId))
+      || (
+        state === "backbone"
+        && zoomTier === "overview"
+        && viewMode !== "full"
+        && shouldSampleOutBackgroundEdge(0.15, visualPriority, edgeId, sourceId, targetId)
+      )
+    );
 
-  if (stateConfig.hide || belowPriorityThreshold) {
+  if (stateConfig.hide || belowPriorityThreshold || hiddenByMutedState || sampledOut) {
     return {
       hidden: true,
       zIndex: 0,
@@ -1148,31 +1402,55 @@ export function resolveEdgeElementStyle(
     };
   }
 
-  const sizeMultiplier = (state === "default" ? tierConfig.edgeSizeScale : stateConfig.sizeMultiplier) * variantConfig.sizeMultiplier;
-  const straightType = resolveStraightEdgeType(theme, zoomTier, state, edgeVariant, attrs);
+  const lodSizeMultiplier = isContextEdge ? 1 : visibilityPolicy.sizeMultiplier;
+  const sizeMultiplier = (state === "default" ? tierConfig.edgeSizeScale : stateConfig.sizeMultiplier)
+    * variantConfig.sizeMultiplier
+    * lodSizeMultiplier;
+  const straightType = resolveStraightEdgeType(theme, zoomTier, state, edgeVariant, attrs, viewMode);
   const useCurvedRenderer = tierConfig.showCurves
-    && zoomTier !== "overview"
     && (
       edgeVariant === "pathSignal"
       || state === "selected"
-      || ((state === "neighbor" || state === "hovered") && (edgeVariant === "bidirectionalCurve" || edgeVariant === "parallelCurve"))
+      || shouldCurveBridge
+      || edgeVariant === "bidirectionalCurve"
+      || edgeVariant === "parallelCurve"
     );
-  const curvature = useCurvedRenderer
-    ? resolveEdgeCurvature(theme, state, edgeVariant, attrs, sourceId, targetId)
-    : 0;
+  const curvature = shouldCurveBridge
+    ? (sourceId && targetId && sourceId.localeCompare(targetId) > 0
+      ? -theme.edges.fullGraphStructure.bridgeCurveStrength
+      : theme.edges.fullGraphStructure.bridgeCurveStrength)
+    : useCurvedRenderer
+      ? resolveEdgeCurvature(theme, state, edgeVariant, attrs, sourceId, targetId)
+      : 0;
+  const baseColor = resolveEdgeColor(theme, zoomTier, state, attrs, attrs.color, fullEdgeClass);
+  const lodAlpha = resolveEdgeLodAlpha(theme, viewMode, zoomTier, state, attrs, isCommunityBundle, fullEdgeClass);
+  const color = lodAlpha === null ? baseColor : withAlpha(baseColor, lodAlpha);
+  const rawSize = Math.max(
+    baseSize * sizeMultiplier * (isCommunityBundle ? theme.grouped.style.edgeSizeScale : 1),
+    stateConfig.minSize,
+  );
+  
+  const interactionMaxSize = (fullEdgeClass === "path" || state === "path")
+    ? theme.interaction.pathEdgeMaxSize
+    : (fullEdgeClass === "selected" || state === "selected")
+      ? theme.interaction.selectedEdgeMaxSize
+      : (fullEdgeClass === "local-context" || state === "hovered" || state === "neighbor")
+        ? theme.interaction.localContextMaxSize
+        : Number.POSITIVE_INFINITY;
+
+  const size = isFullBridgeEdge
+    ? Math.min(rawSize, theme.edges.fullGraphStructure.bridgeMaxSize)
+    : isFullBackboneEdge
+      ? Math.min(rawSize, theme.edges.fullGraphStructure.backboneMaxSize)
+      : Math.min(rawSize, interactionMaxSize);
 
   return {
     hidden: false,
     type: useCurvedRenderer
       ? (straightType === "arrow" ? "curvedArrow" : "curve")
       : straightType,
-    color: isCommunityBundle
-      ? withAlpha(resolveEdgeColor(theme, zoomTier, state, attrs, attrs.color), theme.grouped.style.edgeAlpha)
-      : resolveEdgeColor(theme, zoomTier, state, attrs, attrs.color),
-    size: Math.max(
-      baseSize * sizeMultiplier * (isCommunityBundle ? theme.grouped.style.edgeSizeScale : 1),
-      stateConfig.minSize,
-    ),
+    color: color,
+    size,
     zIndex: stateConfig.zIndex,
     edgeVariant,
     arrowVisibilityPolicy: variantConfig.arrowPolicy,
@@ -1675,6 +1953,7 @@ function buildCommunityGroupedGraph(): GraphDisplayResult {
       mutedColor: withAlpha(summary.color, 0.22),
       glowColor: withAlpha(summary.color, GRAPH_THEME.grouped.style.glowAlpha),
       borderColor: withAlpha(summary.color, 0.74),
+      entityShape: "community",
       nodeType: "community",
       semanticGroup: summary.dominantSemanticGroup,
       labelVisibilityPolicy: position.labelPriority > 0.9 ? "priority" : "none",
@@ -1901,30 +2180,42 @@ export function createFocusedGraph(
     });
   });
 
-  for (const source of focusIds) {
-    for (const target of focusIds) {
-      if (source === target) {
-        continue;
-      }
-      forEachDirectedEdgeBetween(graph, source, target, (edgeId, attrs) => {
-        const state: GraphEdgeVisualState = pathEdgeIds.has(edgeId)
-          ? "path"
-          : source === nodeId || target === nodeId
-            ? "selected"
-            : "neighbor";
-        const style = resolveEdgeElementStyle(GRAPH_THEME, "inspection", state, attrs, source, target);
-        focused.mergeDirectedEdgeWithKey(edgeId, source, target, {
-          ...attrs,
-          type: style.type,
-          size: style.size,
-          color: style.color,
-          baseSize: style.size,
-          baseColor: style.color,
-          curvature: style.curvature,
-        });
-      });
+  collectFocusEdgeIds(graph, focusIds).forEach((edgeId) => {
+    if (!graph.hasEdge(edgeId)) {
+      return;
     }
-  }
+
+    const [source, target] = graph.extremities(edgeId);
+    if (!focusIds.has(source) || !focusIds.has(target) || source === target) {
+      if (DEBUG_GRAPH_SCENE_STATE) {
+        console.debug("[graphSceneState]", "focused-edge-skipped-invalid-endpoints", {
+          edgeId,
+          source,
+          target,
+          selectedNodeId: nodeId,
+        });
+      }
+      return;
+    }
+
+    const attrs = graph.getEdgeAttributes(edgeId) as EdgeAttributes;
+    const state: GraphEdgeVisualState = pathEdgeIds.has(edgeId)
+      ? "path"
+      : source === nodeId || target === nodeId
+        ? "selected"
+        : "neighbor";
+    const style = resolveEdgeElementStyle(GRAPH_THEME, "inspection", state, attrs, source, target, "focused", edgeId);
+
+    focused.mergeDirectedEdgeWithKey(edgeId, source, target, {
+      ...attrs,
+      type: style.type,
+      size: style.size,
+      color: style.color,
+      baseSize: style.size,
+      baseColor: style.color,
+      curvature: style.curvature,
+    });
+  });
 
   return aggregateDisplayGraph(focused);
 }

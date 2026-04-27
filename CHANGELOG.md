@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **Feature: Graph Explorer visual refresh** (PR #503 by @ZohaibHassan16, conflict resolution by @KaifAhmad1):
+  - Extracted all hardcoded `rgba(...)` color literals into a structured `ui.*` design-token namespace in `graphTheme.ts` — covering `ui.text`, `ui.surface`, `ui.scene`, `ui.control`, `ui.timeline`, and `ui.interaction`. Future theming is now a one-file change.
+  - Added `GraphEntityShapeVariant` type and per-shape config (`fillAlpha`, `shellAlpha`, `coreScale`, `borderBoost`, `minSize`) for biomolecule, condition, compound, process, community, and entity node kinds. Shell and fill colors now derive from per-entity-shape config rather than uniform overrides.
+  - Decomposed the monolithic `coreToolbarGroups` useMemo into focused per-cluster memos (`viewModeItems`, `cameraToolbarItems`, `layoutToolbarItems`, `localToolbarItems`, `analysisToolbarItems`, `utilityToolbarItems`) each with minimal deps arrays. Distance Intelligence controls (ego mode, heatmap, structural/semantic overlay) ported into a new `distanceToolbarItems` cluster, gated on node selection.
+  - Replaced the raw `<input>` search bar and inline `<button>` loop with typed sub-components: `SearchCommandBar`, `SegmentedModeControl`, `ToolbarCluster`, `ToolbarButton`, and `EntityVisualKey`. All carry `aria-label`, `role`, and `disabled` attributes.
+  - Added `GraphFullEdgeClass` union (`hidden | backbone | bridge | local-context | selected | path | muted`), `classifyFullGraphEdge`, and `resolveEdgeVisibilityPolicy` for deterministic per-mode LOD edge classification. Full-graph mode visibility and context caps are now declared as data (`edges.visibility`, `edges.contextCaps`) per view mode × zoom tier.
+  - Added `GraphRuntimeDiagnosticsSnapshot` type; `onDiagnosticsChange` callback now emits `{ effectAvailability, edgeClasses, structureLayer }` instead of the internal `effectAvailability` sub-object.
+  - Edge visual state weights (size multipliers, min sizes) tuned for quieter large-graph rendering: default edges dropped from `0.96×` to `0.48×`; muted edges from `0.6×` to `0.24×`; path/selected edges raised slightly to maintain hierarchy contrast.
+  - Scene grid updated to a two-frequency pattern (minor 48 px, major 240 px) with tokens sourced from `GRAPH_THEME.ui.scene`.
+  - `focusNode` early-return now clears `selectedNodeId`, `selectedEdgeId`, `pathResult`, `searchResults`, and `searchError` when called with an empty string.
+  - Added 15 new display-state and edge-classification tests in `explorer/tests/graphSceneState.display.test.ts`.
+
 - **Feature: Distance Intelligence** (closes #502 by @KaifAhmad1):
   - **Context layer** — `ContextGraph.get_neighbors()` gains `include_distance_metadata=False`; when enabled adds `distance_band`, `confidence_decay`, and `path_to_anchor` per result. New `get_neighbor_distances()` returns neighbors sorted by `(hop, -decay)` with optional `min_confidence` filter. `AgentContext.retrieve()` / `find_precedents()` accept `anchor_node`, `max_hops`, `proximity_weight`, `min_confidence_decay` and blend graph proximity with semantic score as `combined_score = (1 − w) × semantic + w × proximity`.
   - **Path enrichment (FR-4)** — `GET /api/graph/node/{id}/path` now returns `semantic_similarity`, `path_coherence_score`, `confidence_decay` (O(L) via pre-built edge-weight index), `bottleneck_node`, `alternative_path_count`, and `interpretation`. All fields optional; zero breaking changes.

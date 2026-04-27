@@ -1,4 +1,20 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType, type ReactNode } from "react";
+import {
+  Activity,
+  Clock3,
+  Eye,
+  Focus,
+  GitBranch,
+  Layers3,
+  Maximize2,
+  Pause,
+  Play,
+  RefreshCw,
+  Search,
+  Users,
+  ZoomIn,
+  ZoomOut,
+} from "lucide-react";
 
 import type Graph from "graphology";
 import { batchMergeEdges, batchMergeNodes, graph } from "../../store/graphStore";
@@ -12,6 +28,7 @@ import { useLoadGraph, useReloadGraph } from "./useLoadGraph";
 import { GraphLoadingOverlay } from "./GraphLoadingOverlay";
 import { createGraphLoadProgress, getGraphLoadTitle } from "./graphLoading";
 import { GRAPH_THEME, withAlpha } from "./graphTheme";
+import type { GraphEntityShapeVariant } from "./graphTheme";
 import { checkGroupedViewAvailability, resolveDisplayGraph, resolveDisplayStateSnapshot, resolveGroupedDisplayNodeId, resolveGroupedDisplayStateSnapshot } from "./graphSceneState";
 import {
   type GraphPlugin,
@@ -32,6 +49,7 @@ import type {
   GraphInteractionState,
   GraphLoadProgress,
   GraphLoadSummary,
+  GraphRuntimeDiagnosticsSnapshot,
   GraphSelectedEdgeState,
   GraphSelectedNodeKind,
   GraphSelectedNodeState,
@@ -59,6 +77,12 @@ type ExploreLayoutState = {
   showPluginDock: boolean;
 };
 
+type ToolbarIconComponent = ComponentType<{
+  size?: number;
+  strokeWidth?: number;
+  "aria-hidden"?: boolean;
+}>;
+
 type GraphToolbarItem = {
   id: string;
   label: string;
@@ -66,11 +90,16 @@ type GraphToolbarItem = {
   active?: boolean;
   disabled?: boolean;
   tone?: "primary" | "secondary";
+  icon?: ToolbarIconComponent;
+  ariaLabel?: string;
+  compact?: boolean;
   onClick: () => void;
 };
 
 type GraphToolbarGroup = {
   id: string;
+  label?: string;
+  variant?: "cluster" | "segmented";
   items: GraphToolbarItem[];
 };
 
@@ -110,6 +139,15 @@ const loadExplorationEffectsPlugin = () => import("./plugins/explorationEffectsP
 const loadNeighborhoodPanelPlugin = () => import("./plugins/neighborhoodPanelPlugin").then((module) => module.neighborhoodPanelPlugin);
 const loadTemporalOverlayPlugin = () => import("./plugins/temporalOverlayPlugin").then((module) => module.temporalOverlayPlugin);
 const EMPTY_PATH: string[] = [];
+const COMPACT_TOOLBAR_CLUSTER_IDS = new Set(["camera", "utility"]);
+const ENTITY_VISUAL_KEY: Array<{ shape: GraphEntityShapeVariant; label: string }> = [
+  { shape: "biomolecule", label: "Biomolecule" },
+  { shape: "condition", label: "Condition" },
+  { shape: "compound", label: "Compound" },
+  { shape: "process", label: "Process" },
+  { shape: "community", label: "Community" },
+  { shape: "entity", label: "Other" },
+];
 const DEBUG_GRAPH_WORKSPACE = import.meta.env.DEV;
 
 function debugGraphWorkspace(message: string, payload?: Record<string, unknown>) {
@@ -128,49 +166,187 @@ function useDebounce<T>(value: T, delay: number): T {
   return debouncedValue;
 }
 
+function iconForPluginToolbarItem(item: GraphPluginToolbarItem): ToolbarIconComponent {
+  const normalized = `${item.id} ${item.label}`.toLowerCase();
+  if (normalized.includes("neighbor")) {
+    return Users;
+  }
+  if (normalized.includes("temporal") || normalized.includes("time")) {
+    return Clock3;
+  }
+  return Activity;
+}
+
+function ToolbarIcon({ icon: Icon, size = 15 }: { icon?: ToolbarIconComponent; size?: number }) {
+  if (!Icon) {
+    return null;
+  }
+
+  return <Icon size={size} strokeWidth={2.15} aria-hidden />;
+}
+
+function ToolbarButton({
+  item,
+  compact = false,
+  className = "",
+}: {
+  item: GraphToolbarItem;
+  compact?: boolean;
+  className?: string;
+}) {
+  const isCompact = compact || item.compact;
+  return (
+    <button
+      type="button"
+      className={`explore-tool-button ${item.tone === "primary" ? "explore-tool-button-primary" : ""} ${className}`}
+      data-active={item.active ? "true" : "false"}
+      data-compact={isCompact ? "true" : "false"}
+      onClick={item.onClick}
+      title={item.title}
+      aria-label={item.ariaLabel ?? item.label}
+      disabled={item.disabled}
+    >
+      <ToolbarIcon icon={item.icon} size={isCompact ? 14 : 15} />
+      <span className="explore-tool-button-label">{item.label}</span>
+    </button>
+  );
+}
+
+function ToolbarCluster({
+  label,
+  items,
+  compact = false,
+  children,
+}: {
+  label: string;
+  items?: GraphToolbarItem[];
+  compact?: boolean;
+  children?: ReactNode;
+}) {
+  if ((!items || items.length === 0) && !children) {
+    return null;
+  }
+
+  return (
+    <div className="explore-tool-cluster" aria-label={label}>
+      <div className="explore-tool-cluster-label">{label}</div>
+      <div className="explore-tool-cluster-items">
+        {children}
+        {items?.map((item) => (
+          <ToolbarButton key={item.id} item={item} compact={compact} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function SegmentedModeControl({ items }: { items: GraphToolbarItem[] }) {
+  if (!items.length) {
+    return null;
+  }
+
+  return (
+    <div className="explore-mode-control" role="group" aria-label="Graph view mode">
+      {items.map((item) => (
+        <ToolbarButton key={item.id} item={item} className="explore-mode-segment" />
+      ))}
+    </div>
+  );
+}
+
+function SearchCommandBar({
+  value,
+  disabled,
+  onChange,
+  onSubmit,
+}: {
+  value: string;
+  disabled: boolean;
+  onChange: (value: string) => void;
+  onSubmit: () => void;
+}) {
+  return (
+    <form
+      className="explore-search-command"
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (!disabled) {
+          onSubmit();
+        }
+      }}
+    >
+      <Search size={17} strokeWidth={2.15} aria-hidden />
+      <input
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        placeholder="Search command, node, or concept"
+        aria-label="Search graph nodes"
+      />
+      <button type="submit" disabled={disabled} aria-label="Search for the current query">
+        Search
+      </button>
+    </form>
+  );
+}
+
+function EntityVisualKey() {
+  return (
+    <div className="explore-entity-key" aria-label="Node visual key">
+      {ENTITY_VISUAL_KEY.map((item) => (
+        <div key={item.shape} className="explore-entity-key-item">
+          <span className="explore-entity-key-mark" data-shape={item.shape} />
+          <span>{item.label}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 const HUD_CSS = `
   .palantir-bg {
     background:
-      radial-gradient(circle at top, rgba(77, 157, 255, 0.08), transparent 22%),
-      linear-gradient(180deg, #060b17 0%, #02060d 100%);
+      ${GRAPH_THEME.ui.scene.radialGlow},
+      ${GRAPH_THEME.ui.scene.background};
   }
   .palantir-grid {
     position: absolute;
     inset: 0;
     background-image:
-      linear-gradient(rgba(88, 166, 255, 0.038) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(88, 166, 255, 0.038) 1px, transparent 1px);
-    background-size: 42px 42px;
+      linear-gradient(${GRAPH_THEME.ui.scene.grid} 1px, transparent 1px),
+      linear-gradient(90deg, ${GRAPH_THEME.ui.scene.grid} 1px, transparent 1px),
+      linear-gradient(${GRAPH_THEME.ui.scene.gridStrong} 1px, transparent 1px),
+      linear-gradient(90deg, ${GRAPH_THEME.ui.scene.gridStrong} 1px, transparent 1px);
+    background-size: 48px 48px, 48px 48px, 240px 240px, 240px 240px;
     pointer-events: none;
     z-index: 1;
   }
   .palantir-vignette {
     position: absolute;
     inset: 0;
-    background: radial-gradient(ellipse at center, transparent 34%, rgba(1, 4, 10, 0.78) 100%);
+    background: ${GRAPH_THEME.ui.scene.vignette};
     pointer-events: none;
     z-index: 2;
   }
   .glass-header {
-    background: linear-gradient(180deg, rgba(7, 14, 25, 0.88) 0%, rgba(10, 18, 31, 0.62) 100%);
-    border-bottom: 1px solid rgba(112, 196, 255, 0.1);
+    background: ${GRAPH_THEME.ui.surface.cardSubtle};
+    border-bottom: 1px solid ${GRAPH_THEME.ui.surface.panelBorder};
     backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);
   }
   .glass-hud {
-    background: linear-gradient(135deg, rgba(8, 15, 27, 0.76), rgba(10, 19, 32, 0.58));
+    background: ${GRAPH_THEME.ui.surface.panel};
     backdrop-filter: blur(14px) saturate(1.08);
     -webkit-backdrop-filter: blur(14px) saturate(1.08);
-    border-left: 1px solid rgba(112, 196, 255, 0.14);
-    box-shadow: -10px 0 28px rgba(0, 0, 0, 0.34), inset 1px 0 0 rgba(255, 255, 255, 0.04);
+    border-left: 1px solid ${GRAPH_THEME.ui.surface.panelBorder};
+    box-shadow: ${GRAPH_THEME.ui.surface.shadow};
   }
   .hud-scrollbar::-webkit-scrollbar { width: 6px; }
   .hud-scrollbar::-webkit-scrollbar-track { background: transparent; }
-  .hud-scrollbar::-webkit-scrollbar-thumb { background: rgba(88, 166, 255, 0.25); border-radius: 6px; }
+  .hud-scrollbar::-webkit-scrollbar-thumb { background: rgba(215, 209, 196, 0.22); border-radius: 6px; }
   .node-panel-collapse {
-    border: 1px solid rgba(255, 255, 255, 0.05);
+    border: 1px solid ${GRAPH_THEME.ui.surface.panelBorder};
     border-radius: 12px;
-    background: rgba(0, 0, 0, 0.14);
+    background: rgba(255, 255, 255, 0.026);
     overflow: hidden;
   }
   .node-panel-collapse + .node-panel-collapse {
@@ -184,7 +360,7 @@ const HUD_CSS = `
     justify-content: space-between;
     gap: 12px;
     padding: 12px 14px;
-    color: #c6d4e3;
+    color: ${GRAPH_THEME.ui.text.body};
     font-size: 12px;
     font-weight: 700;
     letter-spacing: 0.04em;
@@ -195,7 +371,7 @@ const HUD_CSS = `
   }
   .node-panel-summary::after {
     content: "+";
-    color: rgba(127, 208, 255, 0.8);
+    color: ${GRAPH_THEME.ui.timeline.playhead};
     font-size: 16px;
     line-height: 1;
   }
@@ -218,9 +394,9 @@ const HUD_CSS = `
     width: min(460px, calc(100% - 48px));
     border-radius: 20px;
     padding: 22px 22px 18px;
-    background: linear-gradient(135deg, rgba(7, 17, 31, 0.9), rgba(14, 28, 48, 0.78));
-    border: 1px solid rgba(127, 208, 255, 0.16);
-    box-shadow: 0 24px 80px rgba(0, 0, 0, 0.38), inset 0 1px 0 rgba(255,255,255,0.04);
+    background: ${GRAPH_THEME.ui.surface.cardStrong};
+    border: 1px solid ${GRAPH_THEME.ui.surface.panelBorder};
+    box-shadow: ${GRAPH_THEME.ui.surface.shadow};
     backdrop-filter: blur(18px);
     -webkit-backdrop-filter: blur(18px);
   }
@@ -233,8 +409,8 @@ const HUD_CSS = `
     width: 10px;
     height: 10px;
     border-radius: 999px;
-    background: linear-gradient(135deg, rgba(127, 208, 255, 0.96), rgba(242, 182, 109, 0.96));
-    box-shadow: 0 0 18px rgba(127, 208, 255, 0.35);
+    background: linear-gradient(135deg, ${GRAPH_THEME.ui.timeline.playhead}, ${GRAPH_THEME.palette.accent.selected});
+    box-shadow: 0 0 18px rgba(98, 226, 205, 0.28);
     animation: sem-loader-pulse 1.2s ease-in-out infinite;
   }
   .graph-loading-dot:nth-child(2) {
@@ -258,15 +434,15 @@ const HUD_CSS = `
     height: 10px;
     border-radius: 999px;
     overflow: hidden;
-    background: rgba(255, 255, 255, 0.06);
-    border: 1px solid rgba(127, 208, 255, 0.1);
+    background: rgba(255, 255, 255, 0.052);
+    border: 1px solid ${GRAPH_THEME.ui.surface.panelBorder};
   }
   .graph-loading-bar > span {
     display: block;
     height: 100%;
     border-radius: 999px;
-    background: linear-gradient(90deg, rgba(74, 163, 255, 0.9), rgba(127, 208, 255, 0.95), rgba(242, 182, 109, 0.92));
-    box-shadow: 0 0 28px rgba(74, 163, 255, 0.3);
+    background: linear-gradient(90deg, rgba(98, 226, 205, 0.9), rgba(233, 196, 122, 0.9));
+    box-shadow: 0 0 28px rgba(98, 226, 205, 0.22);
     transition: width 180ms ease;
   }
   .explore-shell {
@@ -316,6 +492,7 @@ const HUD_CSS = `
     flex: 1;
     overflow: hidden;
     border-radius: 20px 20px 0 0;
+    background: ${GRAPH_THEME.ui.surface.stage};
   }
   .explore-scene-stage {
     position: relative;
@@ -326,8 +503,8 @@ const HUD_CSS = `
   .explore-scene-footer {
     position: relative;
     z-index: 3;
-    border-top: 1px solid rgba(112, 196, 255, 0.1);
-    background: linear-gradient(180deg, rgba(5, 11, 20, 0.94), rgba(5, 11, 20, 0.82));
+    border-top: 1px solid ${GRAPH_THEME.ui.timeline.border};
+    background: ${GRAPH_THEME.ui.timeline.background};
   }
   .explore-plugin-dock {
     position: relative;
@@ -340,9 +517,9 @@ const HUD_CSS = `
     flex-wrap: wrap;
   }
   .explore-plugin-dock-tab {
-    border: 1px solid rgba(127, 208, 255, 0.14);
-    background: rgba(255, 255, 255, 0.03);
-    color: #a9bfd7;
+    border: 1px solid ${GRAPH_THEME.ui.control.defaultBorder};
+    background: ${GRAPH_THEME.ui.control.defaultBg};
+    color: ${GRAPH_THEME.ui.control.defaultText};
     border-radius: 999px;
     padding: 6px 10px;
     font-size: 11px;
@@ -350,33 +527,219 @@ const HUD_CSS = `
     cursor: pointer;
   }
   .explore-plugin-dock-tab[data-active="true"] {
-    color: #eef6ff;
-    background: rgba(74, 163, 255, 0.16);
-    border-color: rgba(127, 208, 255, 0.28);
+    color: ${GRAPH_THEME.ui.control.activeText};
+    background: rgba(74, 181, 166, 0.18);
+    border-color: ${GRAPH_THEME.ui.control.activeBorder};
   }
   .explore-toolbar {
     display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 10px;
-    flex-wrap: wrap;
+    flex-direction: column;
+    gap: 12px;
   }
-  .explore-toolbar-groups {
+  .explore-status-strip {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 7px;
     flex-wrap: wrap;
-    flex: 1;
-    justify-content: flex-end;
   }
-  .explore-toolbar-group {
-    display: inline-flex;
+  .explore-workflow-bar {
+    display: grid;
+    grid-template-columns: minmax(280px, 1.1fr) auto minmax(360px, 1.55fr);
+    align-items: center;
+    gap: 10px;
+  }
+  .explore-search-command {
+    min-width: 0;
+    height: 43px;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 9px;
+    padding: 4px 5px 4px 13px;
+    border-radius: 16px;
+    border: 1px solid ${GRAPH_THEME.ui.control.inputBorder};
+    background:
+      linear-gradient(135deg, rgba(255,255,255,0.06), rgba(255,255,255,0.018)),
+      ${GRAPH_THEME.ui.control.inputBg};
+    color: ${GRAPH_THEME.ui.text.muted};
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.045), 0 14px 30px rgba(0,0,0,0.16);
+  }
+  .explore-search-command:focus-within {
+    border-color: ${GRAPH_THEME.ui.control.activeBorder};
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.06), 0 0 0 1px ${GRAPH_THEME.ui.control.focusRing}, 0 16px 32px rgba(0,0,0,0.18);
+  }
+  .explore-search-command input {
+    width: 100%;
+    min-width: 0;
+    border: 0;
+    outline: 0;
+    color: ${GRAPH_THEME.ui.text.strong};
+    background: transparent;
+    font-size: 13px;
+  }
+  .explore-search-command input::placeholder {
+    color: ${GRAPH_THEME.ui.text.subtle};
+  }
+  .explore-search-command button {
+    height: 33px;
+    border: 1px solid ${GRAPH_THEME.ui.control.primaryBorder};
+    border-radius: 12px;
+    padding: 0 13px;
+    background: ${GRAPH_THEME.ui.control.primaryBg};
+    color: ${GRAPH_THEME.ui.control.primaryText};
+    font-size: 12px;
+    font-weight: 800;
+    cursor: pointer;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.08);
+  }
+  .explore-search-command button:disabled {
+    cursor: not-allowed;
+    opacity: 0.45;
+  }
+  .explore-mode-control {
+    display: inline-grid;
+    grid-template-columns: repeat(3, minmax(88px, auto));
+    align-items: center;
+    padding: 4px;
+    border-radius: 16px;
+    border: 1px solid ${GRAPH_THEME.ui.control.defaultBorder};
+    background: rgba(255, 255, 255, 0.026);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.035);
+  }
+  .explore-mode-segment {
+    min-width: 0;
+    border-radius: 12px;
+  }
+  .explore-toolbelt {
+    min-width: 0;
+    display: flex;
+    justify-content: flex-end;
     align-items: center;
     gap: 8px;
-    padding: 3px;
-    border-radius: 14px;
-    border: 1px solid rgba(127, 208, 255, 0.08);
-    background: rgba(255, 255, 255, 0.02);
+    flex-wrap: wrap;
+  }
+  .explore-tool-cluster {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    min-height: 43px;
+    padding: 4px;
+    border-radius: 16px;
+    border: 1px solid rgba(211, 205, 190, 0.075);
+    background: rgba(255, 255, 255, 0.022);
+  }
+  .explore-tool-cluster-label {
+    padding: 0 4px 0 7px;
+    color: ${GRAPH_THEME.ui.text.subtle};
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    white-space: nowrap;
+  }
+  .explore-tool-cluster-items {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    flex-wrap: wrap;
+  }
+  .explore-tool-button {
+    min-height: 33px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    border: 1px solid ${GRAPH_THEME.ui.control.defaultBorder};
+    border-radius: 12px;
+    padding: 7px 10px;
+    background: ${GRAPH_THEME.ui.control.defaultBg};
+    color: ${GRAPH_THEME.ui.control.defaultText};
+    font-size: 12px;
+    font-weight: 700;
+    line-height: 1;
+    cursor: pointer;
+    white-space: nowrap;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.035);
+    transition: background 140ms ease, border-color 140ms ease, color 140ms ease, transform 140ms ease;
+  }
+  .explore-tool-button:hover:not(:disabled) {
+    background: ${GRAPH_THEME.ui.control.hoverBg};
+    border-color: rgba(211, 205, 190, 0.18);
+    transform: translateY(-1px);
+  }
+  .explore-tool-button:disabled {
+    cursor: not-allowed;
+    color: ${GRAPH_THEME.ui.control.disabledText};
+    opacity: 0.48;
+    transform: none;
+  }
+  .explore-tool-button[data-active="true"] {
+    color: ${GRAPH_THEME.ui.control.activeText};
+    background: ${GRAPH_THEME.ui.control.activeBg};
+    border-color: ${GRAPH_THEME.ui.control.activeBorder};
+    box-shadow: 0 0 0 1px ${GRAPH_THEME.ui.control.focusRing}, inset 0 1px 0 rgba(255,255,255,0.06);
+  }
+  .explore-tool-button-primary {
+    color: ${GRAPH_THEME.ui.control.primaryText};
+    background: ${GRAPH_THEME.ui.control.primaryBg};
+    border-color: ${GRAPH_THEME.ui.control.primaryBorder};
+  }
+  .explore-tool-button[data-compact="true"] {
+    min-width: 34px;
+    padding-inline: 9px;
+  }
+  .explore-tool-button[data-compact="true"] .explore-tool-button-label {
+    display: none;
+  }
+  .explore-entity-key {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    padding: 2px 1px 0;
+    color: ${GRAPH_THEME.ui.text.subtle};
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+  }
+  .explore-entity-key-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    white-space: nowrap;
+  }
+  .explore-entity-key-mark {
+    width: 13px;
+    height: 13px;
+    display: inline-block;
+    border: 1px solid rgba(194, 214, 218, 0.42);
+    background: rgba(73, 154, 150, 0.58);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.08);
+  }
+  .explore-entity-key-mark[data-shape="entity"] {
+    border-radius: 999px;
+  }
+  .explore-entity-key-mark[data-shape="biomolecule"] {
+    clip-path: polygon(50% 7%, 86% 28%, 86% 72%, 50% 93%, 14% 72%, 14% 28%);
+  }
+  .explore-entity-key-mark[data-shape="condition"] {
+    border-radius: 5px;
+    transform: rotate(45deg) scale(0.88);
+  }
+  .explore-entity-key-mark[data-shape="compound"] {
+    width: 20px;
+    border-radius: 999px;
+  }
+  .explore-entity-key-mark[data-shape="process"] {
+    border-radius: 4px;
+    clip-path: polygon(0 0, 86% 0, 100% 16%, 100% 100%, 0 100%);
+  }
+  .explore-entity-key-mark[data-shape="community"] {
+    width: 15px;
+    height: 15px;
+    border-radius: 999px;
+    background: rgba(96, 190, 180, 0.16);
+    border-color: rgba(229, 213, 175, 0.54);
   }
   .explore-search-results {
     display: flex;
@@ -404,6 +767,13 @@ const HUD_CSS = `
     .explore-main-grid {
       grid-template-columns: 1fr;
     }
+    .explore-workflow-bar {
+      grid-template-columns: minmax(280px, 1fr) auto;
+    }
+    .explore-toolbelt {
+      grid-column: 1 / -1;
+      justify-content: flex-start;
+    }
   }
   @media (max-width: 980px) {
     .explore-shell {
@@ -412,6 +782,19 @@ const HUD_CSS = `
     }
     .explore-command-grid {
       grid-template-columns: 1fr;
+    }
+    .explore-workflow-bar {
+      grid-template-columns: 1fr;
+    }
+    .explore-mode-control {
+      width: 100%;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+    .explore-toolbelt {
+      justify-content: flex-start;
+    }
+    .explore-tool-cluster {
+      max-width: 100%;
     }
   }
 `;
@@ -713,7 +1096,7 @@ export function GraphWorkspace() {
   const [activeDockPanelId, setActiveDockPanelId] = useState<string | null>(null);
   const [pluginRuntimeVersion, setPluginRuntimeVersion] = useState(0);
   const [effectsState, setEffectsState] = useState<GraphEffectsState>(DEFAULT_EFFECTS_STATE);
-  const [graphDiagnosticsState, setGraphDiagnosticsState] = useState<GraphDiagnosticsSnapshot["effectAvailability"] | null>(null);
+  const [graphDiagnosticsState, setGraphDiagnosticsState] = useState<GraphRuntimeDiagnosticsSnapshot | null>(null);
   const [graphAnalyticsState, setGraphAnalyticsState] = useState<GraphAnalyticsSnapshot | null>(null);
   const [loadedPlugins, setLoadedPlugins] = useState<Record<string, GraphPlugin>>({});
 
@@ -1001,6 +1384,11 @@ export function GraphWorkspace() {
 
   const focusNode = useCallback((nodeId: string) => {
     if (!nodeId) {
+      setSelectedNodeId("");
+      setSelectedEdgeId("");
+      setPathResult(null);
+      setSearchResults([]);
+      setSearchError("");
       return;
     }
 
@@ -1647,7 +2035,8 @@ export function GraphWorkspace() {
         .filter(([, isOpen]) => isOpen)
         .map(([panelId]) => panelId),
       effectsState,
-      effectAvailability: graphDiagnosticsState,
+      edgeClasses: graphDiagnosticsState.edgeClasses,
+      effectAvailability: graphDiagnosticsState.effectAvailability,
     };
   }, [activePlugins, effectsState, graphDiagnosticsState, pluginPanelState]);
 
@@ -1708,11 +2097,11 @@ export function GraphWorkspace() {
     }
   }, [activePlugins, pluginContext]);
 
-  const handleDiagnosticsChange = useCallback((effectAvailability: GraphDiagnosticsSnapshot["effectAvailability"]) => {
+  const handleDiagnosticsChange = useCallback((diagnostics: GraphRuntimeDiagnosticsSnapshot) => {
     if (!GRAPH_THEME.effects.diagnostics.enabledInDev) {
       return;
     }
-    setGraphDiagnosticsState(effectAvailability);
+    setGraphDiagnosticsState(diagnostics);
   }, []);
 
   const handleAnalyticsChange = useCallback((analytics: GraphAnalyticsSnapshot | null) => {
@@ -1800,194 +2189,232 @@ export function GraphWorkspace() {
     }
   }, [activeDockPanelId, openDockPanels]);
 
-  const coreToolbarGroups = useMemo<GraphToolbarGroup[]>(() => {
-    const groups: GraphToolbarGroup[] = [];
-
-    if (hasGraphContent) {
-      groups.push({
-        id: "view-mode",
-        items: [
-          {
-            id: "view-full",
-            label: "Full Graph",
-            title: "Return to the full graph context",
-            active: viewMode === "full",
-            onClick: () => requestViewMode("full"),
-          },
-          {
-            id: "view-grouped",
-            label: "Grouped View",
-            title: displayState.groupedViewAvailable
-              ? "Compress dense structure into detected communities"
-              : (displayState.groupedViewReason ?? "Grouped view is unavailable until communities can be detected"),
-            active: viewMode === "grouped",
-            disabled: !displayState.groupedViewAvailable,
-            onClick: () => requestViewMode("grouped"),
-          },
-          {
-            id: "view-focused",
-            label: "Focused",
-            title: canActivateFocusedMode
-              ? "Inspect the selected node in a focused local graph"
-              : (focusedSelectionResolution.reason ?? "Focused mode is unavailable for the current selection"),
-            active: viewMode === "focused",
-            disabled: viewMode !== "focused" && !canActivateFocusedMode,
-            onClick: () => requestViewMode("focused"),
-          },
-        ],
-      });
+  const viewModeItems = useMemo<GraphToolbarItem[]>(() => {
+    if (!hasGraphContent) {
+      return [];
     }
 
-    if (selectedNodeState) {
-      groups.push({
-        id: "local-structure",
-        items: [
-          {
-            id: "collapse-neighborhood",
-            label: "Collapse Neighborhood",
-            title: "Hide lower-priority fanout around the selected node",
-            disabled: !selectedNodeState.canCollapseNeighborhood || selectedNodeState.isNeighborhoodCollapsed,
-            onClick: () => handlePluginAction({ type: "collapseNeighborhood" }),
-          },
-          {
-            id: "expand-neighborhood",
-            label: "Expand Neighborhood",
-            title: "Restore the collapsed local neighborhood",
-            disabled: !selectedNodeState.isNeighborhoodCollapsed,
-            onClick: () => handlePluginAction({ type: "expandNeighborhood" }),
-          },
-        ],
-      });
-    }
-
-    groups.push({
-      id: "graph-actions",
-      items: [
-        {
-          id: "search-submit",
-          label: "Search",
-          title: "Search for the current query",
-          tone: "primary",
-          disabled: showLoadingOverlay || !searchQuery.trim(),
-          onClick: () => void handleSearch(),
-        },
-        {
-          id: "zoom-in",
-          label: "＋ Zoom In",
-          title: "Zoom in (or scroll up on the canvas)",
-          onClick: () => sceneRef.current?.zoomIn(),
-        },
-        {
-          id: "zoom-out",
-          label: "－ Zoom Out",
-          title: "Zoom out (or scroll down on the canvas)",
-          onClick: () => sceneRef.current?.zoomOut(),
-        },
-        {
-          id: "fit-view",
-          label: "Fit View",
-          title: "Reset the camera to fit the whole graph",
-          onClick: () => sceneRef.current?.fitView(),
-        },
-        {
-          id: "layout-toggle",
-          label: isLayoutRunning ? "Pause Layout" : "Run Layout",
-          title: "Toggle the layout worker",
-          active: isLayoutRunning,
-          disabled: showLoadingOverlay,
-          onClick: () => setIsLayoutRunning((value) => !value),
-        },
-        {
-          id: "reload",
-          label: "Reload",
-          title: "Reload the graph data",
-          disabled: showLoadingOverlay,
-          onClick: reload,
-        },
-      ],
-    });
-
-    // FR-2/3/5: Distance intelligence controls
-    if (hasGraphContent && selectedNodeId) {
-      groups.push({
-        id: "distance-intel",
-        items: [
-          {
-            id: "ego-mode",
-            label: egoModeEnabled ? `Ego (${egoMaxHops}h)` : "Ego Mode",
-            title: egoModeEnabled
-              ? `Egocentric view: ${egoMaxHops} hops depth (click to toggle off)`
-              : "Show depth-of-field fading around the selected node",
-            active: egoModeEnabled,
-            onClick: () => {
-              setEgoModeEnabled((v) => !v);
-              if (heatmapEnabled) setHeatmapEnabled(false);
-            },
-          },
-          {
-            id: "heatmap",
-            label: "Heatmap",
-            title: heatmapEnabled
-              ? "Distance heatmap active (click to toggle off)"
-              : "Color nodes by hop distance from selected node",
-            active: heatmapEnabled,
-            onClick: () => {
-              setHeatmapEnabled((v) => !v);
-              if (egoModeEnabled) setEgoModeEnabled(false);
-            },
-          },
-          {
-            id: "dist-structural",
-            label: "Structural",
-            title: "Color edges by structural (hop) distance",
-            active: distanceMode === "structural",
-            onClick: () => setDistanceMode((m) => (m === "structural" ? "off" : "structural")),
-          },
-          {
-            id: "dist-semantic",
-            label: "Semantic",
-            title: "Color edges by semantic similarity to selected node",
-            active: distanceMode === "semantic",
-            onClick: () => setDistanceMode((m) => (m === "semantic" ? "off" : "semantic")),
-          },
-        ],
-      });
-    }
-
-    if (pluginToolbarItems.length) {
-      groups.push({
-        id: "plugin-tools",
-        items: pluginToolbarItems.map((item) => ({
-          id: item.id,
-          label: item.label,
-          title: item.title,
-          active: item.active,
-          onClick: item.onClick,
-        })),
-      });
-    }
-
-    return groups;
+    return [
+      {
+        id: "view-full",
+        label: "Full Graph",
+        title: "Return to the full graph context",
+        icon: Layers3,
+        active: viewMode === "full",
+        onClick: () => requestViewMode("full"),
+      },
+      {
+        id: "view-grouped",
+        label: "Grouped View",
+        title: displayState.groupedViewAvailable
+          ? "Compress dense structure into detected communities"
+          : (displayState.groupedViewReason ?? "Grouped view is unavailable until communities can be detected"),
+        icon: GitBranch,
+        active: viewMode === "grouped",
+        disabled: !displayState.groupedViewAvailable,
+        onClick: () => requestViewMode("grouped"),
+      },
+      {
+        id: "view-focused",
+        label: "Focused",
+        title: canActivateFocusedMode
+          ? "Inspect the selected node in a focused local graph"
+          : (focusedSelectionResolution.reason ?? "Focused mode is unavailable for the current selection"),
+        icon: Focus,
+        active: viewMode === "focused",
+        disabled: viewMode !== "focused" && !canActivateFocusedMode,
+        onClick: () => requestViewMode("focused"),
+      },
+    ];
   }, [
     canActivateFocusedMode,
     displayState.groupedViewAvailable,
     displayState.groupedViewReason,
-    distanceMode,
-    egoModeEnabled,
-    egoMaxHops,
     focusedSelectionResolution.reason,
-    handlePluginAction,
     hasGraphContent,
-    heatmapEnabled,
-    isLayoutRunning,
-    pluginToolbarItems,
-    reload,
     requestViewMode,
-    searchQuery,
-    selectedNodeId,
-    selectedNodeState,
-    showLoadingOverlay,
     viewMode,
+  ]);
+
+  const cameraToolbarItems = useMemo<GraphToolbarItem[]>(() => [
+    {
+      id: "zoom-in",
+      label: "Zoom In",
+      title: "Zoom in (or scroll up on the canvas)",
+      ariaLabel: "Zoom in",
+      icon: ZoomIn,
+      compact: true,
+      onClick: () => sceneRef.current?.zoomIn(),
+    },
+    {
+      id: "zoom-out",
+      label: "Zoom Out",
+      title: "Zoom out (or scroll down on the canvas)",
+      ariaLabel: "Zoom out",
+      icon: ZoomOut,
+      compact: true,
+      onClick: () => sceneRef.current?.zoomOut(),
+    },
+    {
+      id: "fit-view",
+      label: "Fit",
+      title: "Reset the camera to fit the whole graph",
+      ariaLabel: "Fit view",
+      icon: Maximize2,
+      compact: true,
+      onClick: () => sceneRef.current?.fitView(),
+    },
+  ], []);
+
+  const layoutToolbarItems = useMemo<GraphToolbarItem[]>(() => [
+    {
+      id: "layout-toggle",
+      label: isLayoutRunning ? "Pause" : "Run",
+      title: "Toggle the layout worker",
+      icon: isLayoutRunning ? Pause : Play,
+      active: isLayoutRunning,
+      disabled: showLoadingOverlay,
+      onClick: () => setIsLayoutRunning((value) => !value),
+    },
+  ], [isLayoutRunning, showLoadingOverlay]);
+
+  const localToolbarItems = useMemo<GraphToolbarItem[]>(() => {
+    if (!selectedNodeState) {
+      return [];
+    }
+
+    return [
+      {
+        id: "collapse-neighborhood",
+        label: "Collapse",
+        title: "Hide lower-priority fanout around the selected node",
+        icon: Eye,
+        disabled: !selectedNodeState.canCollapseNeighborhood || selectedNodeState.isNeighborhoodCollapsed,
+        onClick: () => handlePluginAction({ type: "collapseNeighborhood" }),
+      },
+      {
+        id: "expand-neighborhood",
+        label: "Expand",
+        title: "Restore the collapsed local neighborhood",
+        icon: Users,
+        disabled: !selectedNodeState.isNeighborhoodCollapsed,
+        onClick: () => handlePluginAction({ type: "expandNeighborhood" }),
+      },
+    ];
+  }, [handlePluginAction, selectedNodeState]);
+
+  const analysisToolbarItems = useMemo<GraphToolbarItem[]>(
+    () => pluginToolbarItems.map((item) => ({
+      id: item.id,
+      label: item.label,
+      title: item.title,
+      icon: iconForPluginToolbarItem(item),
+      active: item.active,
+      onClick: item.onClick,
+    })),
+    [pluginToolbarItems],
+  );
+
+  const utilityToolbarItems = useMemo<GraphToolbarItem[]>(() => [
+    {
+      id: "reload",
+      label: "Reload",
+      title: "Reload the graph data",
+      ariaLabel: "Reload graph data",
+      icon: RefreshCw,
+      compact: true,
+      disabled: showLoadingOverlay,
+      onClick: reload,
+    },
+  ], [reload, showLoadingOverlay]);
+
+  const searchDisabled = showLoadingOverlay || !searchQuery.trim();
+
+  const distanceToolbarItems = useMemo<GraphToolbarItem[]>(() => {
+    if (!hasGraphContent || !selectedNodeId) {
+      return [];
+    }
+
+    return [
+      {
+        id: "ego-mode",
+        label: egoModeEnabled ? `Ego (${egoMaxHops}h)` : "Ego Mode",
+        title: egoModeEnabled
+          ? `Egocentric view: ${egoMaxHops} hops depth (click to toggle off)`
+          : "Show depth-of-field fading around the selected node",
+        active: egoModeEnabled,
+        onClick: () => {
+          setEgoModeEnabled((v) => !v);
+          if (heatmapEnabled) setHeatmapEnabled(false);
+        },
+      },
+      {
+        id: "heatmap",
+        label: "Heatmap",
+        title: heatmapEnabled
+          ? "Distance heatmap active (click to toggle off)"
+          : "Color nodes by hop distance from selected node",
+        active: heatmapEnabled,
+        onClick: () => {
+          setHeatmapEnabled((v) => !v);
+          if (egoModeEnabled) setEgoModeEnabled(false);
+        },
+      },
+      {
+        id: "dist-structural",
+        label: "Structural",
+        title: "Color edges by structural (hop) distance",
+        active: distanceMode === "structural",
+        onClick: () => setDistanceMode((m) => (m === "structural" ? "off" : "structural")),
+      },
+      {
+        id: "dist-semantic",
+        label: "Semantic",
+        title: "Color edges by semantic similarity to selected node",
+        active: distanceMode === "semantic",
+        onClick: () => setDistanceMode((m) => (m === "semantic" ? "off" : "semantic")),
+      },
+    ];
+  }, [distanceMode, egoMaxHops, egoModeEnabled, hasGraphContent, heatmapEnabled, selectedNodeId]);
+
+  const toolbarClusters = useMemo<GraphToolbarGroup[]>(() => [
+    {
+      id: "camera",
+      label: "Camera",
+      items: cameraToolbarItems,
+    },
+    {
+      id: "layout",
+      label: "Layout",
+      items: layoutToolbarItems,
+    },
+    {
+      id: "local-structure",
+      label: "Local",
+      items: localToolbarItems,
+    },
+    {
+      id: "distance",
+      label: "Distance",
+      items: distanceToolbarItems,
+    },
+    {
+      id: "analysis",
+      label: "Analysis",
+      items: analysisToolbarItems,
+    },
+    {
+      id: "utility",
+      label: "Utility",
+      items: utilityToolbarItems,
+    },
+  ].filter((group) => group.items.length > 0), [
+    analysisToolbarItems,
+    cameraToolbarItems,
+    distanceToolbarItems,
+    layoutToolbarItems,
+    localToolbarItems,
+    utilityToolbarItems,
   ]);
 
   const sceneAdapterProps = {
@@ -2027,7 +2454,7 @@ export function GraphWorkspace() {
           <SurfaceCard tone="subtle">
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
               <div className="explore-toolbar">
-                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+                <div className="explore-status-strip">
                   {(showLoadingOverlay || showSettlingStatus) && loadingProgress ? (
                     <MetricChip>{getGraphLoadTitle(loadingProgress.phase)}</MetricChip>
                   ) : null}
@@ -2039,51 +2466,26 @@ export function GraphWorkspace() {
                   ) : null}
                   {focusedSummary ? <MetricChip tone="warm">{focusedSummary}</MetricChip> : null}
                 </div>
-                <div className="explore-toolbar-groups">
-                  <div style={{ minWidth: 280, flex: "1 1 320px" }}>
-                    <input
-                      value={searchQuery}
-                      onChange={(event) => setSearchQuery(event.target.value)}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter") {
-                          void handleSearch();
-                        }
-                      }}
-                      placeholder="Search a node, e.g. Metformin"
-                      style={{ ...inputStyle, margin: 0, minHeight: 38 }}
-                    />
+                <div className="explore-workflow-bar">
+                  <SearchCommandBar
+                    value={searchQuery}
+                    disabled={searchDisabled}
+                    onChange={setSearchQuery}
+                    onSubmit={() => void handleSearch()}
+                  />
+                  <SegmentedModeControl items={viewModeItems} />
+                  <div className="explore-toolbelt">
+                    {toolbarClusters.map((group) => (
+                      <ToolbarCluster
+                        key={group.id}
+                        label={group.label ?? group.id}
+                        items={group.items}
+                        compact={COMPACT_TOOLBAR_CLUSTER_IDS.has(group.id)}
+                      />
+                    ))}
                   </div>
-                  {coreToolbarGroups.map((group) => (
-                    <div key={group.id} className="explore-toolbar-group">
-                      {group.items.map((item) => {
-                        const baseStyle = item.tone === "primary" ? actionButtonStyle : secondaryActionButtonStyle;
-                        return (
-                          <button
-                            key={item.id}
-                            onClick={item.onClick}
-                            title={item.title}
-                            disabled={item.disabled}
-                            style={{
-                              ...baseStyle,
-                              minHeight: 36,
-                              padding: "8px 12px",
-                              background: item.active
-                                ? "rgba(31, 111, 235, 0.28)"
-                                : baseStyle.background,
-                              border: item.active
-                                ? "1px solid rgba(127, 208, 255, 0.35)"
-                                : baseStyle.border,
-                              color: item.active ? "#e6f2ff" : baseStyle.color,
-                              boxShadow: item.active ? `0 0 0 1px rgba(127, 208, 255, 0.12)` : baseStyle.boxShadow,
-                            }}
-                          >
-                            {item.label}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  ))}
                 </div>
+                <EntityVisualKey />
               </div>
 
               {egoModeEnabled && (
@@ -2296,21 +2698,10 @@ export function GraphWorkspace() {
   );
 }
 
-const inputStyle: React.CSSProperties = {
-  width: "100%",
-  background: "rgba(4, 10, 18, 0.5)",
-  border: `1px solid ${GRAPH_THEME.palette.background.shellBorder}`,
-  color: "#edf5ff",
-  borderRadius: 12,
-  padding: "11px 13px",
-  fontSize: 13,
-  boxShadow: "inset 0 1px 0 rgba(255,255,255,0.03)",
-};
-
 const actionButtonStyle: React.CSSProperties = {
-  background: "linear-gradient(135deg, rgba(24, 63, 133, 0.42), rgba(35, 85, 176, 0.28))",
-  color: "#fff",
-  border: `1px solid ${GRAPH_THEME.palette.background.shellBorder}`,
+  background: GRAPH_THEME.ui.control.primaryBg,
+  color: GRAPH_THEME.ui.control.primaryText,
+  border: `1px solid ${GRAPH_THEME.ui.control.primaryBorder}`,
   borderRadius: 12,
   padding: "9px 12px",
   cursor: "pointer",
@@ -2319,22 +2710,22 @@ const actionButtonStyle: React.CSSProperties = {
   display: "inline-flex",
   alignItems: "center",
   justifyContent: "center",
-  boxShadow: `0 8px 22px ${GRAPH_THEME.palette.background.shellGlow}`,
+  boxShadow: "inset 0 1px 0 rgba(255,255,255,0.07), 0 10px 24px rgba(0,0,0,0.18)",
 };
 
 const secondaryActionButtonStyle: React.CSSProperties = {
   ...actionButtonStyle,
-  background: "rgba(255, 255, 255, 0.03)",
-  border: "1px solid rgba(255, 255, 255, 0.08)",
-  color: "#c6d4e3",
+  background: GRAPH_THEME.ui.control.defaultBg,
+  border: `1px solid ${GRAPH_THEME.ui.control.defaultBorder}`,
+  color: GRAPH_THEME.ui.control.defaultText,
   fontWeight: 600,
 };
 
 const predictionCardStyle: React.CSSProperties = {
   textAlign: "left",
   padding: 12,
-  background: "rgba(88, 166, 255, 0.08)",
-  border: "1px solid rgba(88, 166, 255, 0.12)",
+  background: "rgba(255, 255, 255, 0.035)",
+  border: `1px solid ${GRAPH_THEME.ui.surface.panelBorder}`,
   borderRadius: 10,
   cursor: "pointer",
 };
@@ -2344,8 +2735,8 @@ const selectedEdgeCardStyle: React.CSSProperties = {
   flexDirection: "column",
   gap: 12,
   padding: 14,
-  background: "linear-gradient(135deg, rgba(88, 166, 255, 0.1), rgba(88, 166, 255, 0.04))",
-  border: "1px solid rgba(127, 208, 255, 0.16)",
+  background: "linear-gradient(135deg, rgba(98, 226, 205, 0.1), rgba(233, 196, 122, 0.045))",
+  border: `1px solid ${GRAPH_THEME.ui.surface.panelBorder}`,
   borderRadius: 14,
   boxShadow: "inset 0 1px 0 rgba(255,255,255,0.03)",
 };
@@ -2367,18 +2758,18 @@ const selectedEdgePropertyCardStyle: React.CSSProperties = {
   borderRadius: 10,
   padding: 10,
   background: "rgba(255, 255, 255, 0.03)",
-  border: "1px solid rgba(255, 255, 255, 0.06)",
+  border: `1px solid ${GRAPH_THEME.ui.surface.panelBorder}`,
 };
 
 const pluginDockContentStyle: React.CSSProperties = {
   borderRadius: 16,
-  border: "1px solid rgba(255, 255, 255, 0.06)",
+  border: `1px solid ${GRAPH_THEME.ui.surface.panelBorder}`,
   background: "rgba(255, 255, 255, 0.02)",
   padding: 14,
 };
 
 const pluginLoadingStyle: React.CSSProperties = {
-  color: "#8ea4be",
+  color: GRAPH_THEME.ui.text.muted,
   fontSize: 12,
   padding: 10,
 };
@@ -2393,7 +2784,7 @@ const searchResultsStripStyle: React.CSSProperties = {
 
 const inspectorFallbackStyle: React.CSSProperties = {
   padding: 24,
-  color: "#8ea4be",
+  color: GRAPH_THEME.ui.text.muted,
   fontSize: 12,
 };
 
@@ -2402,8 +2793,8 @@ const timelineFallbackStyle: React.CSSProperties = {
   display: "flex",
   alignItems: "center",
   padding: "0 18px",
-  color: "#8ea4be",
+  color: GRAPH_THEME.ui.text.muted,
   fontSize: 12,
-  borderTop: "1px solid rgba(88, 166, 255, 0.2)",
-  background: "rgba(1, 4, 9, 0.88)",
+  borderTop: `1px solid ${GRAPH_THEME.ui.timeline.border}`,
+  background: GRAPH_THEME.ui.timeline.background,
 };

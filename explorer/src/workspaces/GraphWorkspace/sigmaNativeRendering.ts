@@ -5,7 +5,7 @@ import type { NodeDisplayData, RenderParams } from "sigma/types";
 import { floatColor } from "sigma/utils";
 import type { NodeHoverDrawingFunction, NodeLabelDrawingFunction } from "sigma/rendering";
 
-import { GRAPH_THEME, withAlpha } from "./graphTheme";
+import { GRAPH_THEME, type GraphEntityShapeVariant, withAlpha } from "./graphTheme";
 
 type SemanticaNodeDrawData = {
   x: number;
@@ -16,39 +16,106 @@ type SemanticaNodeDrawData = {
   shellColor?: string;
   coreScale?: number;
   borderColor?: string;
+  borderSize?: number;
   ringColor?: string;
   ringSize?: number;
+  entityShape?: GraphEntityShapeVariant;
+  entityShapeKind?: number;
+  entityAspectRatio?: number;
   nodeType?: string;
 };
 
-const MINERAL_DISC_UNIFORMS = ["u_sizeRatio", "u_correctionRatio", "u_matrix"] as const;
+const ENTITY_TOKEN_UNIFORMS = ["u_sizeRatio", "u_correctionRatio", "u_matrix"] as const;
 
-const MINERAL_DISC_FRAGMENT_SHADER = /* glsl */ `
+const ENTITY_TOKEN_FRAGMENT_SHADER = /* glsl */ `
 precision highp float;
 
-varying vec4 v_coreColor;
-varying vec4 v_shellColor;
-varying vec4 v_ringColor;
+varying vec4 v_bodyColor;
+varying vec4 v_glyphColor;
+varying vec4 v_outlineColor;
 varying vec4 v_color;
 varying vec2 v_diffVector;
 varying float v_radius;
-varying float v_ringSize;
-varying float v_coreScale;
+varying float v_outlineSize;
+varying float v_glyphScale;
+varying float v_shapeKind;
+varying float v_aspectRatio;
 
 uniform float u_correctionRatio;
 
 const float bias = 255.0 / 254.0;
 const vec4 transparent = vec4(0.0, 0.0, 0.0, 0.0);
 
-float discMetric(vec2 point) {
-  return length(point);
+float hexMetric(vec2 point) {
+  vec2 q = abs(point);
+  return max(q.y, q.x * 0.8660254 + q.y * 0.5);
+}
+
+vec2 rotate45(vec2 point) {
+  const float invSqrt2 = 0.70710678;
+  return vec2(
+    (point.x - point.y) * invSqrt2,
+    (point.x + point.y) * invSqrt2
+  );
+}
+
+float roundedBoxDistance(vec2 point, vec2 halfSize, float radius) {
+  vec2 q = abs(point) - halfSize + vec2(radius);
+  return length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - radius;
+}
+
+float capsuleDistance(vec2 point) {
+  vec2 q = vec2(max(abs(point.x) - 0.44, 0.0), point.y);
+  return length(q) - 0.56;
+}
+
+float shapeDistance(vec2 point, float shapeKind) {
+  if (shapeKind < 0.5) {
+    return length(point) - 1.0;
+  }
+  if (shapeKind < 1.5) {
+    return hexMetric(point) - 0.92;
+  }
+  if (shapeKind < 2.5) {
+    return roundedBoxDistance(rotate45(point), vec2(0.58, 0.58), 0.18);
+  }
+  if (shapeKind < 3.5) {
+    return capsuleDistance(point);
+  }
+  if (shapeKind < 4.5) {
+    return roundedBoxDistance(point, vec2(0.78, 0.78), 0.24);
+  }
+  return length(point) - 1.0;
+}
+
+float glyphDistance(vec2 point, float shapeKind, float scale) {
+  vec2 scaled = point / max(scale, 0.08);
+  if (shapeKind < 0.5) {
+    return 1.0;
+  }
+  if (shapeKind < 1.5) {
+    return abs(hexMetric(scaled) - 0.74) - 0.055;
+  }
+  if (shapeKind < 2.5) {
+    return abs(abs(scaled.x) + abs(scaled.y) - 0.78) - 0.045;
+  }
+  if (shapeKind < 3.5) {
+    return roundedBoxDistance(scaled, vec2(0.56, 0.07), 0.07);
+  }
+  if (shapeKind < 4.5) {
+    return abs(roundedBoxDistance(scaled, vec2(0.48, 0.48), 0.18)) - 0.045;
+  }
+  return 1.0;
 }
 
 void main(void) {
-  vec2 unit = v_diffVector / max(v_radius, 0.0001);
-  float metric = discMetric(unit);
+  vec2 unit = vec2(
+    v_diffVector.x / max(v_radius * v_aspectRatio, 0.0001),
+    v_diffVector.y / max(v_radius, 0.0001)
+  );
   float aa = (2.4 * u_correctionRatio) / max(v_radius, 1.0);
-  float alpha = 1.0 - smoothstep(1.0 - aa, 1.0 + aa, metric);
+  float distance = shapeDistance(unit, v_shapeKind);
+  float alpha = 1.0 - smoothstep(-aa, aa, distance);
 
   #ifdef PICKING_MODE
   if (alpha <= 0.0) {
@@ -63,52 +130,63 @@ void main(void) {
     return;
   }
 
-  float ringNorm = clamp(v_ringSize / max(v_radius, 1.0), 0.0, 0.45);
-  float ringStart = max(0.0, 1.0 - ringNorm);
-  float coreEdge = clamp(v_coreScale, 0.06, 0.78);
-  float coreBlend = 1.0 - smoothstep(max(coreEdge - 0.14, 0.0), coreEdge, metric);
-  float bodyLight = 1.0 - smoothstep(0.0, 0.82, metric);
-  vec4 color = mix(v_shellColor, v_coreColor, coreBlend);
-  color.rgb += vec3(0.022) * pow(bodyLight, 1.45);
+  float outlineNorm = clamp(v_outlineSize / max(v_radius, 1.0), 0.035, 0.28);
+  float outlineBlend = 1.0 - smoothstep(-outlineNorm - aa, -outlineNorm + aa, distance);
+  float isOutline = 1.0 - outlineBlend;
+  float topLight = clamp((-unit.y + 0.85) * 0.5, 0.0, 1.0);
+  vec4 color = v_bodyColor;
+  color.rgb += vec3(0.014) * pow(topLight, 2.2);
 
-  if (ringNorm > 0.0 && metric >= ringStart) {
-    color = v_ringColor;
+  if (isOutline > 0.0) {
+    color = mix(color, v_outlineColor, isOutline);
   }
+
+  float glyphVisible = step(7.25, v_radius) * step(0.13, v_glyphScale) * step(0.5, v_shapeKind) * (1.0 - step(4.5, v_shapeKind));
+  float glyph = (1.0 - smoothstep(-aa * 1.4, aa * 1.4, glyphDistance(unit, v_shapeKind, clamp(v_glyphScale, 0.16, 0.52)))) * glyphVisible;
+  if (glyph > 0.0 && distance < -outlineNorm) {
+    color = mix(color, v_glyphColor, glyph * 0.38);
+  }
+
   color.a *= alpha;
   gl_FragColor = color;
   #endif
 }
 `;
 
-const MINERAL_DISC_VERTEX_SHADER = /* glsl */ `
+const ENTITY_TOKEN_VERTEX_SHADER = /* glsl */ `
 attribute vec4 a_id;
 attribute vec2 a_position;
 attribute float a_size;
 attribute float a_angle;
-attribute vec4 a_coreColor;
-attribute vec4 a_shellColor;
-attribute vec4 a_ringColor;
-attribute float a_ringSize;
-attribute float a_coreScale;
+attribute vec4 a_bodyColor;
+attribute vec4 a_glyphColor;
+attribute vec4 a_outlineColor;
+attribute float a_outlineSize;
+attribute float a_glyphScale;
+attribute float a_shapeKind;
+attribute float a_aspectRatio;
 
 uniform mat3 u_matrix;
 uniform float u_sizeRatio;
 uniform float u_correctionRatio;
 
-varying vec4 v_coreColor;
-varying vec4 v_shellColor;
-varying vec4 v_ringColor;
+varying vec4 v_bodyColor;
+varying vec4 v_glyphColor;
+varying vec4 v_outlineColor;
 varying vec4 v_color;
 varying vec2 v_diffVector;
 varying float v_radius;
-varying float v_ringSize;
-varying float v_coreScale;
+varying float v_outlineSize;
+varying float v_glyphScale;
+varying float v_shapeKind;
+varying float v_aspectRatio;
 
 const float bias = 255.0 / 254.0;
 
 void main() {
   float size = a_size * u_correctionRatio / u_sizeRatio * 4.0;
-  vec2 diffVector = size * vec2(cos(a_angle), sin(a_angle));
+  float aspect = max(a_aspectRatio, 1.0);
+  vec2 diffVector = size * vec2(cos(a_angle) * aspect, sin(a_angle));
   vec2 position = a_position + diffVector;
 
   gl_Position = vec4(
@@ -119,22 +197,24 @@ void main() {
 
   v_diffVector = diffVector;
   v_radius = size / 2.0;
-  v_ringSize = a_ringSize;
-  v_coreScale = a_coreScale;
+  v_outlineSize = a_outlineSize;
+  v_glyphScale = a_glyphScale;
+  v_shapeKind = a_shapeKind;
+  v_aspectRatio = aspect;
 
   #ifdef PICKING_MODE
   v_color = a_id;
   #else
-  v_coreColor = a_coreColor;
-  v_shellColor = a_shellColor;
-  v_ringColor = a_ringColor;
+  v_bodyColor = a_bodyColor;
+  v_glyphColor = a_glyphColor;
+  v_outlineColor = a_outlineColor;
   #endif
 
   v_color.a *= bias;
 }
 `;
 
-class MineralDiscNodeProgram extends NodeProgram<(typeof MINERAL_DISC_UNIFORMS)[number]> {
+class EntityTokenNodeProgram extends NodeProgram<(typeof ENTITY_TOKEN_UNIFORMS)[number]> {
   static readonly ANGLE_1 = 0;
   static readonly ANGLE_2 = (2 * Math.PI) / 3;
   static readonly ANGLE_3 = (4 * Math.PI) / 3;
@@ -146,47 +226,52 @@ class MineralDiscNodeProgram extends NodeProgram<(typeof MINERAL_DISC_UNIFORMS)[
   getDefinition() {
     return {
       VERTICES: 3,
-      VERTEX_SHADER_SOURCE: MINERAL_DISC_VERTEX_SHADER,
-      FRAGMENT_SHADER_SOURCE: MINERAL_DISC_FRAGMENT_SHADER,
+      VERTEX_SHADER_SOURCE: ENTITY_TOKEN_VERTEX_SHADER,
+      FRAGMENT_SHADER_SOURCE: ENTITY_TOKEN_FRAGMENT_SHADER,
       METHOD: WebGLRenderingContext.TRIANGLES,
-      UNIFORMS: MINERAL_DISC_UNIFORMS,
+      UNIFORMS: ENTITY_TOKEN_UNIFORMS,
       ATTRIBUTES: [
         { name: "a_position", size: 2, type: WebGLRenderingContext.FLOAT },
         { name: "a_size", size: 1, type: WebGLRenderingContext.FLOAT },
-        { name: "a_coreColor", size: 4, type: WebGLRenderingContext.UNSIGNED_BYTE, normalized: true },
-        { name: "a_shellColor", size: 4, type: WebGLRenderingContext.UNSIGNED_BYTE, normalized: true },
-        { name: "a_ringColor", size: 4, type: WebGLRenderingContext.UNSIGNED_BYTE, normalized: true },
-        { name: "a_ringSize", size: 1, type: WebGLRenderingContext.FLOAT },
-        { name: "a_coreScale", size: 1, type: WebGLRenderingContext.FLOAT },
+        { name: "a_bodyColor", size: 4, type: WebGLRenderingContext.UNSIGNED_BYTE, normalized: true },
+        { name: "a_glyphColor", size: 4, type: WebGLRenderingContext.UNSIGNED_BYTE, normalized: true },
+        { name: "a_outlineColor", size: 4, type: WebGLRenderingContext.UNSIGNED_BYTE, normalized: true },
+        { name: "a_outlineSize", size: 1, type: WebGLRenderingContext.FLOAT },
+        { name: "a_glyphScale", size: 1, type: WebGLRenderingContext.FLOAT },
+        { name: "a_shapeKind", size: 1, type: WebGLRenderingContext.FLOAT },
+        { name: "a_aspectRatio", size: 1, type: WebGLRenderingContext.FLOAT },
         { name: "a_id", size: 4, type: WebGLRenderingContext.UNSIGNED_BYTE, normalized: true },
       ],
       CONSTANT_ATTRIBUTES: [
         { name: "a_angle", size: 1, type: WebGLRenderingContext.FLOAT },
       ],
       CONSTANT_DATA: [
-        [MineralDiscNodeProgram.ANGLE_1],
-        [MineralDiscNodeProgram.ANGLE_2],
-        [MineralDiscNodeProgram.ANGLE_3],
+        [EntityTokenNodeProgram.ANGLE_1],
+        [EntityTokenNodeProgram.ANGLE_2],
+        [EntityTokenNodeProgram.ANGLE_3],
       ],
     };
   }
 
   processVisibleItem(nodeIndex: number, startIndex: number, data: NodeDisplayData & SemanticaNodeDrawData): void {
     const array = this.array;
-    const ringColor = resolveAccentBorderColor(data.ringSize, data.ringColor, data.borderColor, GRAPH_THEME.nodes.selectedRing.color);
+    const outlineColor = resolveAccentBorderColor(data.ringSize, data.ringColor, data.borderColor, GRAPH_THEME.nodes.selectedRing.color);
+    const outlineSize = Math.max(data.ringSize || 0, data.borderSize || 0.7);
 
     array[startIndex++] = data.x;
     array[startIndex++] = data.y;
     array[startIndex++] = data.size;
     array[startIndex++] = floatColor(data.color || GRAPH_THEME.palette.overview.nodeCore);
-    array[startIndex++] = floatColor(data.shellColor || withAlpha(GRAPH_THEME.palette.overview.nodeBase, GRAPH_THEME.palette.overview.nodeShellAlpha));
-    array[startIndex++] = floatColor(ringColor);
-    array[startIndex++] = data.ringSize || 0;
+    array[startIndex++] = floatColor(data.shellColor || withAlpha(GRAPH_THEME.palette.overview.nodeBase, 0.58));
+    array[startIndex++] = floatColor(outlineColor);
+    array[startIndex++] = outlineSize;
     array[startIndex++] = data.coreScale ?? 0.22;
+    array[startIndex++] = data.entityShapeKind ?? GRAPH_THEME.nodes.entityShapes[data.entityShape || "entity"].shapeKind;
+    array[startIndex++] = data.entityAspectRatio ?? GRAPH_THEME.nodes.entityShapes[data.entityShape || "entity"].aspectRatio;
     array[startIndex++] = nodeIndex;
   }
 
-  setUniforms(params: RenderParams, { gl, uniformLocations }: ProgramInfo<(typeof MINERAL_DISC_UNIFORMS)[number]>): void {
+  setUniforms(params: RenderParams, { gl, uniformLocations }: ProgramInfo<(typeof ENTITY_TOKEN_UNIFORMS)[number]>): void {
     gl.uniform1f(uniformLocations.u_correctionRatio, params.correctionRatio);
     gl.uniform1f(uniformLocations.u_sizeRatio, params.sizeRatio);
     gl.uniformMatrix3fv(uniformLocations.u_matrix, false, params.matrix);
@@ -326,7 +411,7 @@ export const drawSemanticaNodeHover: NodeHoverDrawingFunction = (context, rawDat
 
 export const SEMANTICA_NODE_PROGRAM_CLASSES = {
   ...DEFAULT_NODE_PROGRAM_CLASSES,
-  circle: MineralDiscNodeProgram,
+  circle: EntityTokenNodeProgram,
 };
 
 export const SEMANTICA_EDGE_PROGRAM_CLASSES = {

@@ -2,6 +2,7 @@ export type GraphZoomTier = "overview" | "structure" | "inspection";
 export type GraphNodeVisualState = "default" | "hovered" | "selected" | "neighbor" | "path" | "inactive" | "muted";
 export type GraphEdgeVisualState = "default" | "backbone" | "hovered" | "selected" | "neighbor" | "path" | "inactive" | "muted";
 export type GraphNodeShapeVariant = "default" | "temporal" | "inferred" | "provenance" | "selected";
+export type GraphEntityShapeVariant = "entity" | "biomolecule" | "condition" | "compound" | "process" | "community";
 export type GraphEdgeVariant = "line" | "directional" | "bidirectionalCurve" | "parallelCurve" | "pathSignal";
 export type GraphArrowVisibilityPolicy = "hidden" | "contextual" | "always";
 export type GraphLabelVisibilityPolicy = "none" | "priority" | "local" | "always";
@@ -51,6 +52,60 @@ export interface GraphTheme {
       grid: string;
       vignette: string;
       nodeBorder: string;
+    };
+  };
+  ui: {
+    text: {
+      strong: string;
+      body: string;
+      muted: string;
+      subtle: string;
+      inverse: string;
+    };
+    surface: {
+      app: string;
+      stage: string;
+      card: string;
+      cardSubtle: string;
+      cardStrong: string;
+      panel: string;
+      panelBorder: string;
+      divider: string;
+      shadow: string;
+    };
+    scene: {
+      background: string;
+      radialGlow: string;
+      grid: string;
+      gridStrong: string;
+      vignette: string;
+    };
+    control: {
+      defaultBg: string;
+      defaultBorder: string;
+      defaultText: string;
+      hoverBg: string;
+      activeBg: string;
+      activeBorder: string;
+      activeText: string;
+      primaryBg: string;
+      primaryBorder: string;
+      primaryText: string;
+      disabledText: string;
+      inputBg: string;
+      inputBorder: string;
+      focusRing: string;
+      dangerText: string;
+    };
+    timeline: {
+      background: string;
+      border: string;
+      gridMinor: string;
+      gridMajor: string;
+      text: string;
+      textStrong: string;
+      playhead: string;
+      playheadSoft: string;
     };
   };
   zoomTiers: Record<GraphZoomTier, {
@@ -134,6 +189,16 @@ export interface GraphTheme {
       badgeKind?: GraphBadgeKind;
       badgeVisibleFrom: GraphZoomTier;
     }>;
+    entityShapes: Record<GraphEntityShapeVariant, {
+      label: string;
+      shapeKind: number;
+      aspectRatio: number;
+      fillAlpha: number;
+      shellAlpha: number;
+      coreScale: number;
+      borderBoost: number;
+      minSize: number;
+    }>;
     selectedRing: {
       color: string;
       width: number;
@@ -171,6 +236,49 @@ export interface GraphTheme {
       sizeMultiplier: number;
       glowAlpha: number;
     }>;
+    visibility: Record<"full" | "grouped" | "focused", Record<GraphZoomTier, {
+      defaultPriorityThreshold: number;
+      backgroundSampleRate: number;
+      defaultAlpha: number;
+      mutedAlpha: number;
+      inactiveAlpha: number;
+      neighborAlpha: number;
+      sizeMultiplier: number;
+      hideMuted: boolean;
+    }>>;
+    contextCaps: Record<"full" | "grouped" | "focused", Record<GraphZoomTier, number>>;
+    fullGraphStructure: {
+      ambientBackboneAlpha: number;
+      backboneAlpha: number;
+      bridgeAlpha: number;
+      bridgeCurvePriorityThreshold: number;
+      bridgeCurveStrength: number;
+      backboneMaxSize: number;
+      bridgeMaxSize: number;
+      structureEdgeAlpha: number;
+      inspectionEdgeAlpha: number;
+    };
+    fullGraphStructureLayer: {
+      mode: "off" | "auto" | "always";
+      minimumLiteralEdges: number;
+      minimumCurves: number;
+      maxCurves: number;
+      bridgeAlpha: number;
+      backboneAlpha: number;
+      bridgeLineWidth: number;
+      backboneLineWidth: number;
+      curveStrength: number;
+    };
+  };
+  interaction: {
+    localContextAlpha: number;
+    hoverContextAlpha: number;
+    selectedEdgeAlpha: number;
+    pathEdgeAlpha: number;
+    localContextMaxSize: number;
+    selectedEdgeMaxSize: number;
+    pathEdgeMaxSize: number;
+    pathOverlayAlpha: number;
   };
   overlays: {
     hoverGlowAlpha: number;
@@ -302,9 +410,9 @@ export const GRAPH_THEME: GraphTheme = {
       nodeCoreMix: 0.72,
       nodeShellAlpha: 0.97,
       nodeCoreAlpha: 1,
-      edgeBackbone: "rgba(100, 148, 210, 0.38)",
-      edgeStructure: "rgba(88, 140, 200, 0.28)",
-      edgeInspection: "rgba(110, 165, 230, 0.48)",
+      edgeBackbone: "rgba(84, 123, 145, 0.24)",
+      edgeStructure: "rgba(49, 63, 78, 0.08)",
+      edgeInspection: "rgba(76, 102, 128, 0.12)",
     },
     accent: {
       selected: "#F2D288",
@@ -317,44 +425,98 @@ export const GRAPH_THEME: GraphTheme = {
     muted: {
       fallback: "rgba(96, 112, 136, 0.18)",
       nodeAlpha: 0.12,
-      edgeOverview: "rgba(82, 100, 124, 0.12)",
-      edgeStructure: "rgba(92, 112, 138, 0.18)",
-      edgeInspection: "rgba(124, 148, 176, 0.26)",
-      edgeFocus: "rgba(160, 186, 218, 0.42)",
+      edgeOverview: "rgba(32, 45, 55, 0.035)",
+      edgeStructure: "rgba(42, 58, 72, 0.055)",
+      edgeInspection: "rgba(62, 84, 104, 0.075)",
+      edgeFocus: "rgba(132, 178, 202, 0.26)",
     },
     background: {
-      canvas: "#07101A",
-      shell: "rgba(8, 15, 26, 0.8)",
-      shellBorder: "rgba(118, 162, 207, 0.14)",
-      shellGlow: "rgba(48, 88, 140, 0.14)",
-      grid: "rgba(92, 126, 170, 0.034)",
-      vignette: "rgba(2, 5, 11, 0.84)",
-      nodeBorder: "#0C1522",
+      canvas: "#0A0D11",
+      shell: "rgba(17, 21, 27, 0.82)",
+      shellBorder: "rgba(170, 184, 205, 0.14)",
+      shellGlow: "rgba(0, 0, 0, 0.28)",
+      grid: "rgba(170, 184, 205, 0.026)",
+      vignette: "rgba(3, 4, 7, 0.76)",
+      nodeBorder: "#0B0F15",
+    },
+  },
+  ui: {
+    text: {
+      strong: "#F3F0E8",
+      body: "#D5D9DD",
+      muted: "#9AA3AE",
+      subtle: "#6F7A86",
+      inverse: "#0B0D10",
+    },
+    surface: {
+      app: "#08090B",
+      stage: "#0B0E12",
+      card: "linear-gradient(180deg, rgba(28, 31, 36, 0.88), rgba(16, 18, 23, 0.78))",
+      cardSubtle: "linear-gradient(180deg, rgba(23, 26, 31, 0.72), rgba(13, 15, 19, 0.64))",
+      cardStrong: "linear-gradient(180deg, rgba(34, 37, 43, 0.94), rgba(18, 21, 26, 0.9))",
+      panel: "linear-gradient(180deg, rgba(21, 24, 30, 0.92), rgba(12, 14, 18, 0.9))",
+      panelBorder: "rgba(211, 205, 190, 0.13)",
+      divider: "rgba(211, 205, 190, 0.1)",
+      shadow: "0 22px 60px rgba(0, 0, 0, 0.34), inset 0 1px 0 rgba(255, 255, 255, 0.045)",
+    },
+    scene: {
+      background: "linear-gradient(180deg, #0B0E12 0%, #07080B 100%)",
+      radialGlow: "radial-gradient(circle at 50% 18%, rgba(88, 224, 204, 0.07), transparent 30%), radial-gradient(circle at 78% 0%, rgba(217, 168, 92, 0.055), transparent 26%)",
+      grid: "rgba(210, 206, 196, 0.024)",
+      gridStrong: "rgba(210, 206, 196, 0.052)",
+      vignette: "radial-gradient(ellipse at center, transparent 42%, rgba(2, 3, 5, 0.82) 100%)",
+    },
+    control: {
+      defaultBg: "rgba(255, 255, 255, 0.035)",
+      defaultBorder: "rgba(211, 205, 190, 0.11)",
+      defaultText: "#D7D1C4",
+      hoverBg: "rgba(255, 255, 255, 0.065)",
+      activeBg: "linear-gradient(180deg, rgba(74, 181, 166, 0.24), rgba(38, 118, 116, 0.18))",
+      activeBorder: "rgba(98, 226, 205, 0.42)",
+      activeText: "#E8FFFA",
+      primaryBg: "linear-gradient(180deg, rgba(55, 145, 132, 0.42), rgba(24, 86, 88, 0.28))",
+      primaryBorder: "rgba(99, 228, 206, 0.34)",
+      primaryText: "#F2FFFB",
+      disabledText: "rgba(154, 163, 174, 0.42)",
+      inputBg: "rgba(5, 7, 10, 0.52)",
+      inputBorder: "rgba(211, 205, 190, 0.13)",
+      focusRing: "rgba(98, 226, 205, 0.16)",
+      dangerText: "#FF9A8D",
+    },
+    timeline: {
+      background: "linear-gradient(180deg, rgba(14, 18, 24, 0.86), rgba(8, 11, 15, 0.92))",
+      border: "rgba(170, 184, 205, 0.12)",
+      gridMinor: "rgba(170, 184, 205, 0.04)",
+      gridMajor: "rgba(170, 184, 205, 0.09)",
+      text: "#7A92AE",
+      textStrong: "#A5B7CD",
+      playhead: "#8FE7FF",
+      playheadSoft: "rgba(143, 231, 255, 0.12)",
     },
   },
   zoomTiers: {
     overview: {
       maxRatio: Number.POSITIVE_INFINITY,
       nodeScale: 0.72,
-      labelThreshold: 0.995,
-      labelBudget: 4,
+      labelThreshold: 0.998,
+      labelBudget: 2,
       edgePriorityThreshold: 0.72,
       arrowPriorityThreshold: Number.POSITIVE_INFINITY,
       edgeSizeScale: 0.62,
       showBadges: false,
-      showCurves: false,
+      showCurves: true,
       showContextualArrows: false,
     },
     structure: {
       maxRatio: 1.2,
       nodeScale: 0.94,
-      labelThreshold: 0.93,
-      labelBudget: 18,
+      labelThreshold: 0.95,
+      labelBudget: 12,
       edgePriorityThreshold: 0.4,
       arrowPriorityThreshold: 0.75,
       edgeSizeScale: 0.92,
       showBadges: false,
-      showCurves: false,
+      showCurves: true,
       showContextualArrows: false,
     },
     inspection: {
@@ -428,11 +590,11 @@ export const GRAPH_THEME: GraphTheme = {
       inspection: { base: 1.2, emphasis: 1.7, muted: 0.6 },
     },
     states: {
-      default: { color: "base", sizeMultiplier: 0.72, minSize: 0.68, forceLabel: false, zIndex: 0, borderBoost: -0.42 },
-      hovered: { color: "hovered", sizeMultiplier: 1.1, minSize: 10.8, forceLabel: true, zIndex: 4, borderBoost: 0.18 },
-      selected: { color: "selected", sizeMultiplier: 1.02, minSize: 9.4, forceLabel: true, zIndex: 3, borderBoost: 0.18 },
-      neighbor: { color: "base", sizeMultiplier: 0.78, minSize: 4.2, forceLabel: false, zIndex: 2, borderBoost: -0.12 },
-      path: { color: "path", sizeMultiplier: 0.97, minSize: 5.8, forceLabel: true, zIndex: 2, borderBoost: 0.06 },
+      default: { color: "base", sizeMultiplier: 0.7, minSize: 0.64, forceLabel: false, zIndex: 0, borderBoost: -0.46 },
+      hovered: { color: "hovered", sizeMultiplier: 1.08, minSize: 10.4, forceLabel: true, zIndex: 4, borderBoost: 0.2 },
+      selected: { color: "selected", sizeMultiplier: 1.02, minSize: 9.2, forceLabel: true, zIndex: 3, borderBoost: 0.22 },
+      neighbor: { color: "base", sizeMultiplier: 0.76, minSize: 4, forceLabel: false, zIndex: 2, borderBoost: -0.08 },
+      path: { color: "path", sizeMultiplier: 0.96, minSize: 5.6, forceLabel: true, zIndex: 2, borderBoost: 0.08 },
       inactive: { color: "muted", sizeMultiplier: 0.52, minSize: 0.58, forceLabel: false, zIndex: 0, borderBoost: -0.42 },
       muted: { color: "muted", sizeMultiplier: 0.52, minSize: 0.58, forceLabel: false, zIndex: 0, borderBoost: -0.42 },
     },
@@ -442,6 +604,68 @@ export const GRAPH_THEME: GraphTheme = {
       inferred: { sizeMultiplier: 1.05, borderBoost: 0.16, haloBoost: 0.14, badgeKind: "inferred", badgeVisibleFrom: "inspection" },
       provenance: { sizeMultiplier: 1.03, borderBoost: 0.14, haloBoost: 0.12, badgeKind: "provenance", badgeVisibleFrom: "inspection" },
       selected: { sizeMultiplier: 1.06, borderBoost: 0.22, haloBoost: 0.16, badgeVisibleFrom: "overview" },
+    },
+    entityShapes: {
+      entity: {
+        label: "Entity",
+        shapeKind: 0,
+        aspectRatio: 1,
+        fillAlpha: 0.9,
+        shellAlpha: 0.14,
+        coreScale: 0,
+        borderBoost: 0.08,
+        minSize: 0,
+      },
+      biomolecule: {
+        label: "Biomolecule",
+        shapeKind: 1,
+        aspectRatio: 1,
+        fillAlpha: 0.9,
+        shellAlpha: 0.16,
+        coreScale: 0.18,
+        borderBoost: 0.16,
+        minSize: 1.2,
+      },
+      condition: {
+        label: "Condition",
+        shapeKind: 2,
+        aspectRatio: 1.04,
+        fillAlpha: 0.88,
+        shellAlpha: 0.15,
+        coreScale: 0.16,
+        borderBoost: 0.18,
+        minSize: 1.6,
+      },
+      compound: {
+        label: "Compound",
+        shapeKind: 3,
+        aspectRatio: 1.48,
+        fillAlpha: 0.88,
+        shellAlpha: 0.15,
+        coreScale: 0.14,
+        borderBoost: 0.14,
+        minSize: 1.4,
+      },
+      process: {
+        label: "Process",
+        shapeKind: 4,
+        aspectRatio: 1.1,
+        fillAlpha: 0.87,
+        shellAlpha: 0.14,
+        coreScale: 0.14,
+        borderBoost: 0.16,
+        minSize: 1.4,
+      },
+      community: {
+        label: "Community",
+        shapeKind: 5,
+        aspectRatio: 1,
+        fillAlpha: 0.68,
+        shellAlpha: 0.28,
+        coreScale: 0.78,
+        borderBoost: 0.34,
+        minSize: 2,
+      },
     },
     selectedRing: {
       color: "#E7C57C",
@@ -467,14 +691,14 @@ export const GRAPH_THEME: GraphTheme = {
   },
   edges: {
     states: {
-      default: { color: "structure", sizeMultiplier: 0.96, minSize: 0.9, zIndex: 0, forceArrow: false, hide: false },
-      backbone: { color: "backbone", sizeMultiplier: 1.0, minSize: 1.0, zIndex: 1, forceArrow: false, hide: false },
-      hovered: { color: "hover", sizeMultiplier: 1.6, minSize: 2.2, zIndex: 3, forceArrow: true, hide: false },
-      selected: { color: "hover", sizeMultiplier: 1.6, minSize: 2.2, zIndex: 3, forceArrow: true, hide: false },
-      neighbor: { color: "focus", sizeMultiplier: 1.1, minSize: 1.2, zIndex: 1, forceArrow: false, hide: false },
-      path: { color: "path", sizeMultiplier: 1.7, minSize: 2.4, zIndex: 4, forceArrow: true, hide: false },
-      inactive: { color: "muted", sizeMultiplier: 0.6, minSize: 0.5, zIndex: 0, forceArrow: false, hide: false },
-      muted: { color: "muted", sizeMultiplier: 0.6, minSize: 0.5, zIndex: 0, forceArrow: false, hide: false },
+      default: { color: "structure", sizeMultiplier: 0.48, minSize: 0.2, zIndex: 0, forceArrow: false, hide: false },
+      backbone: { color: "backbone", sizeMultiplier: 0.62, minSize: 0.36, zIndex: 1, forceArrow: false, hide: false },
+      hovered: { color: "hover", sizeMultiplier: 1.42, minSize: 1.85, zIndex: 5, forceArrow: true, hide: false },
+      selected: { color: "hover", sizeMultiplier: 1.42, minSize: 1.85, zIndex: 5, forceArrow: true, hide: false },
+      neighbor: { color: "focus", sizeMultiplier: 0.96, minSize: 0.86, zIndex: 1, forceArrow: false, hide: false },
+      path: { color: "path", sizeMultiplier: 1.82, minSize: 2.55, zIndex: 6, forceArrow: true, hide: false },
+      inactive: { color: "muted", sizeMultiplier: 0.24, minSize: 0.18, zIndex: 0, forceArrow: false, hide: false },
+      muted: { color: "muted", sizeMultiplier: 0.24, minSize: 0.18, zIndex: 0, forceArrow: false, hide: false },
     },
     variants: {
       line: { baseType: "line", arrowPolicy: "hidden", curveStrength: 0, sizeMultiplier: 1, glowAlpha: 0 },
@@ -483,6 +707,155 @@ export const GRAPH_THEME: GraphTheme = {
       parallelCurve: { baseType: "line", arrowPolicy: "contextual", curveStrength: 0.24, sizeMultiplier: 1.1, glowAlpha: 0.12 },
       pathSignal: { baseType: "arrow", arrowPolicy: "always", curveStrength: 0.16, sizeMultiplier: 1.18, glowAlpha: 0.2 },
     },
+    visibility: {
+      full: {
+        overview: {
+          defaultPriorityThreshold: 0.96,
+          backgroundSampleRate: 0.035,
+          defaultAlpha: 0.026,
+          mutedAlpha: 0.012,
+          inactiveAlpha: 0.01,
+          neighborAlpha: 0.26,
+          sizeMultiplier: 0.5,
+          hideMuted: true,
+        },
+        structure: {
+          defaultPriorityThreshold: 0.82,
+          backgroundSampleRate: 0.16,
+          defaultAlpha: 0.04,
+          mutedAlpha: 0.014,
+          inactiveAlpha: 0.012,
+          neighborAlpha: 0.32,
+          sizeMultiplier: 0.62,
+          hideMuted: true,
+        },
+        inspection: {
+          defaultPriorityThreshold: 0.72,
+          backgroundSampleRate: 0.28,
+          defaultAlpha: 0.052,
+          mutedAlpha: 0.012,
+          inactiveAlpha: 0.01,
+          neighborAlpha: 0.38,
+          sizeMultiplier: 0.64,
+          hideMuted: true,
+        },
+      },
+      grouped: {
+        overview: {
+          defaultPriorityThreshold: 0.42,
+          backgroundSampleRate: 1,
+          defaultAlpha: 0.18,
+          mutedAlpha: 0.06,
+          inactiveAlpha: 0.04,
+          neighborAlpha: 0.36,
+          sizeMultiplier: 0.72,
+          hideMuted: false,
+        },
+        structure: {
+          defaultPriorityThreshold: 0.34,
+          backgroundSampleRate: 1,
+          defaultAlpha: 0.2,
+          mutedAlpha: 0.07,
+          inactiveAlpha: 0.05,
+          neighborAlpha: 0.42,
+          sizeMultiplier: 0.78,
+          hideMuted: false,
+        },
+        inspection: {
+          defaultPriorityThreshold: 0.28,
+          backgroundSampleRate: 1,
+          defaultAlpha: 0.22,
+          mutedAlpha: 0.08,
+          inactiveAlpha: 0.06,
+          neighborAlpha: 0.46,
+          sizeMultiplier: 0.82,
+          hideMuted: false,
+        },
+      },
+      focused: {
+        overview: {
+          defaultPriorityThreshold: 0.72,
+          backgroundSampleRate: 0.7,
+          defaultAlpha: 0.1,
+          mutedAlpha: 0.03,
+          inactiveAlpha: 0.02,
+          neighborAlpha: 0.06,
+          sizeMultiplier: 0.72,
+          hideMuted: true,
+        },
+        structure: {
+          defaultPriorityThreshold: 0.6,
+          backgroundSampleRate: 0.8,
+          defaultAlpha: 0.12,
+          mutedAlpha: 0.035,
+          inactiveAlpha: 0.025,
+          neighborAlpha: 0.08,
+          sizeMultiplier: 0.8,
+          hideMuted: true,
+        },
+        inspection: {
+          defaultPriorityThreshold: 0.52,
+          backgroundSampleRate: 0.9,
+          defaultAlpha: 0.14,
+          mutedAlpha: 0.04,
+          inactiveAlpha: 0.03,
+          neighborAlpha: 0.1,
+          sizeMultiplier: 0.88,
+          hideMuted: true,
+        },
+      },
+    },
+    contextCaps: {
+      full: {
+        overview: 0,
+        structure: 12,
+        inspection: 24,
+      },
+      grouped: {
+        overview: 6,
+        structure: 8,
+        inspection: 10,
+      },
+      focused: {
+        overview: 24,
+        structure: 36,
+        inspection: 48,
+      },
+    },
+    fullGraphStructure: {
+      ambientBackboneAlpha: 0.12,
+      backboneAlpha: 0.08,
+      bridgeAlpha: 0.14,
+      bridgeCurvePriorityThreshold: 0.78,
+      bridgeCurveStrength: 0.1,
+      backboneMaxSize: 0.5,
+      bridgeMaxSize: 0.7,
+      structureEdgeAlpha: 0.12,
+      inspectionEdgeAlpha: 0.1,
+    },
+    // Staged rollout — set mode to "auto" to enable cross-community curve rendering.
+    // Currently "off" so the canvas overlay layer is inactive in production.
+    fullGraphStructureLayer: {
+      mode: "off",
+      minimumLiteralEdges: 24,
+      minimumCurves: 8,
+      maxCurves: 64,
+      bridgeAlpha: 0.16,
+      backboneAlpha: 0.1,
+      bridgeLineWidth: 0.9,
+      backboneLineWidth: 0.62,
+      curveStrength: 0.12,
+    },
+  },
+  interaction: {
+    localContextAlpha: 0.32,
+    hoverContextAlpha: 0.32,
+    selectedEdgeAlpha: 0.6,
+    pathEdgeAlpha: 0.76,
+    localContextMaxSize: 0.6,
+    selectedEdgeMaxSize: 1.0,
+    pathEdgeMaxSize: 1.4,
+    pathOverlayAlpha: 0.16,
   },
   overlays: {
     hoverGlowAlpha: 0.18,
@@ -629,7 +1002,7 @@ export function withAlpha(color: string | undefined, alpha: number): string {
   }
 
   if (color.startsWith("rgba(")) {
-    return color.replace(/rgba\(([^)]+),\s*[\d.]+\)/, `rgba($1, ${alpha})`);
+    return color.replace(/rgba\((.*?),\s*[\d.]+\)/, `rgba($1, ${alpha})`);
   }
 
   if (color.startsWith("rgb(")) {

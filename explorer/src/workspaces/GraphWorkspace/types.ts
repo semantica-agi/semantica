@@ -12,6 +12,7 @@ export type GraphLoadPhase =
 export type GraphLoadProgressKind = "determinate" | "indeterminate";
 export type GraphNodeInteractionState = "default" | "hovered" | "selected" | "neighbor" | "path" | "inactive" | "muted";
 export type GraphEdgeInteractionState = "default" | "backbone" | "hovered" | "selected" | "neighbor" | "path" | "inactive" | "muted";
+export type GraphFullEdgeClass = "hidden" | "backbone" | "bridge" | "local-context" | "selected" | "path" | "muted";
 export type GraphSelectedNodeKind = "none" | "base" | "grouped" | "unavailable";
 
 export interface GraphCameraState {
@@ -92,11 +93,49 @@ export interface GraphEffectAvailability {
   segmentCap?: number;
 }
 
+export type GraphFullEdgeClassCounts = Record<GraphFullEdgeClass, number>;
+
+export interface GraphFullEdgeClassDiagnostics {
+  mode: GraphViewMode;
+  zoomTier: GraphInteractionState["zoomTier"];
+  totalEdges: number;
+  visibleEdges: number;
+  counts: GraphFullEdgeClassCounts;
+  updatedAt: number;
+}
+
+export type GraphStructureLayerDisabledReason =
+  | "non-full-mode"
+  | "layout-running"
+  | "enough-literal-edges"
+  | "no-eligible-edges"
+  | "invalid-layer"
+  | "cache-empty"
+  | "disabled";
+
+export interface GraphStructureLayerDiagnostics {
+  enabled: boolean;
+  disabledReason: GraphStructureLayerDisabledReason | null;
+  curveCount: number;
+  bridgeCurveCount: number;
+  backboneCurveCount: number;
+  cacheKey: string;
+  lastDrawAt: number | null;
+}
+
+export interface GraphRuntimeDiagnosticsSnapshot {
+  effectAvailability: GraphDiagnosticsSnapshot["effectAvailability"];
+  edgeClasses?: GraphFullEdgeClassDiagnostics;
+  structureLayer?: GraphStructureLayerDiagnostics;
+}
+
 export interface GraphDiagnosticsSnapshot {
   interactionState: GraphInteractionState;
   activePluginIds: string[];
   openPanelIds: string[];
   effectsState: GraphEffectsState;
+  edgeClasses?: GraphFullEdgeClassDiagnostics;
+  structureLayer?: GraphStructureLayerDiagnostics;
   effectAvailability: {
     pathPulse: GraphEffectAvailability;
     pathFlow: GraphEffectAvailability;

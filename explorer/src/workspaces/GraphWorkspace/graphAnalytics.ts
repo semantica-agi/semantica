@@ -44,8 +44,18 @@ const MAX_REGION_SUMMARIES = 6;
 const MAX_CENTRALITY_SUMMARIES = 6;
 const CENTRALITY_ITERATIONS = 24;
 const MAX_BACKBONE_ANCHORS = 4;
-const MAX_BACKBONE_CENTRAL_LINKS = 2;
-const MAX_BACKBONE_BRIDGES = 4;
+const MAX_BACKBONE_CENTRAL_LINKS = 36;
+const MAX_BACKBONE_BRIDGES = 80;
+const MAX_BACKBONE_TOTAL_EDGES = 128;
+const MAX_BACKBONE_EDGES_PER_NODE = 5;
+const MAX_BACKBONE_PARALLEL_PAIR_EDGES = 2;
+
+type BackboneCandidate = {
+  edgeId: string;
+  source: string;
+  target: string;
+  score: number;
+};
 
 function getNodeLabel(graphRef: GraphRef, nodeId: string): string {
   const attrs = graphRef.getNodeAttributes(nodeId) as NodeAttributes;
@@ -364,6 +374,61 @@ function scoreBackboneEdge(
   return weight * 1.4 + (sourceScore + targetScore) * 2.4 + priority * 0.6 + parallelBoost + bidirectionalBoost;
 }
 
+function upsertBackboneCandidate(
+  candidates: Map<string, BackboneCandidate>,
+  key: string,
+  candidate: BackboneCandidate,
+) {
+  const current = candidates.get(key);
+  if (
+    !current
+    || candidate.score > current.score
+    || (candidate.score === current.score && candidate.edgeId.localeCompare(current.edgeId) < 0)
+  ) {
+    candidates.set(key, candidate);
+  }
+}
+
+function addRankedBackboneCandidates(
+  selected: BackboneCandidate[],
+  selectedEdgeIds: Set<string>,
+  nodeUseCounts: Map<string, number>,
+  pairUseCounts: Map<string, number>,
+  candidates: Iterable<BackboneCandidate>,
+  maxToAdd: number,
+) {
+  const ranked = [...candidates].sort((left, right) => {
+    if (right.score !== left.score) {
+      return right.score - left.score;
+    }
+    return left.edgeId.localeCompare(right.edgeId);
+  });
+
+  for (const candidate of ranked) {
+    if (selected.length >= MAX_BACKBONE_TOTAL_EDGES || maxToAdd <= 0 || selectedEdgeIds.has(candidate.edgeId)) {
+      continue;
+    }
+
+    const pairKey = [candidate.source, candidate.target].sort().join("::");
+    if ((nodeUseCounts.get(candidate.source) ?? 0) >= MAX_BACKBONE_EDGES_PER_NODE) {
+      continue;
+    }
+    if ((nodeUseCounts.get(candidate.target) ?? 0) >= MAX_BACKBONE_EDGES_PER_NODE) {
+      continue;
+    }
+    if ((pairUseCounts.get(pairKey) ?? 0) >= MAX_BACKBONE_PARALLEL_PAIR_EDGES) {
+      continue;
+    }
+
+    selected.push(candidate);
+    selectedEdgeIds.add(candidate.edgeId);
+    nodeUseCounts.set(candidate.source, (nodeUseCounts.get(candidate.source) ?? 0) + 1);
+    nodeUseCounts.set(candidate.target, (nodeUseCounts.get(candidate.target) ?? 0) + 1);
+    pairUseCounts.set(pairKey, (pairUseCounts.get(pairKey) ?? 0) + 1);
+    maxToAdd -= 1;
+  }
+}
+
 function buildOverviewBackboneSnapshot(
   graphRef: GraphRef,
   visibleNodeIds: Set<string>,
@@ -379,7 +444,10 @@ function buildOverviewBackboneSnapshot(
     };
   }
 
+  const selected: BackboneCandidate[] = [];
   const selectedEdgeIds = new Set<string>();
+  const nodeUseCounts = new Map<string, number>();
+  const pairUseCounts = new Map<string, number>();
   const regionByNode = new Map<string, string>();
   visibleNodeIds.forEach((nodeId) => {
     regionByNode.set(nodeId, getNodeSemanticGroup(graphRef, nodeId));
@@ -397,7 +465,7 @@ function buildOverviewBackboneSnapshot(
     .map((summary) => summary.id)
     .filter((nodeId) => visibleNodeIds.has(nodeId));
 
-  const coreLinkCandidates = new Map<string, { edgeId: string; score: number }>();
+  const coreLinkCandidates = new Map<string, BackboneCandidate>();
   anchorIds.forEach((anchorId) => {
     collectNodeIncidentEdges(graphRef, anchorId, visibleNodeIds)
       .filter((entry) => {
@@ -415,60 +483,88 @@ function buildOverviewBackboneSnapshot(
         const targetRegion = regionByNode.get(entry.target);
         const bridgeBoost = sourceRegion && targetRegion && sourceRegion !== targetRegion ? 0.28 : 0;
         const score = scoreBackboneEdge(entry.attrs, entry.source, entry.target, base) + bridgeBoost;
-        const current = coreLinkCandidates.get(pairKey);
-        if (!current || score > current.score || (score === current.score && entry.edgeId.localeCompare(current.edgeId) < 0)) {
-          coreLinkCandidates.set(pairKey, { edgeId: entry.edgeId, score });
-        }
+        upsertBackboneCandidate(coreLinkCandidates, pairKey, {
+          edgeId: entry.edgeId,
+          source: entry.source,
+          target: entry.target,
+          score,
+        });
       });
   });
 
-  const bridgeByPair = new Map<string, { edgeId: string; score: number }>();
+  const bridgeCandidates = new Map<string, BackboneCandidate>();
+  const structuralCandidates = new Map<string, BackboneCandidate>();
   graphRef.forEachEdge((edgeId, attrs, source, target) => {
     if (!visibleNodeIds.has(source) || !visibleNodeIds.has(target)) {
       return;
     }
 
-    const sourceRegion = regionByNode.get(source);
-    const targetRegion = regionByNode.get(target);
-    if (!sourceRegion || !targetRegion || sourceRegion === targetRegion) {
-      return;
+    const edgeKey = String(edgeId);
+    const sourceId = String(source);
+    const targetId = String(target);
+    const sourceRegion = regionByNode.get(sourceId);
+    const targetRegion = regionByNode.get(targetId);
+    const sourceCommunity = base.communitiesByNode.get(sourceId);
+    const targetCommunity = base.communitiesByNode.get(targetId);
+    const crossesSemanticRegion = Boolean(sourceRegion && targetRegion && sourceRegion !== targetRegion);
+    const crossesCommunity = sourceCommunity !== undefined && targetCommunity !== undefined && sourceCommunity !== targetCommunity;
+    const sourceCentrality = base.centralityByNode.get(sourceId)?.score ?? 0;
+    const targetCentrality = base.centralityByNode.get(targetId)?.score ?? 0;
+
+    const baseScore = scoreBackboneEdge(attrs as EdgeAttributes, sourceId, targetId, base);
+    const semanticBoost = crossesSemanticRegion ? 0.5 : 0;
+    const communityBoost = crossesCommunity ? 0.36 : 0;
+    const topRegionBoost = sourceRegion && targetRegion && (topRegionIds.has(sourceRegion) || topRegionIds.has(targetRegion)) ? 0.32 : 0;
+    const centralityBalance = Math.min(sourceCentrality, targetCentrality) * 1.2;
+    const score = baseScore + semanticBoost + communityBoost + topRegionBoost + centralityBalance;
+    const candidate = {
+      edgeId: edgeKey,
+      source: sourceId,
+      target: targetId,
+      score,
+    };
+
+    if (crossesSemanticRegion || crossesCommunity) {
+      const bridgeKey = [
+        sourceRegion ?? `community:${sourceCommunity ?? sourceId}`,
+        targetRegion ?? `community:${targetCommunity ?? targetId}`,
+        Math.min(sourceCentrality, targetCentrality).toFixed(4),
+      ].sort().join("::");
+      upsertBackboneCandidate(bridgeCandidates, bridgeKey, candidate);
     }
 
-    if (!topRegionIds.has(sourceRegion) && !topRegionIds.has(targetRegion)) {
-      return;
-    }
-
-    const pairKey = [sourceRegion, targetRegion].sort().join("::");
-    const score = scoreBackboneEdge(attrs as EdgeAttributes, source, target, base) + 0.36;
-    const current = bridgeByPair.get(pairKey);
-    if (!current || score > current.score || (score === current.score && String(edgeId).localeCompare(current.edgeId) < 0)) {
-      bridgeByPair.set(pairKey, { edgeId: String(edgeId), score });
-    }
+    const pairKey = [sourceId, targetId].sort().join("::");
+    upsertBackboneCandidate(structuralCandidates, pairKey, candidate);
   });
 
-  [...bridgeByPair.values()]
-    .sort((left, right) => {
-      if (right.score !== left.score) {
-        return right.score - left.score;
-      }
-      return left.edgeId.localeCompare(right.edgeId);
-    })
-    .slice(0, MAX_BACKBONE_BRIDGES)
-    .forEach((entry) => selectedEdgeIds.add(entry.edgeId));
+  addRankedBackboneCandidates(
+    selected,
+    selectedEdgeIds,
+    nodeUseCounts,
+    pairUseCounts,
+    bridgeCandidates.values(),
+    MAX_BACKBONE_BRIDGES,
+  );
+  addRankedBackboneCandidates(
+    selected,
+    selectedEdgeIds,
+    nodeUseCounts,
+    pairUseCounts,
+    coreLinkCandidates.values(),
+    MAX_BACKBONE_CENTRAL_LINKS,
+  );
+  addRankedBackboneCandidates(
+    selected,
+    selectedEdgeIds,
+    nodeUseCounts,
+    pairUseCounts,
+    structuralCandidates.values(),
+    MAX_BACKBONE_TOTAL_EDGES - selected.length,
+  );
 
-  [...coreLinkCandidates.values()]
-    .sort((left, right) => {
-      if (right.score !== left.score) {
-        return right.score - left.score;
-      }
-      return left.edgeId.localeCompare(right.edgeId);
-    })
-    .slice(0, MAX_BACKBONE_CENTRAL_LINKS)
-    .forEach((entry) => selectedEdgeIds.add(entry.edgeId));
-
-  const edgeIds = [...selectedEdgeIds]
-    .filter((edgeId) => graphRef.hasEdge(edgeId))
-    .sort((left, right) => left.localeCompare(right));
+  const edgeIds = selected
+    .map((entry) => entry.edgeId)
+    .filter((edgeId) => graphRef.hasEdge(edgeId));
 
   return {
     ready: edgeIds.length > 0,

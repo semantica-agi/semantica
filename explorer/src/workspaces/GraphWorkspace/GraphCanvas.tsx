@@ -25,6 +25,8 @@ import {
   collectInteractionRefreshTargets,
   createInteractionState,
   isEdgeInteractable,
+  classifyFullGraphEdge,
+  mapFullEdgeClassToVisualState,
   resolveEdgeElementStyle,
   resolveEdgeVisualState,
   resolveNodeElementStyle,
@@ -47,6 +49,15 @@ import {
   drawSemanticaNodeHover,
   drawSemanticaNodeLabel,
 } from "./sigmaNativeRendering";
+import {
+  buildGraphStructureCurveCache,
+  clearGraphStructureLayer,
+  createGraphStructureCacheKey,
+  drawGraphStructureLayer,
+  evaluateGraphStructureLayerGate,
+  getGraphStructureLayerDiagnostics,
+  type GraphStructureCurveCache,
+} from "./graphStructureLayer";
 import type {
   GraphAnalyticsSnapshot,
   GraphCameraState,
@@ -54,8 +65,13 @@ import type {
   GraphDisplayStateSnapshot,
   GraphDiagnosticsSnapshot,
   GraphEffectsState,
+  GraphFullEdgeClass,
+  GraphFullEdgeClassCounts,
+  GraphFullEdgeClassDiagnostics,
   GraphInteractionState,
   GraphLayoutStatus,
+  GraphRuntimeDiagnosticsSnapshot,
+  GraphStructureLayerDiagnostics,
   GraphTemporalState,
   GraphViewMode,
 } from "./types";
@@ -98,7 +114,7 @@ export interface GraphCanvasProps {
   onSceneRuntimeChange?: (runtime: GraphSceneRuntime | null) => void;
   onInteractionStateChange?: (interactionState: GraphInteractionState) => void;
   onCameraStateChange?: (cameraState: GraphCameraState) => void;
-  onDiagnosticsChange?: (effectAvailability: GraphDiagnosticsSnapshot["effectAvailability"]) => void;
+  onDiagnosticsChange?: (diagnostics: GraphRuntimeDiagnosticsSnapshot) => void;
   onAnalyticsChange?: (analytics: GraphAnalyticsSnapshot | null) => void;
 }
 
@@ -800,6 +816,7 @@ function drawNodeBadge(
 }
 
 type ReducerSceneState = {
+  viewMode: GraphViewMode;
   zoomTier: GraphZoomTier;
   hoveredNodeId: string | null;
   selectedNodeId: string;
@@ -810,15 +827,133 @@ type ReducerSceneState = {
   edgeEndpointIds: Set<string>;
   pathNodeIds: Set<string>;
   pathEdgeIds: Set<string>;
+  highlightedIncidentEdgeIds: Set<string>;
   overviewBackboneEdgeIds: Set<string>;
 };
+
+const FULL_EDGE_CLASSES: GraphFullEdgeClass[] = [
+  "hidden",
+  "backbone",
+  "bridge",
+  "local-context",
+  "selected",
+  "path",
+  "muted",
+];
+
+function createFullEdgeClassCounts(): GraphFullEdgeClassCounts {
+  return FULL_EDGE_CLASSES.reduce((counts, edgeClass) => {
+    counts[edgeClass] = 0;
+    return counts;
+  }, {} as GraphFullEdgeClassCounts);
+}
+
+function getIncidentEdgeRevealCap(viewMode: GraphViewMode, zoomTier: GraphZoomTier): number {
+  return GRAPH_THEME.edges.contextCaps[viewMode]?.[zoomTier] ?? 0;
+}
+
+function scoreIncidentEdge(
+  attrs: EdgeAttributes,
+  edgeId: string,
+  otherEndpointId: string,
+  visibleNeighborIds: Set<string>,
+  focusIds: Set<string>,
+  pathEdgeIds: Set<string>,
+  selectedEdgeId: string,
+): number {
+  if (pathEdgeIds.has(edgeId)) {
+    return Number.POSITIVE_INFINITY;
+  }
+  if (selectedEdgeId && edgeId === selectedEdgeId) {
+    return Number.POSITIVE_INFINITY;
+  }
+
+  const weight = Math.max(Number(attrs.weight ?? attrs.representativeWeight ?? 1) || 1, 1);
+  const normalizedWeight = Math.min(1, Math.log1p(weight) / Math.log(25));
+  const visualPriority = Math.max(0, Math.min(Number(attrs.visualPriority ?? 0), 1));
+  const relationshipStrength = Math.max(0, Math.min(Number(attrs.relationshipStrength ?? 0), 1));
+
+  return (visibleNeighborIds.has(otherEndpointId) ? 6 : 0)
+    + (focusIds.has(otherEndpointId) ? 1.25 : 0)
+    + visualPriority * 2
+    + normalizedWeight * 1.4
+    + relationshipStrength;
+}
+
+function buildHighlightedIncidentEdgeIds(
+  displayGraph: GraphSceneGraph,
+  interactionState: GraphInteractionState,
+  displayState: GraphDisplayStateSnapshot | undefined,
+  focusIds: Set<string>,
+  pathEdgeIds: Set<string>,
+): Set<string> {
+  const primaryNodeId = interactionState.hoveredNodeId || interactionState.selectedNodeId;
+  if (!primaryNodeId || !displayGraph.hasNode(primaryNodeId)) {
+    return new Set();
+  }
+
+  const cap = getIncidentEdgeRevealCap(interactionState.viewMode, interactionState.zoomTier);
+  if (cap <= 0 && !interactionState.selectedEdgeId && pathEdgeIds.size === 0) {
+    return new Set();
+  }
+
+  const visibleNeighborIds = new Set(
+    (displayState?.selectedVisibleNeighborIds ?? [])
+      .filter((nodeId) => displayGraph.hasNode(nodeId)),
+  );
+  const candidates: Array<{ edgeId: string; score: number }> = [];
+
+  displayGraph.edges(primaryNodeId).forEach((edge) => {
+    const edgeId = String(edge);
+    if (!displayGraph.hasEdge(edgeId)) {
+      return;
+    }
+    const [source, target] = displayGraph.extremities(edgeId);
+    const sourceId = String(source);
+    const targetId = String(target);
+    const otherEndpointId = sourceId === primaryNodeId ? targetId : sourceId;
+    const attrs = displayGraph.getEdgeAttributes(edgeId) as EdgeAttributes;
+    candidates.push({
+      edgeId,
+      score: scoreIncidentEdge(
+        attrs,
+        edgeId,
+        otherEndpointId,
+        visibleNeighborIds,
+        focusIds,
+        pathEdgeIds,
+        interactionState.selectedEdgeId,
+      ),
+    });
+  });
+
+  candidates.sort((left, right) => {
+    if (right.score !== left.score) {
+      return right.score - left.score;
+    }
+    return left.edgeId.localeCompare(right.edgeId);
+  });
+
+  const selected = new Set<string>();
+  candidates.forEach((candidate) => {
+    if (
+      candidate.edgeId === interactionState.selectedEdgeId
+      || pathEdgeIds.has(candidate.edgeId)
+      || selected.size < cap
+    ) {
+      selected.add(candidate.edgeId);
+    }
+  });
+  return selected;
+}
 
 function buildReducerSceneState(
   displayGraph: GraphSceneGraph,
   interactionState: GraphInteractionState,
-  analyticsSnapshot: GraphAnalyticsSnapshot | null,
+  displayState?: GraphDisplayStateSnapshot,
+  analyticsSnapshot?: GraphAnalyticsSnapshot | null,
 ): ReducerSceneState {
-  const { zoomTier, hoveredNodeId, selectedNodeId, selectedEdgeId, activePath } = interactionState;
+  const { viewMode, zoomTier, hoveredNodeId, selectedNodeId, selectedEdgeId, activePath } = interactionState;
   const primaryNodeId = hoveredNodeId || selectedNodeId;
   const focusIds = primaryNodeId
     ? (
@@ -827,8 +962,10 @@ function buildReducerSceneState(
         : new Set<string>()
     )
     : new Set<string>();
+  const pathEdgeIds = buildPathEdgeSet(displayGraph, activePath, interactionState.activePathEdgeIds);
 
   return {
+    viewMode,
     zoomTier,
     hoveredNodeId,
     selectedNodeId,
@@ -838,8 +975,74 @@ function buildReducerSceneState(
     focusIds,
     edgeEndpointIds: buildEdgeEndpointSet(displayGraph, selectedEdgeId),
     pathNodeIds: new Set(activePath),
-    pathEdgeIds: buildPathEdgeSet(displayGraph, activePath, interactionState.activePathEdgeIds),
+    pathEdgeIds,
     overviewBackboneEdgeIds: new Set(analyticsSnapshot?.overviewBackbone.edgeIds ?? []),
+    highlightedIncidentEdgeIds: buildHighlightedIncidentEdgeIds(
+      displayGraph,
+      interactionState,
+      displayState,
+      focusIds,
+      pathEdgeIds,
+    ),
+  };
+}
+
+function getFullGraphEdgeClass(
+  displayGraph: GraphSceneGraph,
+  edgeId: string,
+  currentState: ReducerSceneState,
+): GraphFullEdgeClass {
+  if (!displayGraph.hasEdge(edgeId)) {
+    return "hidden";
+  }
+
+  const [source, target] = displayGraph.extremities(edgeId);
+  const sourceId = String(source);
+  const targetId = String(target);
+  const sourceAttrs = displayGraph.hasNode(sourceId)
+    ? displayGraph.getNodeAttributes(sourceId) as NodeAttributes
+    : undefined;
+  const targetAttrs = displayGraph.hasNode(targetId)
+    ? displayGraph.getNodeAttributes(targetId) as NodeAttributes
+    : undefined;
+
+  return classifyFullGraphEdge(
+    edgeId,
+    sourceId,
+    targetId,
+    currentState.zoomTier,
+    currentState.hoveredNodeId,
+    currentState.selectedNodeId,
+    currentState.selectedEdgeId,
+    currentState.focusIds,
+    currentState.pathEdgeIds,
+    currentState.highlightedIncidentEdgeIds,
+    currentState.overviewBackboneEdgeIds,
+    sourceAttrs,
+    targetAttrs,
+  );
+}
+
+function buildFullGraphEdgeClassDiagnostics(
+  displayGraph: GraphSceneGraph,
+  currentState: ReducerSceneState,
+): GraphFullEdgeClassDiagnostics {
+  const counts = createFullEdgeClassCounts();
+
+  displayGraph.forEachEdge((edgeId) => {
+    const edgeClass = currentState.viewMode === "full"
+      ? getFullGraphEdgeClass(displayGraph, String(edgeId), currentState)
+      : "hidden";
+    counts[edgeClass] += 1;
+  });
+
+  return {
+    mode: currentState.viewMode,
+    zoomTier: currentState.zoomTier,
+    totalEdges: displayGraph.size,
+    visibleEdges: displayGraph.size - counts.hidden,
+    counts,
+    updatedAt: Date.now(),
   };
 }
 
@@ -904,6 +1107,9 @@ function applySceneState(
         borderSize: style.borderSize,
         ringColor: style.showRing ? style.ringColor : style.borderColor,
         ringSize: style.ringSize,
+        entityShape: style.entityShape,
+        entityShapeKind: style.entityShapeKind,
+        entityAspectRatio: style.entityAspectRatio,
       };
     });
 
@@ -927,18 +1133,35 @@ function applySceneState(
     const attrs = data as EdgeAttributes;
     const [source, target] = currentGraph.extremities(edge);
     const stableEdgeId = String(edge);
-    const state = resolveEdgeVisualState(
-      stableEdgeId,
-      source,
-      target,
-      currentState.zoomTier,
-      currentState.hoveredNodeId,
-      currentState.selectedNodeId,
-      currentState.selectedEdgeId,
-      currentState.focusIds,
-      currentState.pathEdgeIds,
-      currentState.overviewBackboneEdgeIds,
+    const hasActiveInteraction = Boolean(
+      currentState.hoveredNodeId
+      || currentState.selectedNodeId
+      || currentState.selectedEdgeId
+      || currentState.pathEdgeIds.size > 0,
     );
+    const fullEdgeClass = currentState.viewMode === "full"
+      ? getFullGraphEdgeClass(currentGraph, stableEdgeId, currentState)
+      : undefined;
+    const state = currentState.viewMode === "full"
+      ? mapFullEdgeClassToVisualState(
+        fullEdgeClass ?? "hidden",
+        {
+          hoveredNodeId: currentState.hoveredNodeId,
+          hasActiveInteraction,
+        },
+      )
+      : resolveEdgeVisualState(
+        stableEdgeId,
+        String(source),
+        String(target),
+        currentState.zoomTier,
+        currentState.hoveredNodeId,
+        currentState.selectedNodeId,
+        currentState.selectedEdgeId,
+        currentState.focusIds,
+        currentState.pathEdgeIds,
+        currentState.highlightedIncidentEdgeIds,
+      );
     const style = resolveEdgeElementStyle(
       GRAPH_THEME,
       currentState.zoomTier,
@@ -946,6 +1169,9 @@ function applySceneState(
       attrs,
       source,
       target,
+      currentState.viewMode,
+      stableEdgeId,
+      fullEdgeClass,
     );
 
     return {
@@ -1017,6 +1243,10 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(
   ) {
     const containerRef = useRef<HTMLDivElement>(null);
     const overlayRef = useRef<HTMLCanvasElement>(null);
+    const structureLayerCanvasRef = useRef<HTMLCanvasElement | null>(null);
+    const structureLayerCacheRef = useRef<GraphStructureCurveCache | null>(null);
+    const structureLayerLastDrawAtRef = useRef<number | null>(null);
+    const structureLayerDiagnosticsRef = useRef<GraphStructureLayerDiagnostics | null>(null);
     const sigmaRef = useRef<Sigma | null>(null);
     const fa2Ref = useRef<FA2Layout | null>(null);
     const behaviorContextRef = useRef<GraphBehaviorContext | null>(null);
@@ -1037,6 +1267,7 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(
     const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
     const [zoomTier, setZoomTier] = useState<GraphZoomTier>("overview");
     const [analyticsSnapshot, setAnalyticsSnapshot] = useState<GraphAnalyticsSnapshot | null>(null);
+    const [layoutSettledEpoch, setLayoutSettledEpoch] = useState(0);
     const appliedGraphVersionRef = useRef<number | null>(null);
     const fittedDisplaySignatureRef = useRef<DisplayFitSignature | null>(null);
     const layoutSyncFrameRef = useRef<number | null>(null);
@@ -1100,6 +1331,12 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(
     const interactionStateRef = useRef<GraphInteractionState>(interactionState);
     interactionStateRef.current = interactionState;
     const previousInteractionStateRef = useRef<GraphInteractionState | null>(null);
+    useEffect(() => {
+      if (!isLayoutRunning) {
+        setLayoutSettledEpoch((epoch) => epoch + 1);
+      }
+    }, [displayGraph, graphVersion, isLayoutRunning]);
+
     const shouldComputeCommunities = effectsState.communitiesEnabled || effectsState.semanticRegionsEnabled;
     const shouldComputeCentrality = effectsState.centralityEnabled || effectsState.semanticRegionsEnabled || effectsState.contoursEnabled;
     const analyticsBase = useMemo(
@@ -1110,11 +1347,55 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(
       [displayGraph, shouldComputeCentrality, shouldComputeCommunities],
     );
     const reducerSceneState = useMemo(
-      () => buildReducerSceneState(displayGraph, interactionState, analyticsSnapshot),
-      [analyticsSnapshot, displayGraph, interactionState],
+      () => buildReducerSceneState(displayGraph, interactionState, displayState, analyticsSnapshot),
+      [analyticsSnapshot, displayGraph, displayState, interactionState],
     );
     const reducerSceneStateRef = useRef<ReducerSceneState>(reducerSceneState);
     reducerSceneStateRef.current = reducerSceneState;
+    const edgeClassDiagnostics = useMemo(
+      () => buildFullGraphEdgeClassDiagnostics(displayGraph, reducerSceneState),
+      [displayGraph, reducerSceneState],
+    );
+    const structureLayerGate = useMemo(
+      () => evaluateGraphStructureLayerGate({
+        mode: GRAPH_THEME.edges.fullGraphStructureLayer.mode,
+        viewMode,
+        isLayoutRunning,
+        edgeDiagnostics: edgeClassDiagnostics,
+        minimumLiteralEdges: GRAPH_THEME.edges.fullGraphStructureLayer.minimumLiteralEdges,
+      }),
+      [edgeClassDiagnostics, isLayoutRunning, viewMode],
+    );
+    const structureLayerCache = useMemo(() => {
+      if (!structureLayerGate.enabled) {
+        return null;
+      }
+      const cacheKey = createGraphStructureCacheKey({
+        graphVersion,
+        zoomTier,
+        layoutSettledEpoch,
+        overviewBackboneEdgeIds: reducerSceneState.overviewBackboneEdgeIds,
+      });
+      return buildGraphStructureCurveCache({
+        graphRef: displayGraph,
+        cacheKey,
+        classifyEdge: (edgeId) => getFullGraphEdgeClass(displayGraph, edgeId, reducerSceneState),
+        maxCurves: GRAPH_THEME.edges.fullGraphStructureLayer.maxCurves,
+        curveStrength: GRAPH_THEME.edges.fullGraphStructureLayer.curveStrength,
+      });
+    }, [displayGraph, graphVersion, layoutSettledEpoch, reducerSceneState, structureLayerGate.enabled, zoomTier]);
+    structureLayerCacheRef.current = structureLayerCache;
+    const structureLayerDiagnostics = useMemo(
+      () => getGraphStructureLayerDiagnostics({
+        gate: structureLayerGate,
+        cache: structureLayerCache,
+        minimumCurves: GRAPH_THEME.edges.fullGraphStructureLayer.minimumCurves,
+        canvasAvailable: Boolean(structureLayerCanvasRef.current),
+        lastDrawAt: structureLayerLastDrawAtRef.current,
+      }),
+      [structureLayerCache, structureLayerGate],
+    );
+    structureLayerDiagnosticsRef.current = structureLayerDiagnostics;
     const displayFitSignature = useMemo<DisplayFitSignature>(() => ({
       graphVersion,
       viewMode,
@@ -1237,17 +1518,40 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(
           graphVersion: graphVersionRef.current,
           viewMode: viewModeRef.current,
         });
-        fitDisplayGraphInView();
         return;
       }
 
-      const bounds = computeGraphSpaceBounds(currentDisplayGraph, selectionNodeIds);
+      const selectedDisplayNodeId = selectionNodeIds[0];
+      const selectedDisplayData = sigma.getNodeDisplayData(selectedDisplayNodeId);
+      if (selectedDisplayData) {
+        const viewportPoint = sigma.graphToViewport({
+          x: selectedDisplayData.x,
+          y: selectedDisplayData.y,
+        });
+        const dimensions = sigma.getDimensions();
+        if (isPointNearViewport(viewportPoint, dimensions.width, dimensions.height, 96)) {
+          debugGraphRuntime("camera-selection-visible-noop", {
+            nodeId,
+            selectedDisplayNodeId,
+            graphVersion: graphVersionRef.current,
+            viewMode: viewModeRef.current,
+            viewportX: viewportPoint.x,
+            viewportY: viewportPoint.y,
+          });
+          sigma.scheduleRefresh();
+          return;
+        }
+      }
+
+      const bounds = computeDisplayedNodeBounds(sigma, selectionNodeIds);
       if (!bounds) {
         if (attempt < 3) {
-          debugGraphRuntime("camera-selection-deferred", {
+          debugGraphRuntime("camera-selection-display-bounds-deferred", {
             nodeId,
             graphVersion: graphVersionRef.current,
             attempt: attempt + 1,
+            viewMode: viewModeRef.current,
+            contextCount: selectionNodeIds.length,
           });
           if (deferredFocusFrameRef.current !== null) {
             window.cancelAnimationFrame(deferredFocusFrameRef.current);
@@ -1257,45 +1561,43 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(
             centerSelectionInViewInternal(nodeId, attempt + 1);
           });
         } else {
-          debugGraphRuntime("camera-selection-fallback-fit", {
+          debugGraphRuntime("camera-selection-display-bounds-fallback-fit", {
             nodeId,
             graphVersion: graphVersionRef.current,
             viewMode: viewModeRef.current,
+            contextCount: selectionNodeIds.length,
           });
-          fitDisplayGraphInView();
         }
         return;
       }
 
-      const globalBounds = computeDisplayedGraphBounds(sigma, currentDisplayGraph);
-      const selectionBBox = expandGraphSpaceBounds(bounds, globalBounds, {
-        paddingRatio: 0.2,
-        minSpanRatio: 0.035,
-        minSpanFloor: 0.02,
-      });
-      if (!selectionBBox) {
-        debugGraphRuntime("camera-selection-invalid-bounds", {
-          nodeId,
-          graphVersion: graphVersionRef.current,
-          count: bounds.count,
-        });
-        fitDisplayGraphInView();
-        return;
-      }
+      const camera = sigma.getCamera();
+      const currentCameraState = camera.getState();
+      const target = {
+        x: (bounds.minX + bounds.maxX) / 2,
+        y: (bounds.minY + bounds.maxY) / 2,
+        ratio: currentCameraState.ratio,
+        angle: currentCameraState.angle,
+      };
 
-      animateCameraToBounds("fit-selection-context", selectionBBox, {
+      debugGraphRuntime("camera-selection-gentle-center", {
         nodeId,
         contextCount: bounds.count,
+        boundsSource: "displayed-selection-context",
         minX: bounds.minX,
         maxX: bounds.maxX,
         minY: bounds.minY,
         maxY: bounds.maxY,
-        referenceMinX: globalBounds?.minX ?? null,
-        referenceMaxX: globalBounds?.maxX ?? null,
-        referenceMinY: globalBounds?.minY ?? null,
-        referenceMaxY: globalBounds?.maxY ?? null,
+        targetX: target.x,
+        targetY: target.y,
+        preservedRatio: target.ratio,
       });
-    }, [animateCameraToBounds, fitDisplayGraphInView]);
+
+      void camera.animate(
+        target,
+        { duration: GRAPH_THEME.motion.cameraMs, easing: "quadraticOut" },
+      );
+    }, []);
 
     const centerGroupedSelectionInView = useCallback((nodeId: string) => {
       const sigma = sigmaRef.current;
@@ -1580,6 +1882,22 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(
         }
       });
 
+      try {
+        const structureCanvas = sigma.createCanvas("structure", {
+          beforeLayer: "nodes",
+          afterLayer: "edges",
+          style: {
+            pointerEvents: "none",
+          },
+        });
+        structureLayerCanvasRef.current = structureCanvas;
+      } catch (error) {
+        debugGraphRuntime("structure-layer-create-failed", {
+          error: error instanceof Error ? error.message : String(error),
+        });
+        structureLayerCanvasRef.current = null;
+      }
+
       requestAnimationFrame(() => {
         syncCameraState(sigma);
       });
@@ -1607,6 +1925,14 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(
           debugGraphRuntime("sigma-killed", {
             graphVersion: graphVersionRef.current,
           });
+          if (structureLayerCanvasRef.current) {
+            try {
+              sigma.killLayer("structure");
+            } catch {
+              // Sigma.kill() also cleans layers; ignore if already removed.
+            }
+          }
+          structureLayerCanvasRef.current = null;
           sigma.kill();
         }
         if (deferredFocusFrameRef.current !== null) {
@@ -1764,8 +2090,24 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(
         container?.clientWidth ?? 0,
         container?.clientHeight ?? 0,
       );
-      onDiagnosticsChange(availability);
-    }, [analyticsSnapshot, effectsState, interactionState, isLayoutRunning, onDiagnosticsChange, temporalState]);
+      onDiagnosticsChange({
+        effectAvailability: availability,
+        edgeClasses: edgeClassDiagnostics,
+        structureLayer: structureLayerDiagnosticsRef.current ?? structureLayerDiagnostics,
+      });
+      if (import.meta.env.DEV && effectsState.diagnosticsEnabled) {
+        console.debug("[Edge Truth]", edgeClassDiagnostics);
+      }
+    }, [
+      analyticsSnapshot,
+      edgeClassDiagnostics,
+      effectsState,
+      interactionState,
+      isLayoutRunning,
+      onDiagnosticsChange,
+      structureLayerDiagnostics,
+      temporalState,
+    ]);
 
     useEffect(() => {
       previousInteractionStateRef.current = null;
@@ -1785,6 +2127,59 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(
       applySceneState(sigma, reducerSceneStateRef, reducerWarningStateRef, refreshTargets);
       previousInteractionStateRef.current = interactionState;
     }, [displayGraph, interactionState, reducerSceneStateRef]);
+
+    const drawStructureLayerFrame = useCallback(() => {
+      const sigma = sigmaRef.current;
+      const canvas = structureLayerCanvasRef.current;
+      const cache = structureLayerCacheRef.current;
+      const diagnostics = getGraphStructureLayerDiagnostics({
+        gate: structureLayerGate,
+        cache,
+        minimumCurves: GRAPH_THEME.edges.fullGraphStructureLayer.minimumCurves,
+        canvasAvailable: Boolean(canvas),
+        lastDrawAt: structureLayerLastDrawAtRef.current,
+      });
+      structureLayerDiagnosticsRef.current = diagnostics;
+
+      if (!sigma || !canvas || !diagnostics.enabled || !cache) {
+        clearGraphStructureLayer(canvas);
+        return;
+      }
+
+      const drawn = drawGraphStructureLayer({
+        sigma,
+        canvas,
+        cache,
+      });
+      if (drawn) {
+        structureLayerLastDrawAtRef.current = Date.now();
+        structureLayerDiagnosticsRef.current = {
+          ...diagnostics,
+          lastDrawAt: structureLayerLastDrawAtRef.current,
+        };
+      }
+    }, [structureLayerGate]);
+
+    useEffect(() => {
+      const sigma = sigmaRef.current;
+      if (!graphReady || !sigma) {
+        return;
+      }
+
+      const draw = () => drawStructureLayerFrame();
+      sigma.on("afterRender", draw);
+      draw();
+
+      return () => {
+        sigma.off("afterRender", draw);
+      };
+    }, [drawStructureLayerFrame, graphReady, structureLayerCache]);
+
+    useEffect(() => {
+      if (isLayoutRunning || viewMode !== "full") {
+        clearGraphStructureLayer(structureLayerCanvasRef.current);
+      }
+    }, [isLayoutRunning, viewMode]);
 
     const drawOverlayFrame = useCallback(() => {
       const sigma = sigmaRef.current;
@@ -1847,6 +2242,19 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(
         ...pathNodeIds,
         ...(primaryNodeId ? [primaryNodeId] : []),
       ]);
+      const lensFocusIds = new Set<string>();
+      if (primaryNodeId) {
+        reducerSceneStateRef.current.highlightedIncidentEdgeIds.forEach((edgeId) => {
+          if (!displayGraph.hasEdge(edgeId)) {
+            return;
+          }
+          const [source, target] = displayGraph.extremities(edgeId);
+          const otherEndpointId = String(source) === primaryNodeId ? String(target) : String(source);
+          if (displayGraph.hasNode(otherEndpointId)) {
+            lensFocusIds.add(otherEndpointId);
+          }
+        });
+      }
       const now = performance.now() / 1000;
 
       if (!isLayoutRunning) {
@@ -1909,7 +2317,7 @@ export const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>(
       });
 
       if (!isLayoutRunning && primaryNodeId && effectAvailability.lens.available) {
-        drawLensLayer(context, sigma, primaryNodeId, focusIds);
+        drawLensLayer(context, sigma, primaryNodeId, lensFocusIds);
       }
 
       drawPathEffectsLayer(context, pathSegments, effectsState, effectAvailability, now);

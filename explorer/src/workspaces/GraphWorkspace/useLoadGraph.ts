@@ -10,9 +10,11 @@ import {
   withAlpha,
   type GraphBadgeKind,
   type GraphEdgeVariant,
+  type GraphEntityShapeVariant,
   type GraphLabelVisibilityPolicy,
   type GraphNodeShapeVariant,
 } from "./graphTheme";
+import { classifyEntityShape } from "./graphEntityShape";
 import { createGraphLoadProgress } from "./graphLoading";
 import type { GraphLoadProgress, GraphLoadSummary } from "./types";
 
@@ -193,6 +195,15 @@ function getProvenanceCount(properties: Record<string, unknown>): number {
   return PROVENANCE_KEYS.reduce(
     (count, key) => (properties[key] !== undefined && properties[key] !== null ? count + 1 : count),
     0,
+  );
+}
+
+function resolveEntityShape(attributes: NodeAttributes, semanticGroup: string): GraphEntityShapeVariant {
+  return classifyEntityShape(
+    attributes.nodeType,
+    semanticGroup,
+    attributes.content,
+    attributes.properties as Record<string, unknown> | undefined,
   );
 }
 
@@ -548,6 +559,7 @@ export function useLoadGraph(options: UseLoadGraphOptions = {}) {
         const hasTemporalBounds = Boolean(attributes.valid_from || attributes.valid_until);
         const provenanceCount = getProvenanceCount(attributes.properties ?? {});
         const properties = attributes.properties as Record<string, unknown>;
+        const entityShape = resolveEntityShape(attributes, semanticGroup);
         const providedX = readFiniteCoordinate(properties?.x);
         const providedY = readFiniteCoordinate(properties?.y);
         const seededPosition = seededPositions?.get(id);
@@ -575,6 +587,7 @@ export function useLoadGraph(options: UseLoadGraphOptions = {}) {
             strokeColor: darkenHex(baseColor, 112),
             borderColor: darkenHex(baseColor, 112),
             borderSize: 0.72,
+            entityShape,
             ...resolveNodeVariantMetadata(baseColor, sizeRatio, hasTemporalBounds, provenanceCount),
           } as NodeAttributes,
         };
@@ -598,6 +611,12 @@ export function useLoadGraph(options: UseLoadGraphOptions = {}) {
         const parallelIndex = parallelOffsets.get(pairKey) ?? 0;
         parallelOffsets.set(pairKey, parallelIndex + 1);
         const parallelCount = parallelCounts.get(pairKey) ?? 1;
+        const normalizedWeight = clamp(0, Math.log1p(Math.max(Number(edge.weight) || 1, 1)) / 6, 1);
+        const edgeVisualPriority = clamp(
+          0,
+          Math.sqrt(Math.max(sourcePriority, 0) * Math.max(targetPriority, 0)) * 0.72 + normalizedWeight * 0.28,
+          1,
+        );
 
         return {
           id: edge.id,
@@ -617,7 +636,7 @@ export function useLoadGraph(options: UseLoadGraphOptions = {}) {
             color: GRAPH_THEME.palette.muted.edgeStructure,
             baseColor: GRAPH_THEME.palette.muted.edgeStructure,
             mutedColor: GRAPH_THEME.palette.muted.edgeOverview,
-            visualPriority: Math.max(sourcePriority, targetPriority),
+            visualPriority: edgeVisualPriority,
             isBidirectional,
             edgeFamily: isBidirectional ? "bidirectional" : "line",
             curveGroup: curveGroupForPair(edge.source, edge.target),

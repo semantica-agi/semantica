@@ -266,8 +266,8 @@ function renderDensityField(
       (GRAPH_THEME.effects.semanticRegions.splatRadius + sample.size * 0.9) * scale,
     );
     const gradient = context.createRadialGradient(x, y, 0, x, y, radius);
-    gradient.addColorStop(0, "rgba(255,255,255,0.22)");
-    gradient.addColorStop(0.58, "rgba(255,255,255,0.08)");
+    gradient.addColorStop(0, "rgba(255,255,255,0.05)");
+    gradient.addColorStop(0.58, "rgba(255,255,255,0.02)");
     gradient.addColorStop(1, "rgba(255,255,255,0)");
     context.fillStyle = gradient;
     context.beginPath();

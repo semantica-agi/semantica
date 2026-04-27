@@ -7,11 +7,11 @@ import type {
   GraphCameraState,
   GraphDisplayMeta,
   GraphDisplayStateSnapshot,
-  GraphDiagnosticsSnapshot,
   GraphEffectsState,
   GraphInteractionState,
   GraphLayoutSource,
   GraphLayoutStatus,
+  GraphRuntimeDiagnosticsSnapshot,
   GraphTemporalState,
   GraphViewMode,
 } from "./types";
@@ -35,7 +35,7 @@ export interface GraphSceneEventMap {
   onEdgeSelect?: (edgeId: string) => void;
   onInteractionStateChange?: (interactionState: GraphInteractionState) => void;
   onCameraStateChange?: (cameraState: GraphCameraState) => void;
-  onDiagnosticsChange?: (effectAvailability: GraphDiagnosticsSnapshot["effectAvailability"]) => void;
+  onDiagnosticsChange?: (diagnostics: GraphRuntimeDiagnosticsSnapshot) => void;
   onAnalyticsChange?: (analytics: GraphAnalyticsSnapshot | null) => void;
   onRuntimeChange?: (runtime: GraphSceneRuntime | null) => void;
 }

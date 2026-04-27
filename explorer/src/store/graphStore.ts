@@ -3,6 +3,7 @@ import type {
   GraphArrowVisibilityPolicy,
   GraphBadgeKind,
   GraphEdgeVariant,
+  GraphEntityShapeVariant,
   GraphLabelVisibilityPolicy,
   GraphNodeShapeVariant,
 } from "../workspaces/GraphWorkspace/graphTheme";
@@ -36,6 +37,7 @@ export interface NodeAttributes {
   borderSize?: number;
   nodeVariant?: GraphNodeShapeVariant;
   nodeShapeVariant?: GraphNodeShapeVariant;
+  entityShape?: GraphEntityShapeVariant;
   badgeKind?: GraphBadgeKind;
   badgeCount?: number;
   ringColor?: string;
