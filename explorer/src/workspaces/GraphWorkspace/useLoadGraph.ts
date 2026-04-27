@@ -14,6 +14,7 @@ import {
   type GraphLabelVisibilityPolicy,
   type GraphNodeShapeVariant,
 } from "./graphTheme";
+import { classifyEntityShape } from "./graphEntityShape";
 import { createGraphLoadProgress } from "./graphLoading";
 import type { GraphLoadProgress, GraphLoadSummary } from "./types";
 
@@ -30,12 +31,6 @@ const SEMANTIC_COLOR_FIELDS = [
 ] as const;
 
 const PROVENANCE_KEYS = ["source", "source_url", "pmid", "pmids", "evidence", "provenance", "confidence"] as const;
-const ENTITY_SHAPE_ALIASES: Array<[GraphEntityShapeVariant, RegExp]> = [
-  ["biomolecule", /\b(gene|protein|enzyme|receptor|target|transcript|rna|dna|mirna|biomolecule|peptide)\b/i],
-  ["condition", /\b(disease|condition|phenotype|symptom|disorder|syndrome|diagnosis|pathology|trait)\b/i],
-  ["compound", /\b(drug|chemical|compound|metabolite|molecule|small[_\s-]?molecule|ligand|therapeutic|medication|substance)\b/i],
-  ["process", /\b(pathway|process|mechanism|function|ontology|biological[_\s-]?process|cellular[_\s-]?process|program|module)\b/i],
-];
 
 function getSemanticFieldValue(attributes: NodeAttributes, field: (typeof SEMANTIC_COLOR_FIELDS)[number]): string | null {
   if (field === "nodeType") {
@@ -204,24 +199,12 @@ function getProvenanceCount(properties: Record<string, unknown>): number {
 }
 
 function resolveEntityShape(attributes: NodeAttributes, semanticGroup: string): GraphEntityShapeVariant {
-  const values = [
+  return classifyEntityShape(
     attributes.nodeType,
     semanticGroup,
     attributes.content,
-    String(attributes.properties?.type ?? ""),
-    String(attributes.properties?.category ?? ""),
-    String(attributes.properties?.label ?? ""),
-  ]
-    .filter((value) => typeof value === "string" && value.trim().length > 0)
-    .join(" ");
-
-  for (const [shape, pattern] of ENTITY_SHAPE_ALIASES) {
-    if (pattern.test(values)) {
-      return shape;
-    }
-  }
-
-  return "entity";
+    attributes.properties as Record<string, unknown> | undefined,
+  );
 }
 
 function resolveNodeVariantMetadata(

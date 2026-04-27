@@ -19,6 +19,7 @@ import {
   withAlpha,
   zoomTierAtLeast,
 } from "./graphTheme";
+import { classifyEntityShape } from "./graphEntityShape";
 import { computeGraphAnalyticsBase } from "./graphAnalytics";
 import type {
   GraphDisplayMeta,
@@ -1090,7 +1091,15 @@ export function resolveEntityShape(attrs: NodeAttributes): GraphEntityShapeVaria
     return "community";
   }
 
-  return attrs.entityShape || "entity";
+  // Prefer the shape stamped at load time; fall back to classifyEntityShape for
+  // nodes created programmatically that bypassed useLoadGraph.
+  return attrs.entityShape
+    || classifyEntityShape(
+      attrs.nodeType,
+      attrs.semanticGroup,
+      attrs.content,
+      attrs.properties as Record<string, unknown> | undefined,
+    );
 }
 
 export function resolveEdgeVariant(state: GraphEdgeVisualState, attrs: EdgeAttributes): GraphEdgeVariant {

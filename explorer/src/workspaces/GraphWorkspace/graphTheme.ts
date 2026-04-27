@@ -832,8 +832,10 @@ export const GRAPH_THEME: GraphTheme = {
       bridgeMaxSize: 0.7,
       structureEdgeAlpha: 0.12,
       inspectionEdgeAlpha: 0.1,
-      },
-      fullGraphStructureLayer: {
+    },
+    // Staged rollout — set mode to "auto" to enable cross-community curve rendering.
+    // Currently "off" so the canvas overlay layer is inactive in production.
+    fullGraphStructureLayer: {
       mode: "off",
       minimumLiteralEdges: 24,
       minimumCurves: 8,
@@ -843,19 +845,19 @@ export const GRAPH_THEME: GraphTheme = {
       bridgeLineWidth: 0.9,
       backboneLineWidth: 0.62,
       curveStrength: 0.12,
-      },
-      },
-      interaction: {
-      localContextAlpha: 0.32,
-      hoverContextAlpha: 0.32,
-      selectedEdgeAlpha: 0.6,
-      pathEdgeAlpha: 0.76,
-      localContextMaxSize: 0.6,
-      selectedEdgeMaxSize: 1.0,
-      pathEdgeMaxSize: 1.4,
-      pathOverlayAlpha: 0.16,
-      },
-      overlays: {
+    },
+  },
+  interaction: {
+    localContextAlpha: 0.32,
+    hoverContextAlpha: 0.32,
+    selectedEdgeAlpha: 0.6,
+    pathEdgeAlpha: 0.76,
+    localContextMaxSize: 0.6,
+    selectedEdgeMaxSize: 1.0,
+    pathEdgeMaxSize: 1.4,
+    pathOverlayAlpha: 0.16,
+  },
+  overlays: {
     hoverGlowAlpha: 0.18,
     pathGlowAlpha: 0.16,
     glowRadiusMultiplier: 4.8,
