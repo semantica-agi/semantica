@@ -74,6 +74,7 @@ Production Use Cases:
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple, Union
 
+from ..utils.helpers import classify_path_distance
 from ..utils.logging import get_logger
 from .agent_memory import AgentMemory
 from .context_retriever import ContextRetriever, RetrievedContext
@@ -507,6 +508,10 @@ class AgentContext:
         include_relationships: bool = False,
         expand_graph: bool = True,
         deduplicate: bool = True,
+        anchor_node: Optional[str] = None,
+        max_hops: Optional[int] = None,
+        proximity_weight: float = 0.0,
+        min_confidence_decay: float = 0.0,
         **kwargs,
     ) -> List[Dict[str, Any]]:
         """
@@ -560,17 +565,33 @@ class AgentContext:
                 **kwargs,
             )
             # Convert RetrievedContext to dicts
-            return [
+            result_dicts = [
                 self._context_to_dict(r, include_entities, include_relationships)
                 for r in results
             ]
+            return self._apply_proximity_metadata(
+                result_dicts,
+                anchor_node=anchor_node,
+                max_hops=max_hops,
+                proximity_weight=proximity_weight,
+                min_confidence_decay=min_confidence_decay,
+                max_results=max_results,
+            )
         else:
             # Simple RAG: Use AgentMemory (vector + memory)
             results = self._memory.retrieve(
                 query, max_results=max_results, min_score=min_score, **kwargs
             )
             # Convert to dicts
-            return [self._memory_to_dict(r) for r in results]
+            result_dicts = [self._memory_to_dict(r) for r in results]
+            return self._apply_proximity_metadata(
+                result_dicts,
+                anchor_node=anchor_node,
+                max_hops=max_hops,
+                proximity_weight=proximity_weight,
+                min_confidence_decay=min_confidence_decay,
+                max_results=max_results,
+            )
 
     def query_with_reasoning(
         self,
@@ -813,6 +834,77 @@ class AgentContext:
             result["related_relationships"] = context.related_relationships
 
         return result
+
+    def _apply_proximity_metadata(
+        self,
+        results: List[Dict[str, Any]],
+        anchor_node: Optional[str] = None,
+        max_hops: Optional[int] = None,
+        proximity_weight: float = 0.0,
+        min_confidence_decay: float = 0.0,
+        max_results: Optional[int] = None,
+    ) -> List[Dict[str, Any]]:
+        """Enrich retrieval results with graph distance from an anchor node."""
+        if not anchor_node or not self.knowledge_graph:
+            return results
+        if not hasattr(self.knowledge_graph, "get_neighbor_distances"):
+            return results
+
+        search_hops = max_hops if max_hops is not None else 10
+        distances = self.knowledge_graph.get_neighbor_distances(
+            anchor_node,
+            hops=search_hops,
+            min_confidence=min_confidence_decay,
+        )
+        by_node_id = {item.get("id"): item for item in distances}
+        if anchor_node:
+            by_node_id[anchor_node] = {
+                "id": anchor_node,
+                "hop": 0,
+                "confidence_decay": 1.0,
+                "distance_band": "direct",
+                "path_to_anchor": [anchor_node],
+            }
+
+        enriched: List[Dict[str, Any]] = []
+        for result in results:
+            metadata = result.get("metadata") or {}
+            result_id = (
+                result.get("id")
+                or metadata.get("node_id")
+                or metadata.get("id")
+                or metadata.get("memory_id")
+            )
+            distance = by_node_id.get(result_id)
+            if not distance:
+                if max_hops is not None or min_confidence_decay > 0.0:
+                    continue
+                enriched.append(result)
+                continue
+
+            hop_distance = distance.get("hop")
+            if max_hops is not None and hop_distance is not None and hop_distance > max_hops:
+                continue
+
+            proximity_score = 1.0 if hop_distance == 0 else 1.0 / float(hop_distance or 1)
+            score = float(result.get("score", 0.0))
+            bounded_weight = min(max(float(proximity_weight), 0.0), 1.0)
+            combined_score = (1.0 - bounded_weight) * score + bounded_weight * proximity_score
+            enriched_result = {
+                **result,
+                "graph_node_id": result_id,
+                "hop_distance": hop_distance,
+                "confidence_decay": distance.get("confidence_decay"),
+                "distance_band": distance.get("distance_band"),
+                "path_to_anchor": distance.get("path_to_anchor"),
+                "proximity_score": proximity_score,
+                "combined_score": combined_score,
+            }
+            enriched.append(enriched_result)
+
+        if proximity_weight > 0:
+            enriched.sort(key=lambda item: item.get("combined_score", item.get("score", 0.0)), reverse=True)
+        return enriched[:max_results] if max_results is not None else enriched
 
     def _memory_to_dict(self, memory: Dict[str, Any]) -> Dict[str, Any]:
         """Convert memory result to dict."""
@@ -2228,7 +2320,10 @@ class AgentContext:
         category: Optional[str] = None,
         limit: int = 10,
         use_kg_features: bool = True,
-        similarity_weights: Optional[Dict[str, float]] = None
+        similarity_weights: Optional[Dict[str, float]] = None,
+        anchor_decision_id: Optional[str] = None,
+        max_causal_hops: Optional[int] = None,
+        min_confidence_decay: float = 0.0,
     ) -> List[Decision]:
         """
         Find precedents using advanced KG and vector store features.
@@ -2248,7 +2343,7 @@ class AgentContext:
         
         try:
             if hasattr(self._decision_query, 'find_precedents_hybrid'):
-                return self._decision_query.find_precedents_hybrid(
+                precedents = self._decision_query.find_precedents_hybrid(
                     scenario=scenario,
                     category=category,
                     limit=limit,
@@ -2257,11 +2352,116 @@ class AgentContext:
                 )
             else:
                 # Fallback to basic method
-                return self.find_precedents(scenario, category, limit)
+                precedents = self.find_precedents(scenario, category, limit)
+            return self._apply_causal_proximity_to_precedents(
+                precedents,
+                anchor_decision_id=anchor_decision_id,
+                max_causal_hops=max_causal_hops,
+                min_confidence_decay=min_confidence_decay,
+                limit=limit,
+            )
         except Exception as e:
             self.logger.error(f"Failed to find advanced precedents ({type(e).__name__})")
             return []
-    
+
+    def _apply_causal_proximity_to_precedents(
+        self,
+        precedents: List[Decision],
+        anchor_decision_id: Optional[str] = None,
+        max_causal_hops: Optional[int] = None,
+        min_confidence_decay: float = 0.0,
+        limit: int = 10,
+    ) -> List[Decision]:
+        """Attach causal-distance metadata to precedents and optionally filter."""
+        if not anchor_decision_id or not self.knowledge_graph:
+            return precedents
+
+        causal_types = ["causes", "influences", "leads_to", "supports"]
+        max_hops = max_causal_hops if max_causal_hops is not None else 10
+        distance_by_id: Dict[str, Dict[str, Any]] = {}
+        if hasattr(self.knowledge_graph, "get_neighbor_distances"):
+            for item in self.knowledge_graph.get_neighbor_distances(
+                anchor_decision_id,
+                hops=max_hops,
+                relationship_types=causal_types,
+                min_confidence=min_confidence_decay,
+            ):
+                distance_by_id[item.get("id")] = item
+
+        annotated: List[Decision] = []
+        for decision in precedents:
+            decision_id = getattr(decision, "decision_id", None)
+            distance = distance_by_id.get(decision_id)
+            if distance is None and hasattr(self.knowledge_graph, "trace_decision_causality"):
+                distance = self._distance_from_causality_trace(anchor_decision_id, decision_id, max_hops)
+
+            if distance is None:
+                if max_causal_hops is not None or min_confidence_decay > 0.0:
+                    continue
+                setattr(decision, "causal_hop_distance", None)
+                setattr(decision, "path_confidence_decay", None)
+                setattr(decision, "distance_band", None)
+                annotated.append(decision)
+                continue
+
+            hop_distance = distance.get("hop", distance.get("hop_count"))
+            confidence_decay = distance.get("confidence_decay")
+            if max_causal_hops is not None and hop_distance is not None and hop_distance > max_causal_hops:
+                continue
+            if confidence_decay is not None and confidence_decay < min_confidence_decay:
+                continue
+
+            setattr(decision, "causal_hop_distance", hop_distance)
+            setattr(decision, "path_confidence_decay", confidence_decay)
+            setattr(decision, "distance_band", distance.get("distance_band"))
+            annotated.append(decision)
+
+        annotated.sort(
+            key=lambda decision: (
+                getattr(decision, "causal_hop_distance", None) is None,
+                getattr(decision, "causal_hop_distance", 10**9) or 10**9,
+                -(getattr(decision, "path_confidence_decay", 0.0) or 0.0),
+            )
+        )
+        return annotated[:limit]
+
+    def _distance_from_causality_trace(
+        self,
+        anchor_decision_id: str,
+        target_decision_id: Optional[str],
+        max_hops: int,
+    ) -> Optional[Dict[str, Any]]:
+        """Infer anchor-to-target distance from ContextGraph causality reports."""
+        if not target_decision_id:
+            return None
+        try:
+            chains = self.knowledge_graph.trace_decision_causality(target_decision_id, max_depth=max_hops)
+        except Exception:
+            return None
+        best: Optional[Dict[str, Any]] = None
+        for chain in chains:
+            hops = chain.get("hops", chain) if isinstance(chain, dict) else chain
+            if not hops:
+                continue
+            starts_at_anchor = hops[0].get("from") == anchor_decision_id
+            ends_at_target = hops[-1].get("to") == target_decision_id
+            if starts_at_anchor and ends_at_target:
+                candidate = {
+                    "hop_count": len(hops),
+                    "confidence_decay": chain.get("confidence_decay") if isinstance(chain, dict) else None,
+                    "distance_band": chain.get("distance_band") if isinstance(chain, dict) else None,
+                }
+                if candidate["confidence_decay"] is None:
+                    decay = 1.0
+                    for hop in hops:
+                        decay *= float(hop.get("edge_weight", 1.0))
+                    candidate["confidence_decay"] = decay
+                if candidate["distance_band"] is None:
+                    candidate["distance_band"] = classify_path_distance(candidate["hop_count"])
+                if best is None or candidate["hop_count"] < best["hop_count"]:
+                    best = candidate
+        return best
+
     def analyze_decision_influence(self, decision_id: str, max_depth: int = 3) -> Dict[str, Any]:
         """
         Analyze decision influence using advanced graph algorithms.

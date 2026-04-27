@@ -1,7 +1,7 @@
 import type { CSSProperties } from "react";
 import { Loader2 } from "lucide-react";
 import { graph } from "../../store/graphStore";
-import { GRAPH_THEME } from "./graphTheme";
+import { GRAPH_THEME, withAlpha } from "./graphTheme";
 import type { GraphSelectedNodeKind } from "./types";
 
 export type LinkPrediction = {
@@ -17,6 +17,13 @@ export type PathResponse = {
   total_weight: number;
   hop_count: number;
   distance_band: "direct" | "near" | "mid-range" | "distant";
+  // FR-1 distance intelligence enrichment
+  semantic_similarity?: number | null;
+  path_coherence_score?: number | null;
+  confidence_decay?: number | null;
+  bottleneck_node?: string | null;
+  alternative_path_count?: number;
+  interpretation?: string;
 };
 
 export interface GraphInspectorPanelProps {
@@ -44,6 +51,132 @@ function sourceAttribution(properties: Record<string, unknown>) {
   return PROVENANCE_KEYS
     .filter((key) => key in properties)
     .map((key) => ({ key, value: properties[key] }));
+}
+
+/* ─── Path Distance Intelligence Panel ──────────────────────────── */
+
+const BAND_COLORS: Record<string, string> = {
+  direct: "#3fb950",
+  near: "#79c0ff",
+  "mid-range": "#e3b341",
+  distant: "#ff7b72",
+};
+
+function PathDistanceIntelPanel({ result }: { result: PathResponse }) {
+  const hasMetrics =
+    result.confidence_decay != null ||
+    result.semantic_similarity != null ||
+    result.path_coherence_score != null ||
+    result.bottleneck_node ||
+    result.interpretation;
+  if (!hasMetrics) return null;
+
+  const bandColor = BAND_COLORS[result.distance_band] ?? "#8b949e";
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 8 }}>
+      {/* distance band + alt paths */}
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+        <span
+          style={{
+            padding: "3px 8px",
+            borderRadius: 999,
+            background: withAlpha(bandColor, 0.14),
+            border: `1px solid ${withAlpha(bandColor, 0.3)}`,
+            color: bandColor,
+            fontSize: 11,
+            fontWeight: 700,
+          }}
+        >
+          {result.distance_band} · {result.hop_count} hop{result.hop_count !== 1 ? "s" : ""}
+        </span>
+        {(result.alternative_path_count ?? 0) > 0 && (
+          <span style={subtleChipStyle}>{result.alternative_path_count} alt path{result.alternative_path_count !== 1 ? "s" : ""}</span>
+        )}
+      </div>
+
+      {/* metric grid */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
+        {result.confidence_decay != null && (
+          <div style={metricCardStyle}>
+            <div style={metricLabelStyle}>Confidence Decay</div>
+            <div
+              style={{
+                ...metricValueStyle,
+                color: result.confidence_decay > 0.6 ? "#3fb950" : result.confidence_decay > 0.3 ? "#e3b341" : "#ff7b72",
+              }}
+            >
+              {(result.confidence_decay * 100).toFixed(1)}%
+            </div>
+            <div style={metricBarTrackStyle}>
+              <div
+                style={{
+                  ...metricBarFillStyle,
+                  width: `${result.confidence_decay * 100}%`,
+                  background:
+                    result.confidence_decay > 0.6 ? "#3fb950" : result.confidence_decay > 0.3 ? "#e3b341" : "#ff7b72",
+                }}
+              />
+            </div>
+          </div>
+        )}
+        {result.semantic_similarity != null && (
+          <div style={metricCardStyle}>
+            <div style={metricLabelStyle}>Semantic Sim.</div>
+            <div style={{ ...metricValueStyle, color: "#79c0ff" }}>
+              {(result.semantic_similarity * 100).toFixed(1)}%
+            </div>
+            <div style={metricBarTrackStyle}>
+              <div style={{ ...metricBarFillStyle, width: `${result.semantic_similarity * 100}%`, background: "#79c0ff" }} />
+            </div>
+          </div>
+        )}
+        {result.path_coherence_score != null && (
+          <div style={metricCardStyle}>
+            <div style={metricLabelStyle}>Path Coherence</div>
+            <div style={{ ...metricValueStyle, color: "#a5d6a7" }}>
+              {(result.path_coherence_score * 100).toFixed(1)}%
+            </div>
+          </div>
+        )}
+        {result.bottleneck_node && (
+          <div style={metricCardStyle}>
+            <div style={metricLabelStyle}>Bottleneck</div>
+            <div
+              style={{
+                ...metricValueStyle,
+                color: "#e3b341",
+                fontSize: 11,
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+              }}
+              title={result.bottleneck_node}
+            >
+              {getNodeLabel(result.bottleneck_node)}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* interpretation */}
+      {result.interpretation && (
+        <div
+          style={{
+            padding: "8px 10px",
+            background: "rgba(88,166,255,0.06)",
+            borderRadius: 8,
+            border: "1px solid rgba(88,166,255,0.14)",
+            color: "#a0b4cc",
+            fontSize: 12,
+            lineHeight: 1.5,
+          }}
+        >
+          {result.interpretation}
+        </div>
+      )}
+    </div>
+  );
 }
 
 /* ─── Path Flow Visualizer ──────────────────────────────────────── */
@@ -83,11 +216,13 @@ function PathFlowViz({
   path,
   edgeIds,
   totalWeight,
+  bottleneckNodeId,
   onFocusNode,
 }: {
   path: string[];
   edgeIds?: string[];
   totalWeight: number;
+  bottleneckNodeId?: string | null;
   onFocusNode?: (nodeId: string) => void;
 }) {
   if (path.length === 0) {
@@ -110,10 +245,13 @@ function PathFlowViz({
               {/* Node chip */}
               <button
                 onClick={() => onFocusNode?.(nodeId)}
-                title={`Focus: ${nodeId}`}
+                title={nodeId === bottleneckNodeId ? `Bottleneck: ${nodeId}` : `Focus: ${nodeId}`}
                 style={{
                   ...pathNodeChipStyle,
                   cursor: onFocusNode ? "pointer" : "default",
+                  ...(nodeId === bottleneckNodeId
+                    ? { border: "1px solid rgba(227,179,65,0.5)", background: "rgba(227,179,65,0.12)" }
+                    : {}),
                 }}
               >
                 <span style={pathNodeIndexStyle}>{index + 1}</span>
@@ -316,12 +454,16 @@ export function GraphInspectorPanel({
         <button style={actionButtonStyle} onClick={onTracePath} disabled={!actionNodeId}>Trace Causal Path</button>
 
         {pathResult?.path?.length ? (
-          <PathFlowViz
-            path={pathResult.path}
-            edgeIds={pathResult.edge_ids}
-            totalWeight={pathResult.total_weight}
-            onFocusNode={onFocusNode}
-          />
+          <>
+            <PathFlowViz
+              path={pathResult.path}
+              edgeIds={pathResult.edge_ids}
+              totalWeight={pathResult.total_weight}
+              bottleneckNodeId={pathResult.bottleneck_node}
+              onFocusNode={onFocusNode}
+            />
+            <PathDistanceIntelPanel result={pathResult} />
+          </>
         ) : (
           <div style={emptyTextStyle}>
             Choose a target or click a candidate prediction to prepare a path trace.
@@ -566,4 +708,42 @@ const pathEdgeLabelStyle: CSSProperties = {
   overflow: "hidden",
   textOverflow: "ellipsis",
   whiteSpace: "nowrap",
+};
+
+const metricCardStyle: CSSProperties = {
+  background: "rgba(0,0,0,0.18)",
+  borderRadius: 8,
+  padding: "8px 10px",
+  border: "1px solid rgba(255,255,255,0.05)",
+  display: "flex",
+  flexDirection: "column",
+  gap: 3,
+};
+
+const metricLabelStyle: CSSProperties = {
+  color: "rgba(88,166,255,0.65)",
+  fontSize: 10,
+  fontWeight: 700,
+  letterSpacing: "0.06em",
+  textTransform: "uppercase",
+};
+
+const metricValueStyle: CSSProperties = {
+  fontSize: 14,
+  fontWeight: 700,
+  color: "#e6edf3",
+};
+
+const metricBarTrackStyle: CSSProperties = {
+  height: 3,
+  borderRadius: 999,
+  background: "rgba(255,255,255,0.07)",
+  overflow: "hidden",
+  marginTop: 4,
+};
+
+const metricBarFillStyle: CSSProperties = {
+  height: "100%",
+  borderRadius: 999,
+  transition: "width 300ms ease",
 };

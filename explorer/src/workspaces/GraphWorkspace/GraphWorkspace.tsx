@@ -1100,6 +1100,14 @@ export function GraphWorkspace() {
   const [graphAnalyticsState, setGraphAnalyticsState] = useState<GraphAnalyticsSnapshot | null>(null);
   const [loadedPlugins, setLoadedPlugins] = useState<Record<string, GraphPlugin>>({});
 
+  // FR-2: Egocentric depth-of-field
+  const [egoModeEnabled, setEgoModeEnabled] = useState(false);
+  const [egoMaxHops, setEgoMaxHops] = useState(3);
+  // FR-3 frontend: Distance mode overlay
+  const [distanceMode, setDistanceMode] = useState<"off" | "structural" | "semantic">("off");
+  // FR-5: Distance heatmap layout
+  const [heatmapEnabled, setHeatmapEnabled] = useState(false);
+
   const debouncedTime = useDebounce(scrubberTime, 150);
   const prevActiveIdsRef = useRef<Set<string>>(new Set());
   const sceneRef = useRef<GraphSceneHandle>(null);
@@ -1400,7 +1408,7 @@ export function GraphWorkspace() {
       setFocusedNodeId(nextSelectedNodeId);
       setIsLayoutRunning(false);
     }
-  }, [viewMode]);
+  }, [viewMode]);  // Note: ego/heatmap/distanceMode effects re-run automatically when selectedNodeId changes
 
   const handleEdgeSelect = useCallback((edgeId: string) => {
     setSelectedEdgeId(edgeId);
@@ -1551,6 +1559,159 @@ export function GraphWorkspace() {
     setFocusedNodeId("");
     setLastGroupedSelectedNodeId("");
   }, [summary?.edgeCount, summary?.nodeCount]);
+
+  // ── Distance Intelligence helpers ──────────────────────────────
+  // BFS over the in-memory graphology graph; returns hop distance from startId.
+  function bfsDistances(startId: string, maxHops: number): Map<string, number> {
+    const dist = new Map<string, number>();
+    if (!graph.hasNode(startId)) return dist;
+    const queue: [string, number][] = [[startId, 0]];
+    dist.set(startId, 0);
+    while (queue.length > 0) {
+      const [nodeId, hop] = queue.shift()!;
+      if (hop >= maxHops) continue;
+      for (const nb of graph.neighbors(nodeId)) {
+        if (!dist.has(nb)) {
+          dist.set(nb, hop + 1);
+          queue.push([nb, hop + 1]);
+        }
+      }
+    }
+    return dist;
+  }
+
+  function hopBandColor(hops: number): string {
+    if (hops === 0) return "#3fb950";   // anchor – green
+    if (hops === 1) return "#56d364";   // direct – light green
+    if (hops <= 3) return "#e3b341";    // near – amber
+    if (hops <= 6) return "#d29922";    // mid-range – orange
+    return "#ff7b72";                    // distant – red
+  }
+
+  function restoreNodeColors() {
+    graph.forEachNode((nodeId) => {
+      const attrs = graph.getNodeAttributes(nodeId) as { baseColor?: string; color?: string; baseSize?: number; size?: number };
+      if (attrs.baseColor) graph.setNodeAttribute(nodeId, "color", attrs.baseColor);
+      if (attrs.baseSize) graph.setNodeAttribute(nodeId, "size", attrs.baseSize);
+    });
+  }
+
+  function restoreEdgeColors() {
+    graph.forEachEdge((edgeId) => {
+      const attrs = graph.getEdgeAttributes(edgeId) as { baseColor?: string };
+      if (attrs.baseColor) graph.setEdgeAttribute(edgeId, "color", attrs.baseColor);
+    });
+  }
+
+  // FR-2 + FR-5: Combined node styling effect — ego mode and heatmap share a single
+  // effect so restoreNodeColors() is never called from two competing effects at once.
+  useEffect(() => {
+    const activeMode = egoModeEnabled ? "ego" : heatmapEnabled ? "heatmap" : "off";
+
+    if (activeMode === "off" || !selectedNodeId || !graph.hasNode(selectedNodeId)) {
+      restoreNodeColors();
+      requestAnimationFrame(() => {
+        setGraphVersion((v) => v + 1);
+        sceneRef.current?.getRuntime()?.requestRender();
+      });
+      return;
+    }
+
+    if (activeMode === "ego") {
+      const dist = bfsDistances(selectedNodeId, egoMaxHops);
+      const maxD = Math.max(1, egoMaxHops);
+      graph.forEachNode((nodeId) => {
+        const attrs = graph.getNodeAttributes(nodeId) as { baseColor?: string; color?: string; baseSize?: number; size?: number };
+        const baseColor = attrs.baseColor || attrs.color || "#58a6ff";
+        const baseSize = attrs.baseSize || attrs.size || 8;
+        const d = dist.get(nodeId);
+        if (d === undefined) {
+          graph.setNodeAttribute(nodeId, "color", withAlpha(baseColor, 0.06));
+          graph.setNodeAttribute(nodeId, "size", Math.max(0.5, baseSize * 0.22));
+        } else {
+          const ratio = d / (maxD + 1);
+          graph.setNodeAttribute(nodeId, "color", withAlpha(baseColor, 1 - ratio * 0.65));
+          graph.setNodeAttribute(nodeId, "size", Math.max(1, baseSize * (1 - ratio * 0.38)));
+        }
+      });
+    } else {
+      // heatmap
+      const dist = bfsDistances(selectedNodeId, 20);
+      graph.forEachNode((nodeId) => {
+        const d = dist.get(nodeId);
+        graph.setNodeAttribute(nodeId, "color", d !== undefined ? hopBandColor(d) : "rgba(40,55,72,0.55)");
+      });
+    }
+
+    requestAnimationFrame(() => {
+      setGraphVersion((v) => v + 1);
+      sceneRef.current?.getRuntime()?.requestRender();
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [egoModeEnabled, egoMaxHops, heatmapEnabled, selectedNodeId]);
+
+  // FR-3 frontend: Distance overlay — color edges by structural hop distance or semantic similarity
+  useEffect(() => {
+    if (distanceMode === "off" || !selectedNodeId || !graph.hasNode(selectedNodeId)) {
+      if (distanceMode === "off") {
+        restoreEdgeColors();
+        requestAnimationFrame(() => {
+          setGraphVersion((v) => v + 1);
+          sceneRef.current?.getRuntime()?.requestRender();
+        });
+      }
+      return;
+    }
+
+    if (distanceMode === "structural") {
+      const dist = bfsDistances(selectedNodeId, 20);
+      graph.forEachEdge((edgeId, _attrs, source, target) => {
+        const d = Math.min(dist.get(source) ?? 99, dist.get(target) ?? 99);
+        const edgeColor = d <= 1 ? "rgba(86,211,100,0.55)" : d <= 3 ? "rgba(227,179,65,0.45)" : d <= 6 ? "rgba(210,153,34,0.35)" : "rgba(255,123,114,0.22)";
+        graph.setEdgeAttribute(edgeId, "color", edgeColor);
+      });
+      requestAnimationFrame(() => {
+        setGraphVersion((v) => v + 1);
+        sceneRef.current?.getRuntime()?.requestRender();
+      });
+      return;
+    }
+
+    // Semantic mode — fetch neighborhood and color edges by similarity score
+    const fetchSemantic = async () => {
+      try {
+        const response = await fetch(
+          `/api/graph/node/${encodeURIComponent(selectedNodeId)}/semantic-neighborhood?top_k=50`,
+        );
+        if (!response.ok) return;
+        const data: { anchor_node: string; neighbors: { id: string; type: string; content: string; similarity: number; hop_distance?: number | null }[]; total: number } = await response.json();
+        const simMap = new Map(data.neighbors.map((n) => [n.id, n.similarity]));
+
+        graph.forEachEdge((edgeId, _attrs, source, target) => {
+          const sim = simMap.get(source === selectedNodeId ? target : source);
+          if (sim == null) {
+            graph.setEdgeAttribute(edgeId, "color", "rgba(100,120,140,0.18)");
+            return;
+          }
+          const edgeColor =
+            sim > 0.7 ? `rgba(86,211,100,${0.3 + sim * 0.4})` :
+            sim > 0.4 ? `rgba(227,179,65,${0.25 + sim * 0.35})` :
+                        `rgba(255,123,114,${0.2 + sim * 0.3})`;
+          graph.setEdgeAttribute(edgeId, "color", edgeColor);
+        });
+
+        requestAnimationFrame(() => {
+          setGraphVersion((v) => v + 1);
+          sceneRef.current?.getRuntime()?.requestRender();
+        });
+      } catch {
+        // semantic mode falls back to no coloring on fetch error
+      }
+    };
+
+    void fetchSemantic();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [distanceMode, selectedNodeId]);
 
   const showLoadingOverlay = !graphReady && (isLoading || isFetching || Boolean(loadingProgress));
   const showSettlingStatus = graphReady && loadingProgress?.phase === "stabilizing_layout";
@@ -2069,9 +2230,9 @@ export function GraphWorkspace() {
     canActivateFocusedMode,
     displayState.groupedViewAvailable,
     displayState.groupedViewReason,
+    focusedSelectionResolution.reason,
     hasGraphContent,
     requestViewMode,
-    focusedSelectionResolution.reason,
     viewMode,
   ]);
 
@@ -2169,6 +2330,53 @@ export function GraphWorkspace() {
 
   const searchDisabled = showLoadingOverlay || !searchQuery.trim();
 
+  const distanceToolbarItems = useMemo<GraphToolbarItem[]>(() => {
+    if (!hasGraphContent || !selectedNodeId) {
+      return [];
+    }
+
+    return [
+      {
+        id: "ego-mode",
+        label: egoModeEnabled ? `Ego (${egoMaxHops}h)` : "Ego Mode",
+        title: egoModeEnabled
+          ? `Egocentric view: ${egoMaxHops} hops depth (click to toggle off)`
+          : "Show depth-of-field fading around the selected node",
+        active: egoModeEnabled,
+        onClick: () => {
+          setEgoModeEnabled((v) => !v);
+          if (heatmapEnabled) setHeatmapEnabled(false);
+        },
+      },
+      {
+        id: "heatmap",
+        label: "Heatmap",
+        title: heatmapEnabled
+          ? "Distance heatmap active (click to toggle off)"
+          : "Color nodes by hop distance from selected node",
+        active: heatmapEnabled,
+        onClick: () => {
+          setHeatmapEnabled((v) => !v);
+          if (egoModeEnabled) setEgoModeEnabled(false);
+        },
+      },
+      {
+        id: "dist-structural",
+        label: "Structural",
+        title: "Color edges by structural (hop) distance",
+        active: distanceMode === "structural",
+        onClick: () => setDistanceMode((m) => (m === "structural" ? "off" : "structural")),
+      },
+      {
+        id: "dist-semantic",
+        label: "Semantic",
+        title: "Color edges by semantic similarity to selected node",
+        active: distanceMode === "semantic",
+        onClick: () => setDistanceMode((m) => (m === "semantic" ? "off" : "semantic")),
+      },
+    ];
+  }, [distanceMode, egoMaxHops, egoModeEnabled, hasGraphContent, heatmapEnabled, selectedNodeId]);
+
   const toolbarClusters = useMemo<GraphToolbarGroup[]>(() => [
     {
       id: "camera",
@@ -2186,6 +2394,11 @@ export function GraphWorkspace() {
       items: localToolbarItems,
     },
     {
+      id: "distance",
+      label: "Distance",
+      items: distanceToolbarItems,
+    },
+    {
       id: "analysis",
       label: "Analysis",
       items: analysisToolbarItems,
@@ -2198,6 +2411,7 @@ export function GraphWorkspace() {
   ].filter((group) => group.items.length > 0), [
     analysisToolbarItems,
     cameraToolbarItems,
+    distanceToolbarItems,
     layoutToolbarItems,
     localToolbarItems,
     utilityToolbarItems,
@@ -2273,6 +2487,22 @@ export function GraphWorkspace() {
                 </div>
                 <EntityVisualKey />
               </div>
+
+              {egoModeEnabled && (
+                <div style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 12, color: "#a0b4cc" }}>
+                  <span style={{ fontWeight: 600, color: "#79c0ff" }}>Ego depth:</span>
+                  <input
+                    type="range"
+                    min={1}
+                    max={8}
+                    value={egoMaxHops}
+                    onChange={(e) => setEgoMaxHops(Number(e.target.value))}
+                    style={{ width: 90, accentColor: "#79c0ff" }}
+                    title={`Ego depth: ${egoMaxHops} hops`}
+                  />
+                  <span style={{ fontFamily: "monospace", color: "#e6f2ff" }}>{egoMaxHops} hop{egoMaxHops !== 1 ? "s" : ""}</span>
+                </div>
+              )}
 
               {searchError ? <div style={{ color: "#ff7b72", fontSize: 12 }}>{searchError}</div> : null}
 
@@ -2455,6 +2685,7 @@ export function GraphWorkspace() {
                       onTracePath={() => void handleTracePath()}
                       pathResult={pathResult}
                       onDownloadProvenance={(format) => void handleDownloadProvenance(format)}
+                      onFocusNode={focusNode}
                     />
                   </Suspense>
                 </div>

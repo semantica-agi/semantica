@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **Feature: Distance Intelligence** (closes #502 by @KaifAhmad1):
+  - **Context layer** — `ContextGraph.get_neighbors()` gains `include_distance_metadata=False`; when enabled adds `distance_band`, `confidence_decay`, and `path_to_anchor` per result. New `get_neighbor_distances()` returns neighbors sorted by `(hop, -decay)` with optional `min_confidence` filter. `AgentContext.retrieve()` / `find_precedents()` accept `anchor_node`, `max_hops`, `proximity_weight`, `min_confidence_decay` and blend graph proximity with semantic score as `combined_score = (1 − w) × semantic + w × proximity`.
+  - **Path enrichment (FR-4)** — `GET /api/graph/node/{id}/path` now returns `semantic_similarity`, `path_coherence_score`, `confidence_decay` (O(L) via pre-built edge-weight index), `bottleneck_node`, `alternative_path_count`, and `interpretation`. All fields optional; zero breaking changes.
+  - **Distance matrix (FR-6)** — `POST /api/graph/distance-matrix` accepts up to 50 nodes and metric `hops | weighted | semantic`. Returns N × N matrix (upper-triangle computed, lower mirrored), unreachable pairs, and `computation_time_ms`.
+  - **Semantic neighborhood (FR-3 backend)** — `GET /api/graph/node/{id}/semantic-neighborhood?top_k=N` returns the N most similar nodes with `id`, `type`, `content`, `similarity`, `hop_distance`.
+  - **Causal distance (FR-8)** — `GET /api/decisions/causal-distance?source=&target=` traverses only causal-typed edges and returns `CausalDistanceReport` with path, hop count, `confidence_decay`, `weakest_link`, and interpretation.
+  - **Temporal distance history (FR-9)** — `GET /api/temporal/distance-history` samples 11 evenly-spaced snapshots across the graph's time range and emits `convergence | divergence | disconnected | reconnected` events.
+  - **Distance-enriched export (FR-10)** — `POST /api/export/distance-enriched` streams pairwise hop/weighted/semantic/band/centrality metrics as CSV or JSONL. `node_subset` capped at 200 nodes.
+  - **Explorer UI** — Path inspector panel (`GraphInspectorPanel.tsx`) shows a distance band chip, progress-bar metric cards (decay, similarity, coherence), bottleneck node highlight, and interpretation text. Toolbar gains Ego Mode (client-side BFS depth-of-field fading, depth slider 1–8), Structural overlay (edges colored by hop distance), Semantic overlay (edges colored by cosine similarity), and Heatmap (nodes colored green → red by hop distance). Ego and heatmap share a single merged `useEffect` to prevent `restoreNodeColors()` races.
+  - **Tests** — 57 new tests in `tests/context/test_distance_intelligence.py`; 18 targeted regression tests in `tests/_smoke_review_fixes.py`.
+
+- **Fix: Distance Intelligence — code review regressions** (PR #502 follow-up by @KaifAhmad1):
+  - `GraphWorkspace.tsx` semantic fetch used `?limit=50`; corrected to `?top_k=50` to match the backend param (bug_001). Response type widened to full `SemanticNeighborhoodResponse` shape (bug_002).
+  - `ContextGraph.get_neighbors()` was embedding distance metadata unconditionally, breaking existing callers; gated behind `include_distance_metadata=False` default (bug_003).
+  - `weakest_link` dict key standardised from `weight` → `edge_weight` across `CausalChainAnalyzer` and `CausalDistanceReport` (bug_004).
+  - Temporal distance history sampling replaced `timetuple()[:6]` reconstruction with `min_bound + timedelta(seconds=...)` (bug_005).
+  - Confidence decay in `find_path` was O(E × L); replaced with a single O(E) edge-weight index built before the hop loop, with undirected mirroring (bug_006).
+  - `AgentContext._apply_proximity_metadata()` was overwriting the original record `"id"` with the graph node id; stored as `"graph_node_id"` instead (bug_007).
+  - Path highlight sweep animation used a shared `sweepTimer`; stale callbacks fired after cancellation. Added `sweepGeneration` counter — callbacks no-op if generation no longer matches (bug_008).
+  - `POST /api/export/distance-enriched` now rejects `node_subset` larger than 200 nodes with HTTP 413 (sec_001).
+  - `POST /api/graph/distance-matrix` now computes only the upper triangle and mirrors results, halving computation cost (sec_002).
+  - Ego mode and heatmap `useEffect` hooks merged into one to eliminate concurrent `restoreNodeColors()` race (qual_001).
+  - Bare `except Exception: pass` blocks in `find_path` and `semantic_neighborhood` replaced with `logger.debug(...)` (qual_002).
+  - Duplicated `_distance_band()` static method removed from `CausalChainAnalyzer` and `AgentContext`; both now use `classify_path_distance` from `semantica.utils.helpers` (qual_003).
+
 - **Feature: Graph Workspace declutter + calmer structural exploration** (PR #483 by @ZohaibHassan16, follow-up by @KaifAhmad1):
   - Added a calmer default presentation for dense graphs: reduced label pressure, stronger inactive-state muting, and tuned zoom-tier visibility to improve readability during overview and structure navigation.
   - Added display-edge aggregation with raw-edge bundle metadata retention, enabling cleaner visuals while preserving drill-down context for selected edges.

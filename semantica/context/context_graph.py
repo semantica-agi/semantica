@@ -116,6 +116,7 @@ import uuid
 
 from ..utils.logging import get_logger
 from ..utils.progress_tracker import get_progress_tracker
+from ..utils.helpers import classify_path_distance
 from .entity_linker import EntityLinker
 
 # Optional imports for advanced features
@@ -128,6 +129,13 @@ try:
     KG_AVAILABLE = True
 except ImportError:
     KG_AVAILABLE = False
+
+
+class _CausalChain(dict):
+    """Dict response that still iterates over hops for legacy callers."""
+
+    def __iter__(self):
+        return iter(self.get("hops", []))
 
 
 def _parse_iso_dt(value: str) -> Optional[datetime]:
@@ -739,6 +747,7 @@ class ContextGraph:
         min_weight: float = 0.0,
         skip: int = 0,
         limit: Optional[int] = None,
+        include_distance_metadata: bool = False,
     ) -> List[Dict[str, Any]]:
         """
         Get neighbors of a node.
@@ -762,11 +771,11 @@ class ContextGraph:
 
             neighbors: List[Dict[str, Any]] = []
             visited = {node_id}
-            queue = deque([(node_id, 0)])
+            queue = deque([(node_id, 0, [node_id], 1.0)])
             rel_filter = set(relationship_types) if relationship_types else None
 
             while queue:
-                current_id, current_hop = queue.popleft()
+                current_id, current_hop, path_so_far, decay_so_far = queue.popleft()
                 if current_hop >= hops:
                     continue
 
@@ -780,25 +789,58 @@ class ContextGraph:
                     if neighbor_id in visited:
                         continue
                     visited.add(neighbor_id)
-                    queue.append((neighbor_id, current_hop + 1))
+                    next_hop = current_hop + 1
+                    next_decay = decay_so_far * edge.weight
+                    next_path = path_so_far + [neighbor_id]
+                    queue.append((neighbor_id, next_hop, next_path, next_decay))
 
                     node = self.nodes.get(neighbor_id)
                     if not node:
                         continue
-                    neighbors.append(
-                        {
-                            "id": node.node_id,
-                            "type": node.node_type,
-                            "content": node.content,
-                            "relationship": edge.edge_type,
-                            "weight": edge.weight,
-                            "hop": current_hop + 1,
-                        }
-                    )
+                    entry: Dict[str, Any] = {
+                        "id": node.node_id,
+                        "type": node.node_type,
+                        "content": node.content,
+                        "relationship": edge.edge_type,
+                        "weight": edge.weight,
+                        "hop": next_hop,
+                    }
+                    if include_distance_metadata:
+                        entry["distance_band"] = classify_path_distance(next_hop)
+                        entry["confidence_decay"] = next_decay
+                        entry["path_to_anchor"] = next_path
+                    neighbors.append(entry)
 
             if limit is not None:
                 return neighbors[skip: skip + limit]
             return neighbors[skip:]
+
+    def get_neighbor_distances(
+        self,
+        node_id: str,
+        hops: int = 3,
+        relationship_types: Optional[List[str]] = None,
+        min_confidence: float = 0.0,
+    ) -> List[Dict[str, Any]]:
+        """
+        Return neighbors with distance metadata, filtered by confidence decay.
+
+        Results are ordered by nearest hop first, then by strongest path confidence.
+        """
+        neighbors = self.get_neighbors(
+            node_id,
+            hops=hops,
+            relationship_types=relationship_types,
+            include_distance_metadata=True,
+        )
+        filtered = [
+            item for item in neighbors
+            if item.get("confidence_decay", 0.0) >= min_confidence
+        ]
+        return sorted(
+            filtered,
+            key=lambda item: (item.get("hop", 0), -item.get("confidence_decay", 0.0)),
+        )
 
     def query(
         self, query: str, skip: int = 0, limit: Optional[int] = None
@@ -1186,6 +1228,90 @@ class ContextGraph:
             )
         other_graph, _, target_node_id = self._linked_graphs[link_id]
         return other_graph, target_node_id
+
+    def cross_graph_path(
+        self,
+        source_node_id: str,
+        target_graph: "ContextGraph",
+        target_node_id: str,
+        max_hops: int = 10,
+    ) -> Dict[str, Any]:
+        """
+        Find the shortest path across linked ContextGraph instances.
+        """
+        start = (self.graph_id, source_node_id)
+        goal = (target_graph.graph_id, target_node_id)
+        if source_node_id not in self.nodes or target_node_id not in target_graph.nodes:
+            return {
+                "path": [],
+                "hop_count": 0,
+                "cross_graph_links_used": 0,
+                "confidence_decay": 0.0,
+                "distance_band": classify_path_distance(max_hops + 1),
+                "reachable": False,
+            }
+
+        queue = deque([(self, source_node_id, [start], 0, 1.0, 0)])
+        visited = {start}
+
+        while queue:
+            graph, current_id, path, hop_count, decay, links_used = queue.popleft()
+            current_key = (graph.graph_id, current_id)
+            if current_key == goal:
+                return {
+                    "path": path,
+                    "hop_count": hop_count,
+                    "cross_graph_links_used": links_used,
+                    "confidence_decay": decay,
+                    "distance_band": classify_path_distance(hop_count),
+                    "reachable": True,
+                }
+            if hop_count >= max_hops:
+                continue
+
+            with graph._lock:
+                outgoing_edges = list(graph._adjacency.get(current_id, []))
+
+            for edge in outgoing_edges:
+                marker = graph.nodes.get(edge.target_id)
+                link_id = None
+                if marker and marker.node_type == "cross_graph_link":
+                    link_id = marker.metadata.get("link_id")
+
+                if link_id:
+                    try:
+                        next_graph, next_node_id = graph.navigate_to(link_id)
+                    except KeyError:
+                        continue
+                    next_key = (next_graph.graph_id, next_node_id)
+                    next_links_used = links_used + 1
+                else:
+                    next_graph, next_node_id = graph, edge.target_id
+                    next_key = (graph.graph_id, edge.target_id)
+                    next_links_used = links_used
+
+                if next_key in visited:
+                    continue
+                visited.add(next_key)
+                queue.append(
+                    (
+                        next_graph,
+                        next_node_id,
+                        path + [next_key],
+                        hop_count + 1,
+                        decay * edge.weight,
+                        next_links_used,
+                    )
+                )
+
+        return {
+            "path": [],
+            "hop_count": 0,
+            "cross_graph_links_used": 0,
+            "confidence_decay": 0.0,
+            "distance_band": classify_path_distance(max_hops + 1),
+            "reachable": False,
+        }
 
     def resolve_links(self, graphs: Dict[str, "ContextGraph"]) -> int:
         """
@@ -2552,13 +2678,14 @@ class ContextGraph:
         # Calculate influence scores
         influence_scores = {}
         for influenced_id in direct_influence | indirect_influence:
-            score = self._calculate_decision_influence_score(decision_id, influenced_id)
-            influence_scores[influenced_id] = score
+            influence_scores[influenced_id] = self._calculate_decision_influence_score(
+                decision_id, influenced_id
+            )
         
         # Sort by influence score
         sorted_influence = sorted(
             influence_scores.items(),
-            key=lambda x: x[1],
+            key=lambda x: x[1].get("score", 0.0),
             reverse=True
         )
         
@@ -2576,11 +2703,22 @@ class ContextGraph:
             "direct_influence": [_enrich(did) for did in direct_influence],
             "indirect_influence": [_enrich(did) for did in indirect_influence],
             "influence_scores": [
-                {**_enrich(did), "score": score}
-                for did, score in sorted_influence
+                {
+                    **_enrich(did),
+                    "score": details.get("score", 0.0),
+                    "score_breakdown": {
+                        "entity_overlap": details.get("entity_score", 0.0),
+                        "category_match": details.get("category_score", 0.0),
+                        "temporal_proximity": details.get("time_score", 0.0),
+                    },
+                    "is_direct": did in direct_influence,
+                }
+                for did, details in sorted_influence
             ],
             "total_influenced": len(influence_scores),
-            "max_influence_score": max(influence_scores.values()) if influence_scores else 0.0
+            "max_influence_score": max(
+                details.get("score", 0.0) for details in influence_scores.values()
+            ) if influence_scores else 0.0
         }
     
     def get_decision_insights(self) -> Dict[str, Any]:
@@ -2677,15 +2815,17 @@ class ContextGraph:
                 
                 for cause_id in potential_causes:
                     cause_dec = self._decisions.get(cause_id, {})
+                    edge_weight = float(cause_dec.get("confidence", 1.0))
                     hop = {
                         "from": cause_id,
                         "from_scenario": cause_dec.get("scenario", ""),
                         "to": current_id,
                         "to_scenario": current_decision.get("scenario", ""),
                         "type": "influences",
+                        "edge_weight": edge_weight,
                     }
                     cause_path = path + [hop]
-                    causal_chain.append(cause_path)
+                    causal_chain.append(self._build_causal_chain_report(list(reversed(cause_path))))
                     trace_recursive(cause_id, depth + 1, cause_path)
             
             trace_recursive(decision_id, 0, [])
@@ -2942,11 +3082,49 @@ class ContextGraph:
             self.logger.warning(f"Indirect influence analysis failed: {e}")
             return set()
     
-    def _calculate_decision_influence_score(self, source_id: str, target_id: str) -> float:
+    def _build_causal_chain_report(self, hops: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Build an auditable causal-chain response from hop records."""
+        hop_count = len(hops)
+        confidence_decay = 1.0
+        weakest_link = None
+        for hop in hops:
+            edge_weight = float(hop.get("edge_weight", 1.0))
+            confidence_decay *= edge_weight
+            if weakest_link is None or edge_weight < float(weakest_link.get("edge_weight", 1.0)):
+                weakest_link = hop
+
+        if hop_count <= 1:
+            interpretation = f"Direct influence with confidence {confidence_decay:.2f}."
+        elif confidence_decay > 0.7:
+            interpretation = (
+                f"Mediated through {hop_count - 1} step(s) with high confidence "
+                f"({confidence_decay:.2f})."
+            )
+        elif confidence_decay > 0.4:
+            interpretation = (
+                f"Mediated through {hop_count - 1} step(s) - confidence decays "
+                f"to {confidence_decay:.2f}."
+            )
+        else:
+            interpretation = (
+                f"Distal influence across {hop_count} causal steps; confidence "
+                f"{confidence_decay:.2f} is weak evidence."
+            )
+
+        return _CausalChain({
+            "hops": hops,
+            "hop_count": hop_count,
+            "confidence_decay": confidence_decay,
+            "weakest_link": weakest_link,
+            "distance_band": classify_path_distance(hop_count),
+            "interpretation": interpretation,
+        })
+
+    def _calculate_decision_influence_score(self, source_id: str, target_id: str) -> Dict[str, float]:
         """Calculate influence score between two decisions."""
         try:
             if not hasattr(self, '_decisions'):
-                return 0.0
+                return {"score": 0.0, "entity_score": 0.0, "category_score": 0.0, "time_score": 0.0}
                 
             source_decision = self._decisions[source_id]
             target_decision = self._decisions[target_id]
@@ -2965,11 +3143,16 @@ class ContextGraph:
             # Combined score
             combined_score = 0.5 * entity_score + 0.3 * category_score + 0.2 * time_score
             
-            return combined_score
+            return {
+                "score": combined_score,
+                "entity_score": entity_score,
+                "category_score": category_score,
+                "time_score": time_score,
+            }
             
         except Exception as e:
             self.logger.warning(f"Influence score calculation failed: {e}")
-            return 0.0
+            return {"score": 0.0, "entity_score": 0.0, "category_score": 0.0, "time_score": 0.0}
     
     def _get_decision_temporal_analysis(self) -> Dict[str, Any]:
         """Get temporal analysis of decisions."""
