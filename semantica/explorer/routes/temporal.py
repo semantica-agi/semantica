@@ -153,8 +153,11 @@ async def distance_history(
                 result = await asyncio.to_thread(path_fn, graph_dict, source, target)
                 path_nodes = result.get("path", []) if isinstance(result, dict) else (result or [])
                 hop_count = len(path_nodes) - 1 if path_nodes else None
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning(
+                    "distance_history path computation failed for source=%r target=%r metric=%r: %s",
+                    source, target, metric, exc, exc_info=True,
+                )
         now = datetime.now(UTC).replace(tzinfo=None)
         snap = DistanceSnapshot(
             timestamp=now,
@@ -195,8 +198,12 @@ async def distance_history(
                 result = await asyncio.to_thread(path_fn, graph_dict, source, target)
                 path_nodes = result.get("path", []) if isinstance(result, dict) else (result or [])
                 hop_count = len(path_nodes) - 1 if path_nodes else None
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.warning(
+                    "distance_history path computation failed for source=%r target=%r at=%s metric=%s: %s",
+                    source, target, sample_time.isoformat(), metric, exc, exc_info=True,
+                )
+                hop_count = None
 
         band = classify_path_distance(hop_count) if hop_count is not None else "distant"
         snap = DistanceSnapshot(timestamp=sample_time, hop_count=hop_count, distance_band=band)

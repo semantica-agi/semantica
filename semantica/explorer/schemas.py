@@ -410,5 +410,5 @@ class DistanceExportRequest(BaseModel):
     format: Literal["csv", "jsonl"] = "csv"
     node_subset: Optional[List[str]] = None
     include: List[str] = Field(
-        default_factory=lambda: ["hops", "distance_band"],
+        default_factory=lambda: ["source_id", "target_id", "hop_count", "distance_band"],
     )

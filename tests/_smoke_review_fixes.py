@@ -85,9 +85,8 @@ def test_bug004_causal_distance_report_schema_validates():
 # ── qual_003: _distance_band static methods removed; classify_path_distance used ─
 
 def test_qual003_distance_band_removed_from_causal_analyzer():
-    from semantica.context.causal_analyzer import CausalChainAnalyzer
     import semantica.context.causal_analyzer as ca_mod
-    assert not hasattr(CausalChainAnalyzer, "_distance_band")
+    assert not hasattr(ca_mod.CausalChainAnalyzer, "_distance_band")
     ca_src = inspect.getsource(ca_mod)
     assert "def _distance_band" not in ca_src
     assert "classify_path_distance" in ca_src

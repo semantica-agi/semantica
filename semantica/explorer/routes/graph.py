@@ -10,7 +10,7 @@ from typing import List, Optional
 
 logger = logging.getLogger(__name__)
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from ...utils.helpers import classify_path_distance
 from ..dependencies import get_session
@@ -226,9 +226,10 @@ async def find_path(
     try:
         graph_dict = await asyncio.to_thread(session.build_graph_dict)
 
-        # Build edge weight index once in O(E) so each hop lookup is O(1)
+        # Build edge weight index once in O(E) so each hop lookup is O(1).
+        # graph_dict may use "edges" or "relationships" depending on the graph source.
         edge_weight_index: dict = {}
-        for _e in graph_dict.get("edges", []):
+        for _e in graph_dict.get("edges") or graph_dict.get("relationships", []):
             _s, _t = _e.get("source"), _e.get("target")
             _w = float(_e.get("weight", 1.0))
             edge_weight_index[(_s, _t)] = _w
@@ -382,6 +383,12 @@ async def distance_matrix(
         raise HTTPException(
             status_code=413,
             detail=f"Too many nodes: {len(body.node_ids)} requested; maximum is 50 per request.",
+        )
+
+    if body.metric == "semantic" and session.similarity is None:
+        raise HTTPException(
+            status_code=503,
+            detail="metric='semantic' requires an embedding backend which is not available in this session.",
         )
 
     started = time.perf_counter()

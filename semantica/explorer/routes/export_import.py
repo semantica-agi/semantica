@@ -247,7 +247,14 @@ async def export_distance_enriched(
     session: GraphSession = Depends(get_session),
 ):
     """FR-10 — Export pairwise distance metrics as CSV or JSONL for ML pipelines."""
-    if body.node_subset and len(body.node_subset) > _DISTANCE_EXPORT_MAX_NODES:
+    if not body.node_subset:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"node_subset is required; provide up to {_DISTANCE_EXPORT_MAX_NODES} node IDs to export."
+            ),
+        )
+    if len(body.node_subset) > _DISTANCE_EXPORT_MAX_NODES:
         raise HTTPException(
             status_code=413,
             detail=(

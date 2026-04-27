@@ -16,19 +16,19 @@ Python API:
 import csv
 import io
 import json
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Dict, List, Optional
 
 from ..utils.helpers import classify_path_distance
 from ..utils.logging import get_logger
+
+logger = get_logger(__name__)
 
 _KG_AVAILABLE = False
 try:
     from ..kg import PathFinder, SimilarityCalculator, CentralityCalculator
     _KG_AVAILABLE = True
-except ImportError:
-    pass
-
-logger = get_logger(__name__)
+except ImportError as exc:
+    logger.debug("KG components not available; distance exporter will run in reduced mode: %s", exc)
 
 _ALL_COLUMNS = [
     "source_id", "source_type", "target_id", "target_type",
