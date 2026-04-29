@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **Fix: Explorer Distance Intelligence visible rendering** (PR #513 by @ZohaibHassan16, review fixes by @KaifAhmad1):
+  - Distance Intelligence now renders as a first-class visual state through the Sigma reducer/theme pipeline instead of mutating raw graph attributes directly.
+  - Ego mode fades and scales nodes by structural distance from the selected anchor; nodes outside `maxHops` are dimmed and label-suppressed.
+  - Heatmap mode renders a sampled local lens capped per ring (1-hop: ≤120, 2-hop: ≤650, 3-hop: ≤900 nodes shown); true counts remain visible in the status strip. Saturation detection reduces alpha for dense outer rings automatically.
+  - Structural mode highlights distance-aware context edges (colored by hop band) without breaking existing edge LOD.
+  - Semantic mode surfaces loading, unavailable, and error states visibly; edges colored by cosine similarity score.
+  - Trace Path inspector shows a distance band chip, hop count, and optional metric cards (confidence decay, semantic similarity, path coherence, bottleneck node) when path data is available.
+  - Added `GraphDistanceVisualState`, `GraphDistanceBucketCounts`, and `GraphHeatmapRenderSnapshot` types in `types.ts`; distance state flows through `GraphCanvas` → `buildReducerSceneState` → Sigma node/edge reducers.
+  - Added `buildStructuralDistanceSnapshot` (bounded BFS), `summarizeDistanceBuckets`, `buildHeatmapRenderSnapshot` (ring-capped deterministic sampling via `hashString` tiebreaker), `resolveDistanceNodeStyle`, and `resolveDistanceEdgeStyle` in `graphSceneState.ts`.
+  - Distance Intelligence status strip shows active mode, anchor label, per-ring node counts, sampled status, and a color legend.
+  - **Review blockers fixed** (follow-up by @KaifAhmad1 and @ZohaibHassan16): removed dead `if (anchorNodeId)` conditional in `buildHeatmapRenderSnapshot` (anchor always truthy past early-return guard); replaced O(n) `.includes()` call in the Sigma reducer hot path with a `WeakMap`-cached `Set.has()` lookup; renamed `GraphDistanceBucketCounts.threeHop → threeHopPlus` so the field accurately reflects ≥ 3 hops and updated status strip labels to "3+ hop"; restored `hasMetrics` guard in `PathDistanceIntelPanel` to suppress the empty metric grid `<div>` when a path result carries no optional metric fields.
+
 - **Feature: Graph Explorer visual refresh** (PR #503 by @ZohaibHassan16, conflict resolution by @KaifAhmad1):
   - Extracted all hardcoded `rgba(...)` color literals into a structured `ui.*` design-token namespace in `graphTheme.ts` — covering `ui.text`, `ui.surface`, `ui.scene`, `ui.control`, `ui.timeline`, and `ui.interaction`. Future theming is now a one-file change.
   - Added `GraphEntityShapeVariant` type and per-shape config (`fillAlpha`, `shellAlpha`, `coreScale`, `borderBoost`, `minSize`) for biomolecule, condition, compound, process, community, and entity node kinds. Shell and fill colors now derive from per-entity-shape config rather than uniform overrides.
