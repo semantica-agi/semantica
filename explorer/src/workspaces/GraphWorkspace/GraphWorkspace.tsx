@@ -2589,7 +2589,7 @@ export function GraphWorkspace() {
       `${visibleDistanceCounts.anchor.toLocaleString()} anchor`,
       `${formatRenderedCount(visibleDistanceCounts.oneHop, renderedHeatmapCounts?.oneHop)} 1-hop`,
       `${formatRenderedCount(visibleDistanceCounts.twoHop, renderedHeatmapCounts?.twoHop)} 2-hop`,
-      `${formatRenderedCount(visibleDistanceCounts.threeHop, renderedHeatmapCounts?.threeHop)} 3-hop`,
+      `${formatRenderedCount(visibleDistanceCounts.threeHopPlus, renderedHeatmapCounts?.threeHopPlus)} 3+ hop`,
       `${visibleDistanceCounts.outside.toLocaleString()} outside`,
       distanceVisualState.heatmapSaturationMode === "sampled" ? "Sampled for readability" : "",
     ].filter(Boolean).join(" · ")
@@ -2599,7 +2599,7 @@ export function GraphWorkspace() {
       `${renderedHeatmapCounts.anchor.toLocaleString()} anchor shown`,
       `${renderedHeatmapCounts.oneHop.toLocaleString()} 1-hop shown`,
       `${renderedHeatmapCounts.twoHop.toLocaleString()} 2-hop shown`,
-      `${renderedHeatmapCounts.threeHop.toLocaleString()} 3-hop shown`,
+      `${renderedHeatmapCounts.threeHopPlus.toLocaleString()} 3+ hop shown`,
     ].join(" · ")
     : null;
   const distanceLegendItems = distanceVisualState.mode === "heatmap"

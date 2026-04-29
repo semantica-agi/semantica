@@ -46,6 +46,16 @@ const HEATMAP_ONE_HOP_CAP = 120;
 const HEATMAP_TWO_HOP_CAP = 650;
 const HEATMAP_THREE_HOP_CAP = 900;
 
+const _heatmapVisibleSetCache = new WeakMap<GraphDistanceVisualState, Set<string>>();
+function getHeatmapVisibleSet(state: GraphDistanceVisualState): Set<string> {
+  let cached = _heatmapVisibleSetCache.get(state);
+  if (!cached) {
+    cached = new Set(state.heatmapVisibleNodeIds ?? []);
+    _heatmapVisibleSetCache.set(state, cached);
+  }
+  return cached;
+}
+
 type GraphRef = typeof graph | Graph<NodeAttributes, EdgeAttributes>;
 
 export type GraphDisplayResult = {
@@ -174,7 +184,7 @@ export function summarizeDistanceBuckets(
     anchor: 0,
     oneHop: 0,
     twoHop: 0,
-    threeHop: 0,
+    threeHopPlus: 0,
     outside: 0,
   };
 
@@ -186,11 +196,11 @@ export function summarizeDistanceBuckets(
     } else if (distance === 2) {
       counts.twoHop += 1;
     } else {
-      counts.threeHop += 1;
+      counts.threeHopPlus += 1;
     }
   });
 
-  const reachedCount = counts.anchor + counts.oneHop + counts.twoHop + counts.threeHop;
+  const reachedCount = counts.anchor + counts.oneHop + counts.twoHop + counts.threeHopPlus;
   counts.outside = Math.max(0, totalNodeCount - reachedCount);
   return counts;
 }
@@ -200,7 +210,7 @@ function createEmptyDistanceCounts(): GraphDistanceBucketCounts {
     anchor: 0,
     oneHop: 0,
     twoHop: 0,
-    threeHop: 0,
+    threeHopPlus: 0,
     outside: 0,
   };
 }
@@ -296,17 +306,15 @@ export function buildHeatmapRenderSnapshot(
     if (ring === 0) renderedRingCounts.anchor = candidates.length;
     if (ring === 1) renderedRingCounts.oneHop = candidates.length;
     if (ring === 2) renderedRingCounts.twoHop = candidates.length;
-    if (ring === 3) renderedRingCounts.threeHop = candidates.length;
+    if (ring === 3) renderedRingCounts.threeHopPlus = candidates.length;
   });
 
-  if (anchorNodeId) {
-    visibleNodeIds.add(anchorNodeId);
-    renderedRingCounts.anchor = Math.max(1, renderedRingCounts.anchor);
-  }
+  visibleNodeIds.add(anchorNodeId);
+  renderedRingCounts.anchor = Math.max(1, renderedRingCounts.anchor);
 
   const isSampled = renderedRingCounts.oneHop < ringCounts.oneHop
     || renderedRingCounts.twoHop < ringCounts.twoHop
-    || renderedRingCounts.threeHop < ringCounts.threeHop;
+    || renderedRingCounts.threeHopPlus < ringCounts.threeHopPlus;
 
   return {
     visibleNodeIds: [...visibleNodeIds],
@@ -321,13 +329,13 @@ function isHeatmapSaturated(counts: GraphDistanceBucketCounts | undefined): bool
     return false;
   }
 
-  const total = counts.anchor + counts.oneHop + counts.twoHop + counts.threeHop + counts.outside;
+  const total = counts.anchor + counts.oneHop + counts.twoHop + counts.threeHopPlus + counts.outside;
   if (total <= 0) {
     return false;
   }
 
-  const broadRings = counts.twoHop + counts.threeHop;
-  return counts.threeHop > 1_500 || broadRings / total > 0.35;
+  const broadRings = counts.twoHop + counts.threeHopPlus;
+  return counts.threeHopPlus > 1_500 || broadRings / total > 0.35;
 }
 
 function resolveHeatmapRingStyle(distance: number, isSaturated: boolean) {
@@ -417,8 +425,8 @@ export function resolveDistanceNodeStyle(
   }
 
   if (distanceVisualState.mode === "heatmap") {
-    const visibleNodeIds = distanceVisualState.heatmapVisibleNodeIds;
-    const isRenderedHeatmapNode = isAnchor || !visibleNodeIds || visibleNodeIds.includes(nodeId);
+    const visibleSet = getHeatmapVisibleSet(distanceVisualState);
+    const isRenderedHeatmapNode = isAnchor || visibleSet.size === 0 || visibleSet.has(nodeId);
 
     if (distance == null || !isRenderedHeatmapNode) {
       return {

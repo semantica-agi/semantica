@@ -21,7 +21,7 @@ export interface GraphDistanceBucketCounts {
   anchor: number;
   oneHop: number;
   twoHop: number;
-  threeHop: number;
+  threeHopPlus: number;
   outside: number;
 }
 
