@@ -510,8 +510,13 @@ export function GraphWorkspaceShell() {
     if (!selectedNodeId || !pathTargetId.trim()) return;
 
     try {
+      const pathParams = new URLSearchParams({
+        source: selectedNodeId,
+        target: pathTargetId.trim(),
+        algorithm: "dijkstra",
+      });
       const response = await fetch(
-        `/api/graph/node/${encodeURIComponent(selectedNodeId)}/path?target=${encodeURIComponent(pathTargetId.trim())}&algorithm=dijkstra`,
+        `/api/graph/path?${pathParams.toString()}`,
       );
       if (!response.ok) {
         throw new Error(`Path lookup failed with status ${response.status}`);

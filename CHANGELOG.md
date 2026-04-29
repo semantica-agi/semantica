@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **Fix: Semantic Distance UI slash-safe node IDs** (issue #514, PR #515 by @ZohaibHassan16, review fixes by @KaifAhmad1):
+  - **Root cause** — FastAPI decodes `%2F` before route matching, so node IDs containing `/` (e.g. `gene/protein:6164`) split the path-segment route and return 404. The frontend encoded slashes correctly but they were decoded server-side before the router matched the pattern.
+  - Added slash-safe query-param routes: `GET /api/graph/semantic-neighborhood?node_id=...` and `GET /api/graph/path?source=...&target=...`. Legacy path-segment routes (`/node/{id}/semantic-neighborhood`, `/node/{id}/path`) are kept as deprecated backward-compatible aliases with docstrings documenting the limitation.
+  - Frontend (`GraphWorkspace.tsx`, `GraphWorkspaceShell.tsx`) now builds all distance API calls via `URLSearchParams` so node IDs with slashes or other special characters are never embedded in URL path segments.
+  - `_semantic_neighborhood_impl` now returns HTTP 503 (instead of a silent 200 with zero neighbors) when semantic similarity is unavailable or the graph has no node embeddings, and HTTP 404 only when the anchor node itself does not exist. Frontend error messages updated to distinguish the two cases.
+  - Fixed a pre-existing bug where `find_most_similar` was called with `(graph_dict, node_id_string)` instead of the correct `(embeddings_dict, query_vector)` signature; added `_extract_node_embeddings` and `_coerce_embedding_vector` helpers to build the embeddings dict before the call.
+  - **Review fixes** (follow-up by @KaifAhmad1 and @ZohaibHassan16): aligned `_coerce_embedding_vector` inner dict-probe key list (added `"embeddings"`, reordered generic-first) with `_extract_node_embeddings` outer key list; added `TODO` comment on per-session embedding cache; extracted `_FakeSimilarity` test stub to module level to eliminate duplication; rewrote `test_legacy_semantic_neighborhood_still_works_for_simple_ids` as a fully isolated `TestClient` session instead of mutating the shared module-scoped `client` fixture.
+
 - **Fix: Explorer Distance Intelligence visible rendering** (PR #513 by @ZohaibHassan16, review fixes by @KaifAhmad1):
   - Distance Intelligence now renders as a first-class visual state through the Sigma reducer/theme pipeline instead of mutating raw graph attributes directly.
   - Ego mode fades and scales nodes by structural distance from the selected anchor; nodes outside `maxHops` are dimmed and label-suppressed.

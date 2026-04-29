@@ -78,6 +78,66 @@ def _parse_bbox(raw_bbox: Optional[str]) -> Optional[tuple[float, float, float, 
     return min_x, min_y, max_x, max_y
 
 
+def _coerce_embedding_vector(value: object) -> Optional[List[float]]:
+    if isinstance(value, dict):
+        # Probe keys in priority order: generic first, then framework-specific.
+        # Must stay aligned with the top-level keys in _extract_node_embeddings.
+        for key in ("embedding", "embeddings", "vector", "values", "node2vec", "semantic"):
+            nested = _coerce_embedding_vector(value.get(key))
+            if nested is not None:
+                return nested
+        return None
+
+    if not isinstance(value, (list, tuple)):
+        return None
+
+    vector: List[float] = []
+    for item in value:
+        try:
+            vector.append(float(item))
+        except (TypeError, ValueError):
+            return None
+
+    return vector if vector else None
+
+
+def _extract_node_embeddings(graph_dict: dict) -> dict[str, List[float]]:
+    # Top-level keys to probe on each entity (and its metadata/properties dicts).
+    # Priority: generic names first, then KG-extras-specific names.
+    # Must stay aligned with the inner probe list in _coerce_embedding_vector.
+    # TODO: cache this per-session graph revision to avoid re-scanning all nodes on every request.
+    embedding_keys = (
+        "embedding",
+        "embeddings",
+        "vector",
+        "node_embedding",
+        "node2vec_embedding",
+        "semantic_embedding",
+        "reasoning_embedding",
+    )
+
+    embeddings: dict[str, List[float]] = {}
+    for entity in graph_dict.get("entities") or graph_dict.get("nodes") or []:
+        if not isinstance(entity, dict):
+            continue
+        node_id = entity.get("id") or entity.get("node_id")
+        if not node_id:
+            continue
+
+        metadata = entity.get("metadata") if isinstance(entity.get("metadata"), dict) else {}
+        properties = entity.get("properties") if isinstance(entity.get("properties"), dict) else {}
+
+        for key in embedding_keys:
+            vector = _coerce_embedding_vector(
+                entity.get(key, metadata.get(key, properties.get(key)))
+            )
+            if vector is not None:
+                embeddings[str(node_id)] = vector
+                break
+
+    return embeddings
+
+
 def _node_response(node: dict) -> NodeResponse:
     return NodeResponse(**node)
 
@@ -183,14 +243,14 @@ class _PathAlgorithm(str, Enum):
 
 
 
-@router.get("/node/{node_id}/path", response_model=PathResponse)
-async def find_path(
-    node_id: str,
-    target: str = Query(..., description="Target node ID"),
-    algorithm: _PathAlgorithm = Query(_PathAlgorithm.bfs, description="Algorithm: bfs or dijkstra"),
-    directed: bool = Query(True, description="If false, treat edges as undirected for traversal"),
-    session: GraphSession = Depends(get_session),
-):
+async def _find_path_impl(
+    source: str,
+    target: str,
+    algorithm: _PathAlgorithm,
+    directed: bool,
+    session: GraphSession,
+) -> PathResponse:
+    """Resolve and enrich a path between two arbitrary graph node ids."""
     path_finder = session.path_finder
     if path_finder is None:
         raise HTTPException(status_code=503, detail="PathFinder not available; KG extras may not be installed.")
@@ -202,13 +262,13 @@ async def find_path(
         else path_finder.bfs_shortest_path
     )
     try:
-        result = await asyncio.to_thread(path_fn, graph_dict, node_id, target, directed=directed)
+        result = await asyncio.to_thread(path_fn, graph_dict, source, target, directed=directed)
     except Exception as exc:
-        raise HTTPException(status_code=404, detail=f"No path found from '{node_id}' to '{target}': {exc}")
+        raise HTTPException(status_code=404, detail=f"No path found from '{source}' to '{target}': {exc}")
 
     path_nodes = result.get("path", []) if isinstance(result, dict) else (result or [])
     if not path_nodes:
-        raise HTTPException(status_code=404, detail=f"No path found from '{node_id}' to '{target}'")
+        raise HTTPException(status_code=404, detail=f"No path found from '{source}' to '{target}'")
 
     total_weight = result.get("total_weight", 0.0) if isinstance(result, dict) else 0.0
     edge_ids = await asyncio.to_thread(session.resolve_path_edge_ids, path_nodes)
@@ -262,7 +322,7 @@ async def find_path(
             try:
                 k_paths = await asyncio.to_thread(
                     path_finder.find_k_shortest_paths,
-                    graph_dict, node_id, target, hop_count + 2, directed=directed
+                    graph_dict, source, target, hop_count + 2, directed=directed
                 )
                 alternative_path_count = max(0, len(k_paths) - 1)
             except Exception as exc:
@@ -273,7 +333,7 @@ async def find_path(
             try:
                 sim_result = await asyncio.to_thread(
                     session.similarity.cosine_similarity,
-                    graph_dict, node_id, target
+                    graph_dict, source, target
                 )
                 if isinstance(sim_result, (int, float)):
                     semantic_similarity = float(sim_result)
@@ -302,7 +362,7 @@ async def find_path(
     interpretation = _build_interpretation(distance_band, hop_count, bottleneck_node, confidence_decay)
 
     return PathResponse(
-        source=node_id,
+        source=source,
         target=target,
         algorithm=algorithm.value,
         path=path_nodes,
@@ -318,6 +378,34 @@ async def find_path(
         alternative_path_count=alternative_path_count,
         interpretation=interpretation,
     )
+
+
+@router.get("/path", response_model=PathResponse)
+async def find_path_by_query(
+    source: str = Query(..., description="Source node ID"),
+    target: str = Query(..., description="Target node ID"),
+    algorithm: _PathAlgorithm = Query(_PathAlgorithm.bfs, description="Algorithm: bfs or dijkstra"),
+    directed: bool = Query(True, description="If false, treat edges as undirected for traversal"),
+    session: GraphSession = Depends(get_session),
+):
+    return await _find_path_impl(source, target, algorithm, directed, session)
+
+
+@router.get("/node/{node_id}/path", response_model=PathResponse)
+async def find_path(
+    node_id: str,
+    target: str = Query(..., description="Target node ID"),
+    algorithm: _PathAlgorithm = Query(_PathAlgorithm.bfs, description="Algorithm: bfs or dijkstra"),
+    directed: bool = Query(True, description="If false, treat edges as undirected for traversal"),
+    session: GraphSession = Depends(get_session),
+):
+    """Deprecated path-segment route kept for backward compatibility.
+
+    Node IDs that contain slashes will return 404 because FastAPI decodes
+    %2F before route matching.  Use GET /api/graph/path?source=...&target=...
+    for slash-safe path lookup.
+    """
+    return await _find_path_impl(node_id, target, algorithm, directed, session)
 
 
 @router.post("/search", response_model=SearchResultResponse)
@@ -445,6 +533,89 @@ async def distance_matrix(
     )
 
 
+async def _semantic_neighborhood_impl(
+    node_id: str,
+    top_k: int,
+    min_similarity: float,
+    session: GraphSession,
+) -> SemanticNeighborhoodResponse:
+    node = await asyncio.to_thread(session.get_node, node_id)
+    if node is None:
+        raise HTTPException(status_code=404, detail=f"Node '{node_id}' not found")
+
+    similarity = session.similarity
+    if similarity is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Semantic similarity is unavailable for this graph session.",
+        )
+
+    graph_dict = await asyncio.to_thread(session.build_graph_dict)
+    embeddings = _extract_node_embeddings(graph_dict)
+    query_embedding = embeddings.get(node_id)
+    if not embeddings or query_embedding is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Semantic similarity is unavailable because this graph has no node embeddings.",
+        )
+
+    neighbors: List[SemanticNeighborItem] = []
+    try:
+        similar = await asyncio.to_thread(
+            similarity.find_most_similar,
+            embeddings,
+            query_embedding,
+            top_k=top_k * 2,
+        )
+    except Exception as exc:
+        logger.debug("semantic_neighborhood similarity search failed: %s", exc)
+        raise HTTPException(
+            status_code=503,
+            detail="Semantic similarity search failed for this graph session.",
+        ) from exc
+
+    # find_most_similar returns list of (node_id, score) or dicts
+    for item in similar:
+        if isinstance(item, (list, tuple)) and len(item) >= 2:
+            nid, sim_score = item[0], item[1]
+        elif isinstance(item, dict):
+            nid = item.get("node_id") or item.get("id", "")
+            sim_score = item.get("similarity", item.get("score", 0.0))
+        else:
+            continue
+        if float(sim_score) < min_similarity or nid == node_id:
+            continue
+        neighbor_node = await asyncio.to_thread(session.get_node, nid)
+        if neighbor_node is None:
+            continue
+        neighbors.append(
+            SemanticNeighborItem(
+                id=str(nid),
+                type=neighbor_node.get("type", ""),
+                content=neighbor_node.get("content", ""),
+                similarity=float(sim_score),
+            )
+        )
+        if len(neighbors) >= top_k:
+            break
+
+    return SemanticNeighborhoodResponse(
+        anchor_node=node_id,
+        neighbors=neighbors,
+        total=len(neighbors),
+    )
+
+
+@router.get("/semantic-neighborhood", response_model=SemanticNeighborhoodResponse)
+async def semantic_neighborhood_by_query(
+    node_id: str = Query(..., description="Anchor node ID"),
+    top_k: int = Query(20, ge=1, le=200),
+    min_similarity: float = Query(0.0, ge=0.0, le=1.0),
+    session: GraphSession = Depends(get_session),
+):
+    return await _semantic_neighborhood_impl(node_id, top_k, min_similarity, session)
+
+
 @router.get("/node/{node_id}/semantic-neighborhood", response_model=SemanticNeighborhoodResponse)
 async def semantic_neighborhood(
     node_id: str,
@@ -452,50 +623,13 @@ async def semantic_neighborhood(
     min_similarity: float = Query(0.0, ge=0.0, le=1.0),
     session: GraphSession = Depends(get_session),
 ):
-    node = await asyncio.to_thread(session.get_node, node_id)
-    if node is None:
-        raise HTTPException(status_code=404, detail=f"Node '{node_id}' not found")
+    """Deprecated path-segment route kept for backward compatibility.
 
-    neighbors: List[SemanticNeighborItem] = []
-    if session.similarity is not None:
-        graph_dict = await asyncio.to_thread(session.build_graph_dict)
-        try:
-            similar = await asyncio.to_thread(
-                session.similarity.find_most_similar,
-                graph_dict, node_id, top_k=top_k * 2
-            )
-            # find_most_similar returns list of (node_id, score) or dicts
-            for item in similar:
-                if isinstance(item, (list, tuple)) and len(item) >= 2:
-                    nid, sim_score = item[0], item[1]
-                elif isinstance(item, dict):
-                    nid = item.get("node_id") or item.get("id", "")
-                    sim_score = item.get("similarity", item.get("score", 0.0))
-                else:
-                    continue
-                if float(sim_score) < min_similarity or nid == node_id:
-                    continue
-                neighbor_node = await asyncio.to_thread(session.get_node, nid)
-                if neighbor_node is None:
-                    continue
-                neighbors.append(
-                    SemanticNeighborItem(
-                        id=nid,
-                        type=neighbor_node.get("type", ""),
-                        content=neighbor_node.get("content", ""),
-                        similarity=float(sim_score),
-                    )
-                )
-                if len(neighbors) >= top_k:
-                    break
-        except Exception as exc:
-            logger.debug("semantic_neighborhood similarity search failed: %s", exc)
-
-    return SemanticNeighborhoodResponse(
-        anchor_node=node_id,
-        neighbors=neighbors,
-        total=len(neighbors),
-    )
+    Node IDs that contain slashes will return 404 because FastAPI decodes
+    %2F before route matching.  Use GET /api/graph/semantic-neighborhood?node_id=...
+    for slash-safe semantic neighborhood lookup.
+    """
+    return await _semantic_neighborhood_impl(node_id, top_k, min_similarity, session)
 
 
 @router.get("/stats", response_model=GraphStatsResponse)

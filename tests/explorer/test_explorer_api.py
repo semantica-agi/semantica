@@ -733,7 +733,10 @@ def _make_path_session() -> GraphSession:
     cg = ContextGraph(advanced_analytics=False)
     cg.add_node("A", node_type="entity", content="Node A")
     cg.add_node("B", node_type="entity", content="Node B")
+    cg.add_node("gene/protein:6164", node_type="gene/protein", content="RPL34")
+    cg.add_node("disease/term:1", node_type="disease", content="Slash target")
     cg.add_edge("A", "B", edge_type="connects")
+    cg.add_edge("gene/protein:6164", "disease/term:1", edge_type="connects")
 
     session = GraphSession(cg)
 
@@ -742,6 +745,7 @@ def _make_path_session() -> GraphSession:
     # PathFinder; this mimics how a KG-backed session would expose the graph.
     digraph = nx.DiGraph()
     digraph.add_edge("A", "B")
+    digraph.add_edge("gene/protein:6164", "disease/term:1")
     session.build_graph_dict = lambda node_ids=None: digraph  # type: ignore[method-assign]
 
     return session
@@ -791,6 +795,22 @@ class TestBidirectionalPathRoute:
         body = resp.json()
         assert body["path"] == ["B", "A"]
         assert body["directed"] is False
+
+    def test_query_path_route_supports_slash_node_ids(self, path_client):
+        """Query-param path route must support arbitrary graph ids with slashes."""
+        resp = path_client.get(
+            "/api/graph/path",
+            params={
+                "source": "gene/protein:6164",
+                "target": "disease/term:1",
+                "algorithm": "dijkstra",
+            },
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["path"] == ["gene/protein:6164", "disease/term:1"]
+        assert body["source"] == "gene/protein:6164"
+        assert body["target"] == "disease/term:1"
 
     def test_directed_false_forward_path_found(self, path_client):
         """directed=false must not break the natural A→B direction."""
@@ -863,6 +883,101 @@ class TestBidirectionalPathRoute:
 # ---------------------------------------------------------------------------
 
 from semantica.utils.helpers import classify_path_distance
+
+
+class _FakeSimilarity:
+    """Minimal similarity stub shared by slash-safe distance route tests.
+
+    Expects embeddings keyed on 'gene/protein:6164' with query vector [1, 0, 0]
+    and returns a single neighbor result.  Tests that need different behaviour
+    can assign a lambda to instance.find_most_similar after construction.
+    """
+
+    def find_most_similar(self, embeddings, query_embedding, top_k=10):
+        assert "gene/protein:6164" in embeddings
+        assert query_embedding == [1.0, 0.0, 0.0]
+        return [("disease/term:1", 0.74)]
+
+
+def _make_slash_node_session(*, with_embeddings: bool = True) -> GraphSession:
+    """Return an isolated GraphSession with slash-containing node IDs."""
+    graph = ContextGraph(advanced_analytics=False)
+    kwargs = {"embedding": [1.0, 0.0, 0.0]} if with_embeddings else {}
+    graph.add_node("gene/protein:6164", node_type="gene/protein", content="RPL34", **kwargs)
+    graph.add_node(
+        "disease/term:1",
+        node_type="disease",
+        content="Slash target",
+        **({"embedding": [0.7, 0.2, 0.1]} if with_embeddings else {}),
+    )
+    session = GraphSession(graph)
+    session._similarity = _FakeSimilarity()
+    return session
+
+
+class TestSlashSafeDistanceRoutes:
+    def test_query_semantic_neighborhood_supports_slash_node_ids(self):
+        session = _make_slash_node_session(with_embeddings=True)
+        app = create_app(session=session)
+        with TestClient(app) as test_client:
+            resp = test_client.get(
+                "/api/graph/semantic-neighborhood",
+                params={"node_id": "gene/protein:6164", "top_k": 50},
+            )
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["anchor_node"] == "gene/protein:6164"
+        assert body["neighbors"][0]["id"] == "disease/term:1"
+        assert body["neighbors"][0]["similarity"] == 0.74
+
+    def test_legacy_semantic_neighborhood_still_works_for_simple_ids(self):
+        """Legacy path-segment route must still return 200 for slash-free node IDs."""
+        graph = ContextGraph(advanced_analytics=False)
+        graph.add_node(
+            "semantic_anchor",
+            node_type="entity",
+            content="Semantic anchor",
+            embedding=[1.0, 0.0, 0.0],
+        )
+        graph.add_node(
+            "semantic_neighbor",
+            node_type="entity",
+            content="Semantic neighbor",
+            embedding=[0.8, 0.2, 0.0],
+        )
+        session = GraphSession(graph)
+        fake = _FakeSimilarity()
+        fake.find_most_similar = (
+            lambda embeddings, query_embedding, top_k=10: [("semantic_neighbor", 0.8)]
+        )
+        session._similarity = fake
+        app = create_app(session=session)
+        with TestClient(app) as test_client:
+            resp = test_client.get(
+                "/api/graph/node/semantic_anchor/semantic-neighborhood?top_k=10"
+            )
+
+        assert resp.status_code == 200
+        assert resp.json()["anchor_node"] == "semantic_anchor"
+
+    def test_query_semantic_neighborhood_missing_node_returns_404(self, client):
+        resp = client.get(
+            "/api/graph/semantic-neighborhood",
+            params={"node_id": "gene/protein:missing"},
+        )
+        assert resp.status_code == 404
+
+    def test_query_semantic_neighborhood_without_embeddings_returns_503(self):
+        session = _make_slash_node_session(with_embeddings=False)
+        app = create_app(session=session)
+        with TestClient(app) as test_client:
+            resp = test_client.get(
+                "/api/graph/semantic-neighborhood",
+                params={"node_id": "gene/protein:6164", "top_k": 50},
+            )
+
+        assert resp.status_code == 503
 
 
 class TestClassifyDistance:

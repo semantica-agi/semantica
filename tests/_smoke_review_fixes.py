@@ -136,7 +136,7 @@ def test_sec002_distance_matrix_upper_triangle_loop():
 
 def test_bug006_edge_weight_index_built_once():
     from semantica.explorer.routes import graph
-    src = inspect.getsource(graph.find_path)
+    src = inspect.getsource(getattr(graph, "_find_path_impl", graph.find_path))
     assert "edge_weight_index" in src
     assert "for edge in edge_data:" not in src, "Old O(E*L) loop should be gone"
 
@@ -157,7 +157,7 @@ def test_bug007_original_id_not_overwritten():
 
 def test_qual002_no_bare_except_pass_in_find_path():
     from semantica.explorer.routes import graph
-    src = inspect.getsource(graph.find_path)
+    src = inspect.getsource(getattr(graph, "_find_path_impl", graph.find_path))
     bare_pass = re.findall(r"except Exception:\s*\n\s*pass", src)
     assert not bare_pass, f"Found bare except:pass: {bare_pass}"
     assert "logger.debug" in src
@@ -186,7 +186,9 @@ def test_bug008_sweep_generation_counter():
 def test_bug001_semantic_neighborhood_uses_top_k():
     with open(TS_WORKSPACE, encoding="utf-8") as fh:
         src = fh.read()
-    assert "top_k=50" in src, "Should use top_k (not limit) to match backend param"
+    assert (
+        "top_k=50" in src or 'top_k: "50"' in src
+    ), "Should use top_k (not limit) to match backend param"
     idx = src.find("semantic-neighborhood?")
     snippet = src[idx: idx + 100]
     assert "limit=" not in snippet, f"Found 'limit=' in URL snippet: {snippet!r}"

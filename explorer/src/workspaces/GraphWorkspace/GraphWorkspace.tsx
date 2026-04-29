@@ -1496,8 +1496,13 @@ export function GraphWorkspace() {
   const handleTracePath = useCallback(async () => {
     if (!inspectableNodeId || !pathTargetId.trim()) return;
     try {
+      const pathParams = new URLSearchParams({
+        source: inspectableNodeId,
+        target: pathTargetId.trim(),
+        algorithm: "dijkstra",
+      });
       const response = await fetch(
-        `/api/graph/node/${encodeURIComponent(inspectableNodeId)}/path?target=${encodeURIComponent(pathTargetId.trim())}&algorithm=dijkstra`
+        `/api/graph/path?${pathParams.toString()}`
       );
       if (!response.ok) {
         throw new Error(`Path lookup failed with status ${response.status}`);
@@ -1667,8 +1672,12 @@ export function GraphWorkspace() {
 
     const loadSemanticNeighborhood = async () => {
       try {
+        const semanticParams = new URLSearchParams({
+          node_id: distanceAnchorNodeId,
+          top_k: "50",
+        });
         const response = await fetch(
-          `/api/graph/node/${encodeURIComponent(distanceAnchorNodeId)}/semantic-neighborhood?top_k=50`,
+          `/api/graph/semantic-neighborhood?${semanticParams.toString()}`,
         );
         if (cancelled) {
           return;
@@ -1676,6 +1685,8 @@ export function GraphWorkspace() {
         if (!response.ok) {
           throw new Error(response.status === 503
             ? "Semantic similarity is unavailable for this graph."
+            : response.status === 404
+              ? "Selected node was not found by the semantic distance API."
             : `Semantic distance failed with status ${response.status}`);
         }
 
