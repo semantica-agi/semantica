@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **Feature: Explorer landing page redesign** (PR #516 by @ZohaibHassan16, review fixes by @KaifAhmad1):
+  - Replaced the plain welcome screen with a full landing composition: premium hero section, product preview mock with animated SVG graph, live graph status metrics, intelligence capability band, and consolidated workspace launcher.
+  - `WelcomeScreen` fetches `/api/graph/stats` on mount with `AbortController` cleanup and displays live node and edge counts; falls back to `"Live"` / `"Ready"` labels when the endpoint is unavailable.
+  - Workspace launcher surfaces Network Explorer as the primary path and provides direct one-click entry into Vocabulary, Analyze, Decisions, Enrich, and Manage workspaces.
+  - Added `LandingMetric`, `LandingAction`, and `GraphStatsPayload` TypeScript types; `getNumberStat` handles three API key shapes (`node_count`, `nodeCount`, `nodes` and equivalents) for forward-compatibility.
+  - Added `Space Grotesk` and `IBM Plex Sans` fonts (replacing `Inter`); `JetBrains Mono` used for kickers, badges, and metadata labels.
+  - Added `prefers-reduced-motion` media query suppressing `landing-float` animation and launcher hover transitions.
+  - **Review fixes** (follow-up by @KaifAhmad1 and @ZohaibHassan16): replaced invalid `inset-left` CSS property with `inset: 0 0 0 72px` on `.landing-page::before` in the `≤680px` breakpoint; added the same `inset` correction to `.landing-page::after` which was still offset at `88px` after rail narrowing; merged duplicate `.landing-capability-band` CSS rule blocks into one; corrected non-standard `font-weight: 850` to `800` on `.landing-launcher-item-title`; removed unused `eyebrow` field from `LandingAction` type and all data entries; extracted the static 42-dot SVG background array to a module-level `PREVIEW_DOTS` constant to avoid recomputing it on every render.
+
 - **Fix: Explorer Distance Intelligence visible rendering** (PR #513 by @ZohaibHassan16, review fixes by @KaifAhmad1):
   - Distance Intelligence now renders as a first-class visual state through the Sigma reducer/theme pipeline instead of mutating raw graph attributes directly.
   - Ego mode fades and scales nodes by structural distance from the selected anchor; nodes outside `maxHops` are dimmed and label-suppressed.
