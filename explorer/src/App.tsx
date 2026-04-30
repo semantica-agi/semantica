@@ -51,7 +51,6 @@ type LandingMetric = {
 
 type LandingAction = {
   label: string;
-  eyebrow: string;
   description: string;
   icon: LucideIcon;
   onClick: () => void;
@@ -67,6 +66,13 @@ type GraphStatsPayload = {
 };
 
 const queryClient = new QueryClient();
+
+const PREVIEW_DOTS = Array.from({ length: 42 }, (_, i) => ({
+  cx: 170 + ((i * 73) % 330),
+  cy: 170 + ((i * 47) % 210),
+  r: 2 + (i % 3),
+  fill: (['#56d364', '#58a6ff', '#f2b66d', '#ff9daf'] as const)[i % 4],
+}));
 
 const navItems: NavItem[] = [
   { id: 'explore', label: 'Knowledge Explorer', hint: 'Graph and vocabulary browsing', icon: Database },
@@ -590,7 +596,7 @@ const shellStyles = `
   .landing-launcher-item-title {
     color: #e9f3ff;
     font-size: 13px;
-    font-weight: 850;
+    font-weight: 800;
     letter-spacing: -0.02em;
   }
 
@@ -792,19 +798,16 @@ const shellStyles = `
   }
 
   .landing-capability-band {
-    border: 1px solid rgba(158, 217, 255, 0.12);
-    border-radius: 30px;
-    background: rgba(3, 9, 17, 0.54);
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
-    backdrop-filter: blur(18px);
-  }
-
-  .landing-capability-band {
     display: flex;
     align-items: center;
     gap: 12px;
     flex-wrap: wrap;
     padding: 14px;
+    border: 1px solid rgba(158, 217, 255, 0.12);
+    border-radius: 30px;
+    background: rgba(3, 9, 17, 0.54);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+    backdrop-filter: blur(18px);
   }
 
   .landing-capability-label {
@@ -892,7 +895,11 @@ const shellStyles = `
     }
 
     .landing-page::before {
-      inset-left: 72px;
+      inset: 0 0 0 72px;
+    }
+
+    .landing-page::after {
+      inset: 0 0 0 72px;
     }
 
     .landing-copy {
@@ -1037,35 +1044,30 @@ function WelcomeScreen({
   const secondaryLaunchers: LandingAction[] = [
     {
       label: 'Vocabulary',
-      eyebrow: 'Concept browser',
       description: 'Schemes and terms',
       icon: Database,
       onClick: onOpenVocabulary,
     },
     {
       label: 'Analyze',
-      eyebrow: 'Reasoning',
       description: 'Inference and queries',
       icon: BrainCircuit,
       onClick: onOpenReasoning,
     },
     {
       label: 'Decisions',
-      eyebrow: 'Causality',
       description: 'Chains and precedents',
       icon: Scale,
       onClick: onOpenDecisions,
     },
     {
       label: 'Enrich',
-      eyebrow: 'Data ops',
       description: 'Import and resolve',
       icon: GitBranchPlus,
       onClick: onOpenImport,
     },
     {
       label: 'Manage',
-      eyebrow: 'Governance',
       description: 'Lineage and ontology',
       icon: ShieldCheck,
       onClick: onOpenManage,
@@ -1180,12 +1182,9 @@ function WelcomeScreen({
                   <circle cx="514" cy="372" r="22" fill="none" stroke="rgba(127,208,255,0.2)" />
                 </g>
                 <g opacity="0.68">
-                  {Array.from({ length: 42 }).map((_, index) => {
-                    const x = 170 + ((index * 73) % 330);
-                    const y = 170 + ((index * 47) % 210);
-                    const color = ['#56d364', '#58a6ff', '#f2b66d', '#ff9daf'][index % 4];
-                    return <circle key={index} cx={x} cy={y} r={2 + (index % 3)} fill={color} />;
-                  })}
+                  {PREVIEW_DOTS.map((dot, index) => (
+                    <circle key={index} cx={dot.cx} cy={dot.cy} r={dot.r} fill={dot.fill} />
+                  ))}
                 </g>
               </svg>
             </div>
