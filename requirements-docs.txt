@@ -5,5 +5,5 @@ mkdocs-mermaid2-plugin>=1.0.0
 pymdown-extensions>=10.21.2
 
 mkdocstrings[python]>=0.24.0
-mkdocs-jupyter>=0.24.0
+mkdocs-jupyter>=0.26.3
 
