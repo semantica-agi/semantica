@@ -367,9 +367,11 @@ function FileUploadPanel({ onLoaded }: { onLoaded: () => void }) {
     setFileName(file.name);
     const ext = file.name.split(".").pop()?.toLowerCase() || "";
     const fmtMap: Record<string, string> = {
-      ttl: "turtle", rdf: "xml", owl: "xml", nt: "nt", jsonld: "json-ld",
+      ttl: "turtle", rdf: "xml", owl: "xml", xml: "xml",
+      nt: "nt", jsonld: "json-ld", json: "json-ld",
     };
-    setFormat(fmtMap[ext] || "turtle");
+    // Leave format empty for unknown extensions so the backend auto-detects
+    setFormat(fmtMap[ext] ?? "");
     const reader = new FileReader();
     reader.onload = (e) => setContent(e.target?.result as string || "");
     reader.readAsText(file);
@@ -389,7 +391,8 @@ function FileUploadPanel({ onLoaded }: { onLoaded: () => void }) {
       const res = await fetch("/api/ontology/load", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ content, format: format || "turtle" }),
+        // Omit format when empty so the backend _detect_format() runs
+        body: JSON.stringify({ content, ...(format ? { format } : {}) }),
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({ detail: "Load failed" }));
@@ -430,14 +433,14 @@ function FileUploadPanel({ onLoaded }: { onLoaded: () => void }) {
               Drop a file here or <span style={{ color: "#4aa3ff" }}>browse</span>
             </div>
             <div style={{ color: "#5a7a9a", fontSize: 11 }}>
-              .ttl · .rdf · .owl · .nt · .jsonld
+              .ttl · .rdf · .owl · .xml · .nt · .jsonld · .json · .n3
             </div>
           </>
         )}
         <input
           ref={fileRef}
           type="file"
-          accept=".ttl,.rdf,.owl,.nt,.jsonld,.json,.xml"
+          accept=".ttl,.rdf,.owl,.nt,.jsonld,.json,.xml,.n3"
           style={{ display: "none" }}
           onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFile(f); }}
         />
