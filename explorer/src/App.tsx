@@ -1237,6 +1237,7 @@ export default function App() {
   const [analyzeView, setAnalyzeView] = useState<AnalyzeView>('reasoning');
   const [enrichView, setEnrichView] = useState<EnrichView>('import');
   const [manageView, setManageView] = useState<ManageView>('lineage');
+  const [graphFocusRequest, setGraphFocusRequest] = useState<{ nodeId: string; token: number } | null>(null);
 
 
   const renderWorkspace = () => {
@@ -1284,7 +1285,12 @@ export default function App() {
           }
         >
           <Suspense fallback={<WorkspaceFallback />}>
-            {exploreView === 'graph' ? <GraphWorkspace /> : <VocabularyWorkspace />}
+            {exploreView === 'graph' ? (
+              <GraphWorkspace
+                externalFocusNodeId={graphFocusRequest?.nodeId}
+                externalFocusToken={graphFocusRequest?.token}
+              />
+            ) : <VocabularyWorkspace />}
           </Suspense>
         </WorkspaceShell>
       );
@@ -1370,7 +1376,13 @@ export default function App() {
           compact
         >
           <Suspense fallback={<WorkspaceFallback />}>
-            <OntologyWorkspace />
+            <OntologyWorkspace
+              onJumpToGraphNode={(nodeId: string) => {
+                setGraphFocusRequest({ nodeId, token: Date.now() });
+                setActiveWorkspace('explore');
+                setExploreView('graph');
+              }}
+            />
           </Suspense>
         </WorkspaceShell>
       );

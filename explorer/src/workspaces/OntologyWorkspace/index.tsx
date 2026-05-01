@@ -7,7 +7,10 @@ import {
   Shield,
   Sliders,
 } from "lucide-react";
+import { AlignmentsTab } from "./AlignmentsTab";
+import { HealthTab } from "./HealthTab";
 import { OntologyManager } from "./OntologyManager";
+import { ShaclStudio } from "./ShaclStudio";
 
 export type OntologyHubTab =
   | "registry"
@@ -76,7 +79,11 @@ function ComingSoonStub({
   );
 }
 
-export function OntologyWorkspace() {
+interface OntologyWorkspaceProps {
+  onJumpToGraphNode?: (nodeId: string) => void;
+}
+
+export function OntologyWorkspace({ onJumpToGraphNode }: OntologyWorkspaceProps) {
   const [activeTab, setActiveTab] = useState<OntologyHubTab>(readTabParam);
 
   useEffect(() => {
@@ -85,6 +92,14 @@ export function OntologyWorkspace() {
 
   const handleTabChange = useCallback((tab: OntologyHubTab) => {
     setActiveTab(tab);
+  }, []);
+
+  const handleFixInEditor = useCallback((entityUri: string) => {
+    const params = new URLSearchParams(window.location.search);
+    params.set(TAB_PARAM, "editor");
+    params.set("ontologyEntity", entityUri);
+    window.history.replaceState(null, "", `?${params.toString()}`);
+    setActiveTab("editor");
   }, []);
 
   const renderTab = () => {
@@ -110,32 +125,11 @@ export function OntologyWorkspace() {
           />
         );
       case "alignments":
-        return (
-          <ComingSoonStub
-            icon={GitMerge}
-            title="Cross-Ontology Alignments"
-            description="Manage mappings between ontologies, review suggested alignments from embedding-assisted similarity, and publish alignment sets."
-            badge="Subissue 3"
-          />
-        );
+        return <AlignmentsTab />;
       case "health":
-        return (
-          <ComingSoonStub
-            icon={HeartPulse}
-            title="Ontology Health Dashboard"
-            description="Score completeness, consistency, SHACL conformance, alignment coverage, and documentation quality across all loaded ontologies."
-            badge="Subissue 3"
-          />
-        );
+        return <HealthTab onFixInEditor={handleFixInEditor} />;
       case "shacl":
-        return (
-          <ComingSoonStub
-            icon={Shield}
-            title="SHACL Studio"
-            description="Generate, edit, and validate SHACL shapes. Preview constraint violations against the active graph before publishing."
-            badge="Subissue 3"
-          />
-        );
+        return <ShaclStudio onJumpToNode={onJumpToGraphNode} />;
     }
   };
 

@@ -1082,7 +1082,12 @@ function collectPluginOverlays(
   });
 }
 
-export function GraphWorkspace() {
+interface GraphWorkspaceProps {
+  externalFocusNodeId?: string;
+  externalFocusToken?: number;
+}
+
+export function GraphWorkspace({ externalFocusNodeId, externalFocusToken }: GraphWorkspaceProps = {}) {
   const [selectedNodeId, setSelectedNodeId] = useState("");
   const [focusedNodeId, setFocusedNodeId] = useState("");
   const [lastGroupedSelectedNodeId, setLastGroupedSelectedNodeId] = useState("");
@@ -1141,6 +1146,7 @@ export function GraphWorkspace() {
   const debouncedTime = useDebounce(scrubberTime, 150);
   const prevActiveIdsRef = useRef<Set<string>>(new Set());
   const sceneRef = useRef<GraphSceneHandle>(null);
+  const lastExternalFocusTokenRef = useRef<number | undefined>(undefined);
   const pluginRuntimeRef = useRef<GraphSceneRuntime | null>(null);
   const settlingOverlayTimeoutRef = useRef<number | null>(null);
   const pluginInteractionStateRef = useRef<GraphInteractionState>({
@@ -1439,6 +1445,19 @@ export function GraphWorkspace() {
       setIsLayoutRunning(false);
     }
   }, [viewMode]);  // Note: ego/heatmap/distanceMode effects re-run automatically when selectedNodeId changes
+
+  useEffect(() => {
+    if (!externalFocusNodeId || externalFocusToken == null) return;
+    if (lastExternalFocusTokenRef.current === externalFocusToken) return;
+    if (!graphReady || !graph.hasNode(externalFocusNodeId)) return;
+
+    lastExternalFocusTokenRef.current = externalFocusToken;
+    setViewMode("full");
+    focusNode(externalFocusNodeId);
+    window.setTimeout(() => {
+      sceneRef.current?.focusNode(externalFocusNodeId);
+    }, 0);
+  }, [externalFocusNodeId, externalFocusToken, focusNode, graphReady]);
 
   const handleEdgeSelect = useCallback((edgeId: string) => {
     setSelectedEdgeId(edgeId);
