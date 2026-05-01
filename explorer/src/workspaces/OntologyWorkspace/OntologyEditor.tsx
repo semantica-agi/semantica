@@ -1,0 +1,438 @@
+import { useCallback, useEffect, useState, useMemo } from "react";
+import {
+  ReactFlow,
+  Background,
+  Controls,
+  MiniMap,
+  addEdge,
+  useNodesState,
+  useEdgesState,
+  Connection,
+  Edge,
+  Node,
+  MarkerType,
+} from "@xyflow/react";
+import "@xyflow/react/dist/style.css";
+import {
+  Plus,
+  Box,
+  GitBranch,
+  User,
+  Shield,
+  FileText,
+  Download,
+  Layout,
+  Send,
+  MoreVertical,
+  Pencil,
+  Trash2,
+  Link,
+  ArrowRight,
+  ArrowLeft,
+  GitMerge,
+} from "lucide-react";
+
+const nodeTypes = {
+  classNode: ({ data }: { data: any }) => (
+    <div style={classNodeStyle}>
+      <div style={classNodeHeader}>{data.label}</div>
+      <div style={classNodeSub}>{data.type}</div>
+    </div>
+  ),
+};
+
+const classNodeStyle: React.CSSProperties = {
+  padding: "12px 16px",
+  borderRadius: "8px",
+  background: "linear-gradient(135deg, rgba(74, 163, 255, 0.15), rgba(74, 163, 255, 0.05))",
+  border: "1px solid rgba(127, 208, 255, 0.3)",
+  color: "#ebf3ff",
+  fontSize: "13px",
+  fontWeight: "600",
+  minWidth: "140px",
+  textAlign: "center",
+  boxShadow: "0 4px 12px rgba(0, 0, 0, 0.2)",
+};
+
+const classNodeHeader: React.CSSProperties = {
+  fontSize: "14px",
+  fontWeight: "700",
+  marginBottom: "4px",
+};
+
+const classNodeSub: React.CSSProperties = {
+  fontSize: "11px",
+  color: "#8fa8c6",
+  fontWeight: "500",
+};
+
+interface DraftDiff {
+  added_classes: string[];
+  removed_classes: string[];
+  modified_classes: Record<string, Record<string, any>>;
+  added_properties: string[];
+  removed_properties: string[];
+  modified_properties: Record<string, Record<string, any>>;
+  added_restrictions: Record<string, any>[];
+  removed_restrictions: Record<string, any>[];
+  added_axioms: Record<string, any>[];
+  removed_axioms: Record<string, any>[];
+  annotation_changes: Record<string, Record<string, any>>;
+}
+
+export function OntologyEditor() {
+  const [nodes, setNodes, onNodesChange] = useNodesState([]);
+  const [edges, setEdges, onEdgesChange] = useEdgesState([]);
+  const [selectedElement, setSelectedElement] = useState<Node | Edge | null>(null);
+  const [ontologyUri, setOntologyUri] = useState<string>("");
+  const [draftDiff, setDraftDiff] = useState<DraftDiff>({
+    added_classes: [],
+    removed_classes: [],
+    modified_classes: {},
+    added_properties: [],
+    removed_properties: [],
+    modified_properties: {},
+    added_restrictions: [],
+    removed_restrictions: [],
+    added_axioms: [],
+    removed_axioms: [],
+    annotation_changes: {},
+  });
+  const [isSaving, setIsSaving] = useState(false);
+  const [showContext, setShowContext] = useState<{ x: number; y: number; type: string; element: any } | null>(null);
+
+  const onConnect = useCallback(
+    (params: Connection) => setEdges((eds) => addEdge({ ...params, markerEnd: { type: MarkerType.ArrowClosed } }, eds)),
+    [setEdges]
+  );
+
+  const addClass = useCallback(() => {
+    const newId = `class_${Date.now()}`;
+    const newNode: Node = {
+      id: newId,
+      type: "classNode",
+      position: { x: Math.random() * 400, y: Math.random() * 300 },
+      data: { label: "NewClass", type: "owl:Class" },
+    };
+    setNodes((nds) => [...nds, newNode]);
+    setDraftDiff((prev) => ({
+      ...prev,
+      added_classes: [...prev.added_classes, newId],
+    }));
+  }, [setNodes]);
+
+  const addProperty = useCallback(() => {
+    const newId = `prop_${Date.now()}`;
+    const newEdge: Edge = {
+      id: newId,
+      source: nodes[0]?.id || "",
+      target: nodes[1]?.id || nodes[0]?.id || "",
+      label: "hasProperty",
+      type: "smoothstep",
+      animated: true,
+    };
+    setEdges((eds) => [...eds, newEdge]);
+    setDraftDiff((prev) => ({
+      ...prev,
+      added_properties: [...prev.added_properties, newId],
+    }));
+  }, [nodes, setEdges]);
+
+  const addIndividual = useCallback(() => {
+    const newId = `ind_${Date.now()}`;
+    const newNode: Node = {
+      id: newId,
+      type: "classNode",
+      position: { x: Math.random() * 400, y: Math.random() * 300 },
+      data: { label: "NewIndividual", type: "owl:NamedIndividual" },
+    };
+    setNodes((nds) => [...nds, newNode]);
+  }, [setNodes]);
+
+  const addRestriction = useCallback(() => {
+    setDraftDiff((prev) => ({
+      ...prev,
+      added_restrictions: [...prev.added_restrictions, { type: "someValuesFrom", value: "" }],
+    }));
+  }, []);
+
+  const addAxiom = useCallback(() => {
+    setDraftDiff((prev) => ({
+      ...prev,
+      added_axioms: [...prev.added_axioms, { type: "subClassOf", value: "" }],
+    }));
+  }, []);
+
+  const autoLayout = useCallback(() => {
+    const layoutNodes = nodes.map((node, index) => ({
+      ...node,
+      position: { x: (index % 4) * 200, y: Math.floor(index / 4) * 150 },
+    }));
+    setNodes(layoutNodes);
+  }, [nodes, setNodes]);
+
+  const saveDraft = useCallback(async () => {
+    if (!ontologyUri) {
+      alert("Please select an ontology first");
+      return;
+    }
+    setIsSaving(true);
+    try {
+      const response = await fetch("/api/ontology/draft", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ontology_uri: ontologyUri,
+          diff: draftDiff,
+          author: "user",
+          summary: "Visual editor changes",
+        }),
+      });
+      if (response.ok) {
+        const data = await response.json();
+        alert(`Draft saved: ${data.draft_id}`);
+      }
+    } catch (error) {
+      console.error("Failed to save draft:", error);
+      alert("Failed to save draft");
+    } finally {
+      setIsSaving(false);
+    }
+  }, [ontologyUri, draftDiff]);
+
+  const handleNodeContextMenu = useCallback((event: React.MouseEvent, node: Node) => {
+    event.preventDefault();
+    setShowContext({ x: event.clientX, y: event.clientY, type: "node", element: node });
+  }, []);
+
+  const handleEdgeContextMenu = useCallback((event: React.MouseEvent, edge: Edge) => {
+    event.preventDefault();
+    setShowContext({ x: event.clientX, y: event.clientY, type: "edge", element: edge });
+  }, []);
+
+  const deleteSelected = useCallback(() => {
+    if (selectedElement) {
+      if ("source" in selectedElement) {
+        setEdges((eds) => eds.filter((e) => e.id !== selectedElement.id));
+        setDraftDiff((prev) => ({
+          ...prev,
+          removed_properties: [...prev.removed_properties, selectedElement.id],
+        }));
+      } else {
+        setNodes((nds) => nds.filter((n) => n.id !== selectedElement.id));
+        setDraftDiff((prev) => ({
+          ...prev,
+          removed_classes: [...prev.removed_classes, selectedElement.id],
+        }));
+      }
+      setSelectedElement(null);
+    }
+    setShowContext(null);
+  }, [selectedElement, setNodes, setEdges]);
+
+  const renameSelected = useCallback(() => {
+    if (selectedElement && !("source" in selectedElement)) {
+      const newLabel = prompt("Enter new name:", selectedElement.data.label);
+      if (newLabel) {
+        setNodes((nds) =>
+          nds.map((n) => (n.id === selectedElement.id ? { ...n, data: { ...n.data, label: newLabel } } : n))
+        );
+        setDraftDiff((prev) => ({
+          ...prev,
+          modified_classes: { ...prev.modified_classes, [selectedElement.id]: { label: newLabel } },
+        }));
+      }
+    }
+    setShowContext(null);
+  }, [selectedElement, setNodes]);
+
+  useEffect(() => {
+    const handleClick = () => setShowContext(null);
+    window.addEventListener("click", handleClick);
+    return () => window.removeEventListener("click", handleClick);
+  }, []);
+
+  const toolbarStyle: React.CSSProperties = {
+    display: "flex",
+    gap: "8px",
+    padding: "12px 16px",
+    background: "rgba(3, 9, 18, 0.92)",
+    borderBottom: "1px solid rgba(140, 192, 255, 0.12)",
+    flexWrap: "wrap",
+  };
+
+  const toolbarButtonStyle: React.CSSProperties = {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: "6px",
+    padding: "8px 12px",
+    borderRadius: "8px",
+    border: "1px solid rgba(127, 208, 255, 0.18)",
+    background: "rgba(74, 163, 255, 0.08)",
+    color: "#ebf3ff",
+    fontSize: "12px",
+    fontWeight: "600",
+    cursor: "pointer",
+    transition: "160ms ease",
+  };
+
+  const contextMenuStyle: React.CSSProperties = {
+    position: "fixed",
+    background: "rgba(9, 19, 34, 0.95)",
+    border: "1px solid rgba(127, 208, 255, 0.3)",
+    borderRadius: "8px",
+    padding: "8px 0",
+    minWidth: "180px",
+    boxShadow: "0 8px 24px rgba(0, 0, 0, 0.4)",
+    zIndex: 1000,
+  };
+
+  const contextItemStyle: React.CSSProperties = {
+    padding: "8px 16px",
+    display: "flex",
+    alignItems: "center",
+    gap: "10px",
+    color: "#ebf3ff",
+    fontSize: "13px",
+    cursor: "pointer",
+    transition: "160ms ease",
+  };
+
+  const detailPanelStyle: React.CSSProperties = {
+    position: "absolute",
+    right: 0,
+    top: 0,
+    bottom: 0,
+    width: "320px",
+    background: "rgba(9, 19, 34, 0.95)",
+    borderLeft: "1px solid rgba(140, 192, 255, 0.12)",
+    padding: "20px",
+    overflow: "auto",
+    backdropFilter: "blur(18px)",
+  };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", height: "100%", background: "#07111f" }}>
+      <div style={toolbarStyle}>
+        <button style={toolbarButtonStyle} onClick={addClass}>
+          <Plus size={14} />
+          Add Class
+        </button>
+        <button style={toolbarButtonStyle} onClick={addProperty}>
+          <GitBranch size={14} />
+          Add Property
+        </button>
+        <button style={toolbarButtonStyle} onClick={addIndividual}>
+          <User size={14} />
+          Add Individual
+        </button>
+        <button style={toolbarButtonStyle} onClick={addRestriction}>
+          <Shield size={14} />
+          Add Restriction
+        </button>
+        <button style={toolbarButtonStyle} onClick={addAxiom}>
+          <FileText size={14} />
+          Add Axiom
+        </button>
+        <button style={toolbarButtonStyle} onClick={autoLayout}>
+          <Layout size={14} />
+          Auto Layout
+        </button>
+        <div style={{ flex: 1 }} />
+        <button style={toolbarButtonStyle} onClick={saveDraft} disabled={isSaving}>
+          <Send size={14} />
+          {isSaving ? "Saving..." : "Propose"}
+        </button>
+      </div>
+
+      <div style={{ flex: 1, position: "relative" }}>
+        <ReactFlow
+          nodes={nodes}
+          edges={edges}
+          onNodesChange={onNodesChange}
+          onEdgesChange={onEdgesChange}
+          onConnect={onConnect}
+          onNodeClick={(_, node) => setSelectedElement(node)}
+          onEdgeClick={(_, edge) => setSelectedElement(edge)}
+          onNodeContextMenu={handleNodeContextMenu}
+          onEdgeContextMenu={handleEdgeContextMenu}
+          nodeTypes={nodeTypes}
+          fitView
+          style={{ background: "#07111f" }}
+        >
+          <Background color="#1a2d3d" gap={20} />
+          <Controls />
+          <MiniMap nodeColor="#4aa3ff" maskColor="rgba(0,0,0,0.6)" />
+        </ReactFlow>
+
+        {showContext && (
+          <div style={{ ...contextMenuStyle, left: showContext.x, top: showContext.y }}>
+            <div style={contextItemStyle} onClick={renameSelected}>
+              <Pencil size={14} />
+              Rename
+            </div>
+            <div style={contextItemStyle} onClick={deleteSelected}>
+              <Trash2 size={14} />
+              Delete
+            </div>
+          </div>
+        )}
+
+        {selectedElement && (
+          <div style={detailPanelStyle}>
+            <h3 style={{ margin: "0 0 16px", color: "#ebf3ff", fontSize: "16px" }}>
+              {"source" in selectedElement ? "Property Details" : "Class Details"}
+            </h3>
+            <div style={{ marginBottom: "12px" }}>
+              <label style={{ display: "block", color: "#8fa8c6", fontSize: "12px", marginBottom: "4px" }}>
+                ID
+              </label>
+              <div style={{ color: "#ebf3ff", fontSize: "13px", wordBreak: "break-all" }}>
+                {selectedElement.id}
+              </div>
+            </div>
+            {!("source" in selectedElement) && (
+              <>
+                <div style={{ marginBottom: "12px" }}>
+                  <label style={{ display: "block", color: "#8fa8c6", fontSize: "12px", marginBottom: "4px" }}>
+                    Label
+                  </label>
+                  <input
+                    type="text"
+                    value={selectedElement.data.label || ""}
+                    onChange={(e) => {
+                      setNodes((nds) =>
+                        nds.map((n) =>
+                          n.id === selectedElement.id
+                            ? { ...n, data: { ...n.data, label: e.target.value } }
+                            : n
+                        )
+                      );
+                    }}
+                    style={{
+                      width: "100%",
+                      padding: "8px",
+                      borderRadius: "6px",
+                      border: "1px solid rgba(127, 208, 255, 0.2)",
+                      background: "rgba(3, 9, 18, 0.8)",
+                      color: "#ebf3ff",
+                      fontSize: "13px",
+                    }}
+                  />
+                </div>
+                <div style={{ marginBottom: "12px" }}>
+                  <label style={{ display: "block", color: "#8fa8c6", fontSize: "12px", marginBottom: "4px" }}>
+                    Type
+                  </label>
+                  <div style={{ color: "#ebf3ff", fontSize: "13px" }}>
+                    {selectedElement.data.type || "owl:Class"}
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}

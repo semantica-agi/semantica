@@ -152,10 +152,11 @@ if EXPLORER_AVAILABLE:
             enrich,
             export_import,
             graph,
+            ontology,
             temporal,
             vocabulary,
-            provenance, 
-            sparql      
+            provenance,
+            sparql
         )
 
         app.include_router(analytics.router)
@@ -164,12 +165,13 @@ if EXPLORER_AVAILABLE:
         app.include_router(enrich.router)
         app.include_router(export_import.router)
         app.include_router(graph.router)
+        app.include_router(ontology.router)
         app.include_router(temporal.router)
         app.include_router(vocabulary.router)
-        app.include_router(provenance.router) 
-        app.include_router(sparql.router)    
+        app.include_router(provenance.router)
+        app.include_router(sparql.router)
 
-        logging.info("Explorer, Vocabulary, SPARQL, and Provenance API routes successfully mounted.")
+        logging.info("Explorer, Vocabulary, SPARQL, Provenance, and Ontology API routes successfully mounted.")
     except Exception as exc:
         logging.error(f"Failed to mount explorer routes: {exc}")
 else:

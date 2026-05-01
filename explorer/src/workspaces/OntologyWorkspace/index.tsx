@@ -8,6 +8,8 @@ import {
   Sliders,
 } from "lucide-react";
 import { OntologyManager } from "./OntologyManager";
+import { OntologyEditor } from "./OntologyEditor";
+import { VersionsTab } from "./VersionsTab";
 
 export type OntologyHubTab =
   | "registry"
@@ -92,23 +94,9 @@ export function OntologyWorkspace() {
       case "registry":
         return <OntologyManager />;
       case "editor":
-        return (
-          <ComingSoonStub
-            icon={Sliders}
-            title="Visual Ontology Editor"
-            description="Visually edit classes, properties, individuals, restrictions, axioms, and SKOS metadata. Create and propose schema changes through a governed draft workflow."
-            badge="Subissue 2"
-          />
-        );
+        return <OntologyEditor />;
       case "versions":
-        return (
-          <ComingSoonStub
-            icon={Layers}
-            title="Versions & Change Proposals"
-            description="View version history, compare schema diffs, submit change proposals, and manage the review-to-publish lifecycle."
-            badge="Subissue 2"
-          />
-        );
+        return <VersionsTab />;
       case "alignments":
         return (
           <ComingSoonStub

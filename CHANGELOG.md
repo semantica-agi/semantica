@@ -7,13 +7,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+- **Feature: Ontology Hub — Visual Ontology Editor, Drafts, Versions & Change Proposals** (closes #519, part of #517, by @KaifAhmad1):
+  - **Visual Ontology Editor tab (`OntologyEditor`)** — @xyflow/react canvas for visual ontology authoring without hand-writing OWL or Turtle. Classes render as nodes, properties as edges. Toolbar provides Add Class, Add Property, Add Individual, Add Restriction, Add Axiom, Auto Layout, and Propose actions. Context menus on nodes (rename, add superclass/subclass, add restriction, mark deprecated, add SKOS metadata, delete with impact count) and edges (change domain/range, toggle functional/symmetric/transitive/reflexive/inverse-functional, add inverse property, delete). Detail panel edits metadata for classes, properties, individuals, and SKOS concepts. All edits are debounced and staged as pending diffs via `PATCH /api/ontology/draft`; nothing commits to the live ontology until proposal publish.
+  - **Versions tab (`VersionsTab`)** — version timeline showing version ID, state (draft/published), author, date, and diff summary. Proposal list with state indicators (draft/proposed/approved/published/rejected). Propose modal with summary input, auto-computed impact analysis using `VersionManager.diff_ontologies()` and `OntologyEngine.validate()`, and SHACL pre-validation using `OntologyEngine.validate_graph()`. Compare action for versions with side-by-side diff modal using `VersionManager.compare_versions()` and `VersionManager.diff_ontologies()`. Approve, Request Changes, Reject, and Publish actions. Publishing calls `VersionManager.create_version()` and promotes the draft diff to the live ontology graph.
+  - **Proposal Review (`ProposalReview`)** — diff viewer showing added, removed, and modified elements with change icons. Impact analysis display from `VersionManager.diff_ontologies()`. SHACL validation results from `OntologyEngine.validate_graph()`. Inline comments per changed element via `POST /api/ontology/proposals/{id}/comment`. Review actions: Approve, Reject, Publish (approved proposals only).
+  - **Backend (`semantica/explorer/routes/ontology.py`)** — 10 new FastAPI endpoints under `/api/ontology`:
+    - `PATCH /draft` — stage editor diffs as a draft in `app.state.ontology_drafts` with `ChangeLogEntry` audit trail.
+    - `GET /drafts/{ontology_uri:path}` — list staged drafts for an ontology.
+    - `GET /draft/{draft_id}` — get a specific draft by ID.
+    - `POST /propose` — submit change proposal with impact analysis using `VersionManager.diff_ontologies()`, validation using `OntologyEngine.validate()`, and SHACL pre-validation using `OntologyEngine.validate_graph()`.
+    - `GET /proposals` — list proposals with optional `ontology_uri` and `state` filters.
+    - `GET /proposals/{proposal_id}` — get proposal detail.
+    - `POST /proposals/{proposal_id}/approve` — approve a proposal.
+    - `POST /proposals/{proposal_id}/reject` — reject a proposal (can return to draft).
+    - `POST /proposals/{proposal_id}/publish` — publish an approved proposal using `VersionManager.create_version()`.
+    - `POST /proposals/{proposal_id}/comment` — add inline comment to a proposal.
+    - `GET /versions/{ontology_uri:path}` — list version history for an ontology.
+    - `POST /versions/{ontology_uri:path}/compare` — compare two ontology versions using `VersionManager.compare_versions()` and `VersionManager.diff_ontologies()`.
+    - `POST /alignments` — create alignment using `OntologyEngine.create_alignment()`.
+    - `GET /alignments/{entity_uri:path}` — get alignments for an entity using `OntologyEngine.get_alignments()`.
+    - `GET /alignments` — list all alignments using `OntologyEngine.list_alignments()`.
+  - **Enhanced existing endpoints** with proper Semantica module integration:
+    - `POST /load` — now uses `OntologyIngestor.ingest_ontology()` for proper RDF parsing and conversion to Semantica's internal ontology format, with fallback to basic parsing. Supports multiple formats (Turtle, RDF/XML, JSON-LD, N3, NT) with automatic format detection and conversion to graph nodes/edges.
+    - `POST /create` — now uses `OntologyEngine.from_data()` for sample data mode and `OntologyEngine.from_text()` for text mode with provider/model support. Converts OntologyEngine result to graph nodes/edges including classes, properties with domain/range edges, and subclass relationships.
+    - `GET /skos/schemes` — now uses `OntologyEngine.list_vocabularies()` with fallback to session-based implementation.
+    - `GET /skos/concept/{uri:path}` — now uses `OntologyEngine.list_concepts()` with fallback to session-based implementation.
+    - `POST /skos/search` — new endpoint using `OntologyEngine.search_concepts()` with fallback to session-based search.
+  - **Change Management module integration**:
+    - `VersionManager.diff_ontologies()` — structured diff computation for proposals and version comparison.
+    - `VersionManager.compare_versions()` — metadata comparison for version comparison.
+    - `VersionManager.create_version()` — version record creation with proper config and graph store.
+    - `ChangeLogEntry` — audit trail metadata for draft creation with timestamp, author, and description validation.
+  - **Server registration** — ontology router registered in `semantica/server.py` imports and router mounting.
+  - **Schemas added** — `DraftDiff`, `DraftRequest`, `DraftResponse`, `ProposalRequest`, `ProposalResponse`, `CommentRequest`, `VersionEntry`, `VersionCompareRequest`, `VersionCompareResponse`, `AlignmentRequest`, `AlignmentResponse`, `SKOSConceptSearchRequest`.
+  - **OntologyWorkspace index.tsx** — updated to use `OntologyEditor` and `VersionsTab` components instead of stubs for Editor and Versions tabs.
+
 - **Fix: Ontology Hub post-review bug fixes and security hardening** (follow-up to #518, closes security advisory #23, by @KaifAhmad1):
   - **Broken registry filters** — `fetchRegistry` was sending toolbar filter values (`owl`, `skos`, `internal`, `external`) to the backend as the `status` query param, which only accepts `published|draft|external`, causing those filters to return empty lists. Removed the spurious `status` param; all format/kind filtering is now applied client-side via `filteredEntries`, which already had the correct logic.
   - **Toggle/refresh URI corruption** — `toggle_ontology` and `refresh_ontology` applied `.removesuffix("/toggle")` / `.removesuffix("/refresh")` to the captured path parameter, which would silently corrupt any ontology URI that legitimately ends with those strings. Starlette's route regex (`/{uri:path}/toggle`) already strips the literal suffix via backtracking, so the `removesuffix` calls were removed and the raw `ontology_uri` parameter is used directly.
   - **SSRF in URL fetch** — `_fetch_url_sync()` accepted arbitrary user-supplied URLs and called `requests.get()` with no validation, enabling server-side request forgery against internal services. Added `_validate_fetch_url()` which rejects non-`http`/`https` schemes and resolves the hostname via `socket.getaddrinfo`, blocking loopback, private, link-local, reserved, and multicast addresses. Applied to all three fetch sites: preview, load, and refresh.
   - **File upload format misdetected** — the file picker accepted `.xml` and `.json` but `fmtMap` had no entries for those extensions, causing them to default to `turtle`. Added `xml: "xml"` and `json: "json-ld"` mappings. Changed the unknown-extension fallback from `|| "turtle"` to `?? ""` (empty string), and omit the `format` key from the request body when empty so the backend `_detect_format()` runs instead of receiving a forced incorrect value. Also added `.n3` to the accepted extension list and dropzone hint.
-  - **Inconsistent XML hardening** — `_parse_rdf_sync()` called `rdflib.Graph().parse()` directly, bypassing the `defusedxml`-based XXE protection already present in `semantica/explorer/utils/rdf_parser.py`. Now routes through `_safe_parse_rdf()` from that module, applying consistent protection for all RDF/XML parse paths.
-  - **Search scans whole graph** (`GET /api/ontology/search`) — the endpoint fetched up to 999 999 nodes and performed a linear Python substring scan on every request. Replaced with `session.search(q, limit * 6)` which uses the `GraphSearchIndex`; results are then post-filtered by `_SEARCHABLE_TYPES` and `entity_type` before being returned up to the requested limit.
+  - **Inconsistent XML hardening** — `_parse_rdf_sync()` called `rdflib.Graph().parse()` directly, bypassing the `defusedxml`-based XXE protection already present in `semantica/explorer/utils/rdf_parser.py`. Now routes through `_safe_parse_rdf()` from that module, applying consistent defusedxml-based XXE protection for all RDF/XML parse paths.
+  - **Search scans whole graph** (`GET /api/ontology/search`) — the endpoint fetched up to 999 999 nodes and performed a linear Python substring scan on every request. Replaced with `session.search(q, limit * 6)` which uses the existing `GraphSearchIndex` for efficient indexed search; results are then post-filtered by `_SEARCHABLE_TYPES` and `entity_type` before being returned up to the requested limit.
   - **ReDoS in format detector** (security advisory #23, CodeQL `py/polynomial-redos`, CWE-1333/730/400) — `_detect_format()` used `re.match(r"_:\w+|<[^>]+>\s+<[^>]+>", ...)` to detect N-Triples content. The `<[^>]+>\s+<[^>]+>` alternative was flagged as a polynomial regular expression on uncontrolled data. The URI-subject branch was already unreachable (strings starting with `<` return `"xml"` two lines above), so the entire regex was replaced with two O(1) string operations: `stripped.startswith("_:")` and `" <" in stripped`. `import re` removed as now unused.
 
 - **Feature: Ontology Hub — Registry, Loader, Entity Search & SKOS Vocabulary Manager** (closes #518, part of #517, by @KaifAhmad1):
