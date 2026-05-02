@@ -946,8 +946,6 @@ async def create_ontology(
                 # Add property edges
                 for prop in result.get("properties", []):
                     prop_uri = f"{ns}/{prop.get('name', uuid.uuid4().hex[:6])}"
-                    domain_uri = f"{ns}/{prop.get('domain', '')}"
-                    range_uri = f"{ns}/{prop.get('range', '')}"
                     
                     nodes.append({
                         "id": prop_uri,
@@ -956,14 +954,20 @@ async def create_ontology(
                         "properties": {"rdfs:label": prop.get("name", "")},
                     })
                     
-                    if domain_uri:
+                    # Only create domain/range edges if domain/range are specified
+                    domain = prop.get('domain')
+                    if domain and domain.strip():
+                        domain_uri = f"{ns}/{domain}"
                         edges.append({
                             "source": prop_uri,
                             "target": domain_uri,
                             "type": "rdfs:domain",
                             "weight": 1.0,
                         })
-                    if range_uri:
+                    
+                    range_val = prop.get('range')
+                    if range_val and range_val.strip():
+                        range_uri = f"{ns}/{range_val}"
                         edges.append({
                             "source": prop_uri,
                             "target": range_uri,
@@ -1012,8 +1016,6 @@ async def create_ontology(
                 # Add property edges
                 for prop in result.get("properties", []):
                     prop_uri = f"{ns}/{prop.get('name', uuid.uuid4().hex[:6])}"
-                    domain_uri = f"{ns}/{prop.get('domain', '')}"
-                    range_uri = f"{ns}/{prop.get('range', '')}"
                     
                     nodes.append({
                         "id": prop_uri,
@@ -1022,14 +1024,20 @@ async def create_ontology(
                         "properties": {"rdfs:label": prop.get("name", "")},
                     })
                     
-                    if domain_uri:
+                    # Only create domain/range edges if domain/range are specified
+                    domain = prop.get('domain')
+                    if domain and domain.strip():
+                        domain_uri = f"{ns}/{domain}"
                         edges.append({
                             "source": prop_uri,
                             "target": domain_uri,
                             "type": "rdfs:domain",
                             "weight": 1.0,
                         })
-                    if range_uri:
+                    
+                    range_val = prop.get('range')
+                    if range_val and range_val.strip():
+                        range_uri = f"{ns}/{range_val}"
                         edges.append({
                             "source": prop_uri,
                             "target": range_uri,
