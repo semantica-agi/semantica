@@ -75,7 +75,7 @@ export function AlignmentsTab() {
     return counts;
   }, [alignments]);
 
-  const handleSave = async () => {
+  const handleSave = useCallback(async () => {
     if (!sourceUri.trim() || !targetUri.trim()) {
       setError("Provide both source and target entity URIs.");
       return;
@@ -100,9 +100,9 @@ export function AlignmentsTab() {
     } finally {
       setBusy(false);
     }
-  };
+  }, [sourceUri, targetUri, relation, confidence, provenance, source, reviewer, reload]);
 
-  const handleSuggest = async () => {
+  const handleSuggest = useCallback(async () => {
     setBusy(true);
     setError("");
     try {
@@ -118,17 +118,17 @@ export function AlignmentsTab() {
     } finally {
       setBusy(false);
     }
-  };
+  }, [sourceOntology, targetOntology, threshold]);
 
-  const handleAcceptSuggestion = (suggestion: AlignmentSuggestion) => {
+  const handleAcceptSuggestion = useCallback((suggestion: AlignmentSuggestion) => {
     setSourceUri(suggestion.source_uri);
     setTargetUri(suggestion.target_uri);
     setRelation(suggestion.relation);
     setConfidence(Math.max(0.1, Math.min(1, suggestion.score)));
     setProvenance(suggestion.reason);
-  };
+  }, []);
 
-  const handleRemove = async (id: string) => {
+  const handleRemove = useCallback(async (id: string) => {
     setBusy(true);
     setError("");
     try {
@@ -139,7 +139,7 @@ export function AlignmentsTab() {
     } finally {
       setBusy(false);
     }
-  };
+  }, [reload]);
 
   return (
     <div style={pageStyle}>
@@ -160,6 +160,11 @@ export function AlignmentsTab() {
       </section>
 
       {error ? <div style={errorStyle}>{error}</div> : null}
+
+      <div style={ephemeralBannerStyle}>
+        Alignments are stored in server memory and are not persisted across restarts.
+        Export your graph or ontology to preserve recorded mappings.
+      </div>
 
       <div style={gridStyle}>
         <section style={cardStyle}>
@@ -315,3 +320,4 @@ const confidenceStyle: CSSProperties = { color: "#f2b66d", fontWeight: 900 };
 const iconButtonStyle: CSSProperties = { width: 34, height: 34, borderRadius: 10, border: "1px solid rgba(255,157,175,0.18)", background: "rgba(255,157,175,0.08)", color: "#ff9daf", cursor: "pointer" };
 const mutedStyle: CSSProperties = { margin: 0, color: "#6a7f97", fontSize: 13 };
 const errorStyle: CSSProperties = { padding: 12, borderRadius: 14, color: "#ffb4c2", background: "rgba(255,157,175,0.1)", border: "1px solid rgba(255,157,175,0.18)" };
+const ephemeralBannerStyle: CSSProperties = { padding: "9px 14px", borderRadius: 12, color: "#f2b66d", background: "rgba(242,182,109,0.08)", border: "1px solid rgba(242,182,109,0.22)", fontSize: 12 };

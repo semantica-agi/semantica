@@ -99,9 +99,26 @@ export function ShaclStudio({ onJumpToNode }: ShaclStudioProps) {
     return Array.from(groups.entries());
   }, [shapes]);
 
-  const beforeMount = (monaco: Monaco) => {
+  const beforeMount = useCallback((monaco: Monaco) => {
     if (!monaco.languages.getLanguages().some((language: { id: string }) => language.id === "turtle")) {
-      monaco.languages.register({ id: "turtle" });
+      monaco.languages.register({ id: "turtle", extensions: [".ttl"], mimetypes: ["text/turtle"] });
+      monaco.languages.setMonarchTokensProvider("turtle", {
+        keywords: ["@prefix", "@base", "a"],
+        tokenizer: {
+          root: [
+            [/#[^\n]*/, "comment"],
+            [/"(?:[^"\\]|\\.)*"(?:@[a-zA-Z-]+|\\^\\^[^\s,;.]+)?/, "string"],
+            [/'(?:[^'\\]|\\.)*'(?:@[a-zA-Z-]+|\\^\\^[^\s,;.]+)?/, "string"],
+            [/"""[\s\S]*?"""/, "string"],
+            [/<[^>]*>/, "type.identifier"],
+            [/\b(?:@prefix|@base|a)\b/, "keyword"],
+            [/\b(?:sh|xsd|owl|rdf|rdfs|skos):[\w]+/, "variable"],
+            [/[a-zA-Z_][\w-]*:[\w]+/, "namespace"],
+            [/[;,.]/, "delimiter"],
+            [/\d+(?:\.\d+)?/, "number"],
+          ],
+        },
+      });
     }
     monaco.editor.defineTheme("shacl-dark", {
       base: "vs-dark",
@@ -109,6 +126,12 @@ export function ShaclStudio({ onJumpToNode }: ShaclStudioProps) {
       rules: [
         { token: "keyword", foreground: "9ee8d7" },
         { token: "string", foreground: "f2b66d" },
+        { token: "comment", foreground: "4a6070", fontStyle: "italic" },
+        { token: "type.identifier", foreground: "7ce7d3" },
+        { token: "variable", foreground: "d2a8ff" },
+        { token: "namespace", foreground: "a5d6ff" },
+        { token: "number", foreground: "79c0ff" },
+        { token: "delimiter", foreground: "8fa8c6" },
       ],
       colors: {
         "editor.background": "#050b13",
@@ -116,7 +139,7 @@ export function ShaclStudio({ onJumpToNode }: ShaclStudioProps) {
         "editorLineNumber.foreground": "#41536b",
       },
     });
-  };
+  }, []);
 
   return (
     <div style={pageStyle}>

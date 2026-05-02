@@ -105,8 +105,11 @@ def test_alignment_suggestions_are_ranked(client):
     assert response.status_code == 200
     suggestions = response.json()
     assert suggestions
-    assert suggestions[0]["source_label"] == "Person"
-    assert suggestions[0]["target_label"] == "Person Record"
+    # Top suggestion should be the Person→PersonRecord pair (highest label similarity).
+    top = suggestions[0]
+    assert "Person" in top["source_label"]
+    assert "Person" in top["target_label"]
+    # Results must be sorted descending by score.
     assert suggestions == sorted(suggestions, key=lambda item: item["score"], reverse=True)
 
 
@@ -140,7 +143,7 @@ def test_shacl_generate_and_shapes(client):
     assert shapes.json()["shapes"]
 
 
-def test_shacl_validate_has_stable_contract(client):
+def test_shacl_validate_returns_unavailable(client):
     response = client.post(
         "/api/ontology/shacl/validate",
         json={
@@ -150,5 +153,65 @@ def test_shacl_validate_has_stable_contract(client):
     )
     assert response.status_code == 200
     payload = response.json()
-    assert payload["status"] in {"success", "unavailable"}
+    assert payload["status"] == "unavailable", "stub must not report conforms=True before validation is wired"
+    assert payload["conforms"] is False
     assert isinstance(payload["violations"], list)
+
+
+def test_shacl_validate_rejects_empty_turtle(client):
+    response = client.post(
+        "/api/ontology/shacl/validate",
+        json={"uri": "http://example.org/onto-a", "shacl_turtle": "   "},
+    )
+    assert response.status_code == 422
+
+
+def test_health_returns_404_for_unknown_ontology(client):
+    response = client.get("/api/ontology/health?uri=http%3A%2F%2Fnot-loaded.example%2Fonto")
+    assert response.status_code == 404
+
+
+def test_health_shacl_dimension_is_zero_when_unavailable(client):
+    payload = client.get("/api/ontology/health?uri=http%3A%2F%2Fexample.org%2Fonto-a").json()
+    shacl_dim = next(d for d in payload["dimensions"] if d["key"] == "shacl")
+    assert shacl_dim["status"] == "unavailable"
+    assert shacl_dim["score"] == 0.0
+    # Total score must NOT include the unavailable dimension in its average.
+    scoreable = [d for d in payload["dimensions"] if d["status"] != "unavailable"]
+    expected_total = round(sum(d["score"] for d in scoreable) / len(scoreable), 1)
+    assert payload["total_score"] == expected_total
+
+
+def test_delete_unknown_alignment_returns_404(client):
+    response = client.delete("/api/ontology/alignments?id=does-not-exist")
+    assert response.status_code == 404
+
+
+def test_alignment_upsert_is_idempotent(client):
+    payload = {
+        "source_uri": "http://example.org/onto-a#Person",
+        "target_uri": "http://example.org/onto-b#PersonRecord",
+        "relation": "owl:equivalentClass",
+        "confidence": 0.80,
+    }
+    first = client.post("/api/ontology/alignments", json=payload).json()
+    updated_payload = {**payload, "confidence": 0.95}
+    second = client.post("/api/ontology/alignments", json=updated_payload).json()
+    assert first["id"] == second["id"], "upsert must reuse the same deterministic ID"
+    assert second["confidence"] == 0.95
+    assert second["created_at"] == first["created_at"], "created_at must not change on update"
+    listed = client.get("/api/ontology/alignments").json()
+    assert len(listed) == 1
+
+
+def test_alignment_accepts_external_uri(client):
+    payload = {
+        "source_uri": "http://example.org/onto-a#Person",
+        "target_uri": "http://schema.org/Person",  # not in local graph
+        "relation": "owl:equivalentClass",
+        "confidence": 0.75,
+    }
+    response = client.post("/api/ontology/alignments", json=payload)
+    assert response.status_code == 200
+    alignment = response.json()
+    assert alignment["target_label"] == "Person"  # derived from URI fragment

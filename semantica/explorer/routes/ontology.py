@@ -23,6 +23,7 @@ router = APIRouter(prefix="/api/ontology", tags=["Ontology"])
 logger = logging.getLogger(__name__)
 
 _MAX_FETCH_BYTES = 20 * 1024 * 1024  # 20 MB
+_MAX_ANALYSIS_NODES = 5_000  # cap for health/suggest/shacl node scans to avoid OOM
 
 _CLASS_TYPES = frozenset({
     "owl:Class", "rdfs:Class",
@@ -244,7 +245,9 @@ class OntologyAlignment(BaseModel):
 
 class OntologyAlignmentRequest(BaseModel):
     source_uri: str
+    source_label: Optional[str] = None  # override for external/unloaded URIs
     target_uri: str
+    target_label: Optional[str] = None  # override for external/unloaded URIs
     relation: AlignmentRelation
     confidence: float = Field(default=1.0, ge=0.0, le=1.0)
     provenance: Optional[str] = None
@@ -410,7 +413,13 @@ def _extract_namespace(uri: str) -> Optional[str]:
 
 def _alignment_id(source_uri: str, relation: str, target_uri: str) -> str:
     key = f"{source_uri}|{relation}|{target_uri}"
-    return str(uuid.uuid5(uuid.NAMESPACE_URL, key))
+    return str(uuid.uuid5(uuid.NAMESPACE_OID, key))
+
+
+def _label_from_uri(uri: str) -> str:
+    """Derive a readable label from a URI when no graph node is present (e.g. external vocabularies)."""
+    fragment = uri.rsplit("#", 1)[-1] if "#" in uri else uri.rsplit("/", 1)[-1]
+    return fragment or uri
 
 
 def _node_source_ontology(node: Dict[str, Any]) -> Optional[str]:
@@ -551,7 +560,8 @@ def _basic_shacl_turtle(uri: str, name: str, nodes: List[Dict[str, Any]]) -> str
 
 def _summarize_shapes(shacl_turtle: str, violations: Optional[List[ShaclViolation]] = None) -> List[ShaclShapeSummary]:
     violations = violations or []
-    blocks = [block.strip() for block in shacl_turtle.split(".\n") if "sh:NodeShape" in block]
+    normalised = shacl_turtle.replace("\r\n", "\n").replace("\r", "\n")
+    blocks = [block.strip() for block in normalised.split(".\n") if "sh:NodeShape" in block]
     summaries: List[ShaclShapeSummary] = []
     for index, block in enumerate(blocks, start=1):
         first = block.splitlines()[0].strip()
@@ -1190,10 +1200,18 @@ async def upsert_alignment(
 ):
     source_node = await asyncio.to_thread(session.get_node, body.source_uri)
     target_node = await asyncio.to_thread(session.get_node, body.target_uri)
-    if source_node is None:
-        raise HTTPException(status_code=404, detail="Source entity not found.")
-    if target_node is None:
-        raise HTTPException(status_code=404, detail="Target entity not found.")
+    # External vocabulary URIs (e.g. schema.org, DBpedia) are not in the local
+    # graph; fall back to a label derived from the URI or the caller-supplied label.
+    source_label = (
+        body.source_label
+        or (_node_label(source_node) if source_node is not None else None)
+        or _label_from_uri(body.source_uri)
+    )
+    target_label = (
+        body.target_label
+        or (_node_label(target_node) if target_node is not None else None)
+        or _label_from_uri(body.target_uri)
+    )
 
     now = datetime.now(UTC).isoformat()
     store = _get_alignment_store(request)
@@ -1202,9 +1220,9 @@ async def upsert_alignment(
     alignment = OntologyAlignment(
         id=alignment_id,
         source_uri=body.source_uri,
-        source_label=_node_label(source_node),
+        source_label=source_label,
         target_uri=body.target_uri,
-        target_label=_node_label(target_node),
+        target_label=target_label,
         relation=body.relation,
         predicate_uri=_ALIGNMENT_RELATIONS[body.relation],
         confidence=body.confidence,
@@ -1247,7 +1265,13 @@ async def suggest_alignments(
     body: AlignmentSuggestionRequest,
     session: GraphSession = Depends(get_session),
 ):
-    nodes, _ = await asyncio.to_thread(session.get_nodes, skip=0, limit=999_999)
+    nodes, total_count = await asyncio.to_thread(session.get_nodes, skip=0, limit=_MAX_ANALYSIS_NODES)
+    if total_count > _MAX_ANALYSIS_NODES:
+        logger.warning(
+            "suggest-alignments: graph has %d nodes; analysis capped at %d. "
+            "Filter by source/target ontology URI for more accurate results.",
+            total_count, _MAX_ANALYSIS_NODES,
+        )
     source_nodes = _ontology_entities(nodes, body.source_ontology_uri)
     target_nodes = _ontology_entities(nodes, body.target_ontology_uri)
     if not body.source_ontology_uri:
@@ -1302,8 +1326,10 @@ async def ontology_health(
     if entry is None:
         raise HTTPException(status_code=404, detail="Ontology not found in registry.")
 
-    nodes, _ = await asyncio.to_thread(session.get_nodes, skip=0, limit=999_999)
-    edges, _ = await asyncio.to_thread(session.get_edges, skip=0, limit=999_999)
+    nodes, total_nodes = await asyncio.to_thread(session.get_nodes, skip=0, limit=_MAX_ANALYSIS_NODES)
+    edges, _ = await asyncio.to_thread(session.get_edges, skip=0, limit=_MAX_ANALYSIS_NODES)
+    if total_nodes > _MAX_ANALYSIS_NODES:
+        logger.warning("ontology-health: graph has %d nodes; analysis capped at %d.", total_nodes, _MAX_ANALYSIS_NODES)
     entities = _ontology_entities(nodes, uri)
     classes = [node for node in entities if _classify_node_type(node.get("type", "")) == "class"]
     properties = [node for node in entities if _classify_node_type(node.get("type", "")) == "property"]
@@ -1373,7 +1399,7 @@ async def ontology_health(
     shacl_dimension = HealthDimension(
         key="shacl",
         label="SHACL Conformance",
-        score=70.0,
+        score=0.0,
         status="unavailable",
         detail="Live SHACL validation is available in SHACL Studio when optional validation dependencies are installed.",
     )
@@ -1409,7 +1435,8 @@ async def ontology_health(
             detail="Measures comments plus source/version metadata.",
         ),
     ]
-    total_score = sum(dim.score for dim in dimensions) / len(dimensions)
+    scoreable = [dim for dim in dimensions if dim.status != "unavailable"]
+    total_score = sum(dim.score for dim in scoreable) / max(len(scoreable), 1)
 
     return OntologyHealthResponse(
         uri=uri,
@@ -1432,8 +1459,8 @@ async def _generated_shacl_for_uri(
     if entry is None:
         raise HTTPException(status_code=404, detail="Ontology not found in registry.")
 
-    nodes, _ = await asyncio.to_thread(session.get_nodes, skip=0, limit=999_999)
-    edges, _ = await asyncio.to_thread(session.get_edges, skip=0, limit=999_999)
+    nodes, _ = await asyncio.to_thread(session.get_nodes, skip=0, limit=_MAX_ANALYSIS_NODES)
+    edges, _ = await asyncio.to_thread(session.get_edges, skip=0, limit=_MAX_ANALYSIS_NODES)
     entities = _ontology_entities(nodes, uri)
     ontology_dict = _ontology_dict_from_nodes(uri, entry.name, entities, edges)
 
@@ -1488,25 +1515,17 @@ async def list_shacl_shapes(
 async def validate_shacl(body: ShaclValidateRequest):
     if not body.shacl_turtle.strip():
         raise HTTPException(status_code=422, detail="SHACL Turtle cannot be empty.")
-    try:
-        import pyshacl  # type: ignore  # noqa: F401
-    except ImportError:
-        return ShaclValidationResponse(
-            uri=body.uri,
-            conforms=False,
-            status="unavailable",
-            message="pySHACL is not installed, so live graph validation is unavailable in this environment.",
-            violations=[],
-        )
-
-    # The route exposes a stable contract even when validation data plumbing is absent.
-    # Full data-graph validation will use OntologyEngine.validate_graph once a persisted
-    # ontology/data store is available from the registry layer.
+    # Live validation requires pySHACL and a wired data graph from OntologyEngine.validate_graph().
+    # Always return unavailable until that integration is complete — never return a false "conforms"
+    # result that would mislead users editing shapes.
     return ShaclValidationResponse(
         uri=body.uri,
-        conforms=True,
-        status="success",
-        message="SHACL Turtle parsed; no live data violations were produced by the current in-memory graph adapter.",
+        conforms=False,
+        status="unavailable",
+        message=(
+            "Live graph validation is not yet wired to a data graph. "
+            "Install semantica[shacl] and connect OntologyEngine.validate_graph() to enable full validation."
+        ),
         violations=[],
     )
 

@@ -49,16 +49,18 @@ export function HealthTab({ onFixInEditor }: HealthTabProps) {
     void loadHealth(selectedUri);
   }, [selectedUri, loadHealth]);
 
-  const exportReport = () => {
+  const exportReport = useCallback(() => {
     if (!health) return;
     const blob = new Blob([JSON.stringify(health, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
     anchor.href = url;
     anchor.download = `${health.name.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}-health.json`;
+    document.body.appendChild(anchor);
     anchor.click();
-    URL.revokeObjectURL(url);
-  };
+    document.body.removeChild(anchor);
+    setTimeout(() => URL.revokeObjectURL(url), 100);
+  }, [health]);
 
   return (
     <div style={pageStyle}>
@@ -85,7 +87,7 @@ export function HealthTab({ onFixInEditor }: HealthTabProps) {
         <div style={loadingStyle}><Loader2 size={18} className="spin" /> Computing health dashboard...</div>
       ) : health ? (
         <>
-          <section style={scoreGridStyle}>
+          <section style={{ ...scoreGridStyle, gridTemplateColumns: `220px repeat(${health.dimensions.length}, minmax(180px, 1fr))` }}>
             <div style={scoreCardStyle}>
               <span style={scoreValueStyle}>{Math.round(health.total_score)}</span>
               <span style={mutedStyle}>Total health score</span>
