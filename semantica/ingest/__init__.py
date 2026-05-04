@@ -112,22 +112,18 @@ Example Usage:
     >>> content = ingest_web("https://example.com", method="url")
 """
 
-from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from __future__ import annotations
+
+import importlib
+from typing import Any, Dict, Tuple
 
 from .config import IngestConfig, ingest_config
-from .db_ingestor import DatabaseConnector, DataExporter, DBIngestor, TableData
-from .email_ingestor import AttachmentProcessor, EmailData, EmailIngestor
-from .email_ingestor import EmailParser as EmailIngestorParser
-from .feed_ingestor import FeedData, FeedIngestor, FeedItem, FeedMonitor, FeedParser
 from .file_ingestor import (
     CloudStorageIngestor,
     FileIngestor,
     FileObject,
     FileTypeDetector,
 )
-from .mcp_client import MCPClient, MCPResource, MCPTool
-from .mcp_ingestor import MCPData, MCPIngestor
 from .methods import (
     get_ingest_method,
     ingest,
@@ -143,34 +139,103 @@ from .methods import (
     list_available_methods,
 )
 from .registry import MethodRegistry, method_registry
-from .repo_ingestor import (
-    CodeExtractor,
-    CodeFile,
-    CommitInfo,
-    GitAnalyzer,
-    RepoIngestor,
-)
-from .stream_ingestor import (
-    KafkaProcessor,
-    KinesisProcessor,
-    PulsarProcessor,
-    RabbitMQProcessor,
-    StreamIngestor,
-    StreamMessage,
-    StreamMonitor,
-    StreamProcessor,
-)
-from .web_ingestor import (
-    ContentExtractor,
-    RateLimiter,
-    RobotsChecker,
-    SitemapCrawler,
-    WebContent,
-    WebIngestor,
-)
 
-from .ontology_ingestor import OntologyData, OntologyIngestor
-from .snowflake_ingestor import SnowflakeConnector, SnowflakeData, SnowflakeIngestor
+_LAZY_EXPORTS: Dict[str, Tuple[str, str]] = {
+    # Web ingestion
+    "WebIngestor": (".web_ingestor", "WebIngestor"),
+    "WebContent": (".web_ingestor", "WebContent"),
+    "RateLimiter": (".web_ingestor", "RateLimiter"),
+    "RobotsChecker": (".web_ingestor", "RobotsChecker"),
+    "ContentExtractor": (".web_ingestor", "ContentExtractor"),
+    "SitemapCrawler": (".web_ingestor", "SitemapCrawler"),
+    # Feed ingestion
+    "FeedIngestor": (".feed_ingestor", "FeedIngestor"),
+    "FeedItem": (".feed_ingestor", "FeedItem"),
+    "FeedData": (".feed_ingestor", "FeedData"),
+    "FeedParser": (".feed_ingestor", "FeedParser"),
+    "FeedMonitor": (".feed_ingestor", "FeedMonitor"),
+    # Stream ingestion
+    "StreamIngestor": (".stream_ingestor", "StreamIngestor"),
+    "StreamMessage": (".stream_ingestor", "StreamMessage"),
+    "StreamProcessor": (".stream_ingestor", "StreamProcessor"),
+    "KafkaProcessor": (".stream_ingestor", "KafkaProcessor"),
+    "RabbitMQProcessor": (".stream_ingestor", "RabbitMQProcessor"),
+    "KinesisProcessor": (".stream_ingestor", "KinesisProcessor"),
+    "PulsarProcessor": (".stream_ingestor", "PulsarProcessor"),
+    "StreamMonitor": (".stream_ingestor", "StreamMonitor"),
+    # Repository ingestion
+    "RepoIngestor": (".repo_ingestor", "RepoIngestor"),
+    "CodeFile": (".repo_ingestor", "CodeFile"),
+    "CommitInfo": (".repo_ingestor", "CommitInfo"),
+    "CodeExtractor": (".repo_ingestor", "CodeExtractor"),
+    "GitAnalyzer": (".repo_ingestor", "GitAnalyzer"),
+    # Email ingestion
+    "EmailIngestor": (".email_ingestor", "EmailIngestor"),
+    "EmailData": (".email_ingestor", "EmailData"),
+    "AttachmentProcessor": (".email_ingestor", "AttachmentProcessor"),
+    "EmailIngestorParser": (".email_ingestor", "EmailParser"),
+    # Database ingestion
+    "DBIngestor": (".db_ingestor", "DBIngestor"),
+    "TableData": (".db_ingestor", "TableData"),
+    "DatabaseConnector": (".db_ingestor", "DatabaseConnector"),
+    "DataExporter": (".db_ingestor", "DataExporter"),
+    # MCP ingestion
+    "MCPIngestor": (".mcp_ingestor", "MCPIngestor"),
+    "MCPData": (".mcp_ingestor", "MCPData"),
+    "MCPClient": (".mcp_client", "MCPClient"),
+    "MCPResource": (".mcp_client", "MCPResource"),
+    "MCPTool": (".mcp_client", "MCPTool"),
+    # Ontology ingestion
+    "OntologyIngestor": (".ontology_ingestor", "OntologyIngestor"),
+    "OntologyData": (".ontology_ingestor", "OntologyData"),
+    # Snowflake ingestion
+    "SnowflakeIngestor": (".snowflake_ingestor", "SnowflakeIngestor"),
+    "SnowflakeData": (".snowflake_ingestor", "SnowflakeData"),
+    "SnowflakeConnector": (".snowflake_ingestor", "SnowflakeConnector"),
+}
+
+_OPTIONAL_DEPENDENCY_MESSAGES = {
+    ".repo_ingestor": (
+        "Repository ingestion requires optional dependency 'GitPython'. "
+        "Install it before importing RepoIngestor or using ingest_repository()."
+    ),
+    ".web_ingestor": (
+        "Web ingestion requires optional dependency 'beautifulsoup4'. "
+        "Install it before importing WebIngestor or using ingest_web()."
+    ),
+    ".feed_ingestor": (
+        "Feed ingestion requires optional dependency 'beautifulsoup4'. "
+        "Install it before importing FeedIngestor or using ingest_feed()."
+    ),
+    ".email_ingestor": (
+        "Email ingestion requires optional dependency 'beautifulsoup4'. "
+        "Install it before importing EmailIngestor or using ingest_email()."
+    ),
+}
+
+
+def __getattr__(name: str) -> Any:
+    """Load optional ingestion backends only when callers request them."""
+    if name not in _LAZY_EXPORTS:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+    module_name, attr_name = _LAZY_EXPORTS[name]
+    try:
+        module = importlib.import_module(module_name, __name__)
+    except ImportError as exc:
+        message = _OPTIONAL_DEPENDENCY_MESSAGES.get(module_name)
+        missing_name = getattr(exc, "name", None)
+        missing_dependency = missing_name in {"git", "bs4"} or any(
+            f"No module named '{dependency}'" in str(exc)
+            for dependency in ("git", "bs4")
+        )
+        if message and missing_dependency:
+            raise ImportError(message) from exc
+        raise
+
+    value = getattr(module, attr_name)
+    globals()[name] = value
+    return value
 
 __all__ = [
     # File ingestion
