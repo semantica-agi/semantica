@@ -211,10 +211,10 @@ explorer-lite = [
   "streamlit-agraph>=0.0.45"
 ]
 
-# Everything
+# Everything (cross-platform — gpu excluded; install semantica[gpu] separately on Linux)
 all = [
-  "semantica[dev,viz,gpu,infra,cloud,monitoring,llm-all,models-huggingface,split-all,graph-all,vectorstore-all,parse-docling,explorer]",
-  "semantica[dev,viz,gpu,infra,cloud,monitoring,llm-all,models-huggingface,split-all,graph-all,vectorstore-all,parse-docling,agno]"
+  "semantica[dev,viz,infra,cloud,monitoring,llm-all,models-huggingface,split-all,graph-all,vectorstore-all,parse-docling,explorer]",
+  "semantica[dev,viz,infra,cloud,monitoring,llm-all,models-huggingface,split-all,graph-all,vectorstore-all,parse-docling,agno]"
 ]
 
 # ---------------- ENTRYPOINTS ----------------
