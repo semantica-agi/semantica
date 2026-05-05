@@ -10,6 +10,10 @@ import importlib.util
 # Add project root to path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 
+# Save originals before injecting mocks so they can be restored after import.
+_MOCKED_MODULES = ["spacy", "instructor", "groq", "openai", "sentence_transformers", "transformers"]
+_original_modules = {k: sys.modules.get(k) for k in _MOCKED_MODULES}
+
 # Mock external dependencies with __spec__ for importlib checks
 mock_spacy = MagicMock()
 mock_spacy.__spec__ = MagicMock()
@@ -32,6 +36,16 @@ sys.modules["transformers"] = mock_transformers
 from semantica.semantic_extract import NERExtractor
 from semantica.semantic_extract.methods import extract_entities_llm, _extract_entities_chunked, extract_relations_llm, extract_triplets_llm
 from semantica.semantic_extract.providers import BaseProvider
+
+# Restore real sys.modules entries now that the mocks have served their purpose
+# for the imports above. Leaving them in place would poison other test modules
+# (e.g. test_pr482_deepseek_openai) that need the real packages at test run time.
+for _key, _original in _original_modules.items():
+    if _original is None:
+        sys.modules.pop(_key, None)
+    else:
+        sys.modules[_key] = _original
+
 
 class EntitiesResponse(BaseModel):
     entities: List[dict]
