@@ -57,6 +57,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Fix: `ConflictDetector.detect_conflicts()` raises `AttributeError` when called with `method=` or `property_name=` kwargs** (issue #533, PR conflicts, by @KaifAhmad1):
+  - `detect_conflicts` was defined twice in `conflict_detector.py`; Python silently overwrote the first (dispatcher) definition with the second (comprehensive), which accepted no `method` or `property_name` parameters — causing `AttributeError` or `TypeError` for any caller using those kwargs.
+  - Removed the first (dead) definition and merged its dispatcher logic into the surviving method. New signature: `detect_conflicts(entities, method="all", property_name=None, entity_type=None, **kwargs)`.
+  - Supported `method` values: `"all"` (default, comprehensive), `"value"`, `"property"`, `"type"`, `"relationship"`, `"temporal"`, `"logical"`, `"entity"`. Unknown values raise `ValueError`.
+  - Fixed `method="relationship"` silently defaulting `relationships` to the entities list, which caused entity dicts to be iterated as relationship dicts producing silent wrong results (`None_None_None` keys). Now defaults to `[]` with dict normalization.
+  - Removed unreachable dead code (`for field_name in fields_to_check` loop after `try/except raise`) in `detect_entity_conflicts`.
+
 - **Fix: `semantica[all]` installation fails on Windows due to `faiss-gpu` dependency** (issue #532, PR #utlis, by @KaifAhmad1):
   - `[all]` bundled the `[gpu]` extra (`faiss-gpu>=1.7.0`, `cupy>=10.0.0`), which has no Windows builds, causing `pip install "semantica[all]"` to fail with `No matching distribution found for faiss-gpu>=1.7.0`.
   - Removed `gpu` from both `[all]` lines in `pyproject.toml` — `[all]` now installs only cross-platform dependencies. Users on Linux who need GPU acceleration can install `semantica[gpu]` explicitly.
