@@ -1,3 +1,4 @@
+import sys
 import unittest
 from typing import Dict, Any, List
 from semantica.deduplication.similarity_calculator import SimilarityCalculator
@@ -8,6 +9,7 @@ from semantica.deduplication.cluster_builder import ClusterBuilder
 from semantica.deduplication.registry import MethodRegistry
 from semantica.deduplication.config import DeduplicationConfig
 from semantica.deduplication.methods import get_deduplication_method
+from semantica.utils.progress_tracker import ConsoleProgressDisplay
 
 class TestDeduplication(unittest.TestCase):
     
@@ -201,6 +203,57 @@ class TestDeduplication(unittest.TestCase):
         # Test invalid method
         invalid = get_deduplication_method("similarity", "non_existent_method")
         self.assertIsNone(invalid)
+
+
+class TestProgressTrackerEncoding(unittest.TestCase):
+    """Regression tests for issue #531 — Unicode crash on cp1252 Windows consoles."""
+
+    def _make_cp1252_stdout(self):
+        """Return a stdout-like object that raises UnicodeEncodeError for non-cp1252 chars."""
+        class CP1252Writer:
+            encoding = "cp1252"
+            def write(self, text):
+                text.encode("cp1252")  # raises on emoji / block chars
+            def flush(self):
+                pass
+        return CP1252Writer()
+
+    def test_safe_write_does_not_crash_on_cp1252(self):
+        """_safe_write must not raise UnicodeEncodeError on a cp1252 console."""
+        display = ConsoleProgressDisplay()
+        orig = sys.stdout
+        sys.stdout = self._make_cp1252_stdout()
+        try:
+            display._safe_write("🧠 Semantica - 📊 Current Progress\n")
+        except UnicodeEncodeError:
+            self.fail("_safe_write raised UnicodeEncodeError on cp1252 stdout")
+        finally:
+            sys.stdout = orig
+
+    def test_update_pipeline_header_does_not_crash_on_cp1252(self):
+        """update() pipeline header write must not crash on a cp1252 console (issue #531)."""
+        from semantica.utils.progress_tracker import ProgressItem
+        display = ConsoleProgressDisplay()
+        display.use_emoji = True  # force emoji path to exercise the fixed branch
+        orig = sys.stdout
+        sys.stdout = self._make_cp1252_stdout()
+        try:
+            display._safe_write("🧠 Semantica - 📊 Current Progress\n")
+            display._safe_write("=" * 150 + "\n")
+        except UnicodeEncodeError:
+            self.fail("Pipeline header write raised UnicodeEncodeError on cp1252 stdout")
+        finally:
+            sys.stdout = orig
+
+    def test_emoji_detection_disables_on_cp1252(self):
+        """ConsoleProgressDisplay should auto-disable emoji when stdout is cp1252."""
+        orig = sys.stdout
+        sys.stdout = self._make_cp1252_stdout()
+        try:
+            display = ConsoleProgressDisplay()
+            self.assertFalse(display.use_emoji, "use_emoji should be False on cp1252 stdout")
+        finally:
+            sys.stdout = orig
 
 
 if __name__ == "__main__":
