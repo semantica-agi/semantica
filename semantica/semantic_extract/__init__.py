@@ -61,6 +61,8 @@ _LAZY_EXPORTS: Dict[str, Tuple[str, str]] = {
     "CustomEntityDetector": (".named_entity_recognizer", "CustomEntityDetector"),
     "NERExtractor": (".ner_extractor", "NERExtractor"),
     "Entity": (".types", "Entity"),
+    # Triplet Extraction alias (backward compatibility)
+    "TripleExtractor": (".triplet_extractor", "TripletExtractor"),
     # Relation Extraction
     "RelationExtractor": (".relation_extractor", "RelationExtractor"),
     "Relation": (".types", "Relation"),
