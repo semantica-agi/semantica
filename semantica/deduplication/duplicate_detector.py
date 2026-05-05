@@ -100,6 +100,10 @@ class DuplicateDetector:
         confidence_threshold: float = 0.6,
         use_clustering: bool = True,
         config: Optional[Dict[str, Any]] = None,
+        max_results: Optional[int] = None,
+        top_k_per_entity: Optional[int] = None,
+        min_similarity: Optional[float] = None,
+        sort_by: str = "confidence",
         **kwargs,
     ):
         """
@@ -115,6 +119,16 @@ class DuplicateDetector:
                                  (0.0 to 1.0, default: 0.6)
             use_clustering: Whether to use clustering for group formation (default: True)
             config: Configuration dictionary (merged with kwargs)
+            max_results: Hard cap on total candidates returned across all entities.
+                         Applied after sorting. ``None`` means no limit.
+            top_k_per_entity: Keep at most this many candidates per entity (by the
+                              sort field). ``None`` means no per-entity limit.
+            min_similarity: Additional similarity floor applied on top of
+                            ``similarity_threshold``. Candidates whose
+                            ``similarity_score`` is below this value are dropped
+                            before ranking. ``None`` means no extra floor.
+            sort_by: Field used for ranking before limits are applied.
+                     ``"confidence"`` (default) or ``"similarity_score"``.
             **kwargs: Additional configuration options:
                 - similarity: Configuration for SimilarityCalculator
         """
@@ -133,6 +147,30 @@ class DuplicateDetector:
         self.confidence_threshold = confidence_threshold
         self.use_clustering = use_clustering
 
+        # Result limiting / ranking options — validate at construction time
+        if max_results is not None and (not isinstance(max_results, int) or max_results < 0):
+            raise ValueError(
+                f"max_results must be None or a non-negative int, got {max_results!r}"
+            )
+        if top_k_per_entity is not None and (
+            not isinstance(top_k_per_entity, int) or top_k_per_entity < 0
+        ):
+            raise ValueError(
+                f"top_k_per_entity must be None or a non-negative int, got {top_k_per_entity!r}"
+            )
+        if min_similarity is not None and not (0.0 <= min_similarity <= 1.0):
+            raise ValueError(
+                f"min_similarity must be None or a float in [0.0, 1.0], got {min_similarity!r}"
+            )
+        if sort_by not in ("confidence", "similarity_score"):
+            raise ValueError(
+                f"sort_by must be 'confidence' or 'similarity_score', got {sort_by!r}"
+            )
+        self.max_results = max_results
+        self.top_k_per_entity = top_k_per_entity
+        self.min_similarity = min_similarity
+        self.sort_by = sort_by
+
         # Initialize progress tracker and ensure it's enabled
         self.progress_tracker = get_progress_tracker()
         if not self.progress_tracker.enabled:
@@ -140,7 +178,9 @@ class DuplicateDetector:
 
         self.logger.debug(
             f"Duplicate detector initialized: similarity_threshold={similarity_threshold}, "
-            f"confidence_threshold={confidence_threshold}"
+            f"confidence_threshold={confidence_threshold}, max_results={max_results}, "
+            f"top_k_per_entity={top_k_per_entity}, min_similarity={min_similarity}, "
+            f"sort_by={sort_by!r}"
         )
 
     def detect_duplicates(
@@ -153,8 +193,10 @@ class DuplicateDetector:
         Detect duplicate entities from a list.
 
         This method compares all pairs of entities and identifies duplicates based
-        on similarity scores and confidence thresholds. Returns candidates sorted
-        by confidence (highest first).
+        on similarity scores and confidence thresholds. Results are filtered and
+        ranked by ``_apply_result_limits`` using the instance ``sort_by`` field
+        (default: ``"confidence"``), then capped by ``top_k_per_entity`` and
+        ``max_results``.
 
         Args:
             entities: List of entity dictionaries to check for duplicates.
@@ -163,8 +205,9 @@ class DuplicateDetector:
             **options: Additional detection options passed to similarity calculator
 
         Returns:
-            List of DuplicateCandidate objects, sorted by confidence (highest first).
-            Each candidate contains:
+            List of DuplicateCandidate objects sorted by the ``sort_by`` field
+            (highest first, default ``"confidence"``), capped by ``top_k_per_entity``
+            and ``max_results``. Each candidate contains:
                 - entity1, entity2: The duplicate entity pair
                 - similarity_score: Similarity score (0.0 to 1.0)
                 - confidence: Confidence score (0.0 to 1.0)
@@ -255,8 +298,8 @@ class DuplicateDetector:
                         message=f"Creating duplicate candidates... {i + 1}/{total_similarities} (remaining: {remaining})",
                     )
 
-            # Sort by confidence (highest first)
-            candidates.sort(key=lambda c: c.confidence, reverse=True)
+            # Sort, filter, and cap results
+            candidates = self._apply_result_limits(candidates)
 
             self.logger.info(
                 f"Detected {len(candidates)} duplicate candidate(s) "
@@ -521,7 +564,9 @@ class DuplicateDetector:
 
         Returns:
             List of DuplicateCandidate objects representing duplicates between
-            new and existing entities, sorted by confidence (highest first).
+            new and existing entities, sorted by the ``sort_by`` field (highest
+            first, default ``"confidence"``), capped by ``top_k_per_entity`` and
+            ``max_results``.
 
         Example:
             >>> new_entities = [{"id": "3", "name": "Apple Corp"}]
@@ -600,8 +645,8 @@ class DuplicateDetector:
                             message=f"Comparing entities... {processed}/{total_comparisons} (remaining: {remaining})",
                         )
 
-            # Sort by confidence (highest first)
-            candidates.sort(key=lambda c: c.confidence, reverse=True)
+            # Sort, filter, and cap results
+            candidates = self._apply_result_limits(candidates)
 
             self.logger.info(
                 f"Incremental detection found {len(candidates)} duplicate candidate(s)"
@@ -619,6 +664,57 @@ class DuplicateDetector:
                 tracking_id, status="failed", message=str(e)
             )
             raise
+
+    def _apply_result_limits(
+        self, candidates: List[DuplicateCandidate]
+    ) -> List[DuplicateCandidate]:
+        """
+        Apply min_similarity filter, sort, top_k_per_entity, and max_results cap.
+
+        Order of operations:
+        1. Drop candidates below ``min_similarity`` (if set).
+        2. Sort by ``sort_by`` field descending.
+        3. Apply ``top_k_per_entity``: for each entity id keep only the top-k
+           candidates in which it appears.
+        4. Apply ``max_results`` global cap.
+        """
+        # 1. min_similarity filter
+        if self.min_similarity is not None:
+            candidates = [
+                c for c in candidates if c.similarity_score >= self.min_similarity
+            ]
+
+        # 2. Sort descending by the chosen field
+        candidates.sort(key=lambda c: getattr(c, self.sort_by), reverse=True)
+
+        # 3. top_k_per_entity — keep a candidate if *either* entity is still under
+        #    quota; once an entity reaches k it no longer sponsors new candidates.
+        if self.top_k_per_entity is not None:
+            entity_counts: Dict[str, int] = {}
+            kept: List[DuplicateCandidate] = []
+            for c in candidates:
+                nid1 = self._normalize_entity_id(c.entity1)
+                nid2 = self._normalize_entity_id(c.entity2)
+                count1 = entity_counts.get(nid1, 0)
+                count2 = entity_counts.get(nid2, 0)
+                if count1 < self.top_k_per_entity or count2 < self.top_k_per_entity:
+                    kept.append(c)
+                    entity_counts[nid1] = count1 + 1
+                    entity_counts[nid2] = count2 + 1
+            candidates = kept
+
+        # 4. max_results global cap
+        if self.max_results is not None:
+            candidates = candidates[: self.max_results]
+
+        return candidates
+
+    def _normalize_entity_id(self, entity: Any) -> str:
+        """Return a stable string key for an entity, used as a dict key throughout the class."""
+        raw = self._get_entity_value(entity, "id")
+        if raw is None:
+            raw = id(entity)
+        return str(raw)
 
     def _get_entity_value(self, entity: Any, key: str, default: Any = None) -> Any:
         """Get value from entity dictionary or object safely."""
@@ -715,12 +811,8 @@ class DuplicateDetector:
         groups = []
 
         for candidate in candidates:
-            entity1_id = self._get_entity_value(candidate.entity1, "id") or id(
-                candidate.entity1
-            )
-            entity2_id = self._get_entity_value(candidate.entity2, "id") or id(
-                candidate.entity2
-            )
+            entity1_id = self._normalize_entity_id(candidate.entity1)
+            entity2_id = self._normalize_entity_id(candidate.entity2)
 
             group1 = entity_to_group.get(entity1_id)
             group2 = entity_to_group.get(entity2_id)
@@ -764,7 +856,7 @@ class DuplicateDetector:
 
                 # Update references
                 for entity in group2.entities:
-                    entity_id = self._get_entity_value(entity, "id") or id(entity)
+                    entity_id = self._normalize_entity_id(entity)
                     entity_to_group[entity_id] = group1
 
                 if group2 in groups:

@@ -1247,7 +1247,10 @@ class ConflictDetector:
         elif method == "relationship":
             relationships = kwargs.get("relationships", [])
             if isinstance(relationships, dict):
-                relationships = relationships.get("relationships", [relationships])
+                inner = relationships.get("relationships", relationships)
+                relationships = inner if isinstance(inner, list) else [inner]
+            if not isinstance(relationships, list):
+                relationships = [relationships]
             return self.detect_relationship_conflicts(relationships)
         elif method == "temporal":
             return self.detect_temporal_conflicts(entities)
