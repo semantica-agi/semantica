@@ -167,7 +167,6 @@ __all__ = [
     "CoreferenceChainBuilder",
     # Triplet Extraction
     "TripletExtractor",
-    "TripleExtractor",
     "Triplet",
     "TripletValidator",
     "RDFSerializer",
