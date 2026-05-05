@@ -100,6 +100,10 @@ class DuplicateDetector:
         confidence_threshold: float = 0.6,
         use_clustering: bool = True,
         config: Optional[Dict[str, Any]] = None,
+        max_results: Optional[int] = None,
+        top_k_per_entity: Optional[int] = None,
+        min_similarity: Optional[float] = None,
+        sort_by: str = "confidence",
         **kwargs,
     ):
         """
@@ -115,6 +119,16 @@ class DuplicateDetector:
                                  (0.0 to 1.0, default: 0.6)
             use_clustering: Whether to use clustering for group formation (default: True)
             config: Configuration dictionary (merged with kwargs)
+            max_results: Hard cap on total candidates returned across all entities.
+                         Applied after sorting. ``None`` means no limit.
+            top_k_per_entity: Keep at most this many candidates per entity (by the
+                              sort field). ``None`` means no per-entity limit.
+            min_similarity: Additional similarity floor applied on top of
+                            ``similarity_threshold``. Candidates whose
+                            ``similarity_score`` is below this value are dropped
+                            before ranking. ``None`` means no extra floor.
+            sort_by: Field used for ranking before limits are applied.
+                     ``"confidence"`` (default) or ``"similarity_score"``.
             **kwargs: Additional configuration options:
                 - similarity: Configuration for SimilarityCalculator
         """
@@ -133,6 +147,16 @@ class DuplicateDetector:
         self.confidence_threshold = confidence_threshold
         self.use_clustering = use_clustering
 
+        # Result limiting / ranking options
+        self.max_results = max_results
+        self.top_k_per_entity = top_k_per_entity
+        self.min_similarity = min_similarity
+        if sort_by not in ("confidence", "similarity_score"):
+            raise ValueError(
+                f"sort_by must be 'confidence' or 'similarity_score', got {sort_by!r}"
+            )
+        self.sort_by = sort_by
+
         # Initialize progress tracker and ensure it's enabled
         self.progress_tracker = get_progress_tracker()
         if not self.progress_tracker.enabled:
@@ -140,7 +164,9 @@ class DuplicateDetector:
 
         self.logger.debug(
             f"Duplicate detector initialized: similarity_threshold={similarity_threshold}, "
-            f"confidence_threshold={confidence_threshold}"
+            f"confidence_threshold={confidence_threshold}, max_results={max_results}, "
+            f"top_k_per_entity={top_k_per_entity}, min_similarity={min_similarity}, "
+            f"sort_by={sort_by!r}"
         )
 
     def detect_duplicates(
@@ -255,8 +281,8 @@ class DuplicateDetector:
                         message=f"Creating duplicate candidates... {i + 1}/{total_similarities} (remaining: {remaining})",
                     )
 
-            # Sort by confidence (highest first)
-            candidates.sort(key=lambda c: c.confidence, reverse=True)
+            # Sort, filter, and cap results
+            candidates = self._apply_result_limits(candidates)
 
             self.logger.info(
                 f"Detected {len(candidates)} duplicate candidate(s) "
@@ -600,8 +626,8 @@ class DuplicateDetector:
                             message=f"Comparing entities... {processed}/{total_comparisons} (remaining: {remaining})",
                         )
 
-            # Sort by confidence (highest first)
-            candidates.sort(key=lambda c: c.confidence, reverse=True)
+            # Sort, filter, and cap results
+            candidates = self._apply_result_limits(candidates)
 
             self.logger.info(
                 f"Incremental detection found {len(candidates)} duplicate candidate(s)"
@@ -619,6 +645,49 @@ class DuplicateDetector:
                 tracking_id, status="failed", message=str(e)
             )
             raise
+
+    def _apply_result_limits(
+        self, candidates: List[DuplicateCandidate]
+    ) -> List[DuplicateCandidate]:
+        """
+        Apply min_similarity filter, sort, top_k_per_entity, and max_results cap.
+
+        Order of operations:
+        1. Drop candidates below ``min_similarity`` (if set).
+        2. Sort by ``sort_by`` field descending.
+        3. Apply ``top_k_per_entity``: for each entity id keep only the top-k
+           candidates in which it appears.
+        4. Apply ``max_results`` global cap.
+        """
+        # 1. min_similarity filter
+        if self.min_similarity is not None:
+            candidates = [
+                c for c in candidates if c.similarity_score >= self.min_similarity
+            ]
+
+        # 2. Sort descending by the chosen field
+        candidates.sort(key=lambda c: getattr(c, self.sort_by), reverse=True)
+
+        # 3. top_k_per_entity
+        if self.top_k_per_entity is not None:
+            entity_counts: Dict[str, int] = {}
+            kept: List[DuplicateCandidate] = []
+            for c in candidates:
+                id1 = self._get_entity_value(c.entity1, "id") or id(c.entity1)
+                id2 = self._get_entity_value(c.entity2, "id") or id(c.entity2)
+                count1 = entity_counts.get(str(id1), 0)
+                count2 = entity_counts.get(str(id2), 0)
+                if count1 < self.top_k_per_entity and count2 < self.top_k_per_entity:
+                    kept.append(c)
+                    entity_counts[str(id1)] = count1 + 1
+                    entity_counts[str(id2)] = count2 + 1
+            candidates = kept
+
+        # 4. max_results global cap
+        if self.max_results is not None:
+            candidates = candidates[: self.max_results]
+
+        return candidates
 
     def _get_entity_value(self, entity: Any, key: str, default: Any = None) -> Any:
         """Get value from entity dictionary or object safely."""

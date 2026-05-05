@@ -55,6 +55,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Blazegraph literal serialization** (PR #448, @KaifAhmad1) — `_format_object_for_sparql()` selects IRI/typed-literal/language-tagged-literal/plain-literal token; `_resolve_datatype_iri()` with prefix expansion; RFC 5646 language-tag validation; `_escape_literal()` for string escaping.
 - **DeepSeek provider via OpenAI SDK** (PR #482, @liling) — `_init_client` rewritten using `openai.OpenAI(base_url=self.base_url)` instead of defunct `deepseek` package; `verbose_mode` assignment fix; `pyproject.toml` updated to `openai>=1.0.0`.
 
+### Added
+
+- **`DuplicateDetector` result limiting and ranking** (issue #534, by @KaifAhmad1):
+  - `max_results` — hard global cap on returned candidates; applied after sorting. `None` means no limit.
+  - `top_k_per_entity` — keep at most *k* candidates per entity (by the sort field) so no single entity floods the output. `None` means no per-entity limit.
+  - `min_similarity` — extra similarity floor on top of `similarity_threshold`; candidates below it are dropped before ranking. `None` means no extra floor.
+  - `sort_by` — ranking field before limits are applied; accepts `"confidence"` (default) or `"similarity_score"`. Invalid values raise `ValueError` at construction time.
+  - All four options are applied by the new `_apply_result_limits` helper and are respected by both `detect_duplicates()` and `incremental_detect()`.
+  - 15 new tests in `TestResultLimiting` covering each option in isolation and in combination.
+
 ### Fixed
 
 - **Fix: `ConflictDetector.detect_conflicts()` raises `AttributeError` when called with `method=` or `property_name=` kwargs** (issue #533, PR conflicts, by @KaifAhmad1):
