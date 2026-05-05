@@ -57,6 +57,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Fix: `semantica[all]` installation fails on Windows due to `faiss-gpu` dependency** (issue #532, PR #utlis, by @KaifAhmad1):
+  - `[all]` bundled the `[gpu]` extra (`faiss-gpu>=1.7.0`, `cupy>=10.0.0`), which has no Windows builds, causing `pip install "semantica[all]"` to fail with `No matching distribution found for faiss-gpu>=1.7.0`.
+  - Removed `gpu` from both `[all]` lines in `pyproject.toml` — `[all]` now installs only cross-platform dependencies. Users on Linux who need GPU acceleration can install `semantica[gpu]` explicitly.
+
 - **Fix: Progress tracker crashes with `UnicodeEncodeError` on Windows cp1252 consoles** (issue #531, PR #utlis, by @KaifAhmad1):
   - `ConsoleProgressDisplay.update()` had 5 direct `sys.stdout.write()` calls that bypassed the existing `_safe_write()` guard, causing `UnicodeEncodeError` when emoji characters (`🧠`, `📊`) were written to cp1252-encoded consoles during any progress-tracked operation.
   - All 5 calls replaced with `self._safe_write()`, which catches `UnicodeEncodeError` and re-encodes output with `errors="replace"` so progress output never crashes the process.
