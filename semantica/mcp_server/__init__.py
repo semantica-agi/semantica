@@ -14,13 +14,24 @@ Configure in your tool's MCP settings:
     {
         "mcpServers": {
             "semantica": {
+                "command": "semantica-mcp"
+            }
+        }
+    }
+
+Or using python -m:
+    {
+        "mcpServers": {
+            "semantica": {
                 "command": "python",
                 "args": ["-m", "semantica.mcp_server"]
             }
         }
     }
 
-Run directly:
+Run directly for testing:
+    semantica-mcp
+    # or
     python -m semantica.mcp_server
 
 Environment variables:
@@ -71,9 +82,7 @@ def _tool_extract_entities(args: dict) -> dict:
     if not text:
         return {"error": "text is required"}
     from semantica.semantic_extract import NamedEntityRecognizer
-    from semantica.semantic_extract.cache import _result_cache
-    _result_cache.clear()
-    entities = NamedEntityRecognizer().extract(text)
+    entities = NamedEntityRecognizer().extract_entities(text)
     return {
         "entities": [
             {"label": getattr(e, "label", str(e)),
@@ -91,10 +100,8 @@ def _tool_extract_relations(args: dict) -> dict:
     if not text:
         return {"error": "text is required"}
     from semantica.semantic_extract import RelationExtractor, TripletExtractor
-    from semantica.semantic_extract.cache import _result_cache
-    _result_cache.clear()
-    relations = RelationExtractor().extract(text)
-    triplets = TripletExtractor().extract(text)
+    relations = RelationExtractor().extract_relations(text)
+    triplets = TripletExtractor().extract_triplets(text)
     return {
         "relations": [
             {"source": getattr(r, "source", None),
@@ -600,7 +607,3 @@ def _run_stdio():
 
 def main():
     _run_stdio()
-
-
-if __name__ == "__main__":
-    main()

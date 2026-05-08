@@ -223,6 +223,7 @@ semantica = "semantica.cli:main"
 semantica-server = "semantica.server:main"
 semantica-worker = "semantica.worker:main"
 semantica-explorer = "semantica.explorer:main"
+semantica-mcp = "semantica.mcp_server:main"
 
 # ---------------- TOOLING ----------------
 [tool.setuptools.packages.find]
