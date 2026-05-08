@@ -56,7 +56,7 @@ pip install semantica
 
 ## 🔌 Works With Every AI Tool
 
-Semantica ships **native plugin bundles** for Claude Code, Cursor, and Codex, an **MCP server** (`python -m semantica.mcp_server`) for Windsurf, Cline, Continue, VS Code, Claude Desktop, and OpenClaw, and a **REST API** (FastAPI, port 8000) for any other tool.
+Semantica ships **native plugin bundles** for Claude Code, Cursor, and Codex, an **MCP server** (`semantica-mcp` or `python -m semantica.mcp_server`) for Windsurf, Cline, Continue, VS Code, Claude Desktop, and OpenClaw, and a **REST API** (FastAPI, port 8000) for any other tool.
 
 <table>
 
@@ -290,14 +290,32 @@ Native plugin bundles live under [`plugins/`](plugins/). Each directory contains
 
 ### MCP Server (expose Semantica to any MCP-aware tool)
 
-Semantica ships a full **MCP server** (`semantica/mcp_server.py`) — run it once and any MCP-compatible tool connects automatically:
+Semantica ships a full **MCP server** (`semantica/mcp_server/`) — run it once and any MCP-compatible tool connects automatically:
 
+**Method 1 - Console Script (Recommended):**
+```bash
+semantica-mcp
+```
+
+**Method 2 - Python Module:**
 ```bash
 python -m semantica.mcp_server
 ```
 
 Add to your tool's config (Claude Desktop, Windsurf, Cline, Continue, VS Code, Roo Code):
 
+**Using console script (recommended):**
+```json
+{
+  "mcpServers": {
+    "semantica": {
+      "command": "semantica-mcp"
+    }
+  }
+}
+```
+
+**Using python -m:**
 ```json
 {
   "mcpServers": {

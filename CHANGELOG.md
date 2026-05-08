@@ -73,6 +73,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `semantica/semantic_extract/methods.py` — updated to import shared types from `types.py`; extractor-specific imports moved to function scope where needed to prevent re-introducing the cycle.
   - Added regression tests (`tests/semantic_extract/test_imports.py`) covering import order independence (methods-before-extractors and extractors-before-methods), legacy type import compatibility, `TripleExtractor` alias, and that core imports do not require `yaml`.
   - **Review fix (Qodo — Py3.8 test import crash)**: `test_imports.py` annotated `_run_python` as `-> subprocess.CompletedProcess[str]`, which is not subscriptable at runtime on Python 3.8 (generic subscript on built-in types requires 3.9+). Added `from __future__ import annotations` (PEP 563) so all annotations are lazy strings never evaluated at import time, restoring compatibility with the declared `requires-python = ">=3.8"` without any behaviour change on 3.9+.
+- **Fix: MCP server not available after pipx installation** (issue #541, PR fix/mcp-server-pipx-installation-541, by @Cascade):
+  - **Root cause** — `mcp_server.py` was a single file module, not a package structure. Python's `-m` flag requires a package (directory with `__init__.py`) to work correctly, causing `python -m semantica.mcp_server` to fail with "No module named semantica.mcp_server" after pipx installation.
+  - Converted `semantica/mcp_server.py` to package structure `semantica/mcp_server/` with `__init__.py` and `__main__.py`.
+  - Added `semantica-mcp` console script entry point in `pyproject.toml` for direct command usage.
+  - Fixed API method calls to match semantic_extract module: `extract()` → `extract_entities()`, `extract_relations()`, `extract_triplets()`.
+  - Removed non-existent `_result_cache` imports and `clear()` calls.
+  - Updated documentation to show both usage methods: `semantica-mcp` (console script) and `python -m semantica.mcp_server` (python module).
+  - **Verification** — MCP protocol tests pass (initialize, tools/list, resources/list, ping), all 12 tools and 3 resources properly registered, entity extraction and graph summary tools work correctly.
+
 - **Fix: Lazy-load optional ingest backends; address Qodo review bugs** (issue #527, PR #535, by @ZohaibHassan16, review fixes by @KaifAhmad1):
   - `semantica/ingest/__init__.py` — core exports (`FileIngestor`, `ingest_file`, config, registry) remain eagerly imported; all optional backends (`WebIngestor`, `FeedIngestor`, `RepoIngestor`, `EmailIngestor`, `StreamIngestor`, `DBIngestor`, `MCPIngestor`, `OntologyIngestor`, `SnowflakeIngestor`) are now deferred behind a module-level `__getattr__`, so `from semantica.ingest import FileIngestor` no longer fails when GitPython or BeautifulSoup4 are absent.
   - `semantica/ingest/methods.py` — backend imports relocated into their respective ingestion functions (`ingest_web`, `ingest_feed`, `ingest_repository`, `ingest_email`) with helper `_missing_optional_dependency()` / `_is_missing_dependency()` for consistent, actionable error messages.
