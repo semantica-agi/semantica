@@ -13,6 +13,12 @@ File Ingestion:
     - "directory": Directory ingestion with recursive scanning
     - "cloud": Cloud storage ingestion (S3, GCS, Azure)
 
+Parquet Ingestion:
+    - "file": Single Parquet file ingestion
+    - "directory": Partitioned Parquet directory ingestion
+    - "schema": Parquet schema extraction
+    - "metadata": Parquet file or directory metadata extraction
+
 Web Ingestion:
     - "url": Single URL ingestion
     - "sitemap": Sitemap-based crawling
@@ -48,12 +54,15 @@ Database Ingestion:
 Algorithms Used:
 
 File Ingestion:
-    - File Type Detection: Multi-method detection (extension-based, MIME type, magic number analysis)
+    - File Type Detection: Multi-method detection using extension,
+      MIME type, and magic number analysis
     - Directory Scanning: Recursive directory traversal with filtering
-    - Cloud Storage Integration: AWS S3, Google Cloud Storage, Azure Blob Storage API integration
+    - Cloud Storage Integration: AWS S3, Google Cloud Storage, Azure Blob
+      Storage API integration
     - File Validation: Size limits, format validation, content verification
     - Batch Processing: Parallel file processing with progress tracking
-    - Magic Number Analysis: Binary file signature detection for accurate type identification
+    - Magic Number Analysis: Binary file signature detection for accurate
+      type identification
 
 Web Ingestion:
     - HTTP Request Handling: GET/POST requests with retry logic and error handling
@@ -87,9 +96,11 @@ Repository Ingestion:
     - Git Operations: Repository cloning, branch checking, commit traversal
     - Code Extraction: File content extraction with language detection
     - Commit Analysis: Git log parsing, diff analysis, statistics calculation
-    - Language Detection: File extension and content-based programming language identification
+    - Language Detection: File extension and content-based programming
+      language identification
     - Code Structure Analysis: AST parsing for classes, functions, imports extraction
-    - Dependency Analysis: Package manager file parsing (requirements.txt, package.json, etc.)
+    - Dependency Analysis: Package manager file parsing
+      (requirements.txt, package.json, etc.)
     - Documentation Extraction: README, docstring, and comment extraction
 
 Email Ingestion:
@@ -102,7 +113,8 @@ Email Ingestion:
     - Link Extraction: URL extraction from email HTML content
 
 Database Ingestion:
-    - Database Connection: SQLAlchemy-based connection management with connection pooling
+    - Database Connection: SQLAlchemy-based connection management with
+      connection pooling
     - SQL Query Execution: Parameterized query execution with result set processing
     - Schema Introspection: Database schema analysis and table/column discovery
     - Data Type Conversion: Database-specific type to Python type conversion
@@ -125,6 +137,7 @@ Main Functions:
     - ingest_repository: Repository ingestion wrapper
     - ingest_email: Email ingestion wrapper
     - ingest_database: Database ingestion wrapper
+    - ingest_parquet: Parquet ingestion wrapper
     - ingest: Unified ingestion function with source type dispatch
     - get_ingest_method: Get ingestion method by name
     - list_available_methods: List registered methods
@@ -142,13 +155,23 @@ Example Usage:
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Union
+from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Union
 
 from ..utils.exceptions import ConfigurationError, ProcessingError
 from ..utils.logging import get_logger
 from .config import ingest_config
 from .file_ingestor import FileIngestor, FileObject
 from .registry import method_registry
+
+if TYPE_CHECKING:
+    from .db_ingestor import TableData
+    from .email_ingestor import EmailData
+    from .feed_ingestor import FeedData
+    from .mcp_ingestor import MCPData
+    from .ontology_ingestor import OntologyData
+    from .parquet_ingestor import ParquetData
+    from .stream_ingestor import StreamProcessor
+    from .web_ingestor import WebContent
 
 logger = get_logger("ingest_methods")
 
@@ -227,6 +250,86 @@ def ingest_file(
 
     except Exception as e:
         logger.error(f"Failed to ingest file: {e}")
+        raise
+
+
+def ingest_parquet(
+    source: Union[str, Path, List[Union[str, Path]]],
+    method: str = "file",
+    **kwargs,
+) -> Union[ParquetData, List[ParquetData], Dict[str, Any]]:
+    """
+    Ingest Apache Parquet files or partitioned directories.
+
+    Args:
+        source: Parquet file path, directory path, or list of paths
+        method: Ingestion method:
+            - "file": Single Parquet file ingestion
+            - "directory": Parquet directory or partitioned dataset ingestion
+            - "schema": Extract schema without reading data
+            - "metadata": Extract file/directory metadata without reading data
+        **kwargs: Additional options passed to ParquetIngestor
+
+    Returns:
+        ParquetData, list of ParquetData, or metadata/schema dictionary
+
+    Examples:
+        >>> from semantica.ingest.methods import ingest_parquet
+        >>> data = ingest_parquet("events.parquet", columns=["id"], limit=100)
+        >>> schema = ingest_parquet("events.parquet", method="schema")
+        >>> dataset = ingest_parquet("./events_by_date", method="directory")
+    """
+    custom_method = method_registry.get("parquet", method)
+    if custom_method and custom_method != ingest_parquet:
+        try:
+            return custom_method(source, **kwargs)
+        except Exception as e:
+            logger.warning(
+                f"Custom method {method} failed: {e}, falling back to default"
+            )
+
+    try:
+        try:
+            from .parquet_ingestor import ParquetIngestor
+        except ModuleNotFoundError as exc:
+            if _is_missing_dependency(exc, "pyarrow"):
+                raise _missing_optional_dependency(
+                    "Parquet ingestion",
+                    "pyarrow",
+                ) from exc
+            raise
+
+        config = ingest_config.get_method_config("parquet")
+        config.update(kwargs)
+        try:
+            ingestor = ParquetIngestor(**config)
+        except ImportError as exc:
+            raise _missing_optional_dependency(
+                "Parquet ingestion",
+                "pyarrow",
+            ) from exc
+
+        def _run_single(path: Union[str, Path]) -> Union[ParquetData, Dict[str, Any]]:
+            source_path = Path(path)
+
+            if method == "schema":
+                return ingestor.extract_schema(source_path, **kwargs)
+            if method == "metadata":
+                return ingestor.extract_metadata(source_path, **kwargs)
+            if method == "directory" or source_path.is_dir():
+                return ingestor.ingest_directory(source_path, **kwargs)
+
+            return ingestor.ingest_file(source_path, **kwargs)
+
+        if isinstance(source, list):
+            return [_run_single(path) for path in source]
+
+        return _run_single(source)
+
+    except ConfigurationError:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to ingest Parquet: {e}")
         raise
 
 
@@ -450,7 +553,8 @@ def ingest_repository(
     """
     Ingest repository from source (convenience function).
 
-    This is a user-friendly wrapper that ingests repositories using the specified method.
+    This is a user-friendly wrapper that ingests repositories using the
+    specified method.
 
     Args:
         source: Repository URL or local path
@@ -465,7 +569,9 @@ def ingest_repository(
 
     Examples:
         >>> from semantica.ingest.methods import ingest_repository
-        >>> repo_data = ingest_repository("https://github.com/user/repo.git", method="git")
+        >>> repo_data = ingest_repository(
+        ...     "https://github.com/user/repo.git", method="git"
+        ... )
         >>> analysis = ingest_repository("./repo", method="analyze")
     """
     # Check for custom method in registry
@@ -483,7 +589,9 @@ def ingest_repository(
             from .repo_ingestor import RepoIngestor
         except ModuleNotFoundError as exc:
             if _is_missing_dependency(exc, "git"):
-                raise _missing_optional_dependency("Repository ingestion", "GitPython") from exc
+                raise _missing_optional_dependency(
+                    "Repository ingestion", "GitPython"
+                ) from exc
             raise
 
         # Get config
@@ -634,19 +742,19 @@ def ingest_ontology(
         ingestor = OntologyIngestor(**config)
 
         source_path = str(source) if isinstance(source, (str, Path)) else None
-        
+
         if method == "file" and source_path:
             if isinstance(source, list):
                 return [ingestor.ingest_ontology(str(s), **kwargs) for s in source]
             return ingestor.ingest_ontology(source_path, **kwargs)
         elif method == "directory" and source_path:
-             recursive = kwargs.get("recursive", ingest_config.get("recursive", True))
-             return ingestor.ingest_directory(source_path, recursive=recursive, **kwargs)
+            recursive = kwargs.get("recursive", ingest_config.get("recursive", True))
+            return ingestor.ingest_directory(source_path, recursive=recursive, **kwargs)
         else:
-             # Default: try as file
-             if isinstance(source, list):
+            # Default: try as file
+            if isinstance(source, list):
                 return [ingestor.ingest_ontology(str(s), **kwargs) for s in source]
-             return ingestor.ingest_ontology(str(source), **kwargs)
+            return ingestor.ingest_ontology(str(source), **kwargs)
 
     except Exception as e:
         logger.error(f"Failed to ingest ontology: {e}")
@@ -743,7 +851,8 @@ def ingest_mcp(
     the specified method. Works with Python and FastMCP MCP servers.
 
     Args:
-        source: MCP server URL (str) or configuration dict with "url" key, or server name (str) if already connected
+        source: MCP server URL, configuration dict with "url" key, or server
+            name if already connected
             - URL string: "http://localhost:8000/mcp"
             - Dict: {"url": "http://localhost:8000/mcp", "headers": {...}}
         method: Ingestion method (default: "resources")
@@ -766,13 +875,25 @@ def ingest_mcp(
         >>> data = ingest_mcp("http://localhost:8000/mcp", method="resources")
         >>> # Connect via URL dict and ingest all resources
         >>> data = ingest_mcp(
-        ...     {"url": "https://api.example.com/mcp", "headers": {"Authorization": "Bearer token"}},
+        ...     {
+        ...         "url": "https://api.example.com/mcp",
+        ...         "headers": {"Authorization": "Bearer token"},
+        ...     },
         ...     method="all"
         ... )
         >>> # Ingest from already connected server
-        >>> data = ingest_mcp("server1", method="resources", resource_uris=["resource://example"])
+        >>> data = ingest_mcp(
+        ...     "server1",
+        ...     method="resources",
+        ...     resource_uris=["resource://example"],
+        ... )
         >>> # Call tool
-        >>> result = ingest_mcp("server1", method="tools", tool_name="get_data", tool_arguments={})
+        >>> result = ingest_mcp(
+        ...     "server1",
+        ...     method="tools",
+        ...     tool_name="get_data",
+        ...     tool_arguments={},
+        ... )
     """
     # Check for custom method in registry
     custom_method = method_registry.get("mcp", method)
@@ -838,7 +959,8 @@ def ingest_mcp(
             )
         else:
             raise ProcessingError(
-                "Source must be MCP server URL (str), configuration dict with 'url' key, "
+                "Source must be MCP server URL (str), configuration dict "
+                "with 'url' key, "
                 "or server name (str) if already connected"
             )
 
@@ -890,6 +1012,7 @@ def ingest(
             - "email": Email ingestion
             - "db": Database ingestion
             - "ontology": Ontology ingestion
+            - "parquet": Apache Parquet file or directory ingestion
         method: Optional specific ingestion method
         **kwargs: Additional options passed to ingestor
 
@@ -909,24 +1032,40 @@ def ingest(
     if not source_type:
         if isinstance(sources, (str, Path)):
             source_str = str(sources)
-            if source_str.startswith(("http://", "https://")):
+            source_str_lower = source_str.lower()
+            if source_str_lower.startswith(("http://", "https://")):
                 # Check if it's a feed URL
-                if any(ext in source_str for ext in [".xml", "/feed", "/rss", "/atom"]):
+                if any(
+                    ext in source_str_lower
+                    for ext in [".xml", "/feed", "/rss", "/atom"]
+                ):
                     source_type = "feed"
                 else:
                     source_type = "web"
-            elif source_str.startswith(
+            elif source_str_lower.startswith(
                 ("postgresql://", "mysql://", "sqlite://", "oracle://", "mssql://")
             ):
                 source_type = "db"
-            elif source_str.startswith(
-                ("git@", "https://github.com", "https://gitlab.com")
+            elif source_str.startswith("git@") or source_str_lower.startswith(
+                ("https://github.com", "https://gitlab.com")
             ):
                 source_type = "repo"
-            elif source_str.endswith((".ttl", ".owl", ".rdf", ".jsonld", ".n3", ".nt")):
+            elif source_str_lower.endswith(
+                (".ttl", ".owl", ".rdf", ".jsonld", ".n3", ".nt")
+            ):
                 source_type = "ontology"
+            elif source_str_lower.endswith((".parquet", ".pq")):
+                source_type = "parquet"
             else:
                 source_type = "file"
+        elif (
+            isinstance(sources, list)
+            and sources
+            and all(
+                str(source).lower().endswith((".parquet", ".pq")) for source in sources
+            )
+        ):
+            source_type = "parquet"
         else:
             source_type = "file"
 
@@ -953,6 +1092,8 @@ def ingest(
             raise ProcessingError("Email ingestion requires configuration dictionary")
     elif source_type == "db":
         return {"data": ingest_database(sources, method=method, **kwargs)}
+    elif source_type == "parquet":
+        return {"data": ingest_parquet(sources, method=method or "file", **kwargs)}
     elif source_type == "ontology":
         return {"ontology": ingest_ontology(sources, method=method or "file", **kwargs)}
     elif source_type == "mcp":
@@ -966,7 +1107,8 @@ def get_ingest_method(task: str, name: str) -> Optional[Callable]:
     Get a registered ingestion method.
 
     Args:
-        task: Task type ("file", "web", "feed", "stream", "repo", "email", "db", "mcp", "ingest")
+        task: Task type ("file", "web", "feed", "stream", "repo", "email",
+            "db", "mcp", "ingest")
         name: Method name
 
     Returns:
@@ -1030,6 +1172,12 @@ method_registry.register("db", "mysql", ingest_database)
 method_registry.register("db", "sqlite", ingest_database)
 method_registry.register("db", "oracle", ingest_database)
 method_registry.register("db", "mssql", ingest_database)
+method_registry.register("parquet", "default", ingest_parquet)
+method_registry.register("parquet", "file", ingest_parquet)
+method_registry.register("parquet", "directory", ingest_parquet)
+method_registry.register("parquet", "schema", ingest_parquet)
+method_registry.register("parquet", "metadata", ingest_parquet)
+method_registry.register("file", "parquet", ingest_parquet)
 method_registry.register("mcp", "default", ingest_mcp)
 method_registry.register("mcp", "resources", ingest_mcp)
 method_registry.register("mcp", "tools", ingest_mcp)

@@ -4,7 +4,6 @@ import sys
 import textwrap
 from pathlib import Path
 
-
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -50,7 +49,7 @@ def test_file_ingestion_imports_without_optional_backends() -> None:
 from semantica.ingest import FileIngestor, ingest_file
 print(FileIngestor.__name__, callable(ingest_file))
 """,
-        ("git", "bs4"),
+        ("git", "bs4", "pyarrow"),
     )
 
     assert result.returncode == 0, result.stderr
@@ -76,3 +75,24 @@ else:
     assert "ConfigurationError" in result.stdout
     assert "Repository ingestion" in result.stdout
     assert "GitPython" in result.stdout
+
+
+def test_parquet_ingestion_reports_missing_pyarrow_when_used() -> None:
+    result = _run_python_with_blocked_modules(
+        """
+from semantica.ingest import ingest_parquet
+
+try:
+    ingest_parquet("events.parquet")
+except Exception as exc:
+    print(type(exc).__name__, exc)
+else:
+    raise SystemExit("expected parquet ingestion to fail without pyarrow")
+""",
+        ("pyarrow",),
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "ConfigurationError" in result.stdout
+    assert "Parquet ingestion" in result.stdout
+    assert "pyarrow" in result.stdout

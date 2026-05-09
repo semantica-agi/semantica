@@ -12,6 +12,7 @@ The **Ingest Module** is the entry point for loading data into Semantica. It pro
 
 **Data ingestion** is the process of loading data from various sources into Semantica for processing. The ingest module handles:
 - **File Systems**: Local files, cloud storage (S3, GCS, Azure)
+- **Analytics Files**: Apache Parquet files and partitioned datasets
 - **Web Content**: Websites, RSS feeds, APIs
 - **Streams**: Real-time data from Kafka, RabbitMQ, etc.
 - **Databases**: SQL, NoSQL, and cloud data warehouses including Snowflake
@@ -74,6 +75,12 @@ The **Ingest Module** is the entry point for loading data into Semantica. It pro
 
     Ingest tables and query results from SQL, NoSQL, and cloud data warehouses including Snowflake
 
+-   :material-table:{ .lg .middle } **Parquet Datasets**
+
+    ---
+
+    Read Parquet files, schemas, metadata, and Hive-style partitioned directories
+
 </div>
 
 !!! tip "When to Use"
@@ -117,6 +124,19 @@ Handles file systems and object storage.
 |--------|-------------|
 | `ingest_file(path)` | Process single file |
 | `ingest_directory(path)` | Process folder |
+
+### ParquetIngestor
+
+Handles Apache Parquet files and partitioned datasets.
+
+**Methods:**
+
+| Method | Description |
+|--------|-------------|
+| `ingest_file(path, columns=None, limit=None)` | Read a Parquet file |
+| `ingest_directory(path, columns=None, limit=None)` | Read a partitioned Parquet directory |
+| `extract_schema(path)` | Extract column names, types, nullability, and schema metadata |
+| `extract_metadata(path)` | Extract row counts, row groups, compression, and partition info |
 
 ### WebIngestor
 
@@ -213,8 +233,31 @@ from semantica.ingest import ingest
 
 # Auto-detect source type
 ingest("doc.pdf", source_type="file")
+ingest("events.parquet")  # Auto-detects Parquet
 ingest("https://google.com", source_type="web")
 ingest("kafka://topic", source_type="stream")
+```
+
+### Parquet Dataset Ingestion
+
+```python
+from semantica.ingest import ParquetIngestor, ingest_parquet
+
+ingestor = ParquetIngestor()
+
+# Read selected columns from a local Parquet file
+events = ingestor.ingest_file(
+    "events.parquet",
+    columns=["event_id", "event_type"],
+    limit=1000,
+)
+
+# Inspect schema and metadata without reading rows
+schema = ingestor.extract_schema("events.parquet")
+metadata = ingestor.extract_metadata("events.parquet")
+
+# Read a Hive-style partitioned directory such as country=US/year=2026/
+partitioned = ingest_parquet("./warehouse/events", method="directory")
 ```
 
 ---
@@ -236,7 +279,7 @@ ingest:
   web:
     user_agent: "MyBot"
     rate_limit: 1.0 # seconds
-    
+
   files:
     max_size: 100MB
     allowed_extensions: [.pdf, .txt, .md]
@@ -289,12 +332,12 @@ data = ingestor.ingest_snowflake_table("CUSTOMERS")
 
 # 3. Or run custom query
 results = ingestor.execute_snowflake_query("""
-    SELECT 
-        CUSTOMER_ID, 
-        NAME, 
-        EMAIL, 
-        CREATED_AT 
-    FROM CUSTOMERS 
+    SELECT
+        CUSTOMER_ID,
+        NAME,
+        EMAIL,
+        CREATED_AT
+    FROM CUSTOMERS
     WHERE CREATED_AT > '2024-01-01'
 """)
 
