@@ -6,6 +6,8 @@
 
 **A Framework for Building Context Graphs and Decision Intelligence Layers for AI**
 
+🌐 **[Website](https://getsemantica.ai/)** | 📚 **[Documentation](https://docs.getsemantica.ai/)**
+
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![PyPI](https://img.shields.io/pypi/v/semantica.svg)](https://pypi.org/project/semantica/)
@@ -1026,6 +1028,27 @@ pytest tests/
 - 🍳 **[Cookbook](https://github.com/Hawksight-AI/semantica/tree/main/cookbook)** — runnable notebooks and recipes
 - 📋 **[Changelog](CHANGELOG.md)** — what changed and why
 - 📝 **[Release Notes](RELEASE_NOTES.md)** — per-contributor breakdown
+
+---
+
+## 🏢 Enterprise Support
+
+**Production-grade Semantica for your organization**
+
+🚀 **[Website](https://getsemantica.ai/)** — Enterprise solutions and custom domain-specific implementations
+
+**Domain-Specific Solutions:**
+- 🏥 **Healthcare** — Clinical decision support, patient safety, compliance
+- � **Finance** — Fraud detection, regulatory compliance, risk management
+- ⚖️ **Legal** — Evidence analysis, contract review, case law reasoning
+- � **Cybersecurity** — Threat attribution, incident response, provenance
+- 🏛️ **Government** — Policy tracking, classified information governance
+
+**Custom Solutions Available:**
+- � Private cloud deployment
+- 🛡️ Enterprise security compliance
+- � Custom analytics and reporting
+- 🎯 Professional implementation services
 
 ---
 
