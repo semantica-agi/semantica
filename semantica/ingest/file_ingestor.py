@@ -23,7 +23,6 @@ License: MIT
 """
 
 import mimetypes
-import os
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -112,7 +111,8 @@ class FileTypeDetector:
         mimetypes.init()
 
         self.logger.debug(
-            f"File type detector initialized with {len(self.supported_formats)} supported formats"
+            "File type detector initialized with "
+            f"{len(self.supported_formats)} supported formats"
         )
 
     def detect_type(
@@ -190,11 +190,12 @@ class FileTypeDetector:
         magic_numbers = {
             b"\x25\x50\x44\x46": "pdf",  # PDF (binary)
             b"%PDF": "pdf",  # PDF (text header)
-            b"\x50\x4B\x03\x04": "zip",  # ZIP, DOCX, XLSX, PPTX (Office Open XML)
-            b"\x89\x50\x4E\x47": "png",  # PNG image
-            b"\xFF\xD8\xFF": "jpg",  # JPEG image
+            b"\x50\x4b\x03\x04": "zip",  # ZIP, DOCX, XLSX, PPTX (Office Open XML)
+            b"\x89\x50\x4e\x47": "png",  # PNG image
+            b"\xff\xd8\xff": "jpg",  # JPEG image
             b"\x47\x49\x46\x38": "gif",  # GIF image
             b"PK\x03\x04": "zip",  # ZIP (alternative)
+            b"PAR1": "parquet",  # Apache Parquet
         }
 
         # Check if content starts with any known magic number
@@ -516,7 +517,10 @@ class FileIngestor:
                         tracking_id,
                         processed=idx,
                         total=total_files,
-                        message=f"Processing file {idx}/{total_files}: {Path(file_info['path']).name}"
+                        message=(
+                            f"Processing file {idx}/{total_files}: "
+                            f"{Path(file_info['path']).name}"
+                        ),
                     )
 
                     # Track progress via callback if provided

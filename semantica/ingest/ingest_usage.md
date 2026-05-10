@@ -6,18 +6,19 @@ This guide demonstrates how to use the ingest module for ingesting data from var
 
 1. [Basic Usage](#basic-usage)
 2. [File Ingestion](#file-ingestion)
-3. [Web Ingestion](#web-ingestion)
-4. [Feed Ingestion](#feed-ingestion)
-5. [Stream Ingestion](#stream-ingestion)
-6. [Repository Ingestion](#repository-ingestion)
-7. [Email Ingestion](#email-ingestion)
-8. [Database Ingestion](#database-ingestion)
-9. [MCP Server Ingestion](#mcp-server-ingestion)
-10. [Unified Ingestion](#unified-ingestion)
-11. [Using Methods](#using-methods)
-12. [Using Registry](#using-registry)
-13. [Configuration](#configuration)
-14. [Advanced Examples](#advanced-examples)
+3. [Parquet Ingestion](#parquet-ingestion)
+4. [Web Ingestion](#web-ingestion)
+5. [Feed Ingestion](#feed-ingestion)
+6. [Stream Ingestion](#stream-ingestion)
+7. [Repository Ingestion](#repository-ingestion)
+8. [Email Ingestion](#email-ingestion)
+9. [Database Ingestion](#database-ingestion)
+10. [MCP Server Ingestion](#mcp-server-ingestion)
+11. [Unified Ingestion](#unified-ingestion)
+12. [Using Methods](#using-methods)
+13. [Using Registry](#using-registry)
+14. [Configuration](#configuration)
+15. [Advanced Examples](#advanced-examples)
 
 ## Basic Usage
 
@@ -28,6 +29,9 @@ from semantica.ingest import ingest
 
 # Ingest a file (auto-detects source type)
 result = ingest("document.pdf", source_type="file")
+
+# Ingest a Parquet file
+result = ingest("events.parquet")
 
 # Ingest from web URL
 result = ingest("https://example.com", source_type="web")
@@ -140,6 +144,66 @@ file_type = detector.detect_type("document.pdf")
 with open("document.pdf", "rb") as f:
     content = f.read(1024)
     file_type = detector.detect_type("document.pdf", content=content)
+```
+
+## Parquet Ingestion
+
+Parquet ingestion requires PyArrow:
+
+```bash
+pip install pyarrow
+```
+
+### Single Parquet File
+
+```python
+from semantica.ingest import ParquetIngestor, ingest_parquet
+
+# Using convenience function
+data = ingest_parquet(
+    "events.parquet",
+    columns=["event_id", "event_type"],
+    limit=1000,
+)
+
+# Using class directly
+ingestor = ParquetIngestor()
+data = ingestor.ingest_file("events.parquet")
+
+print(f"Rows returned: {data.row_count}")
+print(f"Columns: {data.columns}")
+print(f"Total rows in file: {data.metadata['total_rows']}")
+```
+
+### Schema and Metadata Extraction
+
+```python
+from semantica.ingest import ParquetIngestor
+
+ingestor = ParquetIngestor()
+
+schema = ingestor.extract_schema("events.parquet")
+metadata = ingestor.extract_metadata("events.parquet")
+
+print(schema["columns"])
+print(metadata["compression_codecs"])
+print(metadata["row_groups"])
+```
+
+### Partitioned Parquet Directories
+
+```python
+from semantica.ingest import ingest_parquet
+
+# Reads Hive-style directories such as country=US/year=2026/part-0.parquet
+data = ingest_parquet(
+    "./warehouse/events",
+    method="directory",
+    columns=["event_id", "event_type", "country", "year"],
+)
+
+print(data.metadata["partition_columns"])
+print(data.metadata["partition_values"])
 ```
 
 ## Web Ingestion
@@ -936,6 +1000,7 @@ from semantica.ingest import ingest
 
 # Auto-detect source type from source
 result = ingest("document.pdf")  # Auto-detects file
+result = ingest("events.parquet")  # Auto-detects Parquet
 result = ingest("https://example.com")  # Auto-detects web
 result = ingest("https://example.com/feed.xml")  # Auto-detects feed
 result = ingest("postgresql://user:pass@localhost/db")  # Auto-detects database
@@ -982,7 +1047,8 @@ from semantica.ingest.methods import (
     ingest_repository,
     ingest_email,
     ingest_database,
-    ingest_mcp
+    ingest_mcp,
+    ingest_parquet
 )
 
 # File ingestion
@@ -1005,6 +1071,9 @@ emails = ingest_email({"host": "imap.example.com", "username": "user", "password
 
 # Database ingestion
 data = ingest_database("postgresql://user:pass@localhost/db", table="users")
+
+# Parquet ingestion
+events = ingest_parquet("events.parquet", columns=["event_id"], limit=1000)
 
 # MCP server ingestion via URL
 data = ingest_mcp("http://localhost:8000/mcp", method="resources")
@@ -1189,16 +1258,16 @@ from semantica.ingest.methods import ingest_file
 def custom_pdf_ingestion(source, **kwargs):
     """Custom PDF ingestion with special processing."""
     from semantica.ingest import FileIngestor
-    
+
     ingestor = FileIngestor()
     file_obj = ingestor.ingest_file(source, **kwargs)
-    
+
     # Custom processing
     if file_obj.file_type == "pdf":
         # Add custom metadata
         file_obj.metadata["processed"] = True
         file_obj.metadata["custom_field"] = "custom_value"
-    
+
     return file_obj
 
 # Register custom method
@@ -1286,7 +1355,7 @@ for source_type, source_list in sources.items():
 1. **Parallel Processing**: Use parallel processing for multiple sources
    ```python
    from concurrent.futures import ThreadPoolExecutor
-   
+
    with ThreadPoolExecutor() as executor:
        executor.submit(ingest_file, "./documents1")
        executor.submit(ingest_file, "./documents2")
@@ -1329,4 +1398,3 @@ for source_type, source_list in sources.items():
    for batch in process_in_batches(large_dataset, batch_size=1000):
        result = ingest(batch)
    ```
-

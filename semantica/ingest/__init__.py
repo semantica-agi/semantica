@@ -7,12 +7,15 @@ including files, web content, feeds, streams, repositories, emails, and database
 Algorithms Used:
 
 File Ingestion:
-    - File Type Detection: Multi-method detection (extension-based, MIME type, magic number analysis)
+    - File Type Detection: Multi-method detection using extension,
+      MIME type, and magic number analysis
     - Directory Scanning: Recursive directory traversal with filtering
-    - Cloud Storage Integration: AWS S3, Google Cloud Storage, Azure Blob Storage API integration
+    - Cloud Storage Integration: AWS S3, Google Cloud Storage, Azure Blob
+      Storage API integration
     - File Validation: Size limits, format validation, content verification
     - Batch Processing: Parallel file processing with progress tracking
-    - Magic Number Analysis: Binary file signature detection for accurate type identification
+    - Magic Number Analysis: Binary file signature detection for accurate
+      type identification
 
 Web Ingestion:
     - HTTP Request Handling: GET/POST requests with retry logic and error handling
@@ -46,9 +49,11 @@ Repository Ingestion:
     - Git Operations: Repository cloning, branch checking, commit traversal
     - Code Extraction: File content extraction with language detection
     - Commit Analysis: Git log parsing, diff analysis, statistics calculation
-    - Language Detection: File extension and content-based programming language identification
+    - Language Detection: File extension and content-based programming
+      language identification
     - Code Structure Analysis: AST parsing for classes, functions, imports extraction
-    - Dependency Analysis: Package manager file parsing (requirements.txt, package.json, etc.)
+    - Dependency Analysis: Package manager file parsing
+      (requirements.txt, package.json, etc.)
     - Documentation Extraction: README, docstring, and comment extraction
 
 Email Ingestion:
@@ -61,7 +66,8 @@ Email Ingestion:
     - Link Extraction: URL extraction from email HTML content
 
 Database Ingestion:
-    - Database Connection: SQLAlchemy-based connection management with connection pooling
+    - Database Connection: SQLAlchemy-based connection management with
+      connection pooling
     - SQL Query Execution: Parameterized query execution with result set processing
     - Schema Introspection: Database schema analysis and table/column discovery
     - Data Type Conversion: Database-specific type to Python type conversion
@@ -87,6 +93,7 @@ Main Classes:
     - EmailIngestor: Email protocol handling
     - DBIngestor: Database export handling
     - OntologyIngestor: Ontology file processing
+    - ParquetIngestor: Apache Parquet file and partitioned dataset processing
     - MethodRegistry: Registry for custom ingestion methods
     - IngestConfig: Configuration manager for ingest module
 
@@ -100,6 +107,7 @@ Convenience Functions:
     - ingest_email: Email ingestion wrapper
     - ingest_database: Database ingestion wrapper
     - ingest_ontology: Ontology ingestion wrapper
+    - ingest_parquet: Parquet ingestion wrapper
 
 
 Example Usage:
@@ -133,6 +141,7 @@ from .methods import (
     ingest_file,
     ingest_mcp,
     ingest_ontology,
+    ingest_parquet,
     ingest_repository,
     ingest_stream,
     ingest_web,
@@ -192,6 +201,9 @@ _LAZY_EXPORTS: Dict[str, Tuple[str, str]] = {
     "SnowflakeIngestor": (".snowflake_ingestor", "SnowflakeIngestor"),
     "SnowflakeData": (".snowflake_ingestor", "SnowflakeData"),
     "SnowflakeConnector": (".snowflake_ingestor", "SnowflakeConnector"),
+    # Parquet ingestion
+    "ParquetIngestor": (".parquet_ingestor", "ParquetIngestor"),
+    "ParquetData": (".parquet_ingestor", "ParquetData"),
 }
 
 _OPTIONAL_DEPENDENCY_MESSAGES = {
@@ -211,6 +223,10 @@ _OPTIONAL_DEPENDENCY_MESSAGES = {
         "Email ingestion requires optional dependency 'beautifulsoup4'. "
         "Install it before importing EmailIngestor or using ingest_email()."
     ),
+    ".parquet_ingestor": (
+        "Parquet ingestion requires optional dependency 'pyarrow'. "
+        "Install it before importing ParquetIngestor or using ingest_parquet()."
+    ),
 }
 
 
@@ -225,13 +241,14 @@ def __getattr__(name: str) -> Any:
     except ModuleNotFoundError as exc:
         message = _OPTIONAL_DEPENDENCY_MESSAGES.get(module_name)
         missing_name = getattr(exc, "name", None)
-        if message and missing_name in {"git", "bs4"}:
+        if message and missing_name in {"git", "bs4", "pyarrow"}:
             raise ImportError(message) from exc
         raise
 
     value = getattr(module, attr_name)
     globals()[name] = value
     return value
+
 
 __all__ = [
     # File ingestion
@@ -290,6 +307,9 @@ __all__ = [
     "SnowflakeIngestor",
     "SnowflakeData",
     "SnowflakeConnector",
+    # Parquet ingestion
+    "ParquetIngestor",
+    "ParquetData",
     # Registry and Methods
     "MethodRegistry",
     "method_registry",
@@ -302,6 +322,7 @@ __all__ = [
     "ingest_email",
     "ingest_database",
     "ingest_ontology",
+    "ingest_parquet",
     "ingest_mcp",
     "get_ingest_method",
     "list_available_methods",
@@ -309,4 +330,3 @@ __all__ = [
     "IngestConfig",
     "ingest_config",
 ]
-
