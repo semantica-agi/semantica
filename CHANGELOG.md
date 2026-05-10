@@ -10,6 +10,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Parquet File Ingestion Support** (#548) by @Luffy2208
+  - Added ParquetIngestor class with PyArrow backend
+  - Single file and partitioned directory ingestion
+  - Schema and metadata extraction capabilities
+  - Selective column reading with memory efficiency
+  - Hive-style partition discovery support
+  - Unified dispatch integration
+  - Optional dependency management (ingest-parquet extra)
+  - Comprehensive test coverage (32/32 tests passing)
+
+**Ontology Hub** (part of #517)
 
 **Ontology Hub** (part of #517)
 
