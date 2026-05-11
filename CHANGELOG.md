@@ -10,6 +10,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Distance Intelligence Embedding Cache Optimization** by @Assistant
+  - Implemented per-session graph revision-based embedding cache to avoid re-scanning all nodes on every request
+  - Added `get_cached_embeddings()` method to GraphSession with thread-safe caching and automatic invalidation
+  - Updated distance matrix and semantic neighborhood endpoints to use cached embeddings for significant performance improvement
+  - Added graph revision tracking using hash-based identifiers for cache invalidation
+  - Implemented force refresh capability and automatic cache invalidation on graph modifications (add_nodes/add_edges)
+  - Resolved TODO in `graph.py` for embedding caching optimization
 - **Parquet File Ingestion Support** (#548) by @Luffy2208
   - Added ParquetIngestor class with PyArrow backend
   - Single file and partitioned directory ingestion
