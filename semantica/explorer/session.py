@@ -52,6 +52,10 @@ class GraphSession:
         self._similarity: Any = None
         self._link_predictor: Any = None
         self._validator: Any = None
+
+        self._graph_revision: int = 0
+        self._cached_embeddings: Optional[Dict[str, List[float]]] = None
+        self._cached_graph_revision: int = -1
         self.rebuild_search_index()
 
     @classmethod
@@ -408,6 +412,20 @@ class GraphSession:
 
     def handle_graph_mutation(self, event_type: str, entity_id: str, payload: Dict[str, Any]) -> None:
         normalized_event = str(event_type or "").upper()
+        if normalized_event in {
+            "ADD_NODE",
+            "UPDATE_NODE",
+            "REMOVE_NODE",
+            "DELETE_NODE",
+            "ADD_EDGE",
+            "UPDATE_EDGE",
+            "REMOVE_EDGE",
+            "DELETE_EDGE",
+            "RELOAD_GRAPH",
+            "RESET_GRAPH",
+        }:
+            with self._lock:
+                self._bump_graph_revision_locked()
         if normalized_event in {"ADD_NODE", "UPDATE_NODE"}:
             normalized_node = self.normalize_node(payload or {})
             if normalized_node.get("id"):
@@ -529,6 +547,83 @@ class GraphSession:
         with self._lock:
             return self.annotations.pop(annotation_id, None) is not None
 
+    def _bump_graph_revision_locked(self) -> None:
+        self._graph_revision += 1
+        self._cached_embeddings = None
+        self._cached_graph_revision = -1
+
+    @staticmethod
+    def _coerce_embedding_vector(value: Any) -> Optional[List[float]]:
+        if isinstance(value, dict):
+            for key in ("embedding", "embeddings", "vector", "values", "node2vec", "semantic"):
+                nested = GraphSession._coerce_embedding_vector(value.get(key))
+                if nested is not None:
+                    return nested
+            return None
+
+        if not isinstance(value, (list, tuple)):
+            return None
+
+        vector: List[float] = []
+        for item in value:
+            try:
+                vector.append(float(item))
+            except (TypeError, ValueError):
+                return None
+
+        return vector if vector else None
+
+    def get_cached_embeddings(self, force_refresh: bool = False) -> Dict[str, List[float]]:
+        with self._lock:
+            current_revision = self._graph_revision
+            if (
+                not force_refresh
+                and self._cached_embeddings is not None
+                and self._cached_graph_revision == current_revision
+            ):
+                return self._cached_embeddings
+            raw_nodes = [
+                node.to_dict() if hasattr(node, "to_dict") else node
+                for node in self.graph.nodes.values()
+                if node is not None
+            ]
+
+        embedding_keys = (
+            "embedding",
+            "embeddings",
+            "vector",
+            "node_embedding",
+            "node2vec_embedding",
+            "semantic_embedding",
+            "reasoning_embedding",
+        )
+
+        embeddings: Dict[str, List[float]] = {}
+        for raw in raw_nodes:
+            if not isinstance(raw, dict):
+                continue
+            normalized = self.normalize_node(raw)
+            node_id = normalized.get("id")
+            if not node_id:
+                continue
+            properties = normalized.get("properties") if isinstance(normalized.get("properties"), dict) else {}
+            for key in embedding_keys:
+                vector = self._coerce_embedding_vector(normalized.get(key, properties.get(key)))
+                if vector is not None:
+                    embeddings[str(node_id)] = vector
+                    break
+
+        with self._lock:
+            if self._graph_revision == current_revision:
+                self._cached_embeddings = embeddings
+                self._cached_graph_revision = current_revision
+            return embeddings
+
+    def invalidate_embedding_cache(self) -> None:
+        with self._lock:
+            self._cached_embeddings = None
+            self._cached_graph_revision = -1
+
     def build_graph_dict(self, node_ids: Optional[list] = None) -> dict:
         nodes, _ = self.get_nodes(skip=0, limit=999_999)
         edges, _ = self.get_edges(skip=0, limit=999_999)
@@ -595,6 +690,8 @@ class GraphSession:
         with self._lock:
             added = self.graph.add_nodes(nodes)
             has_mutation_callback = callable(getattr(self.graph, "mutation_callback", None))
+            if added and not has_mutation_callback:
+                self._bump_graph_revision_locked()
         if added and not has_mutation_callback:
             self.rebuild_search_index()
         return added
@@ -603,6 +700,8 @@ class GraphSession:
         with self._lock:
             added = self.graph.add_edges(edges)
             has_mutation_callback = callable(getattr(self.graph, "mutation_callback", None))
+            if added and not has_mutation_callback:
+                self._bump_graph_revision_locked()
         if added and not has_mutation_callback:
             self.rebuild_search_index()
         return added
@@ -617,6 +716,8 @@ class GraphSession:
         with self._lock:
             added = self.graph.add_node(node_id, node_type, content=content, **properties)
             has_mutation_callback = callable(getattr(self.graph, "mutation_callback", None))
+            if added and not has_mutation_callback:
+                self._bump_graph_revision_locked()
         if added and not has_mutation_callback:
             normalized = self.get_node(node_id)
             if normalized is not None:
@@ -640,4 +741,6 @@ class GraphSession:
                 **properties,
             )
             has_mutation_callback = callable(getattr(self.graph, "mutation_callback", None))
+            if added and not has_mutation_callback:
+                self._bump_graph_revision_locked()
         return added

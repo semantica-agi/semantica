@@ -102,10 +102,10 @@ def _coerce_embedding_vector(value: object) -> Optional[List[float]]:
 
 
 def _extract_node_embeddings(graph_dict: dict) -> dict[str, List[float]]:
+    """Extract embeddings from graph dictionary."""
     # Top-level keys to probe on each entity (and its metadata/properties dicts).
     # Priority: generic names first, then KG-extras-specific names.
     # Must stay aligned with the inner probe list in _coerce_embedding_vector.
-    # TODO: cache this per-session graph revision to avoid re-scanning all nodes on every request.
     embedding_keys = (
         "embedding",
         "embeddings",
@@ -136,6 +136,11 @@ def _extract_node_embeddings(graph_dict: dict) -> dict[str, List[float]]:
                 break
 
     return embeddings
+
+
+def _get_cached_embeddings(session: GraphSession) -> dict[str, List[float]]:
+    """Get embeddings from session cache for optimal performance."""
+    return session.get_cached_embeddings()
 
 
 def _node_response(node: dict) -> NodeResponse:
@@ -480,7 +485,6 @@ async def distance_matrix(
         )
 
     started = time.perf_counter()
-    graph_dict = await asyncio.to_thread(session.build_graph_dict)
     path_finder = session.path_finder
 
     n = len(body.node_ids)
@@ -493,10 +497,21 @@ async def distance_matrix(
             src, tgt = body.node_ids[i], body.node_ids[j]
             try:
                 if body.metric == "semantic" and session.similarity is not None:
-                    sim = await asyncio.to_thread(
-                        session.similarity.cosine_similarity, graph_dict, src, tgt
-                    )
-                    val = 1.0 - float(sim) if isinstance(sim, (int, float)) else None
+                    # Use cached embeddings for semantic distance calculation
+                    embeddings = _get_cached_embeddings(session)
+                    src_embedding = embeddings.get(src)
+                    tgt_embedding = embeddings.get(tgt)
+                    
+                    if src_embedding is None or tgt_embedding is None:
+                        val = None
+                    else:
+                        # Calculate cosine similarity directly from cached embeddings
+                        import numpy as np
+                        src_vec = np.array(src_embedding)
+                        tgt_vec = np.array(tgt_embedding)
+                        sim = np.dot(src_vec, tgt_vec) / (np.linalg.norm(src_vec) * np.linalg.norm(tgt_vec))
+                        val = 1.0 - float(sim) if isinstance(sim, (int, float)) else None
+                    
                     matrix[i][j] = val
                     matrix[j][i] = val
                 elif path_finder is not None:
@@ -505,6 +520,7 @@ async def distance_matrix(
                         if body.metric == "weighted"
                         else path_finder.bfs_shortest_path
                     )
+                    graph_dict = await asyncio.to_thread(session.build_graph_dict)
                     result = await asyncio.to_thread(path_fn, graph_dict, src, tgt)
                     path_nodes = result.get("path", []) if isinstance(result, dict) else (result or [])
                     if path_nodes:
@@ -550,8 +566,7 @@ async def _semantic_neighborhood_impl(
             detail="Semantic similarity is unavailable for this graph session.",
         )
 
-    graph_dict = await asyncio.to_thread(session.build_graph_dict)
-    embeddings = _extract_node_embeddings(graph_dict)
+    embeddings = _get_cached_embeddings(session)
     query_embedding = embeddings.get(node_id)
     if not embeddings or query_embedding is None:
         raise HTTPException(
