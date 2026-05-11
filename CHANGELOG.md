@@ -7,10 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [Unreleased]
+## [0.5.0] - 2026-05-11
 
 ### Added
-- **Distance Intelligence Embedding Cache Optimization** by @Assistant
+
+- **Distance Intelligence Embedding Cache Optimization** by @KaifAhmad1
   - Implemented per-session graph revision-based embedding cache to avoid re-scanning all nodes on every request
   - Added `get_cached_embeddings()` method to GraphSession with thread-safe caching and automatic invalidation
   - Updated distance matrix and semantic neighborhood endpoints to use cached embeddings for significant performance improvement
@@ -26,8 +27,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Unified dispatch integration
   - Optional dependency management (ingest-parquet extra)
   - Comprehensive test coverage (32/32 tests passing)
-
-**Ontology Hub** (part of #517)
 
 **Ontology Hub** (part of #517)
 
@@ -66,14 +65,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Graph Workspace declutter** (PR #483, @ZohaibHassan16) — calmer default presentation for dense graphs, display-edge aggregation with raw-edge bundle retention, grouped community view, neighborhood collapse/expand.
 - **Bidirectional path finding** (closes #469, @KaifAhmad1) — `directed=false` query param on BFS and Dijkstra; undirected view built via `graph.to_undirected()` for traversal only; empty-path 404 guard; `PathResponse.directed` field.
 - **Node distance semantics in path responses** (closes #472) — `PathResponse` gains `hop_count` and `distance_band` ("direct"/"near"/"mid-range"/"distant"); `classify_path_distance()` in `semantica/utils/helpers.py`; `KGVisualizer.visualize_network(highlight_path)` with band-scaled edge rendering.
-- **Native `KnowledgeGraph` type support in `KGVisualizer`** (closes #471) — formal `KnowledgeGraph` dataclass (`entities`, `relationships`, `metadata`); `_normalize_graph()` routes it through `_convert_knowledge_graph()` as an explicit fast-path in all 5 `visualize_*` methods.
+- **Native `KnowledgeGraph` type support in `KGVisualizer`** (closes #471) — formal `KnowledgeGraph` dataclass (`entities`, `relationships`, `metadata`); `_normalize_graph()` duck-types input; raises clear `ProcessingError` on unknown types. 21 tests added.
 - **Indexed search for large graphs** (PR #481, @ZohaibHassan16) — purpose-built inverted index with exact/token/prefix lookup tiers; LRU cache (128 slots); O(log n) mutation sync via `bisect.insort`; warm-query time 24 ms → 0.004 ms on 118 k-node graph.
 - **Provenance traversal multi-hop fix** (PR #480, @Sameer6305) — undirected ego-graph expansion so upstream ancestors at depth ≥ 2 are no longer silently excluded; `ProvenanceEdge.direction` field (upstream/downstream/lateral); grouped markdown report under `## Upstream/Downstream/Lateral` sections.
 - **TripletStore ontology namespace** (PR #447, @KaifAhmad1) — `_resolve_iri()` applies `base_uri` before `urn:` fallback; W3C prefix expansion table (owl/xsd/rdf/rdfs/skos) expands to canonical IRIs regardless of `base_uri`.
 - **Blazegraph literal serialization** (PR #448, @KaifAhmad1) — `_format_object_for_sparql()` selects IRI/typed-literal/language-tagged-literal/plain-literal token; `_resolve_datatype_iri()` with prefix expansion; RFC 5646 language-tag validation; `_escape_literal()` for string escaping.
 - **DeepSeek provider via OpenAI SDK** (PR #482, @liling) — `_init_client` rewritten using `openai.OpenAI(base_url=self.base_url)` instead of defunct `deepseek` package; `verbose_mode` assignment fix; `pyproject.toml` updated to `openai>=1.0.0`.
-
-### Added
 
 - **`DuplicateDetector` result limiting and ranking** (issue #534, by @KaifAhmad1):
   - `max_results` — hard global cap on returned candidates; applied after sorting. `None` means no limit.
@@ -125,7 +122,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Fix: Ontology Hub post-review bug fixes and security hardening** (follow-up to #518, closes security advisory #23, by @KaifAhmad1):
   - **Broken registry filters** — `fetchRegistry` was sending toolbar filter values (`owl`, `skos`, `internal`, `external`) to the backend as the `status` query param, which only accepts `published|draft|external`, causing those filters to return empty lists. Removed the spurious `status` param; all format/kind filtering is now applied client-side via `filteredEntries`, which already had the correct logic.
   - **Toggle/refresh URI corruption** — `toggle_ontology` and `refresh_ontology` applied `.removesuffix("/toggle")` / `.removesuffix("/refresh")` to the captured path parameter, which would silently corrupt any ontology URI that legitimately ends with those strings. Starlette's route regex (`/{uri:path}/toggle`) already strips the literal suffix via backtracking, so the `removesuffix` calls were removed and the raw `ontology_uri` parameter is used directly.
-  - **SSRF in URL fetch** — `_fetch_url_sync()` accepted arbitrary user-supplied URLs and called `requests.get()` with no validation, enabling server-side request forgery against internal services. Added `_validate_fetch_url()` which rejects non-`http`/`https` schemes and resolves the hostname via `socket.getaddrinfo`, blocking loopback, private, link-local, reserved, and multicast addresses. Applied to all three fetch sites: preview, load, and refresh.
+  - **SSRF in URL fetch** — `_fetch_url_sync()` accepted arbitrary user-supplied URLs and called `requests.get()` with no validation, enabling server-side request forgery against internal services. Added `_validate_fetch_url()` which rejects non-`http`/`https` schemes and resolves the hostname via `socket.getaddrinfo`, blocking loopback, private, link-local, reserved, and multicast addresses.
   - **File upload format misdetected** — the file picker accepted `.xml` and `.json` but `fmtMap` had no entries for those extensions, causing them to default to `turtle`. Added `xml: "xml"` and `json: "json-ld"` mappings. Changed the unknown-extension fallback from `|| "turtle"` to `?? ""` (empty string), and omit the `format` key from the request body when empty so the backend `_detect_format()` runs instead of receiving a forced incorrect value. Also added `.n3` to the accepted extension list and dropzone hint.
   - **Inconsistent XML hardening** — `_parse_rdf_sync()` called `rdflib.Graph().parse()` directly, bypassing the `defusedxml`-based XXE protection already present in `semantica/explorer/utils/rdf_parser.py`. Now routes through `_safe_parse_rdf()` from that module, applying consistent protection for all RDF/XML parse paths.
   - **Search scans whole graph** (`GET /api/ontology/search`) — the endpoint fetched up to 999 999 nodes and performed a linear Python substring scan on every request. Replaced with `session.search(q, limit * 6)` which uses the `GraphSearchIndex`; results are then post-filtered by `_SEARCHABLE_TYPES` and `entity_type` before being returned up to the requested limit.
@@ -173,6 +170,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **[LOW — CWE-434]** Import upload in `export_import.py`: 50 MB cap; `{.json,.csv}` allowlist.
   - CodeQL `paths-ignore` for `cookbook/**/*.html` to suppress false-positive JS alerts #15–18.
 - **SSRF in Ontology Hub** (PR #518 follow-up): `_validate_fetch_url()` rejects non-http/https schemes and resolves hostname via `socket.getaddrinfo`, blocking loopback/private/link-local/multicast addresses.
+
+---
+
+## [Unreleased]
+
+### Added
+- Placeholder for future features and improvements
 
 ---
 
