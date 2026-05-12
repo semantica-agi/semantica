@@ -11,7 +11,7 @@
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![PyPI](https://img.shields.io/pypi/v/semantica.svg)](https://pypi.org/project/semantica/)
-[![Version](https://img.shields.io/badge/version-0.4.0-brightgreen.svg)](https://github.com/Hawksight-AI/semantica/releases/tag/v0.4.0)
+[![Version](https://img.shields.io/badge/version-0.5.0-brightgreen.svg)](https://github.com/Hawksight-AI/semantica/releases/tag/v0.5.0)
 [![Total Downloads](https://static.pepy.tech/badge/semantica)](https://pepy.tech/project/semantica)
 [![CI](https://github.com/Hawksight-AI/semantica/workflows/CI/badge.svg)](https://github.com/Hawksight-AI/semantica/actions)
 [![Discord](https://img.shields.io/badge/Discord-Join%20Community-5865F2?logo=discord&logoColor=white)](https://discord.gg/sV34vps5hH)
@@ -22,7 +22,82 @@
 
 > **Transform Chaos into Intelligence. Build AI systems with context graphs, decision tracking, and advanced knowledge engineering that are explainable, traceable, and trustworthy — not black boxes.**
 
+---
+
+## 🌍 Languages
+
+<p>
+  <a href="https://readme-i18n.com/Hawksight-AI/semantica?lang=en">🇺🇸 English</a> •
+  <a href="https://readme-i18n.com/Hawksight-AI/semantica?lang=de">🇩🇪 Deutsch</a> •
+  <a href="https://readme-i18n.com/Hawksight-AI/semantica?lang=fr">🇫🇷 Français</a> •
+  <a href="https://readme-i18n.com/Hawksight-AI/semantica?lang=es">🇪🇸 Español</a> •
+  <a href="https://readme-i18n.com/Hawksight-AI/semantica?lang=it">🇮🇹 Italiano</a> •
+  <a href="https://readme-i18n.com/Hawksight-AI/semantica?lang=pt">🇵🇹 Português</a>
+</p>
+
+<p>
+  <a href="https://readme-i18n.com/Hawksight-AI/semantica?lang=nl">🇳🇱 Nederlands</a> •
+  <a href="https://readme-i18n.com/Hawksight-AI/semantica?lang=pl">🇵🇱 Polski</a> •
+  <a href="https://readme-i18n.com/Hawksight-AI/semantica?lang=cs">🇨🇿 Čeština</a> •
+  <a href="https://readme-i18n.com/Hawksight-AI/semantica?lang=sv">🇸🇪 Svenska</a> •
+  <a href="https://readme-i18n.com/Hawksight-AI/semantica?lang=da">🇩🇰 Dansk</a> •
+  <a href="https://readme-i18n.com/Hawksight-AI/semantica?lang=fi">🇫🇮 Suomi</a> •
+  <a href="https://readme-i18n.com/Hawksight-AI/semantica?lang=no">🇳🇴 Norsk</a>
+</p>
+
+<p>
+  <a href="https://readme-i18n.com/Hawksight-AI/semantica?lang=ro">🇷🇴 Română</a> •
+  <a href="https://readme-i18n.com/Hawksight-AI/semantica?lang=hu">🇭🇺 Magyar</a> •
+  <a href="https://readme-i18n.com/Hawksight-AI/semantica?lang=el">🇬🇷 Ελληνικά</a> •
+  <a href="https://readme-i18n.com/Hawksight-AI/semantica?lang=tr">🇹🇷 Türkçe</a> •
+  <a href="https://readme-i18n.com/Hawksight-AI/semantica?lang=ru">🇷🇺 Русский</a> •
+  <a href="https://readme-i18n.com/Hawksight-AI/semantica?lang=uk">🇺🇦 Українська</a>
+</p>
+
+<p>
+  <a href="https://readme-i18n.com/Hawksight-AI/semantica?lang=ar">🇸🇦 العربية</a> •
+  <a href="https://readme-i18n.com/Hawksight-AI/semantica?lang=fa">🇮🇷 فارسی</a> •
+  <a href="https://readme-i18n.com/Hawksight-AI/semantica?lang=hi">🇮🇳 हिन्दी</a> •
+  <a href="https://readme-i18n.com/Hawksight-AI/semantica?lang=bn">🇧🇩 বাংলা</a> •
+  <a href="https://readme-i18n.com/Hawksight-AI/semantica?lang=ta">🇮🇳 தமிழ்</a> •
+  <a href="https://readme-i18n.com/Hawksight-AI/semantica?lang=te">🇮🇳 తెలుగు</a>
+</p>
+
+<p>
+  <a href="https://readme-i18n.com/Hawksight-AI/semantica?lang=id">🇮🇩 Bahasa Indonesia</a> •
+  <a href="https://readme-i18n.com/Hawksight-AI/semantica?lang=vi">🇻🇳 Tiếng Việt</a> •
+  <a href="https://readme-i18n.com/Hawksight-AI/semantica?lang=th">🇹🇭 ไทย</a> •
+  <a href="https://readme-i18n.com/Hawksight-AI/semantica?lang=zh">🇨🇳 中文</a> •
+  <a href="https://readme-i18n.com/Hawksight-AI/semantica?lang=ja">🇯🇵 日本語</a> •
+  <a href="https://readme-i18n.com/Hawksight-AI/semantica?lang=ko">🇰🇷 한국어</a>
+</p>
+
 </div>
+
+---
+
+## 🆕 What's New in v0.5.0
+
+**Released May 11, 2026** · [Full Release Notes](RELEASE_NOTES.md) · [Changelog](CHANGELOG.md)
+
+### Distance Intelligence Framework
+- **10x+ embedding cache performance** — per-session revision-based caching with thread-safe invalidation
+- **Semantic Neighborhood Search** — context-aware similarity with proximity metrics
+- **Distance Matrix API** — N×N semantic distance calculations with caching
+- **Advanced UI** — ego mode, overlays, heatmap, and path inspector
+
+### Complete Ontology Hub Suite
+- **Alignments Tab** — cross-ontology alignment authoring with ML-powered confidence scoring
+- **Health Dashboard** — quality scoring across 5 dimensions with actionable issue tracking
+- **SHACL Studio** — interactive shape authoring with Monaco editor
+- **Visual Editor** — drag-and-drop ontology construction without hand-coding
+- **16 new backend endpoints** — full CRUD and analysis for ontology management
+
+### More in This Release
+- **Parquet Ingestion** — PyArrow backend with column selection and partition support
+- **O(log n) Indexed Search** — 118k nodes: 24ms → 0.004ms
+- **12 Security Vulnerabilities Fixed** — eval injection, XXE, SQL injection, SSRF, and more
+- **Windows & cross-platform fixes** — Unicode console, pipx install, optional dependency cleanup
 
 ---
 
