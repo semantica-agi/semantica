@@ -22,13 +22,11 @@
 
 > **Transform Chaos into Intelligence. Build AI systems with context graphs, decision tracking, and advanced knowledge engineering that are explainable, traceable, and trustworthy — not black boxes.**
 
----
 
 🌍 [🇺🇸 EN](https://readme-i18n.com/Hawksight-AI/semantica?lang=en) · [🇩🇪 DE](https://readme-i18n.com/Hawksight-AI/semantica?lang=de) · [🇫🇷 FR](https://readme-i18n.com/Hawksight-AI/semantica?lang=fr) · [🇪🇸 ES](https://readme-i18n.com/Hawksight-AI/semantica?lang=es) · [🇮🇹 IT](https://readme-i18n.com/Hawksight-AI/semantica?lang=it) · [🇵🇹 PT](https://readme-i18n.com/Hawksight-AI/semantica?lang=pt) · [🇳🇱 NL](https://readme-i18n.com/Hawksight-AI/semantica?lang=nl) · [🇵🇱 PL](https://readme-i18n.com/Hawksight-AI/semantica?lang=pl) · [🇨🇿 CS](https://readme-i18n.com/Hawksight-AI/semantica?lang=cs) · [🇸🇪 SV](https://readme-i18n.com/Hawksight-AI/semantica?lang=sv) · [🇩🇰 DA](https://readme-i18n.com/Hawksight-AI/semantica?lang=da) · [🇫🇮 FI](https://readme-i18n.com/Hawksight-AI/semantica?lang=fi) · [🇳🇴 NO](https://readme-i18n.com/Hawksight-AI/semantica?lang=no) · [🇷🇴 RO](https://readme-i18n.com/Hawksight-AI/semantica?lang=ro) · [🇭🇺 HU](https://readme-i18n.com/Hawksight-AI/semantica?lang=hu) · [🇬🇷 EL](https://readme-i18n.com/Hawksight-AI/semantica?lang=el) · [🇹🇷 TR](https://readme-i18n.com/Hawksight-AI/semantica?lang=tr) · [🇷🇺 RU](https://readme-i18n.com/Hawksight-AI/semantica?lang=ru) · [🇺🇦 UK](https://readme-i18n.com/Hawksight-AI/semantica?lang=uk) · [🇸🇦 AR](https://readme-i18n.com/Hawksight-AI/semantica?lang=ar) · [🇮🇷 FA](https://readme-i18n.com/Hawksight-AI/semantica?lang=fa) · [🇮🇳 HI](https://readme-i18n.com/Hawksight-AI/semantica?lang=hi) · [🇧🇩 BN](https://readme-i18n.com/Hawksight-AI/semantica?lang=bn) · [🇮🇩 ID](https://readme-i18n.com/Hawksight-AI/semantica?lang=id) · [🇻🇳 VI](https://readme-i18n.com/Hawksight-AI/semantica?lang=vi) · [🇹🇭 TH](https://readme-i18n.com/Hawksight-AI/semantica?lang=th) · [🇨🇳 ZH](https://readme-i18n.com/Hawksight-AI/semantica?lang=zh) · [🇯🇵 JA](https://readme-i18n.com/Hawksight-AI/semantica?lang=ja) · [🇰🇷 KO](https://readme-i18n.com/Hawksight-AI/semantica?lang=ko)
 
 </div>
 
----
 
 ## 🆕 What's New in v0.5.0
 
