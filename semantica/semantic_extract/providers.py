@@ -424,7 +424,15 @@ class BaseProvider:
                                 exc_info=True,
                             )
                             json_client = instructor.from_openai(self.client, mode=instructor.Mode.JSON)
-                            response = json_client.chat.completions.create(**create_kwargs)
+                            # Build a clean kwargs dict for the Mode.JSON retry: drop
+                            # response_format (Mode.JSON handles schema differently)
+                            # but keep response_model/max_retries so instructor still
+                            # validates the typed output.
+                            retry_kwargs = {
+                                k: v for k, v in create_kwargs.items()
+                                if k != "response_format"
+                            }
+                            response = json_client.chat.completions.create(**retry_kwargs)
                         else:
                             raise
 
@@ -455,6 +463,7 @@ class BaseProvider:
                     self.logger.warning(
                         "generate_structured failed (%s); retrying with plain generate() + JSON parse.",
                         struct_err,
+                        exc_info=True,
                     )
                     raw_content = self.generate(current_prompt, **kwargs)
                     json_result = self._parse_json(raw_content)
@@ -579,6 +588,17 @@ class OpenAIProvider(BaseProvider):
 
     def _init_client(self):
         """Initialize OpenAI client, respecting a custom base_url if provided."""
+        if self.base_url:
+            # Reject non-HTTP schemes (file://, ftp://, etc.) to prevent SSRF
+            # when base_url originates from configuration rather than hardcoded values.
+            from urllib.parse import urlparse
+            scheme = urlparse(self.base_url).scheme
+            if scheme not in ("http", "https"):
+                raise ValueError(
+                    f"OpenAIProvider base_url must use http or https, got scheme {scheme!r}. "
+                    f"Only HTTP(S) endpoints are permitted."
+                )
+
         try:
             from openai import OpenAI
 
@@ -762,19 +782,6 @@ class GroqProvider(BaseProvider):
         except Exception as e:
             self.client = None
             self.logger.error(f"Failed to initialize Groq client: {e}")
-
-    def is_available(self) -> bool:
-        """Check if provider is available and return diagnostic info."""
-        if self.client is None:
-            if not self.api_key:
-                return False  # Missing API key
-            try:
-                from groq import Groq
-            except ImportError:
-                return False  # Library not installed
-            return False
-            
-        return True
 
     def _test_connection(self):
         """Internal method to verify connection."""

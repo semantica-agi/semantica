@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [Unreleased]
+
+### Fixed
+
+- **NERExtractor LLM method returning pattern-based output on custom gateways** (#554, PR #556) by @KaifAhmad1
+
+  `NERExtractor(method="llm")` silently fell back to regex/pattern extraction when used with OpenAI-compatible enterprise or self-hosted gateways (Qwen, LLaMA proxies, internal routing layers). Returned entities carried `extraction_method='pattern'` even though the LLM itself was producing correct tool-call output. Three root causes fixed:
+
+  - **Silent exception swallowing** — `exc_info=True` was missing from the method-failure `WARNING` in `NERExtractor.extract_entities`. The full gateway-rejection traceback was invisible in logs even with `DEBUG` level enabled, making the failure impossible to diagnose without reading source code.
+
+  - **`response_format=json_object` sent to incompatible gateways** — `OpenAIProvider.generate_structured` unconditionally included `response_format={"type": "json_object"}` in every API call. Custom/enterprise gateways frequently reject this parameter, causing both the `instructor` path and the manual repair loop to fail with the same error on every retry, eventually triggering `_extract_fallback` (pattern extraction).
+
+  - **No fallback in the `generate_typed` manual repair loop** — when `generate_structured` itself raised (due to gateway rejection), the repair loop retried the identical failing call up to `max_retries` times before giving up. There was no path to recover via plain `generate()` + JSON parsing.
+
+  **Additional fixes applied during PR review:**
+
+  - Mode.JSON retry in `generate_typed` now strips `response_format` from `create_kwargs` before forwarding to the retry client, preventing incompatible kwargs from being sent to a client configured for a different instructor mode.
+  - `exc_info=True` added to the `generate_structured` fallback warning in the manual repair loop for consistent observability across all failure paths.
+  - Removed dead duplicate `is_available` definition in `GroqProvider` — Python silently kept only the second definition; the first was unreachable.
+  - `OpenAIProvider._init_client` now validates `base_url` scheme at construction time. Non-HTTP(S) schemes (`file://`, `ftp://`, `javascript:`, etc.) raise `ValueError` immediately, preventing SSRF if `base_url` originates from configuration rather than hardcoded values.
+
+  **17 regression tests** added in `tests/test_issue_554_fixes.py` covering all bug paths, including harshalizode's exact gateway configuration.
+
+---
+
 ## [0.5.0] - 2026-05-11
 
 ### Added

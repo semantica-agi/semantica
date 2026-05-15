@@ -265,6 +265,38 @@ class TestBug2GenerateStructuredCustomGateway(unittest.TestCase):
         result = provider.generate_structured("Find entities.")
         self.assertEqual(result, payload)
 
+    def test_invalid_base_url_scheme_raises(self):
+        """Non-HTTP(S) base_url must be rejected at init time to prevent SSRF."""
+        for bad_url in ("file:///etc/passwd", "ftp://internal.host/v1", "javascript:void"):
+            with self.assertRaises(ValueError, msg=f"Expected ValueError for {bad_url!r}"):
+                provider = object.__new__(OpenAIProvider)
+                provider.config = {}
+                provider.logger = get_logger("test_provider")
+                provider.api_key = "test-key"
+                provider.model = "test-model"
+                provider.base_url = bad_url
+                provider.client = None
+                provider._init_client()
+
+    def test_valid_http_base_url_accepted(self):
+        """http:// and https:// base_url values must pass validation."""
+        for good_url in ("https://gateway.corp/api/v1", "http://localhost:8080/v1"):
+            provider = object.__new__(OpenAIProvider)
+            provider.config = {}
+            provider.logger = get_logger("test_provider")
+            provider.api_key = "test-key"
+            provider.model = "test-model"
+            provider.base_url = good_url
+            provider.client = None
+            # _init_client will fail to import openai (not installed) but must
+            # not raise ValueError before reaching the import
+            try:
+                provider._init_client()
+            except ValueError:
+                self.fail(f"_init_client raised ValueError for valid URL {good_url!r}")
+            except Exception:
+                pass  # ImportError / OSError from missing openai package is expected
+
 
 # ---------------------------------------------------------------------------
 # Bug 3 – generate_typed manual repair loop must fall back to plain generate()
@@ -354,6 +386,31 @@ class TestBug3GenerateTypedFallbackToPlainGenerate(unittest.TestCase):
             provider.generate_typed(
                 "Extract entities.", schema=_StubEntitiesResponse, max_retries=2
             )
+
+    def test_generate_structured_fallback_warning_has_exc_info(self):
+        """
+        The warning logged when generate_structured fails must carry exc_info so
+        the full traceback is visible in production logs (consistent with other
+        warnings added in this PR).
+        """
+        provider = _bare_openai_provider(base_url="https://gateway.local/api/v1")
+
+        provider.generate_structured = MagicMock(
+            side_effect=ProcessingError("response_format rejected")
+        )
+        provider.generate = MagicMock(return_value=self._valid_json())
+
+        with self.assertLogs("semantica.test_provider", level="WARNING") as log_ctx:
+            provider.generate_typed(
+                "Extract entities.", schema=_StubEntitiesResponse, max_retries=1
+            )
+
+        has_traceback = any(r.exc_info is not None for r in log_ctx.records)
+        self.assertTrue(
+            has_traceback,
+            "generate_structured fallback warning must include exc_info=True "
+            "so the gateway rejection traceback is visible in logs.",
+        )
 
     def test_fallback_preserves_error_on_bad_json(self):
         """
