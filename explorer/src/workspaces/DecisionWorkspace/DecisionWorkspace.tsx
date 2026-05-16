@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { Scale, Search, ArrowRight, Info } from "lucide-react";
 
 type OutcomeKind = "approved" | "rejected" | "deferred" | "pending" | string;
@@ -93,6 +93,9 @@ export function DecisionWorkspace() {
   const [listLoading, setListLoading] = useState(true);
   const [filter, setFilter] = useState("");
 
+  // Tracks the active chain request so stale responses from rapid selections are ignored.
+  const chainCtrlRef = useRef<AbortController | null>(null);
+
   useEffect(() => {
     const ctrl = new AbortController();
     setListLoading(true);
@@ -108,17 +111,27 @@ export function DecisionWorkspace() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Cancel any in-flight chain request when the workspace unmounts.
+  useEffect(() => () => { chainCtrlRef.current?.abort(); }, []);
+
   async function loadChain(d: { decision_id: string; category?: string; outcome?: string }) {
+    chainCtrlRef.current?.abort();
+    const ctrl = new AbortController();
+    chainCtrlRef.current = ctrl;
+
     setSelected(d);
     setChainLoading(true);
     setChain([]);
     try {
-      const res = await fetch(`/api/decisions/${encodeURIComponent(d.decision_id)}/chain`);
+      const res = await fetch(`/api/decisions/${encodeURIComponent(d.decision_id)}/chain`, { signal: ctrl.signal });
       if (!res.ok) throw new Error(`${res.status}`);
       const data = await res.json();
-      setChain(data.chain || []);
-    } catch (e) { console.error(e); }
-    finally { setChainLoading(false); }
+      if (!ctrl.signal.aborted) setChain(data.chain || []);
+    } catch (e) {
+      if (e instanceof Error && e.name !== "AbortError") console.error(e);
+    } finally {
+      if (!ctrl.signal.aborted) setChainLoading(false);
+    }
   }
 
   const filtered = useMemo(() => {

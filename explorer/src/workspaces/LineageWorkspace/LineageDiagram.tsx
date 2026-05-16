@@ -2,6 +2,7 @@
  * src/workspaces/LineageWorkspace/LineageDiagram.tsx
  */
 import { useEffect, useState } from "react";
+import { Link2 } from "lucide-react";
 import { ReactFlow, Background, Controls } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 
@@ -149,7 +150,7 @@ export function LineageDiagram() {
         </ReactFlow>
       ) : (
         <div className="ws-empty" style={{ height: "100%", paddingTop: 72 }}>
-          <div className="ws-empty-icon" style={{ fontSize: 36 }}>🔗</div>
+          <div className="ws-empty-icon"><Link2 size={36} color="var(--ws-accent)" /></div>
           <div className="ws-empty-title">PROV-O Lineage Viewer</div>
           <div className="ws-empty-body">Enter a Node ID in the toolbar above and click Trace to view its W3C PROV-O lineage diagram.</div>
         </div>

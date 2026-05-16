@@ -251,6 +251,7 @@ export function OntologyManager() {
 
   const fetchRegistry = useCallback(async () => {
     setLoading(true);
+    setActionMsg(null);
     try {
       const params = new URLSearchParams();
       if (searchQ) params.set("q", searchQ);
@@ -258,11 +259,14 @@ export function OntologyManager() {
       if (res.ok) {
         setEntries(await res.json());
       } else {
-        // Server not ready or registry empty — treat as empty list, not an error
+        // Non-OK response — show empty state with a soft warning (not a blocking error)
         setEntries([]);
+        if (res.status !== 404) {
+          flashMsg("err", `Registry unavailable (HTTP ${res.status}) — connect the backend to load ontologies`);
+        }
       }
     } catch {
-      // Network error (backend not running) — show empty state, not error banner
+      // Network error — backend not running; show empty state silently
       setEntries([]);
     } finally {
       setLoading(false);

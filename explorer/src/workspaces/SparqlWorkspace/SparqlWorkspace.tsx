@@ -96,17 +96,24 @@ export function SparqlWorkspace() {
     navigator.clipboard.writeText(query).then(() => {
       setCopyState(true);
       setTimeout(() => setCopyState(false), 1500);
+    }).catch(() => {
+      // Clipboard API unavailable (insecure context or denied) — no-op; query is visible in editor
     });
   }
 
   function handleExportCSV() {
     if (!result?.rows || !result?.columns) return;
-    const header = result.columns.join(",");
-    const rows = result.rows.map((r) => result.columns!.map((c) => JSON.stringify(r[c] ?? "")).join(",")).join("\n");
+    const cols = result.columns;
+    const header = cols.join(",");
+    const rows = result.rows.map((r) => cols.map((c) => JSON.stringify(r[c] ?? "")).join(",")).join("\n");
     const blob = new Blob([`${header}\n${rows}`], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
-    a.href = url; a.download = "sparql_results.csv"; a.click();
+    a.href = url;
+    a.download = "sparql_results.csv";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
     URL.revokeObjectURL(url);
   }
 
@@ -200,7 +207,7 @@ export function SparqlWorkspace() {
                 </div>
               )}
 
-              {result?.rows && !isLoading && (
+              {result?.rows && result?.columns && !isLoading && (
                 <div className="ws-animate-in" style={{ overflowX: "auto" }}>
                   {result.rows.length === 0 ? (
                     <div className="ws-empty">
@@ -212,7 +219,7 @@ export function SparqlWorkspace() {
                       <thead>
                         <tr style={{ borderBottom: "1px solid var(--ws-border)", background: "rgba(0,0,0,0.2)" }}>
                           <th style={{ padding: "8px 14px", textAlign: "left", color: "var(--ws-text-dim)", fontFamily: "monospace", fontSize: 11, fontWeight: 700, letterSpacing: "0.06em", width: 40 }}>#</th>
-                          {result.columns!.map((c) => (
+                          {result.columns.map((c) => (
                             <th key={c} style={{ padding: "8px 14px", textAlign: "left", color: "var(--ws-text-muted)", fontFamily: "monospace", fontSize: 11, fontWeight: 700, letterSpacing: "0.06em" }}>?{c}</th>
                           ))}
                         </tr>
@@ -221,7 +228,7 @@ export function SparqlWorkspace() {
                         {result.rows.map((r, i) => (
                           <tr key={i} style={{ borderBottom: "1px solid rgba(74,163,255,0.06)" }}>
                             <td style={{ padding: "7px 14px", color: "var(--ws-text-dim)", fontFamily: "monospace", fontSize: 11 }}>{i + 1}</td>
-                            {result.columns!.map((c) => (
+                            {(result.columns ?? []).map((c) => (
                               <td key={c} style={{ padding: "7px 14px", maxWidth: 300, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontFamily: "monospace" }} title={String(r[c] ?? "")}>
                                 {r[c] != null ? (
                                   String(r[c]).startsWith("urn:") || String(r[c]).startsWith("http")

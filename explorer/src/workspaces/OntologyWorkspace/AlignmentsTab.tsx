@@ -49,19 +49,24 @@ export function AlignmentsTab() {
 
   const reload = useCallback(async () => {
     setError("");
-    // Load registry and alignments independently so a backend failure shows
-    // empty state rather than an error banner.
-    const [registryData, alignmentData] = await Promise.allSettled([
+    const [registryResult, alignmentResult] = await Promise.allSettled([
       loadOntologyRegistry(),
       loadAlignments(),
     ]);
-    if (registryData.status === "fulfilled") {
-      setRegistry(registryData.value);
-      setSourceOntology((current) => current || registryData.value[0]?.uri || "");
-      setTargetOntology((current) => current || registryData.value[1]?.uri || registryData.value[0]?.uri || "");
+
+    if (registryResult.status === "fulfilled") {
+      setRegistry(registryResult.value);
+      setSourceOntology((current) => current || registryResult.value[0]?.uri || "");
+      setTargetOntology((current) => current || registryResult.value[1]?.uri || registryResult.value[0]?.uri || "");
     }
-    if (alignmentData.status === "fulfilled") {
-      setAlignments(alignmentData.value);
+    if (alignmentResult.status === "fulfilled") {
+      setAlignments(alignmentResult.value);
+    }
+
+    // If both failed the backend is unreachable — show a soft warning so the
+    // user knows data is missing (not just that the registry is empty).
+    if (registryResult.status === "rejected" && alignmentResult.status === "rejected") {
+      setError("Backend unavailable — connect the server to load ontologies and alignments.");
     }
   }, []);
 

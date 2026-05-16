@@ -57,7 +57,11 @@ export function ImportExportWorkspace() {
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
-      a.href = url; a.download = `semantica_export.${exportFormat}`; a.click();
+      a.href = url;
+      a.download = `semantica_export.${exportFormat}`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
       URL.revokeObjectURL(url);
       showToast("success", `Export ready — semantica_export.${exportFormat}`);
       logEvent("export", `Exported graph as ${exportFormat.toUpperCase()}`, { format: exportFormat });

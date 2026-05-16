@@ -73,6 +73,10 @@ export function DiffMergeWorkspace() {
 
         {/* Diff table */}
         <div className="ws-card" style={{ padding: 0, overflow: "hidden" }}>
+          <div style={{ padding: "6px 16px", background: "rgba(242,182,109,0.06)", borderBottom: "1px solid rgba(242,182,109,0.15)", display: "flex", alignItems: "center", gap: 6 }}>
+            <span style={{ fontSize: 10, fontWeight: 700, color: "var(--ws-amber)", letterSpacing: "0.08em", textTransform: "uppercase" }}>Sample preview</span>
+            <span style={{ fontSize: 11, color: "var(--ws-text-dim)" }}>— field comparison will load from the graph once the backend is connected</span>
+          </div>
           <div style={{ display: "grid", gridTemplateColumns: "140px 1fr 1fr", background: "rgba(0,0,0,0.28)", borderBottom: "1px solid var(--ws-border)" }}>
             <div style={{ padding: "10px 16px", fontSize: 11, fontWeight: 700, color: "var(--ws-text-dim)", letterSpacing: "0.08em", textTransform: "uppercase" }}>Field</div>
             <div style={{ padding: "10px 16px", fontSize: 11, fontWeight: 700, color: "var(--ws-accent)", letterSpacing: "0.08em", textTransform: "uppercase", borderLeft: "1px solid var(--ws-border)" }}>Primary (keep)</div>
