@@ -2,7 +2,7 @@ mkdocs>=1.6.1
 mkdocs-material>=9.7.6
 mkdocs-minify-plugin>=0.7.0
 mkdocs-mermaid2-plugin>=1.2.3
-pymdown-extensions>=10.21.2
+pymdown-extensions>=10.21.3
 
 mkdocstrings[python]>=0.24.0
 mkdocs-jupyter>=0.26.3
