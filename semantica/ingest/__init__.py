@@ -94,6 +94,7 @@ Main Classes:
     - DBIngestor: Database export handling
     - OntologyIngestor: Ontology file processing
     - ParquetIngestor: Apache Parquet file and partitioned dataset processing
+    - XMLIngestor: XML file parsing, validation, and metadata extraction
     - MethodRegistry: Registry for custom ingestion methods
     - IngestConfig: Configuration manager for ingest module
 
@@ -108,6 +109,7 @@ Convenience Functions:
     - ingest_database: Database ingestion wrapper
     - ingest_ontology: Ontology ingestion wrapper
     - ingest_parquet: Parquet ingestion wrapper
+    - ingest_xml: XML ingestion wrapper
 
 
 Example Usage:
@@ -145,6 +147,7 @@ from .methods import (
     ingest_repository,
     ingest_stream,
     ingest_web,
+    ingest_xml,
     list_available_methods,
 )
 from .registry import MethodRegistry, method_registry
@@ -204,6 +207,9 @@ _LAZY_EXPORTS: Dict[str, Tuple[str, str]] = {
     # Parquet ingestion
     "ParquetIngestor": (".parquet_ingestor", "ParquetIngestor"),
     "ParquetData": (".parquet_ingestor", "ParquetData"),
+    # XML ingestion
+    "XMLIngestor": (".xml_ingestor", "XMLIngestor"),
+    "XMLIngestionData": (".xml_ingestor", "XMLIngestionData"),
 }
 
 _OPTIONAL_DEPENDENCY_MESSAGES = {
@@ -310,6 +316,9 @@ __all__ = [
     # Parquet ingestion
     "ParquetIngestor",
     "ParquetData",
+    # XML ingestion
+    "XMLIngestor",
+    "XMLIngestionData",
     # Registry and Methods
     "MethodRegistry",
     "method_registry",
@@ -323,6 +332,7 @@ __all__ = [
     "ingest_database",
     "ingest_ontology",
     "ingest_parquet",
+    "ingest_xml",
     "ingest_mcp",
     "get_ingest_method",
     "list_available_methods",
