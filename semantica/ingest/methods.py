@@ -1097,7 +1097,14 @@ def ingest(
         **kwargs: Additional options passed to ingestor
 
     Returns:
-        Dict with ingestion results
+        Dict with ingestion results. The top-level key depends on source_type:
+            - "files": file ingestion
+            - "content": web ingestion
+            - "feeds": feed ingestion
+            - "emails": email ingestion
+            - "data": database, parquet, or MCP ingestion
+            - "ontology": ontology ingestion
+            - "xml": XML file or directory ingestion (use ``result["xml"]``)
 
     Examples:
         >>> from semantica.ingest.methods import ingest
@@ -1107,6 +1114,9 @@ def ingest(
         >>> result = ingest("https://example.com", source_type="web")
         >>> # Auto-detect from source
         >>> result = ingest("https://example.com/feed.xml")  # Auto-detects feed
+        >>> # XML ingestion — access via result["xml"]
+        >>> result = ingest("catalog.xml")
+        >>> xml_data = result["xml"]
     """
     # Auto-detect source type if not specified
     if not source_type:

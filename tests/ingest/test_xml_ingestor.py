@@ -175,6 +175,16 @@ def test_xml_ingest_methods_and_unified_dispatch(tmp_path: Path) -> None:
     assert isinstance(unified["xml"], XMLIngestionData)
 
 
+def test_xml_ingestor_ingests_string() -> None:
+    data = XMLIngestor().ingest_string("<root><item id='1'>hello</item></root>")
+
+    assert isinstance(data, XMLIngestionData)
+    assert data.root_tag == "root"
+    assert data.metadata["source_type"] == "string"
+    assert data.elements[1]["attributes"]["id"] == "1"
+    assert data.elements[1]["text"] == "hello"
+
+
 def test_xml_ingestor_ingests_directory(tmp_path: Path) -> None:
     (tmp_path / "one.xml").write_text("<root><one /></root>", encoding="utf-8")
     (tmp_path / "two.xml").write_text("<root><two /></root>", encoding="utf-8")
