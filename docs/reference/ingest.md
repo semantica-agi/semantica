@@ -1,6 +1,6 @@
 # Ingest
 
-> **Universal data ingestion from files, web, feeds, streams, repos, emails, and databases.**
+> **Universal data ingestion from files, XML, web, feeds, streams, repos, emails, and databases.**
 
 ---
 
@@ -13,6 +13,7 @@ The **Ingest Module** is the entry point for loading data into Semantica. It pro
 **Data ingestion** is the process of loading data from various sources into Semantica for processing. The ingest module handles:
 - **File Systems**: Local files, cloud storage (S3, GCS, Azure)
 - **Analytics Files**: Apache Parquet files and partitioned datasets
+- **Structured Files**: XML files with namespaces, attributes, XSD, and DTD validation
 - **Web Content**: Websites, RSS feeds, APIs
 - **Streams**: Real-time data from Kafka, RabbitMQ, etc.
 - **Databases**: SQL, NoSQL, and cloud data warehouses including Snowflake
@@ -81,6 +82,12 @@ The **Ingest Module** is the entry point for loading data into Semantica. It pro
 
     Read Parquet files, schemas, metadata, and Hive-style partitioned directories
 
+-   :material-code-tags:{ .lg .middle } **XML Files**
+
+    ---
+
+    Parse XML into structured trees with namespaces, attributes, metadata, XSD, and DTD validation
+
 </div>
 
 !!! tip "When to Use"
@@ -137,6 +144,19 @@ Handles Apache Parquet files and partitioned datasets.
 | `ingest_directory(path, columns=None, limit=None)` | Read a partitioned Parquet directory |
 | `extract_schema(path)` | Extract column names, types, nullability, and schema metadata |
 | `extract_metadata(path)` | Extract row counts, row groups, compression, and partition info |
+
+### XMLIngestor
+
+Handles XML files and directories.
+
+**Methods:**
+
+| Method | Description |
+|--------|-------------|
+| `ingest_file(path)` | Parse a single XML file into nested and flat structures |
+| `ingest_directory(path)` | Parse XML files from a folder |
+| `validate_file(path, schema_path=None, validate_dtd=False)` | Return XSD/DTD validation results |
+| `extract_metadata(path)` | Extract root, namespace, element, attribute, and DTD metadata |
 
 ### WebIngestor
 
@@ -234,6 +254,7 @@ from semantica.ingest import ingest
 # Auto-detect source type
 ingest("doc.pdf", source_type="file")
 ingest("events.parquet")  # Auto-detects Parquet
+ingest("catalog.xml")     # Auto-detects XML
 ingest("https://google.com", source_type="web")
 ingest("kafka://topic", source_type="stream")
 ```
@@ -258,6 +279,31 @@ metadata = ingestor.extract_metadata("events.parquet")
 
 # Read a Hive-style partitioned directory such as country=US/year=2026/
 partitioned = ingest_parquet("./warehouse/events", method="directory")
+```
+
+### XML File Ingestion
+
+```python
+from semantica.ingest import XMLIngestor, ingest_xml
+
+ingestor = XMLIngestor()
+
+# Parse a local XML file into a nested tree and flat element list
+xml_data = ingestor.ingest_file("catalog.xml")
+
+print(xml_data.root_tag)
+print(xml_data.namespaces)
+print(xml_data.elements[0]["attributes"])
+
+# Validate with an XSD schema
+validated = ingest_xml("catalog.xml", schema_path="catalog.xsd")
+print(validated.validation["schema"]["valid"])
+
+# Validate an internal or local DTD declaration
+dtd_report = ingestor.validate_file("catalog.xml", validate_dtd=True)
+
+# Extract metadata without returning the full tree
+metadata = ingest_xml("catalog.xml", method="metadata")
 ```
 
 ---

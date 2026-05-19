@@ -19,6 +19,12 @@ Parquet Ingestion:
     - "schema": Parquet schema extraction
     - "metadata": Parquet file or directory metadata extraction
 
+XML Ingestion:
+    - "file": Single XML file ingestion with structured parsing
+    - "directory": Directory ingestion for XML files
+    - "metadata": XML structure and namespace metadata extraction
+    - "validate": XSD and DTD validation report
+
 Web Ingestion:
     - "url": Single URL ingestion
     - "sitemap": Sitemap-based crawling
@@ -138,6 +144,7 @@ Main Functions:
     - ingest_email: Email ingestion wrapper
     - ingest_database: Database ingestion wrapper
     - ingest_parquet: Parquet ingestion wrapper
+    - ingest_xml: XML ingestion wrapper
     - ingest: Unified ingestion function with source type dispatch
     - get_ingest_method: Get ingestion method by name
     - list_available_methods: List registered methods
@@ -172,6 +179,7 @@ if TYPE_CHECKING:
     from .parquet_ingestor import ParquetData
     from .stream_ingestor import StreamProcessor
     from .web_ingestor import WebContent
+    from .xml_ingestor import XMLIngestionData
 
 logger = get_logger("ingest_methods")
 
@@ -330,6 +338,77 @@ def ingest_parquet(
         raise
     except Exception as e:
         logger.error(f"Failed to ingest Parquet: {e}")
+        raise
+
+
+def ingest_xml(
+    source: Union[str, Path, List[Union[str, Path]]],
+    method: str = "file",
+    **kwargs,
+) -> Union[
+    XMLIngestionData,
+    List[XMLIngestionData],
+    Dict[str, Any],
+    List[Dict[str, Any]],
+]:
+    """
+    Ingest XML files from source (convenience function).
+
+    Args:
+        source: XML file path, directory path, or list of XML file paths
+        method: Ingestion method:
+            - "file": Single XML file ingestion
+            - "directory": Directory ingestion with recursive scanning
+            - "metadata": Extract XML metadata without returning the full tree
+            - "validate": Return XSD/DTD validation report
+        **kwargs: Additional options passed to XMLIngestor
+
+    Returns:
+        XMLIngestionData, list of XMLIngestionData, metadata dict, or validation dict
+
+    Examples:
+        >>> from semantica.ingest.methods import ingest_xml
+        >>> data = ingest_xml("catalog.xml")
+        >>> report = ingest_xml(
+        ...     "catalog.xml", method="validate", schema_path="catalog.xsd"
+        ... )
+    """
+    custom_method = method_registry.get("xml", method)
+    if custom_method and custom_method != ingest_xml:
+        try:
+            return custom_method(source, **kwargs)
+        except Exception as e:
+            logger.warning(
+                f"Custom method {method} failed: {e}, falling back to default"
+            )
+
+    try:
+        from .xml_ingestor import XMLIngestor
+
+        config = ingest_config.get_method_config("xml")
+        config.update(kwargs)
+        ingestor = XMLIngestor(**config)
+
+        def _run_single(
+            path: Union[str, Path],
+        ) -> Union[XMLIngestionData, Dict[str, Any]]:
+            if method == "metadata":
+                return ingestor.extract_metadata(path, **kwargs)
+            if method in {"validate", "validation"}:
+                return ingestor.validate_file(path, **kwargs)
+            return ingestor.ingest_file(path, **kwargs)
+
+        if isinstance(source, list):
+            return [_run_single(path) for path in source]
+
+        source_path = Path(source)
+        if method == "directory" or source_path.is_dir():
+            return ingestor.ingest_directory(source_path, **kwargs)
+
+        return _run_single(source_path)
+
+    except Exception as e:
+        logger.error(f"Failed to ingest XML: {e}")
         raise
 
 
@@ -1013,11 +1092,19 @@ def ingest(
             - "db": Database ingestion
             - "ontology": Ontology ingestion
             - "parquet": Apache Parquet file or directory ingestion
+            - "xml": XML file or directory ingestion
         method: Optional specific ingestion method
         **kwargs: Additional options passed to ingestor
 
     Returns:
-        Dict with ingestion results
+        Dict with ingestion results. The top-level key depends on source_type:
+            - "files": file ingestion
+            - "content": web ingestion
+            - "feeds": feed ingestion
+            - "emails": email ingestion
+            - "data": database, parquet, or MCP ingestion
+            - "ontology": ontology ingestion
+            - "xml": XML file or directory ingestion (use ``result["xml"]``)
 
     Examples:
         >>> from semantica.ingest.methods import ingest
@@ -1027,6 +1114,9 @@ def ingest(
         >>> result = ingest("https://example.com", source_type="web")
         >>> # Auto-detect from source
         >>> result = ingest("https://example.com/feed.xml")  # Auto-detects feed
+        >>> # XML ingestion — access via result["xml"]
+        >>> result = ingest("catalog.xml")
+        >>> xml_data = result["xml"]
     """
     # Auto-detect source type if not specified
     if not source_type:
@@ -1056,6 +1146,8 @@ def ingest(
                 source_type = "ontology"
             elif source_str_lower.endswith((".parquet", ".pq")):
                 source_type = "parquet"
+            elif source_str_lower.endswith(".xml"):
+                source_type = "xml"
             else:
                 source_type = "file"
         elif (
@@ -1066,6 +1158,12 @@ def ingest(
             )
         ):
             source_type = "parquet"
+        elif (
+            isinstance(sources, list)
+            and sources
+            and all(str(source).lower().endswith(".xml") for source in sources)
+        ):
+            source_type = "xml"
         else:
             source_type = "file"
 
@@ -1094,6 +1192,8 @@ def ingest(
         return {"data": ingest_database(sources, method=method, **kwargs)}
     elif source_type == "parquet":
         return {"data": ingest_parquet(sources, method=method or "file", **kwargs)}
+    elif source_type == "xml":
+        return {"xml": ingest_xml(sources, method=method or "file", **kwargs)}
     elif source_type == "ontology":
         return {"ontology": ingest_ontology(sources, method=method or "file", **kwargs)}
     elif source_type == "mcp":
@@ -1108,7 +1208,7 @@ def get_ingest_method(task: str, name: str) -> Optional[Callable]:
 
     Args:
         task: Task type ("file", "web", "feed", "stream", "repo", "email",
-            "db", "mcp", "ingest")
+            "db", "mcp", "parquet", "xml", "ingest")
         name: Method name
 
     Returns:
@@ -1178,6 +1278,13 @@ method_registry.register("parquet", "directory", ingest_parquet)
 method_registry.register("parquet", "schema", ingest_parquet)
 method_registry.register("parquet", "metadata", ingest_parquet)
 method_registry.register("file", "parquet", ingest_parquet)
+method_registry.register("xml", "default", ingest_xml)
+method_registry.register("xml", "file", ingest_xml)
+method_registry.register("xml", "directory", ingest_xml)
+method_registry.register("xml", "metadata", ingest_xml)
+method_registry.register("xml", "validate", ingest_xml)
+method_registry.register("xml", "validation", ingest_xml)
+method_registry.register("file", "xml", ingest_xml)
 method_registry.register("mcp", "default", ingest_mcp)
 method_registry.register("mcp", "resources", ingest_mcp)
 method_registry.register("mcp", "tools", ingest_mcp)

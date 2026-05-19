@@ -60,6 +60,7 @@ class MethodRegistry:
         "db": {},
         "mcp": {},
         "parquet": {},
+        "xml": {},
         "ingest": {},
     }
 
@@ -70,7 +71,7 @@ class MethodRegistry:
 
         Args:
             task: Task type such as "file", "web", "feed", "stream",
-                "repo", "email", "db", "mcp", "parquet", or "ingest"
+                "repo", "email", "db", "mcp", "parquet", "xml", or "ingest"
             name: Method name
             method_func: Method function
         """
@@ -85,7 +86,7 @@ class MethodRegistry:
 
         Args:
             task: Task type such as "file", "web", "feed", "stream",
-                "repo", "email", "db", "mcp", "parquet", or "ingest"
+                "repo", "email", "db", "mcp", "parquet", "xml", or "ingest"
             name: Method name
 
         Returns:

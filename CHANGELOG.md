@@ -9,6 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **XML File Ingestion Support** (#560) by @Luffy2208
+  - Added `XMLIngestor` class with `lxml` backend for parsing local XML files
+  - Nested element hierarchy and flat element list extraction
+  - Namespace and prefix extraction with collision handling
+  - Attribute and element metadata extraction
+  - Optional XSD schema validation with detailed error reporting
+  - Optional DTD validation (internal and external)
+  - Secure-by-default parser (`resolve_entities=False`, `no_network=True`) blocking XXE attacks
+  - `ingest_xml()` convenience function and `ingest_file(..., method="xml")` support
+  - Unified `.xml` auto-detection via `ingest("file.xml")`
+  - Directory ingestion with recursive scanning and `fail_fast` support
+  - `ingest_string()` for in-memory XML bytes/str ingestion
+  - Comprehensive test coverage (8/8 tests passing)
+
 ### Fixed
 
 - **NERExtractor LLM method returning pattern-based output on custom gateways** (#554, PR #556) by @KaifAhmad1
