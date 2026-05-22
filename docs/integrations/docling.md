@@ -97,7 +97,7 @@ print(f"Pages: {result.get('total_pages')}")
 ```python
 {
     "full_text":    str,         # Clean document text
-    "tables":       list[dict],  # Extracted tables (headers + rows)
+    "tables":       List[dict],  # Extracted tables (headers + rows)
     "metadata":     dict,        # Title, author, creation date, etc.
     "total_pages":  int,
 }
