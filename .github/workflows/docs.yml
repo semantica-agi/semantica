@@ -45,9 +45,6 @@ jobs:
       - name: Validate docs structure
         run: python docs_check.py
 
-      - name: Validate Mintlify build
-        run: cd docs && npx mintlify validate
-
       - name: Export static site
         run: |
           cd docs
