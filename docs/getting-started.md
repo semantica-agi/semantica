@@ -5,7 +5,7 @@ icon: "rocket"
 ---
 
 <Tip>
-  Just here for code? Jump straight to the [Quickstart Tutorial](quickstart) or explore the [Cookbook](cookbook) for interactive notebooks.
+  Already installed? Jump to the [Quickstart Tutorial](quickstart). Need setup help first? Start with [Installation](installation).
 </Tip>
 
 ---
@@ -35,11 +35,7 @@ icon: "rocket"
 pip install semantica
 ```
 
-With all optional dependencies:
-
-```bash
-pip install semantica[all]
-```
+For virtual environments, extras, and platform-specific setup, see the full [Installation guide](installation).
 
 Verify:
 

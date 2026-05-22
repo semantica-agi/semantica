@@ -8,7 +8,7 @@ icon: "rocket"
   **v0.5.0** — Ontology Hub, Distance Intelligence, Parquet & XML ingestion, 12 security fixes. [What's new →](index#whats-new)
 </Info>
 
-This guide walks you through a complete Semantica pipeline — from raw document to queryable knowledge graph with full provenance. You need Python 3.8+ and nothing else to start. An LLM API key is optional; pattern-based extraction works out of the box.
+Use this after installation. If you still need setup help, start with the [Installation guide](installation). You need Python 3.8+ and nothing else to start. An LLM API key is optional; pattern-based extraction works out of the box.
 
 ---
 
