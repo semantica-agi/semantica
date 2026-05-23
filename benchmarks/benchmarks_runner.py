@@ -77,7 +77,9 @@ def run_effectiveness_suite(
         print(result.stderr, file=sys.stderr, end="" if result.stderr.endswith("\n") else "\n")
 
     if report_json:
-        os.makedirs(os.path.dirname(report_json), exist_ok=True)
+        report_dir = os.path.dirname(report_json)
+        if report_dir:
+            os.makedirs(report_dir, exist_ok=True)
         report = {
             "timestamp": datetime.now().isoformat(),
             "mode": mode,
