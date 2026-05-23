@@ -5,6 +5,14 @@ import re
 import subprocess
 import sys
 from datetime import datetime
+from pathlib import Path
+
+if __package__ in (None, ""):
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from benchmarks.context_graph_effectiveness.report_schema import (
+    validate_effectiveness_report,
+)
 
 
 def _effectiveness_marker_expr(mode: str) -> str:
@@ -70,18 +78,16 @@ def run_effectiveness_suite(
 
     if report_json:
         os.makedirs(os.path.dirname(report_json), exist_ok=True)
+        report = {
+            "timestamp": datetime.now().isoformat(),
+            "mode": mode,
+            "command": cmd,
+            "exit_code": result.returncode,
+            "summary": _parse_pytest_summary(f"{result.stdout}\n{result.stderr}"),
+        }
+        validate_effectiveness_report(report)
         with open(report_json, "w", encoding="utf-8") as handle:
-            json.dump(
-                {
-                    "timestamp": datetime.now().isoformat(),
-                    "mode": mode,
-                    "command": cmd,
-                    "exit_code": result.returncode,
-                    "summary": _parse_pytest_summary(f"{result.stdout}\n{result.stderr}"),
-                },
-                handle,
-                indent=2,
-            )
+            json.dump(report, handle, indent=2)
     if result.returncode != 0:
         print("\n[EFFECTIVENESS] One or more effectiveness tests FAILED.")
         if strict:
