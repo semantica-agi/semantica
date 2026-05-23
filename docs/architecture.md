@@ -1,12 +1,12 @@
 ---
 title: "Architecture"
-description: "Three-layer, modular architecture designed for independent component use, clean separation of concerns, and full extensibility."
+description: "Four-layer, modular architecture designed for independent component use, clean separation of concerns, and full extensibility."
 icon: "building"
 ---
 
-Semantica is built around a three-layer modular architecture. Import only what you need — the framework never forces a full stack. Every component is independently swappable, and every layer communicates through clean interfaces with no hidden coupling.
+Semantica is built around a four-layer modular architecture. Import only what you need — the framework never forces a full stack. Every component is independently swappable, and every layer communicates through clean interfaces with no hidden coupling.
 
-## Three-Layer Architecture
+## Four-Layer Architecture
 
 <img src="/assets/img/diagrams/architecture-overview.svg" alt="Semantica four-layer architecture" style={{ width: '100%', borderRadius: '12px', margin: '16px 0 24px' }} />
 
@@ -30,9 +30,9 @@ Loads data from any source into the pipeline as a unified `SourceDocument`.
 
 </Tab>
 
-<Tab title="Layer 2 — Semantic Processing">
+<Tab title="Layer 2 — Processing">
 
-The core intelligence engine — transforms raw text into structured, queryable knowledge.
+Transforms raw text into structured, enriched documents ready for knowledge store ingestion.
 
 | Step | Module | What it does |
 | ---- | ------ | ------------ |
@@ -40,15 +40,28 @@ The core intelligence engine — transforms raw text into structured, queryable 
 | Normalize | `normalize` | Canonical forms, date/name standardization, encoding fix |
 | Extract | `semantic_extract` | NER, relation extraction, event detection, triplets |
 | Build | `kg.GraphBuilder` | Entity merging, edge construction, graph assembly |
-| Embed | `embeddings` | Sentence-Transformers, FastEmbed, OpenAI, BGE |
 | QA | `deduplication`, `conflicts` | Duplicate detection, conflict resolution, validation |
+
+</Tab>
+
+<Tab title="Layer 3 — Intelligence">
+
+Persistent knowledge stores and embedding infrastructure that power retrieval and reasoning.
+
+| Component | Module | Description |
+| --------- | ------ | ----------- |
+| Knowledge Graph | `kg` | Graph construction, temporal models, analytics, Distance Intelligence |
+| Vector Store | `vector_store` | pgvector, Qdrant, Weaviate, Pinecone — semantic similarity search |
+| Ontology | `ontology` | OWL/RDFS modeling, SHACL validation, ontology alignment |
+| Triplet Store | `triplet_store` | RDF triple storage and SPARQL querying |
+| Embeddings | `embeddings` | Sentence-Transformers, FastEmbed, OpenAI, BGE |
 | Temporal | `kg.TemporalKnowledgeGraph` | `valid_from` / `valid_until`, Allen interval algebra (v0.4.0) |
 
 </Tab>
 
-<Tab title="Layer 3 — Application">
+<Tab title="Layer 4 — Application">
 
-Consumes the knowledge graph for downstream use cases.
+Consumes the knowledge graph and vector stores for downstream use cases.
 
 | Use Case | Module | Description |
 | -------- | ------ | ----------- |
@@ -73,15 +86,13 @@ Every pipeline follows the same linear path from raw source to delivered output:
 
 ## Module Map
 
-| Layer | Modules |
-| ----- | ------- |
-| Ingestion | `ingest`, `parse`, `split`, `normalize` |
-| Semantic | `semantic_extract`, `kg`, `ontology`, `reasoning` |
-| Storage | `embeddings`, `vector_store`, `graph_store`, `triplet_store` |
-| Quality | `deduplication`, `conflicts` |
-| Context | `context`, `provenance`, `change_management` |
-| Output | `export`, `visualization`, `pipeline`, `explorer` |
-| Utilities | `llms`, `mcp_server`, `seed`, `evals`, `core`, `utils` |
+| Layer | Category | Modules |
+| ----- | -------- | ------- |
+| **Layer 1 — Ingestion** | Sources | `ingest`, `split` |
+| **Layer 2 — Processing** | Transform | `parse`, `normalize`, `semantic_extract`, `deduplication`, `conflicts` |
+| **Layer 3 — Intelligence** | Stores | `kg`, `vector_store`, `graph_store`, `triplet_store`, `embeddings`, `ontology` |
+| **Layer 4 — Application** | Delivery | `context`, `reasoning`, `export`, `visualization`, `explorer`, `pipeline` |
+| — | Cross-cutting | `provenance`, `change_management`, `llms`, `mcp_server`, `seed`, `evals`, `core`, `utils` |
 
 ## Extension Points
 
