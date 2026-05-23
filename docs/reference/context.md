@@ -88,9 +88,9 @@ for step in result["reasoning_path"]:
 | `vector_store` | `VectorStore` | required | Backend for embedding-based memory retrieval |
 | `knowledge_graph` | `ContextGraph` | `None` | Enables graph-backed relationships and analytics |
 | `decision_tracking` | `bool` | `False` | Activates `DecisionRecorder` for every decision |
-| `graph_expansion` | `bool` | `False` | Auto-expands graph from stored memories |
-| `advanced_analytics` | `bool` | `False` | Enables centrality and community analysis |
-| `kg_algorithms` | `bool` | `False` | Adds path-finding and link prediction |
+| `graph_expansion` | `bool` | `True` | Auto-expands graph from stored memories |
+| `advanced_analytics` | `bool` | `True` | Enables centrality and community analysis |
+| `kg_algorithms` | `bool` | `True` | Adds path-finding and link prediction |
 
 ### Core Methods
 

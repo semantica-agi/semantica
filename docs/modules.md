@@ -59,7 +59,7 @@ xml = XMLIngestor(validate_xsd="schema.xsd")
 sources = xml.ingest("data/records/")
 ```
 
-**Available ingestors:** `FileIngestor`, `WebIngestor`, `ParquetIngestor`, `XMLIngestor`, `APIIngestor`, `DBIngestor`, `DuckDBIngestor`, `ElasticIngestor`, `EmailIngestor`, `FeedIngestor`, `GDriveIngestor`, `HuggingFaceIngestor`, `MCPIngestor`, `MongoIngestor`, `OntologyIngestor`, `PandasIngestor`, `RepoIngestor`, `SnowflakeIngestor`, `StreamIngestor`
+**Available ingestors:** `FileIngestor`, `WebIngestor`, `ParquetIngestor`, `XMLIngestor`, `RESTIngestor`, `DBIngestor`, `DuckDBIngestor`, `ElasticIngestor`, `EmailIngestor`, `FeedIngestor`, `GDriveIngestor`, `HuggingFaceIngestor`, `MCPIngestor`, `MongoIngestor`, `OntologyIngestor`, `PandasIngestor`, `RepoIngestor`, `SnowflakeIngestor`, `StreamIngestor`
 
 ### Parse
 
@@ -86,22 +86,22 @@ Chunks text for embedding and RAG pipelines with awareness of semantic boundarie
 ```python
 from semantica.split import TextSplitter
 
-splitter = TextSplitter(method="semantic")
-chunks = splitter.split(text, chunk_size=1000, overlap=200)
+splitter = TextSplitter(method="semantic_transformer")
+chunks = splitter.split(text, chunk_size=1000, chunk_overlap=200)
 ```
 
-**Chunking strategies:** `recursive`, `semantic`, `entity-aware`, `relation-aware`, `sliding_window`, `structural`, `table`
+**Chunking strategies:** `recursive`, `semantic_transformer`, `entity_aware`, `relation_aware`, `sliding_window`, `structural`
 
 ### Normalize
 
 Cleans and standardizes text before semantic processing.
 
 ```python
-from semantica.normalize import DataNormalizer
+from semantica.normalize import TextNormalizer, normalize_text, normalize_date
 
-normalizer = DataNormalizer()
-clean_text       = normalizer.normalize_text(text)
-standardized_date = normalizer.normalize_date("Jan 1st, 2020")
+normalizer = TextNormalizer()
+clean_text        = normalizer.normalize_text(text)
+standardized_date = normalize_date("Jan 1st, 2020")
 ```
 
 **Normalizers available:** text cleaning, entity canonicalization, date normalization, number normalization, encoding handling, language detection

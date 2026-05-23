@@ -20,9 +20,9 @@ icon: "scissors"
 from semantica.split import TextSplitter
 
 splitter = TextSplitter(
-    method="semantic",   # see methods table below
-    chunk_size=1000,     # target tokens per chunk
-    overlap=200          # token overlap between adjacent chunks
+    method="semantic_transformer",   # see methods table below
+    chunk_size=1000,                 # target tokens per chunk
+    chunk_overlap=200                # token overlap between adjacent chunks
 )
 
 chunks = splitter.split(text)
@@ -36,9 +36,9 @@ for chunk in chunks:
 | Method | Description | Best For |
 | ------ | ----------- | -------- |
 | `recursive` | Split by paragraph → sentence → word (cascading) | General purpose |
-| `semantic` | Split at semantic topic boundaries | RAG retrieval |
-| `entity-aware` | Keep entity mentions intact across boundaries | NER pipelines |
-| `relation-aware` | Keep relation triplets intact | KG construction |
+| `semantic_transformer` | Split at semantic topic boundaries via sentence transformer | RAG retrieval |
+| `entity_aware` | Keep entity mentions intact across boundaries | NER pipelines |
+| `relation_aware` | Keep relation triplets intact | KG construction |
 | `sentence` | Split by sentence boundary | Short content |
 | `token` | Split by token count (tiktoken) | LLM context windows |
 | `fixed` | Fixed character count with overlap | Batch processing |
@@ -56,7 +56,7 @@ from semantica.semantic_extract import NERExtractor
 ner = NERExtractor()
 entities = ner.extract(text)
 
-splitter = TextSplitter(method="entity-aware")
+splitter = TextSplitter(method="entity_aware")
 chunks = splitter.split(text, entities=entities)
 # → Each chunk contains only complete entity mentions
 ```
@@ -68,7 +68,7 @@ Subject–predicate–object triplets are kept within the same chunk:
 ```python
 from semantica.split import TextSplitter
 
-splitter = TextSplitter(method="relation-aware")
+splitter = TextSplitter(method="relation_aware")
 chunks = splitter.split(text, relationships=relationships)
 # → Triplets are never split across chunk boundaries
 ```
@@ -83,7 +83,7 @@ from semantica.embeddings import EmbeddingGenerator
 
 embedder = EmbeddingGenerator(model="sentence-transformers")
 splitter = TextSplitter(
-    method="semantic",
+    method="semantic_transformer",
     embedder=embedder,
     similarity_threshold=0.7   # split when consecutive sentence similarity drops below this
 )
@@ -98,9 +98,9 @@ Use tiktoken for precise token-count control when preparing LLM context windows:
 ```python
 splitter = TextSplitter(
     method="token",
-    chunk_size=512,      # max tokens per chunk
-    overlap=50,          # overlap in tokens
-    tokenizer="cl100k_base"  # OpenAI tokenizer
+    chunk_size=512,              # max tokens per chunk
+    chunk_overlap=50,            # overlap in tokens
+    tokenizer="cl100k_base"      # OpenAI tokenizer
 )
 chunks = splitter.split(text)
 ```
@@ -115,7 +115,7 @@ class Chunk:
     end_char:    int        # character offset in source document
     token_count: int        # number of tokens
     metadata:    Dict       # source_id, chunk_index, section_title, page_number, etc.
-    entities:    List[Dict] # entities in chunk (entity-aware splitting only)
+    entities:    List[Dict] # entities in chunk (entity_aware splitting only)
 ```
 
 ## Pipeline Integration
@@ -125,7 +125,7 @@ from semantica.pipeline import Pipeline
 from semantica.split import TextSplitter
 
 pipeline = Pipeline()
-pipeline.add_step("split", TextSplitter(method="semantic", chunk_size=512))
+pipeline.add_step("split", TextSplitter(method="semantic_transformer", chunk_size=512))
 result = pipeline.run(documents)
 ```
 
