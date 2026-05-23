@@ -30,7 +30,8 @@ def _effectiveness_marker_expr(mode: str) -> str:
 def _parse_pytest_summary(output: str) -> dict[str, int]:
     summary = {"passed": 0, "failed": 0, "skipped": 0, "deselected": 0, "errors": 0}
     for key in summary:
-        match = re.search(rf"(\d+)\s+{key}", output)
+        token_pattern = r"error(?:s)?" if key == "errors" else re.escape(key)
+        match = re.search(rf"(\d+)\s+{token_pattern}", output)
         if match:
             summary[key] = int(match.group(1))
     return summary
