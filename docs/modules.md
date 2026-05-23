@@ -5,14 +5,12 @@ icon: "puzzle-piece"
 ---
 
 <Tip>
-  Just need a quick reference? Jump to the [Module Index](#module-index) at the bottom of this page.
+  Looking for a quick reference? Jump to the [Module Index](#module-index) at the bottom.
 </Tip>
 
----
+Semantica is organized into **27 modules** across six logical layers. Each module is independently importable — you never pay for what you don't use.
 
 ## Architecture Overview
-
-Semantica is organized into **six logical layers**, each with specific responsibilities:
 
 <CardGroup cols={3}>
   <Card title="Input Layer" icon="database">
@@ -31,26 +29,24 @@ Semantica is organized into **six logical layers**, each with specific responsib
     Agent memory and decision tracking. **Modules:** Context, Provenance, Change Management
   </Card>
   <Card title="Output & Orchestration" icon="share-nodes">
-    Export, visualization, and workflows. **Modules:** Export, Visualization, Pipeline
+    Export, visualization, and workflows. **Modules:** Export, Visualization, Pipeline, Explorer
   </Card>
 </CardGroup>
-
----
 
 ## Input Layer
 
 ### Ingest
 
-Data ingestion from files, web, databases, and streams.
+Loads data from files, web, databases, and streams into a unified `SourceDocument` format.
 
 ```python
 from semantica.ingest import FileIngestor, WebIngestor, ParquetIngestor, XMLIngestor
 
-# Files (PDF, DOCX, CSV, Excel, PPTX, JSON, HTML, archives)
+# Files: PDF, DOCX, CSV, Excel, PPTX, JSON, HTML, archives
 ingestor = FileIngestor()
 documents = ingestor.ingest_directory("data/")
 
-# Web
+# Web crawl
 web_ingestor = WebIngestor()
 pages = web_ingestor.ingest_urls(["https://example.com"])
 
@@ -63,14 +59,16 @@ xml = XMLIngestor(validate_xsd="schema.xsd")
 sources = xml.ingest("data/records/")
 ```
 
+**Available ingestors:** `FileIngestor`, `WebIngestor`, `ParquetIngestor`, `XMLIngestor`, `RESTIngestor`, `DBIngestor`, `DuckDBIngestor`, `ElasticIngestor`, `EmailIngestor`, `FeedIngestor`, `GDriveIngestor`, `HuggingFaceIngestor`, `MCPIngestor`, `MongoIngestor`, `OntologyIngestor`, `PandasIngestor`, `RepoIngestor`, `SnowflakeIngestor`, `StreamIngestor`
+
 ### Parse
 
-Document parsing and text extraction.
+Extracts structured text and layout metadata from raw documents.
 
 ```python
 from semantica.parse import DocumentParser, DoclingParser
 
-# Standard parser
+# Standard parser — all common formats
 parser = DocumentParser()
 parsed = parser.parse_document("document.pdf")
 
@@ -79,32 +77,34 @@ parser = DoclingParser(extract_tables=True, extract_images=True, output_format="
 parsed = parser.parse("data/annual_report.pdf")
 ```
 
+**Available parsers:** `DocumentParser`, `DoclingParser`, `CodeParser`, `CSVParser`, `DocxParser`, `EmailParser`, `ExcelParser`, `HTMLParser`, `ImageParser`, `JSONParser`, `MCPParser`, `MediaParser`, `PDFParser`, `PPTXParser`, `StructuredDataParser`, `WebParser`, `XMLParser`
+
 ### Split
 
-Text chunking and segmentation for embedding and RAG pipelines.
+Chunks text for embedding and RAG pipelines with awareness of semantic boundaries.
 
 ```python
 from semantica.split import TextSplitter
 
-splitter = TextSplitter(method="semantic")
-chunks = splitter.split(text, chunk_size=1000, overlap=200)
+splitter = TextSplitter(method="semantic_transformer")
+chunks = splitter.split(text, chunk_size=1000, chunk_overlap=200)
 ```
 
-Methods: `recursive`, `semantic`, `entity-aware`, `relation-aware`.
+**Chunking strategies:** `recursive`, `semantic_transformer`, `entity_aware`, `relation_aware`, `sliding_window`, `structural`
 
 ### Normalize
 
-Data cleaning and standardization.
+Cleans and standardizes text before semantic processing.
 
 ```python
-from semantica.normalize import DataNormalizer
+from semantica.normalize import TextNormalizer, normalize_text, normalize_date
 
-normalizer = DataNormalizer()
-clean_text = normalizer.normalize_text(text)
-standardized_date = normalizer.normalize_date("Jan 1st, 2020")
+normalizer = TextNormalizer()
+clean_text        = normalizer.normalize_text(text)
+standardized_date = normalize_date("Jan 1st, 2020")
 ```
 
----
+**Normalizers available:** text cleaning, entity canonicalization, date normalization, number normalization, encoding handling, language detection
 
 ## Core Processing
 
@@ -125,11 +125,13 @@ trip = TripletExtractor(method="llm", llm_provider=llm)
 triplets = trip.extract(text)
 ```
 
-Methods: `"pattern"`, `"ml"`, `"llm"`. LLM method supports all 8 providers.
+**Extraction methods:** `"pattern"` (no API key), `"ml"` (local model), `"llm"` (any of the 8 supported providers)
+
+**Additional extractors:** `CoreferenceResolver`, `EventDetector`, `SemanticAnalyzer`, `SemanticNetworkExtractor`
 
 ### Knowledge Graph
 
-Graph construction, algorithms, temporal model, and distance intelligence.
+Graph construction, graph algorithms, temporal model, and distance intelligence.
 
 ```python
 from semantica.kg import GraphBuilder, GraphAnalyzer, TemporalKnowledgeGraph, DistanceCalculator
@@ -146,12 +148,14 @@ snapshot = tkg.at(datetime(2021, 6, 15))
 # Distance Intelligence (v0.5.0)
 calc = DistanceCalculator(kg)
 neighborhood = calc.semantic_neighborhood("Apple Inc.", radius=0.4)
-matrix = calc.distance_matrix(["Apple Inc.", "Google", "Microsoft"])
+matrix        = calc.distance_matrix(["Apple Inc.", "Google", "Microsoft"])
 ```
+
+**Graph algorithms available:** centrality calculation, community detection, connectivity analysis, entity resolution, link prediction, path finding, similarity calculation
 
 ### Ontology
 
-SHACL, SKOS, alignments, diff/migration, auto-generation, and OWL/RDF — plus the visual Ontology Hub (v0.5.0).
+Schema management including SHACL, SKOS, alignments, diff/migration, auto-generation, and the visual Ontology Hub (v0.5.0).
 
 ```python
 from semantica.ontology import OntologyManager, SHACLGenerator
@@ -161,19 +165,21 @@ ontology.add_class("Person", ["name", "birth_date"])
 ontology.add_relationship("works_for", "Person", "Organization")
 is_valid = ontology.validate_graph(kg)
 
-shacl = SHACLGenerator()
+shacl  = SHACLGenerator()
 shapes = shacl.generate(ontology)
 ```
 
+**Components:** `OntologyManager`, `SHACLGenerator`, `OntologyGenerator`, `OntologyValidator`, `OntologyEvaluator`, `LLMGenerator`, `OWLGenerator`, `PropertyGenerator`, `DomainOntologies`, `NamespaceManager`
+
 ### Reasoning
 
-Forward chaining, Rete, deductive, abductive, SPARQL, and Datalog reasoning.
+Derives new facts from existing knowledge using multiple inference strategies.
 
 ```python
 from semantica.reasoning import ReasoningEngine, DatalogEngine
 
 # Rule-based reasoning
-engine = ReasoningEngine()
+engine     = ReasoningEngine()
 inferences = engine.infer(kg, rules=["transitivity", "symmetry"])
 
 # Datalog — recursive Horn clause rules (v0.4.0)
@@ -182,42 +188,45 @@ datalog.add_rule("ancestor(X, Z) :- parent(X, Y), ancestor(Y, Z).")
 results = datalog.query("ancestor(alice, ?)")
 ```
 
----
+**Engines:** forward chaining, Rete network, deductive, abductive, SPARQL, Datalog — all produce explainable inference paths
 
 ## Storage
 
 ### Embeddings
 
-Vector embeddings and similarity computation.
+Generates and manages vector embeddings for semantic similarity.
 
 ```python
 from semantica.embeddings import EmbeddingGenerator
 
-generator = EmbeddingGenerator(model="sentence-transformers")
+generator  = EmbeddingGenerator(model="sentence-transformers")
 embeddings = generator.generate(["text1", "text2"])
 similarity = generator.similarity(embeddings[0], embeddings[1])
 ```
 
-Supported: Sentence-Transformers, FastEmbed, OpenAI, BGE.
+**Supported models:** Sentence-Transformers, FastEmbed, OpenAI, BGE
+
+**Components:** `EmbeddingGenerator`, `TextEmbedder`, `VectorEmbeddingManager`, `GraphEmbeddingManager`, `PoolingStrategies`
 
 ### Vector Store
 
-Multi-backend vector database management.
+Multi-backend vector database with hybrid search support.
 
 ```python
 from semantica.vector_store import VectorStore
 
-store = VectorStore(backend="faiss", dimension=768)
+store   = VectorStore(backend="faiss", dimension=768)
 store.add_vectors(embeddings, ids)
 results = store.search(query_vector, top_k=10)
 ```
 
-Backends: FAISS, Pinecone, Weaviate, Qdrant, Milvus, PgVector, in-memory.
-Search modes: semantic top-k, hybrid (vector + keyword), metadata-filtered.
+**Backends:** FAISS, Pinecone, Weaviate, Qdrant, Milvus, PgVector, in-memory
+
+**Search modes:** semantic top-k, hybrid (vector + keyword), metadata-filtered
 
 ### Graph Store
 
-Graph database integration.
+Connects to graph databases for persistent, query-able storage.
 
 ```python
 from semantica.graph_store import GraphStore
@@ -228,11 +237,11 @@ store.add_edges(relationships)
 results = store.query("MATCH (n)-[r]->(m) RETURN n, r, m")
 ```
 
-Backends: Neo4j, FalkorDB, Apache AGE, Amazon Neptune.
+**Backends:** Neo4j, FalkorDB, Apache AGE, Amazon Neptune
 
 ### Triplet Store
 
-RDF triple-based storage with SPARQL.
+RDF triple-based storage with SPARQL query support.
 
 ```python
 from semantica.triplet_store import TripletStore
@@ -242,40 +251,42 @@ store.add_triplets(subject, predicate, obj)
 results = store.sparql("SELECT ?s ?p ?o WHERE { ?s ?p ?o }")
 ```
 
-Backends: Blazegraph, Apache Jena, RDF4J.
-
----
+**Backends:** Blazegraph, Apache Jena, RDF4J
 
 ## Quality Assurance
 
 ### Deduplication
 
-Entity deduplication v1/v2, similarity scoring, and merging.
+Detects, scores, and merges duplicate entities across sources.
 
 ```python
 from semantica.deduplication import EntityResolver
 
 resolver = EntityResolver()
-merged = resolver.resolve(entities, strategy="semantic_v2")
+merged   = resolver.resolve(entities, strategy="semantic_v2")
 ```
 
-v2 strategies (`blocking_v2`, `hybrid_v2`, `semantic_v2`) are up to 7x faster than v1. `DuplicateDetector` supports `max_results`, `top_k_per_entity`, `min_similarity`, and `sort_by` for fine-grained control.
+**v2 strategies** (`blocking_v2`, `hybrid_v2`, `semantic_v2`) are up to 7x faster than v1.
+
+**Components:** `EntityResolver`, `DuplicateDetector`, `EntityMerger`, `SimilarityCalculator`, `ClusterBuilder`
+
+**`DuplicateDetector` options:** `max_results`, `top_k_per_entity`, `min_similarity`, `sort_by`
 
 ### Conflicts
 
-Multi-source conflict detection and resolution.
+Detects and resolves fact conflicts across overlapping knowledge sources.
 
 ```python
 from semantica.conflicts import ConflictDetector
 
-detector = ConflictDetector()
+detector  = ConflictDetector()
 conflicts = detector.detect_conflicts(kg)
-resolved = detector.resolve(conflicts, strategy="most_recent")
+resolved  = detector.resolve(conflicts, strategy="most_recent")
 ```
 
-Detection types: value, type, temporal, and logical conflicts.
+**Detection types:** value conflicts, type conflicts, temporal conflicts, logical conflicts
 
----
+**Resolution strategies:** prefer most recent, prefer most reliable source, majority vote, flag for manual review
 
 ## Context & Memory
 
@@ -293,15 +304,23 @@ context = AgentContext(
 )
 
 context.store("GPT-4 outperforms GPT-3.5 on reasoning benchmarks by 40%")
+
 decision_id = context.record_decision(
-    category="model_selection", scenario="...", reasoning="...", outcome="...", confidence=0.9
+    category="model_selection",
+    scenario="...",
+    reasoning="...",
+    outcome="...",
+    confidence=0.9,
 )
+
 precedents = context.find_precedents("model selection", limit=5)
 ```
 
+**Components:** `AgentContext`, `ContextGraph`, `AgentMemory`, `DecisionRecorder`, `CausalAnalyzer`, `EntityLinker`, `PolicyEngine`
+
 ### Provenance
 
-W3C PROV-O compliant lineage tracking across all 17 modules.
+W3C PROV-O compliant lineage tracking across all modules.
 
 ```python
 from semantica.provenance import ProvenanceManager
@@ -311,36 +330,46 @@ manager.track_entity("entity_1", "document.pdf", "person")
 lineage = manager.get_lineage("entity_1")
 ```
 
+**Components:** `ProvenanceManager`, `IntegrityChecker`, `BridgeAxiom`, `ProvenanceStorage`
+
 ### Change Management
 
-Version storage, change tracking, SHA-256 checksums, and audit trails.
+Version control with SHA-256 checksums, diffs, and rollback.
 
 ```python
 from semantica.change_management import TemporalVersionManager
 
-manager = TemporalVersionManager(storage_path="versions.db")
+manager  = TemporalVersionManager(storage_path="versions.db")
 snapshot = manager.create_snapshot(kg, "v1.0", "user@example.com", "Initial version")
-diff = manager.diff("v1.0", "v1.1")
+diff     = manager.diff("v1.0", "v1.1")
 ```
 
----
+**Components:** `TemporalVersionManager`, `ChangeLog`, `OntologyVersionManager`, `VersionStorage`
 
 ## Output & Orchestration
 
 ### Export
 
-RDF (Turtle, JSON-LD, N-Triples, XML), Parquet, ArangoDB AQL, CSV, OWL ontologies.
+Serializes graphs to downstream formats for analytics, semantic web, or graph databases.
 
 ```python
-from semantica.export import RDFExporter
+from semantica.export import RDFExporter, ParquetExporter, ArangoDBExporter
 
-exporter = RDFExporter()
-rdf = exporter.export_to_rdf(graph, format="turtle")
+# RDF formats
+RDFExporter().export_to_rdf(graph, format="turtle", output="graph.ttl")
+
+# Analytics
+ParquetExporter().export(graph, output_dir="output/")
+
+# ArangoDB
+aql = ArangoDBExporter().export(graph)
 ```
+
+**Export formats:** RDF (Turtle, JSON-LD, N-Triples, XML), Parquet, ArangoDB AQL, CSV, OWL, Arrow, LPG, YAML, distance matrices
 
 ### Visualization
 
-Interactive and static KG, ontology, embedding, and temporal visualization.
+Renders interactive and static knowledge graph visualizations.
 
 ```python
 from semantica.visualization import GraphVisualizer
@@ -348,6 +377,10 @@ from semantica.visualization import GraphVisualizer
 viz = GraphVisualizer()
 viz.visualize(graph, output="graph.html")
 ```
+
+**Visualizers:** `GraphVisualizer`, `OntologyVisualizer`, `EmbeddingVisualizer`, `SemanticNetworkVisualizer`, `TemporalVisualizer`, `AnalyticsVisualizer`
+
+**Layout algorithms:** force-directed, hierarchical, circular
 
 ### Pipeline
 
@@ -357,15 +390,17 @@ Pipeline DSL with parallel workers, retry policies, and failure handling.
 from semantica.pipeline import Pipeline
 
 pipeline = Pipeline()
-pipeline.add_step("ingest", FileIngestor())
-pipeline.add_step("extract", NERExtractor())
-pipeline.add_step("build", GraphBuilder())
+pipeline.add_step("ingest",   FileIngestor())
+pipeline.add_step("extract",  NERExtractor())
+pipeline.add_step("build",    GraphBuilder())
 result = pipeline.run("data/")
 ```
 
-### Explorer (v0.4.0/v0.5.0)
+**Components:** `Pipeline`, `PipelineBuilder`, `ExecutionEngine`, `FailureHandler`, `PipelineValidator`, `ParallelismManager`, `ResourceScheduler`
 
-FastAPI Knowledge Explorer + Ontology Hub with WebSocket progress, thread-safe sessions, bidirectional path finding, and indexed search.
+### Explorer
+
+FastAPI Knowledge Explorer with Ontology Hub, WebSocket progress, bidirectional path finding, and indexed search (0.004ms on 118k nodes).
 
 ```python
 from semantica.explorer import start_explorer
@@ -374,25 +409,98 @@ start_explorer(graph=kg, port=8080)
 # Opens at http://localhost:8080
 ```
 
----
+**Routes:** graph, ontology, provenance, decisions, analytics, SPARQL, temporal, annotations, export/import, vocabulary
+
+## Utilities
+
+### LLM Providers
+
+Unified interface to all supported LLM providers.
+
+```python
+from semantica.llms import Groq, OpenAI, create_provider
+
+llm     = Groq(model="llama-3.3-70b-versatile")
+llm     = OpenAI(model="gpt-4o")
+llm     = create_provider("anthropic", model="claude-opus-4-7")
+```
+
+**Supported providers:** OpenAI, Anthropic, Google Gemini, Groq, Ollama, DeepSeek, Novita AI, LiteLLM (20+ models via one interface)
+
+### MCP Server
+
+Exposes Semantica as an MCP stdio server for IDE and agent integrations.
+
+```bash
+python -m semantica.mcp_server
+```
+
+**Integrations:** Claude Desktop, VS Code, Cursor, Windsurf, Cline — 12 MCP tools exposed
+
+### Seed
+
+Deterministic data seeding for testing and development.
+
+```python
+from semantica.seed import SeedManager
+
+seed = SeedManager()
+seed.populate(kg, dataset="companies", count=100)
+```
+
+### Evals
+
+Evaluation harness for extraction and reasoning quality.
+
+```python
+from semantica.evals import Evaluator
+
+evaluator = Evaluator()
+scores    = evaluator.evaluate(predicted_entities, ground_truth)
+# Returns: {"precision": 0.91, "recall": 0.87, "f1": 0.89}
+```
+
+**Metrics:** precision, recall, F1 for NER, relation extraction, and reasoning
+
+### Core
+
+Base classes, shared data models, and the plugin registry used across all modules.
+
+```python
+from semantica.core import Orchestrator, PluginRegistry
+
+registry = PluginRegistry()
+registry.register("my_ingestor", MyCustomIngestor)
+```
+
+**Components:** `Orchestrator`, `PluginRegistry`, `ConfigManager`, `Lifecycle`
+
+### Utils
+
+Shared utilities for ID generation, date parsing, validation, and logging.
+
+```python
+from semantica.utils import helpers, validators, logging
+```
+
+**Components:** `helpers`, `validators`, `constants`, `types`, `exceptions`, `logging`, `ProgressTracker`
 
 ## Common Module Chains
 
-| Goal | Modules |
-|------|---------|
+| Goal | Pipeline |
+| ---- | -------- |
 | Document processing | Ingest → Parse → Split → Semantic Extract → KG |
 | Web scraping | Ingest (Web) → Normalize → Semantic Extract → Graph Store |
 | GraphRAG | KG + Vector Store → Context → Reasoning → Export |
 | AI agents | Context → LLM Providers → Reasoning → Export |
 | Temporal analysis | KG (Temporal) → Context → Change Management → Export |
 | Compliance pipeline | Ingest → Semantic Extract → KG → Provenance → Export |
-
----
+| Evaluation workflow | Ingest → Parse → Semantic Extract → Evals |
 
 ## Module Index
 
 | Module | Purpose | Key Classes |
-|--------|---------|-------------|
+| ------ | ------- | ----------- |
 | [ingest](reference/ingest) | Data ingestion | `FileIngestor`, `WebIngestor`, `ParquetIngestor`, `XMLIngestor` |
 | [parse](reference/parse) | Document parsing | `DocumentParser`, `DoclingParser` |
 | [split](reference/split) | Text chunking | `TextSplitter` |
@@ -410,16 +518,16 @@ start_explorer(graph=kg, port=8080)
 | [context](reference/context) | Agent context & decisions | `AgentContext`, `ContextGraph` |
 | [provenance](reference/provenance) | W3C PROV-O lineage | `ProvenanceManager` |
 | [change_management](reference/change_management) | Version control | `TemporalVersionManager` |
-| [export](reference/export) | Data export | `RDFExporter` |
+| [export](reference/export) | Data export | `RDFExporter`, `ParquetExporter` |
 | [visualization](reference/visualization) | Graph visualization | `GraphVisualizer` |
-| [pipeline](reference/pipeline) | Workflow orchestration | `Pipeline` |
-| [explorer](reference/evals) | Knowledge Explorer UI | `start_explorer` |
-| [llms](reference/llms) | LLM providers | `Groq`, `OpenAI`, `Anthropic`, `create_provider` |
-| [seed](reference/seed) | Foundation data | `SeedData` |
-
----
-
-## More
+| [pipeline](reference/pipeline) | Workflow orchestration | `Pipeline`, `PipelineBuilder` |
+| [explorer](reference/explorer) | Knowledge Explorer UI | `start_explorer` |
+| [llms](reference/llms) | LLM providers | `Groq`, `OpenAI`, `create_provider` |
+| [mcp_server](reference/mcp_server) | MCP stdio server | `python -m semantica.mcp_server` |
+| [seed](reference/seed) | Test data seeding | `SeedManager` |
+| [evals](reference/evals) | Quality evaluation | `Evaluator` |
+| [core](reference/core) | Base classes & registry | `Orchestrator`, `PluginRegistry` |
+| [utils](reference/utils) | Shared utilities | `helpers`, `validators` |
 
 <CardGroup cols={2}>
   <Card title="Getting Started" icon="rocket" href="getting-started">

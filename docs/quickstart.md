@@ -8,9 +8,7 @@ icon: "rocket"
   **v0.5.0** — Ontology Hub, Distance Intelligence, Parquet & XML ingestion, 12 security fixes. [What's new →](index#whats-new)
 </Info>
 
-This guide walks you through the end-to-end pipeline for building your first knowledge graph in 5 minutes. Start here after installation. If you still need setup help, see [Installation](installation). You need Python 3.8+ and nothing else to start. An LLM API key is optional; pattern-based extraction works out of the box.
-
----
+This guide walks you through the end-to-end pipeline for building your first knowledge graph. Start here after installation. An LLM API key is optional — pattern-based extraction works out of the box.
 
 ## Install
 
@@ -39,8 +37,6 @@ python -c "import semantica; print(semantica.__version__)"
 # 0.5.0
 ```
 
----
-
 ## Full Pipeline
 
 <Steps>
@@ -55,7 +51,7 @@ Load a document from a file, directory, URL, or database.
 from semantica.ingest import FileIngestor
 
 ingestor = FileIngestor()
-sources = ingestor.ingest("data/report.pdf")
+sources  = ingestor.ingest("data/report.pdf")
 # Also accepts: .docx, .html, .json, .csv, .xlsx, .pptx, .parquet, .xml
 ```
 
@@ -63,13 +59,13 @@ sources = ingestor.ingest("data/report.pdf")
 from semantica.ingest import WebIngestor
 
 ingestor = WebIngestor(max_depth=2)
-sources = ingestor.ingest("https://example.com/article")
+sources  = ingestor.ingest("https://example.com/article")
 ```
 
 ```python Parquet / XML (v0.5.0)
 from semantica.ingest import ParquetIngestor, XMLIngestor
 
-# Parquet — single file or Hive-partitioned directory
+# Single file or Hive-partitioned directory
 sources = ParquetIngestor().ingest("data/events.parquet")
 
 # XML with XSD schema validation
@@ -90,12 +86,12 @@ from semantica.parse import DocumentParser
 parser = DocumentParser()
 parsed = parser.parse(sources[0])
 
-print(parsed.text[:200])     # extracted text
-print(parsed.metadata)       # title, author, date, source
+print(parsed.text[:200])  # extracted text
+print(parsed.metadata)    # title, author, date, source
 ```
 
 <Tip>
-  For PDFs with tables, charts, or multi-column layouts, use `DoclingParser` — it uses advanced layout analysis and returns structured table data alongside text.
+  For PDFs with tables, charts, or multi-column layouts, use `DoclingParser` — it applies advanced layout analysis and returns structured table data alongside text.
 </Tip>
 
 ```python
@@ -103,7 +99,7 @@ from semantica.parse import DoclingParser
 
 parser = DoclingParser()
 parsed = parser.parse(sources[0])
-print(parsed.tables)   # structured table objects
+print(parsed.tables)  # structured table objects
 ```
 
 </Step>
@@ -117,11 +113,11 @@ Identify named entities and extract typed relationships between them.
 ```python Pattern-based (fast, no API key)
 from semantica.semantic_extract import NERExtractor, RelationExtractor
 
-ner = NERExtractor(method="pattern")
+ner      = NERExtractor(method="pattern")
 entities = ner.extract(parsed)
 # Returns: [{"text": "Apple Inc.", "type": "ORGANIZATION", "confidence": 0.98}, ...]
 
-rel = RelationExtractor(method="rule")
+rel           = RelationExtractor(method="rule")
 relationships = rel.extract(parsed, entities=entities)
 # Returns: [{"subject": "Steve Jobs", "predicate": "founded", "object": "Apple Inc."}, ...]
 ```
@@ -132,10 +128,10 @@ from semantica.llms import Groq
 
 llm = Groq(model="llama-3.3-70b-versatile")
 
-ner = NERExtractor(method="llm", llm_provider=llm)
-entities = ner.extract(parsed)
+ner           = NERExtractor(method="llm", llm_provider=llm)
+entities      = ner.extract(parsed)
 
-rel = RelationExtractor(method="llm", llm_provider=llm)
+rel           = RelationExtractor(method="llm", llm_provider=llm)
 relationships = rel.extract(parsed, entities=entities)
 ```
 
@@ -151,17 +147,17 @@ Assemble extracted entities and relationships into a queryable knowledge graph.
 from semantica.kg import GraphBuilder
 
 builder = GraphBuilder(merge_entities=True)
-graph = builder.build(entities=entities, relationships=relationships)
+graph   = builder.build(entities=entities, relationships=relationships)
 
 print(f"Graph: {len(graph.nodes)} nodes, {len(graph.edges)} edges")
 
 # Query the graph
-apple = graph.get_node("Apple Inc.")
+apple    = graph.get_node("Apple Inc.")
 founders = graph.get_neighbors("Apple Inc.", predicate="founded_by")
 ```
 
 <Note>
-  `merge_entities=True` automatically resolves duplicate entity references (e.g., "Apple", "Apple Inc.", "AAPL") using semantic similarity — no manual deduplication needed.
+  `merge_entities=True` automatically resolves duplicate entity references — "Apple", "Apple Inc.", "AAPL" — using semantic similarity. No manual deduplication needed.
 </Note>
 
 </Step>
@@ -174,8 +170,8 @@ Render an interactive, zoomable knowledge graph in the browser.
 from semantica.visualization import GraphVisualizer
 
 viz = GraphVisualizer(
-    layout="force",          # "force" | "hierarchical" | "circular"
-    node_color_by="type",    # color nodes by entity type
+    layout="force",        # "force" | "hierarchical" | "circular"
+    node_color_by="type",  # color nodes by entity type
     show_confidence=True,
 )
 viz.visualize(graph, output="graph.html")
@@ -205,14 +201,14 @@ from semantica.export import ParquetExporter
 
 exporter = ParquetExporter()
 exporter.export(graph, output_dir="output/")
-# Writes: nodes.parquet, edges.parquet — ready for Spark / BigQuery / Databricks
+# Writes nodes.parquet + edges.parquet — ready for Spark, BigQuery, Databricks
 ```
 
 ```python ArangoDB
 from semantica.export import ArangoDBExporter
 
 exporter = ArangoDBExporter()
-aql = exporter.export(graph)
+aql      = exporter.export(graph)
 # Returns ready-to-run AQL INSERT statements
 ```
 
@@ -221,8 +217,6 @@ aql = exporter.export(graph)
 </Step>
 
 </Steps>
-
----
 
 ## Add Decision Intelligence
 
@@ -255,8 +249,6 @@ precedents = context.find_precedents("model selection reasoning", limit=5)
 influence  = context.analyze_decision_influence(decision_id)
 ```
 
----
-
 ## Common Patterns
 
 <AccordionGroup>
@@ -268,10 +260,10 @@ from semantica.semantic_extract import NERExtractor, RelationExtractor
 
 text = "Apple Inc. was founded by Steve Jobs, Steve Wozniak, and Ronald Wayne in 1976 in Cupertino, California."
 
-ner = NERExtractor()
-entities = ner.extract(text)
+ner           = NERExtractor()
+entities      = ner.extract(text)
 
-rel = RelationExtractor()
+rel           = RelationExtractor()
 relationships = rel.extract(text, entities=entities)
 ```
 
@@ -282,12 +274,12 @@ relationships = rel.extract(text, entities=entities)
 ```python
 from semantica.kg import GraphBuilder
 
-builder = GraphBuilder(merge_entities=True)
+builder     = GraphBuilder(merge_entities=True)
 all_entities, all_rels = [], []
 
 for doc in parsed_docs:
     entities = ner.extract(doc)
-    rels = rel.extract(doc, entities=entities)
+    rels     = rel.extract(doc, entities=entities)
     all_entities.extend(entities)
     all_rels.extend(rels)
 
@@ -296,7 +288,7 @@ graph = builder.build(entities=all_entities, relationships=all_rels)
 
 </Accordion>
 
-<Accordion title="Temporal knowledge graph with point-in-time queries (v0.4.0+)" icon="clock">
+<Accordion title="Temporal knowledge graph with point-in-time queries" icon="clock">
 
 ```python
 from semantica.kg import TemporalKnowledgeGraph
@@ -304,13 +296,13 @@ from datetime import datetime
 
 tkg = TemporalKnowledgeGraph()
 
-tkg.add_node("Tim Cook",  role="CEO",  valid_from=datetime(2011, 8, 24))
+tkg.add_node("Tim Cook",   role="CEO", valid_from=datetime(2011, 8, 24))
 tkg.add_node("Steve Jobs", role="CEO", valid_from=datetime(1997, 9, 16),
              valid_until=datetime(2011, 8, 24))
 
 # What did the graph look like on Jan 1, 2005?
 snapshot = tkg.at(datetime(2005, 1, 1))
-print(snapshot.get_node("Steve Jobs"))  # role: CEO ✓
+print(snapshot.get_node("Steve Jobs"))  # role: CEO
 ```
 
 </Accordion>
@@ -328,7 +320,7 @@ store = Neo4jStore(
 )
 
 builder = GraphBuilder(merge_entities=True, graph_store=store)
-graph = builder.build(entities=entities, relationships=relationships)
+graph   = builder.build(entities=entities, relationships=relationships)
 # Graph persisted to Neo4j — survives process restarts
 ```
 
@@ -342,7 +334,7 @@ from semantica.kg import GraphBuilder
 
 tracker = ProvenanceTracker()
 builder = GraphBuilder(merge_entities=True, provenance=tracker)
-graph = builder.build(entities=entities, relationships=relationships)
+graph   = builder.build(entities=entities, relationships=relationships)
 
 # Every node and edge has full lineage
 node = graph.get_node("Apple Inc.")
@@ -359,20 +351,18 @@ print(node.provenance)
 
 </AccordionGroup>
 
----
-
 ## Troubleshooting
 
 <AccordionGroup>
 
 <Accordion title="No entities extracted" icon="magnifying-glass">
 
-The document likely contains scanned images rather than machine-readable text. Use OCR:
+The document likely contains scanned images rather than machine-readable text. Enable OCR:
 
 ```python
 from semantica.parse import DocumentParser
 
-parser = DocumentParser(ocr=True)   # enables Tesseract OCR
+parser = DocumentParser(ocr=True)  # enables Tesseract OCR
 parsed = parser.parse(sources[0])
 ```
 
@@ -395,14 +385,14 @@ pipeline.run(sources)
 
 </Accordion>
 
-<Accordion title="Memory errors" icon="memory">
+<Accordion title="Memory errors on large graphs" icon="memory">
 
 Switch from in-memory NetworkX to a persistent backend:
 
 ```python
 from semantica.graph_store import FalkorDBStore
 
-store = FalkorDBStore(host="localhost", port=6379)
+store   = FalkorDBStore(host="localhost", port=6379)
 builder = GraphBuilder(merge_entities=True, graph_store=store)
 ```
 
@@ -420,16 +410,14 @@ pip install --upgrade semantica
 
 </AccordionGroup>
 
----
-
 ## Next Steps
 
 <CardGroup cols={2}>
   <Card title="Core Concepts" icon="book-open" href="concepts">
     Knowledge graphs, ontologies, reasoning engines — the mental model behind Semantica.
   </Card>
-  <Card title="Cookbook" icon="code" href="cookbook">
-    15+ copy-paste examples for healthcare, finance, legal, and cybersecurity.
+  <Card title="Module Reference" icon="puzzle-piece" href="modules">
+    Every module explained with key classes and common chains.
   </Card>
   <Card title="API Reference" icon="rectangle-terminal" href="reference/context">
     Complete documentation for every module, class, and parameter.

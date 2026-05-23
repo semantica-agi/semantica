@@ -5,16 +5,14 @@ icon: "rocket"
 ---
 
 <Tip>
-  Already installed? Jump to [Quickstart](quickstart). Need setup help first? Start with [Installation](installation).
+  Already installed? Jump straight to [Quickstart](quickstart). Need setup help first? See [Installation](installation).
 </Tip>
-
----
 
 ## What You Can Build
 
 <CardGroup cols={2}>
   <Card title="GraphRAG Systems" icon="diagram-project">
-    Enhanced retrieval with semantic graph reasoning — ground LLM responses in traceable, structured knowledge.
+    Ground LLM responses in traceable, structured knowledge. Every claim links back to a source node.
   </Card>
   <Card title="Accountable AI Agents" icon="robot">
     Agents with structured decision history, causal chains, and precedent search. Every choice is recorded and auditable.
@@ -26,8 +24,6 @@ icon: "rocket"
     W3C PROV-O provenance on every fact. HIPAA, SOX, GDPR, FDA 21 CFR Part 11 infrastructure built in.
   </Card>
 </CardGroup>
-
----
 
 ## Installation
 
@@ -41,16 +37,14 @@ With all optional dependencies:
 pip install semantica[all]
 ```
 
-For virtual environments and platform-specific setup, see the full [Installation](installation).
+For virtual environments and platform-specific setup, see the full [Installation](installation) guide.
 
-Verify:
+**Verify:**
 
 ```python
 import semantica
-print(semantica.__version__)
+print(semantica.__version__)  # 0.5.0
 ```
-
----
 
 ## Quick Start
 
@@ -62,17 +56,16 @@ from semantica.parse import DocumentParser
 from semantica.semantic_extract import NERExtractor, RelationExtractor
 from semantica.kg import GraphBuilder
 
-# Ingest → Parse → Extract → Build
-ingestor = FileIngestor()
-sources = ingestor.ingest("data/sample.pdf")
+ingestor  = FileIngestor()
+sources   = ingestor.ingest("data/sample.pdf")
 
 parser = DocumentParser()
 parsed = parser.parse(sources[0])
 
-ner = NERExtractor()
-entities = ner.extract(parsed)
+ner       = NERExtractor()
+entities  = ner.extract(parsed)
 
-rel = RelationExtractor()
+rel           = RelationExtractor()
 relationships = rel.extract(parsed, entities=entities)
 
 graph = GraphBuilder(merge_entities=True).build(
@@ -91,7 +84,7 @@ context = AgentContext(
     decision_tracking=True,
 )
 
-# Store a memory with provenance
+# Store a fact with provenance
 context.store("GPT-4 outperforms GPT-3.5 on reasoning benchmarks by 40%")
 
 # Record a decision with causal chain
@@ -117,7 +110,6 @@ context = AgentContext(
     knowledge_graph=ContextGraph(advanced_analytics=True),
 )
 
-# Load your knowledge graph
 context.load_graph("company_kg.json")
 
 # Multi-hop GraphRAG query
@@ -134,22 +126,18 @@ for claim in result.claims:
 
 </CodeGroup>
 
----
-
 ## Core Architecture
 
 Semantica uses a modular, layered architecture — import only what you need.
 
 | Layer | Modules | Purpose |
-|-------|---------|---------|
+| ----- | ------- | ------- |
 | **Input** | `ingest`, `parse`, `split`, `normalize` | Load and prepare data |
 | **Semantic** | `semantic_extract`, `kg`, `ontology`, `reasoning` | Extract meaning |
-| **Storage** | `embeddings`, `vector_store`, `graph_store` | Persist knowledge |
+| **Storage** | `embeddings`, `vector_store`, `graph_store`, `triplet_store` | Persist knowledge |
 | **Quality** | `deduplication`, `conflicts` | Validate and clean |
 | **Context** | `context`, `provenance`, `change_management` | Track decisions and lineage |
-| **Output** | `export`, `visualization`, `pipeline` | Deliver results |
-
----
+| **Output** | `export`, `visualization`, `pipeline`, `explorer` | Deliver results |
 
 ## Next Steps
 
@@ -158,17 +146,15 @@ Semantica uses a modular, layered architecture — import only what you need.
     Knowledge graphs, ontologies, and reasoning explained in depth.
   </Card>
   <Card title="Quickstart Tutorial" icon="play" href="quickstart">
-    Full 6-step pipeline with `<Steps>` walkthrough.
+    Full 6-step pipeline walkthrough with working code.
   </Card>
-  <Card title="Cookbook" icon="flask" href="cookbook">
-    40+ domain-specific Jupyter notebook tutorials.
+  <Card title="Module Reference" icon="puzzle-piece" href="modules">
+    Every module, class, and common chain explained.
   </Card>
   <Card title="API Reference" icon="code" href="reference/context">
     Complete module documentation for every class and method.
   </Card>
 </CardGroup>
-
----
 
 ## Help
 

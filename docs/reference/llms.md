@@ -4,9 +4,16 @@ description: "Unified interface for Groq, OpenAI, Anthropic, Gemini, Ollama, Dee
 icon: "microchip"
 ---
 
-The `semantica.llms` module provides a single consistent API across 8+ LLM providers. All providers are drop-in replacements for `llm_provider=` in extractors, reasoning engines, and agents.
+`semantica.llms` provides a single consistent API across 8+ LLM providers. Every provider is a drop-in replacement for the `llm_provider=` parameter in extractors, reasoning engines, and agents.
 
----
+## What You Get
+
+- **8+ provider integrations** — Groq, OpenAI, Anthropic, Gemini, Ollama, DeepSeek, Novita AI, LiteLLM, HuggingFace
+- **Unified `LLMProvider` interface** — swap providers with a one-line change, no application changes needed
+- **`ProviderFactory`** — instantiate any provider by name from a config dict
+- **Local models** — Ollama and HuggingFace run fully on-premise with no API key
+- **Streaming** — token-by-token output for low-latency UX
+- **Custom gateways** — point any OpenAI-compatible endpoint via `base_url`
 
 ## Providers
 
@@ -60,7 +67,7 @@ llm = Gemini(
     model="gemini-1.5-pro",
     api_key=os.getenv("GOOGLE_API_KEY"),
 )
-# Best for: long context, multimodal tasks
+# Best for: long context (1M tokens), multimodal tasks
 ```
 
 ```python Ollama (Local)
@@ -83,7 +90,7 @@ llm = DeepSeek(
     model="deepseek-chat",
     api_key=os.getenv("DEEPSEEK_API_KEY"),
 )
-# Best for: coding tasks, analysis at low cost
+# Best for: coding tasks and analysis at very low cost
 ```
 
 ```python LiteLLM (100+ models)
@@ -107,14 +114,14 @@ llm = HuggingFace(
     max_new_tokens=512,
     temperature=0.1,
 )
-# Bring your own model — full local control
+# Bring your own model — full local control, no API key
 ```
 
 </CodeGroup>
 
----
-
 ## Provider Factory
+
+Instantiate any provider by name string — useful when provider is loaded from config:
 
 ```python
 from semantica.llms import create_provider
@@ -129,11 +136,9 @@ llm = create_provider("novita",    model="deepseek/deepseek-v3.2", api_key=os.ge
 llm = create_provider("litellm",   model="gpt-4o")
 ```
 
----
-
 ## Custom / Enterprise Gateways
 
-Any OpenAI-compatible gateway — internal routing layers, Qwen proxies, LLaMA proxies:
+Any OpenAI-compatible endpoint — internal routing layers, Qwen proxies, or private LLaMA deployments:
 
 ```python
 from semantica.llms import OpenAI
@@ -149,24 +154,24 @@ llm = OpenAI(
   `base_url` is validated at construction time. Non-HTTP(S) schemes raise `ValueError` to prevent SSRF attacks (fixed in v0.5.0).
 </Note>
 
----
-
 ## Using in Extractors
+
+All extractors accept any provider as `llm_provider=`:
 
 ```python
 from semantica.semantic_extract import NERExtractor, RelationExtractor, TripletExtractor
 
-ner  = NERExtractor(method="llm",  llm_provider=llm, max_retries=3)
-rel  = RelationExtractor(method="llm", llm_provider=llm)
-trip = TripletExtractor(method="llm", llm_provider=llm)
-```
+llm = Groq(model="llama-3.3-70b-versatile", api_key=os.getenv("GROQ_API_KEY"))
 
----
+ner  = NERExtractor(method="llm",      llm_provider=llm, max_retries=3)
+rel  = RelationExtractor(method="llm", llm_provider=llm)
+trip = TripletExtractor(method="llm",  llm_provider=llm)
+```
 
 ## Provider Comparison
 
-| Provider | Speed | Cost | Local | Context | Best for |
-|----------|-------|------|-------|---------|----------|
+| Provider | Speed | Cost | Local | Context | Best For |
+| -------- | ----- | ---- | ----- | ------- | -------- |
 | Groq | Very fast | Low | No | 128k | High-throughput extraction |
 | OpenAI | Fast | Medium | No | 128k | General purpose, function calling |
 | Anthropic | Fast | Medium | No | 200k | Complex reasoning, safety |
@@ -178,12 +183,8 @@ trip = TripletExtractor(method="llm", llm_provider=llm)
 | HuggingFace | Slow | Free | Yes | Varies | Custom models, BYOM |
 
 <Tip>
-  For production systems, Groq delivers the best throughput-to-cost ratio for extraction pipelines. For complex multi-hop reasoning tasks, Claude Opus or GPT-4o provide the highest accuracy.
+  For production extraction pipelines, Groq delivers the best throughput-to-cost ratio. For complex multi-hop reasoning, Claude Opus or GPT-4o provide the highest accuracy.
 </Tip>
-
----
-
-## See Also
 
 <CardGroup cols={2}>
   <Card title="Semantic Extract" icon="magnifying-glass" href="semantic_extract">

@@ -4,68 +4,51 @@ description: "Multi-source conflict detection and resolution — value, type, te
 icon: "triangle-exclamation"
 ---
 
-> Detect and resolve contradictions across multiple data sources before they silently corrupt your knowledge graph.
+`semantica.conflicts` detects and resolves contradictions when multiple sources disagree on the same fact. It surfaces five conflict types, seven resolution strategies, and generates investigation guides for manual review — so conflicts never silently corrupt your knowledge graph.
 
----
+## What You Get
 
-## Overview
-
-When multiple sources disagree on the same fact, the **Conflicts Module** detects and resolves the conflict rather than silently picking one value. It supports five detection types, seven resolution strategies, and generates investigation guides for manual review.
-
-<CardGroup cols={2}>
-  <Card title="ConflictDetector" icon="magnifying-glass">
-    Value, type, temporal, logical, and relationship conflict detection.
-  </Card>
-  <Card title="ConflictResolver" icon="check-circle">
-    7 resolution strategies including voting, credibility-weighted, and temporal.
-  </Card>
-  <Card title="ConflictAnalyzer" icon="chart-bar">
-    Pattern analysis, severity grouping, and trend identification.
-  </Card>
-  <Card title="InvestigationGuideGenerator" icon="list-check">
-    Auto-generate step-by-step investigation checklists for human review.
-  </Card>
-</CardGroup>
-
----
+- **`ConflictDetector`** — value, type, temporal, logical, and relationship conflict detection
+- **`ConflictResolver`** — 7 resolution strategies including voting, credibility-weighted, and temporal
+- **`SourceTracker`** — track which source each conflicting fact came from, with credibility scores
+- **`ConflictAnalyzer`** — pattern analysis, severity grouping, and trend identification
+- **`InvestigationGuideGenerator`** — auto-generate step-by-step investigation checklists for human review
 
 ## ConflictDetector
 
 ```python
-from semantica.conflicts import ConflictDetector, ConflictType
+from semantica.conflicts import ConflictDetector
 
 detector = ConflictDetector()
 conflicts = detector.detect_conflicts(kg)
 
 for conflict in conflicts:
     print(f"[{conflict.conflict_type}] '{conflict.entity}' — {conflict.attribute}")
-    print(f"  Sources: {conflict.sources}")
+    print(f"  Sources:  {conflict.sources}")
     print(f"  Severity: {conflict.severity:.2f}")
 ```
 
----
-
-## Detection Types
-
-```python
-# Detect all types (default)
-conflicts = detector.detect_conflicts(kg)
-
-# Detect specific types only
-conflicts = detector.detect_value_conflicts(entities, "name")
-conflicts = detector.detect_type_conflicts(entities)
-conflicts = detector.detect_relationship_conflicts(kg)
-```
+### Detection Types
 
 | Type | What It Detects |
-|------|-----------------|
+| ---- | --------------- |
 | `VALUE` | Same entity, same attribute, different values across sources |
 | `TYPE` | Same entity classified as different types in different sources |
 | `TEMPORAL` | Overlapping validity windows with contradictory facts |
 | `LOGICAL` | Facts that violate ontology axioms or SHACL constraints |
 | `RELATIONSHIP` | Inconsistent relationship properties across sources |
 
----
+Run targeted detection by type:
+
+```python
+# Detect all types (default)
+conflicts = detector.detect_conflicts(kg)
+
+# Detect specific types only
+value_conflicts    = detector.detect_value_conflicts(entities, "name")
+type_conflicts     = detector.detect_type_conflicts(entities)
+relation_conflicts = detector.detect_relationship_conflicts(kg)
+```
 
 ## ConflictResolver
 
@@ -77,20 +60,20 @@ results = resolver.resolve_conflicts(conflicts, strategy=ResolutionStrategy.VOTI
 
 for result in results:
     print(f"Resolved '{result.attribute}' → {result.resolved_value}")
-    print(f"  Strategy used: {result.strategy}")
+    print(f"  Strategy: {result.strategy}")
 ```
 
-Resolution strategies:
+### Resolution Strategies
 
 | Strategy | Enum | Description |
 |----------|------|-------------|
-| `voting` | `ResolutionStrategy.VOTING` | Most common value wins (majority vote) |
-| `credibility_weighted` | `ResolutionStrategy.CREDIBILITY_WEIGHTED` | Weighted average by source credibility score |
-| `most_recent` | `ResolutionStrategy.MOST_RECENT` | Prefer the most recently updated fact |
-| `first_seen` | `ResolutionStrategy.FIRST_SEEN` | Prefer the first observed value |
-| `highest_confidence` | `ResolutionStrategy.HIGHEST_CONFIDENCE` | Prefer the fact with the highest confidence score |
-| `manual_review` | `ResolutionStrategy.MANUAL_REVIEW` | Flag for human review |
-| `expert_review` | `ResolutionStrategy.EXPERT_REVIEW` | Escalate to domain expert |
+| Majority vote | `ResolutionStrategy.VOTING` | Most common value wins |
+| Credibility-weighted | `ResolutionStrategy.CREDIBILITY_WEIGHTED` | Weighted by source credibility score |
+| Most recent | `ResolutionStrategy.MOST_RECENT` | Prefer the most recently updated fact |
+| First seen | `ResolutionStrategy.FIRST_SEEN` | Prefer the first observed value |
+| Highest confidence | `ResolutionStrategy.HIGHEST_CONFIDENCE` | Prefer the fact with the highest confidence score |
+| Manual review | `ResolutionStrategy.MANUAL_REVIEW` | Flag for human review |
+| Expert review | `ResolutionStrategy.EXPERT_REVIEW` | Escalate to a domain expert |
 
 Use the convenience aliases for shorter code:
 
@@ -100,29 +83,29 @@ from semantica.conflicts import voting, credibility_weighted, most_recent, highe
 results = resolver.resolve_conflicts(conflicts, strategy=voting)
 ```
 
----
-
 ## Source Credibility Scoring
+
+Assign credibility weights per source so `CREDIBILITY_WEIGHTED` resolution favors authoritative sources:
 
 ```python
 from semantica.conflicts import SourceTracker
 
 tracker = SourceTracker()
-tracker.set_credibility("pubmed",    0.95)
-tracker.set_credibility("wikipedia", 0.80)
+tracker.set_credibility("pubmed",     0.95)
+tracker.set_credibility("wikipedia",  0.80)
 tracker.set_credibility("user_input", 0.60)
 
-# Pass to resolver for credibility-weighted resolution
 resolver = ConflictResolver(source_tracker=tracker)
 results = resolver.resolve_conflicts(
-    conflicts, strategy=ResolutionStrategy.CREDIBILITY_WEIGHTED
+    conflicts,
+    strategy=ResolutionStrategy.CREDIBILITY_WEIGHTED
 )
 ```
 
-`SourceTracker` also tracks property-to-source mapping, entity source references, and builds traceability chains:
+`SourceTracker` also builds full traceability chains:
 
 ```python
-from semantica.conflicts import SourceTracker, SourceReference, PropertySource
+from semantica.conflicts import SourceTracker
 
 tracker = SourceTracker()
 tracker.track_entity_source("apple_inc", "crunchbase")
@@ -131,14 +114,12 @@ tracker.track_property_source("apple_inc", "revenue", "annual_report_2023")
 chain = tracker.get_traceability_chain("apple_inc")
 ```
 
----
-
 ## ConflictAnalyzer
 
-Identify patterns across conflict sets:
+Identify patterns and trends across large conflict sets:
 
 ```python
-from semantica.conflicts import ConflictAnalyzer, ConflictPattern
+from semantica.conflicts import ConflictAnalyzer
 
 analyzer = ConflictAnalyzer()
 
@@ -151,12 +132,11 @@ for pattern in patterns:
 by_severity = analyzer.group_by_severity(conflicts)
 print(f"Critical: {len(by_severity['critical'])}")
 print(f"High:     {len(by_severity['high'])}")
+print(f"Low:      {len(by_severity['low'])}")
 
-# Trend analysis
+# Trend analysis over time
 trends = analyzer.analyze_trends(conflicts, time_window="30d")
 ```
-
----
 
 ## InvestigationGuideGenerator
 
@@ -175,8 +155,6 @@ for step in guide.steps:
     print(f"       Check: {step.check}")
 ```
 
----
-
 ## Convenience Functions
 
 ```python
@@ -190,10 +168,6 @@ resolved  = resolve_conflicts(conflicts, strategy="voting")
 analysis  = analyze_conflicts(conflicts, method="pattern")
 guide     = generate_investigation_guide(conflicts[0])
 ```
-
----
-
-## See Also
 
 <CardGroup cols={2}>
   <Card title="Deduplication" icon="copy" href="deduplication">

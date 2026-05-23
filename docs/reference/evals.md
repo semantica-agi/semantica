@@ -4,29 +4,30 @@ description: "Evaluation framework for measuring Knowledge Graph quality, extrac
 icon: "chart-line"
 ---
 
-> Measure and benchmark Knowledge Graph quality, extraction accuracy, and pipeline performance.
+`semantica.evals` provides a comprehensive evaluation framework for measuring extraction accuracy, graph quality, and pipeline performance. Use it to benchmark extractors, validate pipeline output, and track quality regressions across runs.
 
 <Warning>
-  **Coming Soon** — This module is currently in active development. Documentation will be available in an upcoming release.
+  **Coming Soon** — This module is currently in active development. Documentation will be expanded in the next release.
 </Warning>
-
----
 
 ## Planned Capabilities
 
-The Evals module will provide a comprehensive evaluation framework covering:
+The Evals module will cover five evaluation areas:
 
 | Area | What It Measures |
-|------|-----------------|
-| **KG Quality** | Completeness, consistency, schema compliance |
-| **Extraction Accuracy** | NER precision/recall/F1, relation extraction metrics |
-| **Pipeline Performance** | Throughput, latency, error rates per step |
-| **Deduplication** | Merge accuracy, false positive/negative rates |
-| **Reasoning** | Inference correctness, rule coverage |
+| ---- | ---------------- |
+| **KG Quality** | Completeness, consistency, schema compliance, coverage metrics |
+| **Extraction Accuracy** | NER precision / recall / F1, relation extraction metrics |
+| **Pipeline Performance** | Throughput (docs/sec), latency per step, error rates |
+| **Deduplication** | Merge accuracy, false positive / negative rates |
+| **Reasoning** | Inference correctness, rule coverage, derivation depth |
 
----
+## Scope
 
-## See Also
+- **Offline evaluation** — compare against gold-standard annotated datasets
+- **Regression tracking** — compare pipeline runs across commits or config changes
+- **Live monitoring** — record quality metrics during production pipeline runs
+- **Benchmark suites** — standard NER, RE, and KG construction benchmarks
 
 <CardGroup cols={2}>
   <Card title="Semantic Extract" icon="magnifying-glass" href="semantic_extract">

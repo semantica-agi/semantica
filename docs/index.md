@@ -7,27 +7,23 @@ description: "The Accountability and Context Layer for AI — Context Graphs · 
   **v0.5.0 is live** — Ontology Hub, Distance Intelligence, SHACL Studio, Parquet & XML ingestion, 12 security fixes. [What's new →](#whats-new)
 </Info>
 
-> Most AI agents act without a trail. Semantica adds the layer your stack is missing: structured context graphs, auditable decision records, and full provenance from every output back to its source — so your AI isn't just powerful, it's accountable.
-
----
+> Most AI agents act without a trail. Semantica adds the layer your stack is missing: structured context graphs, auditable decision records, and full provenance from every output back to its source — so your AI isn't just powerful, it's **accountable**.
 
 ## The Problem
 
 AI agents today are powerful but not trustworthy. Five structural gaps make them impossible to deploy in regulated environments:
 
-- **No memory structure** — agents store embeddings, not meaning. There's no way to ask *why* something was recalled or trace a fact to its source.
-- **No decision trail** — agents act continuously but record nothing. When something breaks, there's no history to debug or audit.
-- **No provenance** — outputs can't be traced back to source facts. In healthcare, finance, and legal, this is a hard compliance blocker.
-- **No reasoning transparency** — black-box answers with zero explanation of how a conclusion was reached.
-- **No conflict detection** — contradictory facts silently coexist in vector stores, producing unpredictable and inconsistent outputs.
+- **No memory structure.** Agents store embeddings, not meaning. There's no way to ask *why* something was recalled or trace a fact to its source.
+- **No decision trail.** Agents act continuously but record nothing. When something breaks, there's no history to debug or audit.
+- **No provenance.** Outputs can't be traced back to source facts. In healthcare, finance, and legal, this is a hard compliance blocker.
+- **No reasoning transparency.** Black-box answers with zero explanation of how a conclusion was reached.
+- **No conflict detection.** Contradictory facts silently coexist in vector stores, producing unpredictable and inconsistent outputs.
 
-These aren't edge cases. They are why AI cannot be deployed in healthcare, finance, legal, and government without custom guardrails built from scratch.
-
----
+These aren't edge cases. They're why AI cannot be deployed in healthcare, finance, legal, and government without custom guardrails built from scratch.
 
 ## The Solution
 
-Semantica is the **accountability and context layer** you add on top of your existing AI stack — not a replacement for LangChain or LlamaIndex, but the infrastructure that makes their outputs trustworthy.
+Semantica is the **accountability and context layer** you add on top of your existing AI stack. Not a replacement for LangChain or LlamaIndex — the infrastructure that makes their outputs trustworthy.
 
 - **Context Graphs** — a structured, queryable graph of everything your agent knows, decides, and reasons about. Persistent across runs.
 - **Decision Intelligence** — every decision is a first-class object: recorded, causally linked, searchable by precedent, and analyzable for downstream impact.
@@ -36,9 +32,7 @@ Semantica is the **accountability and context layer** you add on top of your exi
 - **Temporal Intelligence** — point-in-time queries, Allen interval algebra, temporal provenance, OWL-Time export.
 - **Ontology Hub** — visual editor, SHACL Studio, alignment authoring, health dashboard. Full ontology lifecycle in the browser.
 
-Works alongside any LLM provider and any agent framework — Semantica is not a replacement, it's the accountability layer on top.
-
----
+Works alongside any LLM provider and any agent framework.
 
 ## Quick Start
 
@@ -137,8 +131,6 @@ decision_id = context.record_decision(
   </Card>
 </CardGroup>
 
----
-
 ## What's New
 
 <AccordionGroup>
@@ -177,11 +169,9 @@ pip install semantica==0.5.0
 
 </AccordionGroup>
 
----
-
 ## Start Here
 
-If you're new to Semantica, install first and then open [Quickstart](quickstart). Use [Core Concepts](concepts) or [API Reference](reference/context) when you need more context or exact details.
+If you're new to Semantica, install first and then open [Quickstart](quickstart). Use [Core Concepts](concepts) for the mental model, or jump to [API Reference](reference/context) when you need exact details.
 
 <CardGroup cols={2}>
   <Card title="Installation" icon="download" href="installation">
@@ -191,17 +181,15 @@ If you're new to Semantica, install first and then open [Quickstart](quickstart)
     Build a complete knowledge graph pipeline in 5 minutes.
   </Card>
   <Card title="Core Concepts" icon="book-open" href="concepts">
-    Use this for the mental model behind the API.
+    The mental model behind the API.
   </Card>
   <Card title="API Reference" icon="rectangle-terminal" href="reference/context">
-    Jump here when you need exact module, class, or method details.
+    Jump here for exact module, class, and method details.
   </Card>
   <Card title="Cookbook" icon="flask" href="cookbook">
     Explore domain notebooks once you have the basics working.
   </Card>
 </CardGroup>
-
----
 
 ## Capabilities
 
@@ -210,10 +198,10 @@ If you're new to Semantica, install first and then open [Quickstart](quickstart)
 <Accordion title="Context & Decision Intelligence" icon="brain">
 
 - **Context Graphs** — structured, persistent graph of entities, relationships, and decisions
-- **Decision tracking** — `record_decision()` for full lifecycle management with causal chains
+- **Decision tracking** — `record_decision()` with full lifecycle management and causal chains
 - **Precedent search** — hybrid similarity search over past decisions for consistency
 - **Influence analysis** — `analyze_decision_impact()`, `analyze_decision_influence()`
-- **Temporal graphs** — `valid_from`/`valid_until` on nodes and edges, point-in-time queries
+- **Temporal graphs** — `valid_from` / `valid_until` on nodes and edges, point-in-time queries
 - **Distance Intelligence** — semantic neighborhoods, N×N distance matrices, ego-mode exploration
 
 </Accordion>
@@ -231,7 +219,7 @@ If you're new to Semantica, install first and then open [Quickstart](quickstart)
 
 <Accordion title="Provenance & Auditability" icon="shield-check">
 
-- **W3C PROV-O** — lineage tracking across all 17 modules
+- **W3C PROV-O** — lineage tracking across all modules
 - **Change management** — version control with SHA-256 checksums and audit trails
 - **Temporal provenance** — `recorded_at` stamping, OWL-Time export
 - **Compliance** — HIPAA, SOX, GDPR, FDA 21 CFR Part 11 infrastructure
@@ -244,15 +232,13 @@ If you're new to Semantica, install first and then open [Quickstart](quickstart)
 
 **Vector Stores:** FAISS, Pinecone, Weaviate, Qdrant, Milvus, PgVector, in-memory
 
-**Export:** RDF (Turtle, JSON-LD, N-Triples, XML), Parquet, ArangoDB AQL, OWL ontologies
-
 **Graph Stores:** Neo4j, FalkorDB, Apache AGE, Amazon Neptune
+
+**Export:** RDF (Turtle, JSON-LD, N-Triples, XML), Parquet, ArangoDB AQL, OWL ontologies
 
 </Accordion>
 
 </AccordionGroup>
-
----
 
 ## Module Reference
 
@@ -269,7 +255,7 @@ If you're new to Semantica, install first and then open [Quickstart](quickstart)
 | `semantica.graph_store` | Neo4j, FalkorDB, Apache AGE, Amazon Neptune |
 | `semantica.triplet_store` | In-memory and persistent RDF triple store |
 | `semantica.ingest` | Files, web, feeds, databases, Snowflake, Parquet, XML, MCP |
-| `semantica.parse` | Document parsing — PDF, DOCX, HTML, PPTX; Docling layout analysis |
+| `semantica.parse` | Document parsing — PDF, DOCX, HTML, PPTX, Docling layout analysis |
 | `semantica.split` | Text chunking — sentence, paragraph, token, semantic boundary strategies |
 | `semantica.normalize` | Text normalization, entity canonicalization, whitespace and encoding cleanup |
 | `semantica.embeddings` | Sentence-Transformers, FastEmbed, OpenAI, BGE |
@@ -283,10 +269,8 @@ If you're new to Semantica, install first and then open [Quickstart](quickstart)
 | `semantica.llms` | Groq, OpenAI, Anthropic, Gemini, Ollama, DeepSeek, Novita AI, LiteLLM |
 | `semantica.seed` | Deterministic data seeding and synthetic graph generation for tests |
 | `semantica.evals` | Evaluation harness — precision, recall, F1 for extraction and reasoning |
-| `semantica.utils` | Shared utilities — ID generation, date parsing, schema helpers |
 | `semantica.core` | Core data models, base classes, shared type definitions |
-
----
+| `semantica.utils` | Shared utilities — ID generation, date parsing, schema helpers |
 
 ## Built for High-Stakes Domains
 
@@ -303,8 +287,6 @@ Where every decision must be accountable and mistakes have real consequences:
 **Government & Defense** — policy decision trails, classified information handling, provenance chains.
 
 **Critical Infrastructure** — power grids, transportation safety, emergency response coordination.
-
----
 
 ## Why Semantica?
 

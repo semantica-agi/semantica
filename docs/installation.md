@@ -9,14 +9,17 @@ icon: "download"
 </Check>
 
 <Note>
-  Python 3.8 or higher required. Python 3.11+ recommended.
+  Python 3.8 or higher is required. Python 3.11+ is recommended.
 </Note>
 
-<Tip>
-  Once you're set up, read [Getting Started](getting-started) for the overview and [Quickstart](quickstart) for the end-to-end pipeline.
-</Tip>
+## System Requirements
 
----
+| Component | Minimum | Recommended |
+| --------- | ------- | ----------- |
+| Python | 3.8 | 3.11+ |
+| OS | Windows / Linux / Mac | Linux / Mac |
+| RAM | 4 GB | 16 GB+ |
+| Storage | 2 GB | 20 GB+ (models and data) |
 
 ## Basic Installation
 
@@ -36,16 +39,14 @@ pip install semantica[all]
 python -c "import semantica; print(semantica.__version__)"
 ```
 
----
-
 ## Virtual Environment (Recommended)
 
 <Tabs>
   <Tab title="venv">
     ```bash
     python -m venv venv
-    source venv/bin/activate      # Linux / Mac
-    venv\Scripts\activate         # Windows
+    source venv/bin/activate   # Linux / Mac
+    venv\Scripts\activate      # Windows
     pip install semantica
     ```
   </Tab>
@@ -58,8 +59,6 @@ python -c "import semantica; print(semantica.__version__)"
   </Tab>
 </Tabs>
 
----
-
 ## Optional Dependencies
 
 Install only what you need:
@@ -69,34 +68,31 @@ Install only what you need:
     ```bash
     pip install semantica[gpu]
     ```
-    Includes PyTorch with CUDA, FAISS GPU, CuPy.
+    Includes PyTorch with CUDA, FAISS GPU, and CuPy.
   </Tab>
   <Tab title="Visualization">
     ```bash
     pip install semantica[viz]
     ```
-    Includes PyVis, Graphviz, UMAP.
+    Includes PyVis, Graphviz, and UMAP.
   </Tab>
   <Tab title="LLM Providers">
     ```bash
-    pip install semantica[llm-all]          # all providers
-
-    pip install semantica[llm-openai]       # OpenAI
-    pip install semantica[llm-anthropic]    # Anthropic
-    pip install semantica[llm-gemini]       # Google Gemini
-    pip install semantica[llm-groq]         # Groq
-    pip install semantica[llm-ollama]       # Ollama (local)
+    pip install semantica[llm-all]       # all providers
+    pip install semantica[llm-openai]    # OpenAI
+    pip install semantica[llm-anthropic] # Anthropic
+    pip install semantica[llm-gemini]    # Google Gemini
+    pip install semantica[llm-groq]      # Groq
+    pip install semantica[llm-ollama]    # Ollama (local)
     ```
   </Tab>
   <Tab title="Cloud">
     ```bash
     pip install semantica[cloud]
     ```
-    Includes AWS S3, Azure Blob, Google Cloud Storage.
+    Includes AWS S3, Azure Blob, and Google Cloud Storage.
   </Tab>
 </Tabs>
-
----
 
 ## Install from Source
 
@@ -106,24 +102,22 @@ For the latest development version or to contribute:
 git clone https://github.com/semantica-agi/semantica.git
 cd semantica
 
-pip install -e .          # core only
-pip install -e ".[all]"   # all extras
-pip install -e ".[dev]"   # dev tools (pytest, black, etc.)
+pip install -e .         # core only
+pip install -e ".[all]"  # all extras
+pip install -e ".[dev]"  # dev tools (pytest, black, etc.)
 ```
 
-If you encounter issues with the PyPI release, install directly from the main branch:
+Install directly from the main branch if the PyPI release has issues:
 
 ```bash
 pip install git+https://github.com/semantica-agi/semantica.git@main
 ```
 
----
-
 ## Troubleshooting
 
 ### ModuleNotFoundError
 
-Check you have the right environment active:
+Make sure you're in the right environment:
 
 ```bash
 pip list | grep semantica
@@ -135,7 +129,7 @@ pip install --upgrade semantica
 ```bash
 pip install --upgrade pip
 pip install build wheel
-pip install semantica --no-deps   # install without optional deps first
+pip install semantica --no-deps  # install without optional deps first
 ```
 
 ### GPU dependencies fail
@@ -150,7 +144,7 @@ pip install semantica[gpu]
 ### Permission denied
 
 ```bash
-pip install --user semantica      # or use a virtual environment
+pip install --user semantica  # or use a virtual environment
 ```
 
 ### Windows `[all]` install fails
@@ -164,19 +158,6 @@ pip install --upgrade semantica
 ### Windows PyTorch DLL errors
 
 Install the [Microsoft Visual C++ Redistributable](https://aka.ms/vs/17/release/vc_redist.x64.exe). This is a Windows system dependency, not a Semantica bug.
-
----
-
-## System Requirements
-
-| Component | Minimum | Recommended |
-|-----------|---------|-------------|
-| Python | 3.8 | 3.11+ |
-| OS | Windows / Linux / Mac | Linux / Mac |
-| RAM | 4 GB | 16 GB+ |
-| Storage | 2 GB | 20 GB+ (for models and data) |
-
----
 
 ## Next Steps
 

@@ -6,9 +6,15 @@ icon: "plug"
 
 `semantica.mcp_server` exposes Semantica's knowledge graph, decision intelligence, semantic extraction, and reasoning capabilities as an [MCP (Model Context Protocol)](https://modelcontextprotocol.io) server over stdio.
 
-Compatible with **Claude Desktop**, **Windsurf**, **Cline**, **Continue**, **VS Code**, **Roo Code**, **Cursor**, and any other MCP-aware tool.
+Compatible with **Claude Desktop**, **Windsurf**, **Cline**, **Continue**, **VS Code**, **Roo Code**, **Cursor**, and any MCP-aware client.
 
----
+## What You Get
+
+- **12 MCP tools** — extract entities, build graphs, run SPARQL, find paths, get recommendations, embed, cluster, and more
+- **3 readable resources** — live graph JSON, entity list, and relationship list
+- **Zero infrastructure** — runs over stdio, no server or port needed
+- **Claude Desktop ready** — one config block to add to `claude_desktop_config.json`
+- **REST alternative** — the Explorer module offers a full HTTP API if you prefer
 
 ## Installation
 
@@ -18,11 +24,9 @@ pip install semantica
 
 The MCP server is included in the base install — no extras required.
 
----
-
 ## Configuration
 
-Add Semantica to your MCP client's settings:
+Add Semantica to your MCP client's settings file:
 
 <CodeGroup>
 
@@ -63,16 +67,12 @@ Add Semantica to your MCP client's settings:
 
 </CodeGroup>
 
----
-
 ## Environment Variables
 
 | Variable | Default | Description |
-|----------|---------|-------------|
+| -------- | ------- | ----------- |
 | `SEMANTICA_KG_PATH` | *(none)* | Path to a persisted graph to load on startup |
-| `SEMANTICA_LOG_LEVEL` | `WARNING` | Log level: `DEBUG`, `INFO`, `WARNING` |
-
----
+| `SEMANTICA_LOG_LEVEL` | `WARNING` | Log verbosity: `DEBUG`, `INFO`, `WARNING` |
 
 ## Tools
 
@@ -95,10 +95,10 @@ Extract named entities (people, places, organisations, concepts) from text using
 ```json
 {
   "entities": [
-    { "label": "Apple Inc.", "type": "ORGANIZATION", "start": 0, "end": 10 },
-    { "label": "Steve Jobs", "type": "PERSON", "start": 26, "end": 36 },
-    { "label": "Cupertino",  "type": "LOCATION", "start": 40, "end": 49 },
-    { "label": "1976",       "type": "DATE",     "start": 53, "end": 57 }
+    { "label": "Apple Inc.", "type": "ORGANIZATION", "start": 0,  "end": 10 },
+    { "label": "Steve Jobs", "type": "PERSON",       "start": 26, "end": 36 },
+    { "label": "Cupertino",  "type": "LOCATION",     "start": 40, "end": 49 },
+    { "label": "1976",       "type": "DATE",          "start": 53, "end": 57 }
   ]
 }
 ```
@@ -267,7 +267,7 @@ Run forward-chaining IF/THEN rules over a set of facts to derive new facts.
 
 <Accordion title="export_graph" icon="file-export">
 
-Export the current knowledge graph.
+Export the current knowledge graph to a serialization format.
 
 **Input:**
 ```json
@@ -280,27 +280,23 @@ Supported formats: `turtle`, `ttl`, `nt`, `xml`, `json-ld`, `json`.
 
 </AccordionGroup>
 
----
-
 ## Resources
 
 The MCP server also exposes three readable resources:
 
 | URI | Description |
-|-----|-------------|
+| --- | ----------- |
 | `semantica://graph/summary` | High-level graph statistics |
 | `semantica://decisions/list` | All recorded decisions (up to 50) |
 | `semantica://schema/info` | Server version and available tools |
 
----
-
 ## Test Locally
 
 ```bash
-# Run the server directly for testing (reads from stdin, writes to stdout)
+# Run the server directly (reads from stdin, writes to stdout)
 semantica-mcp
 
-# Or with Python
+# Or via Python module
 python -m semantica.mcp_server
 ```
 
@@ -309,10 +305,6 @@ Send a JSON-RPC `initialize` message to confirm it's working:
 ```bash
 echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}}' | semantica-mcp
 ```
-
----
-
-## See Also
 
 <CardGroup cols={2}>
   <Card title="Context" icon="brain" href="context">

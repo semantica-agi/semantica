@@ -1,18 +1,18 @@
 ---
 title: "Provenance Module"
-description: "W3C PROV-O compliant lineage tracking, source attribution, and audit trails across all 17 modules."
+description: "W3C PROV-O compliant lineage tracking, source attribution, and audit trails across all modules."
 icon: "link"
 ---
 
-> W3C PROV-O compliant provenance tracking for high-stakes domains requiring complete traceability.
+`semantica.provenance` tracks the full lineage of every fact — from raw ingestion through extraction, reasoning, and export. Compliant with W3C PROV-O, suitable for HIPAA, SOX, GDPR, and FDA 21 CFR Part 11 environments.
 
----
+## What You Get
 
-## Overview
-
-The **Provenance Module** tracks the full lineage of every fact — from raw ingestion through extraction, reasoning, and export. Compliant with W3C PROV-O, suitable for HIPAA, SOX, GDPR, and FDA 21 CFR Part 11 environments.
-
----
+- **`ProvenanceManager`** — track entities, relationships, and activities with source attribution
+- **`ActivityTracker`** — record pipeline activities and which entities they produced or consumed
+- **Lineage graph** — full upstream lineage from any entity back to its source document
+- **W3C PROV-O export** — serialize lineage as Turtle RDF for compliance reporting
+- **`GraphBuilderWithProvenance`** — drop-in replacement that auto-tracks every node and edge
 
 ## ProvenanceManager
 
@@ -21,7 +21,7 @@ from semantica.provenance import ProvenanceManager
 
 manager = ProvenanceManager()
 
-# Track an entity
+# Track an extracted entity
 manager.track_entity(
     entity_id="apple_inc",
     source="annual_report_2023.pdf",
@@ -30,7 +30,7 @@ manager.track_entity(
     confidence=0.98
 )
 
-# Track a relationship
+# Track an extracted relationship
 manager.track_relationship(
     rel_id="steve_jobs_founded_apple",
     source="annual_report_2023.pdf",
@@ -38,19 +38,20 @@ manager.track_relationship(
     confidence=0.92
 )
 
-# Get full lineage
+# Retrieve full lineage for any entity
 lineage = manager.get_lineage("apple_inc")
-print(f"Source: {lineage.source}")
-print(f"Extracted: {lineage.extracted_at}")
-print(f"Method: {lineage.extraction_method}")
+print(f"Source:      {lineage.source}")
+print(f"Extracted:   {lineage.extracted_at}")
+print(f"Method:      {lineage.extraction_method}")
+print(f"Confidence:  {lineage.confidence}")
 ```
-
----
 
 ## Activity Tracking
 
+Record pipeline activities — what was consumed and what was produced:
+
 ```python
-# Track a pipeline activity
+# Start and end an activity
 activity_id = manager.start_activity(
     activity_type="ner_extraction",
     used=["annual_report_2023.pdf"],
@@ -59,63 +60,80 @@ activity_id = manager.start_activity(
 
 manager.end_activity(activity_id)
 
-# Query activities
+# Query activities for an entity
 activities = manager.get_activities(entity_id="apple_inc")
+for activity in activities:
+    print(f"{activity.type} at {activity.started_at}")
+    print(f"  Used:      {activity.used}")
+    print(f"  Generated: {activity.generated}")
 ```
-
----
 
 ## Lineage Graph
 
+Retrieve a full directed lineage graph from any entity back to its source:
+
 ```python
-# Full lineage from source to current state
 lineage_graph = manager.get_lineage_graph("apple_inc")
 
 for node in lineage_graph.nodes:
     print(f"{node.id}: {node.type} — {node.timestamp}")
-```
 
----
+for edge in lineage_graph.edges:
+    print(f"{edge.source} → {edge.target} ({edge.relation})")
+```
 
 ## W3C PROV-O Export
 
+Export lineage as W3C PROV-O Turtle for compliance reporting:
+
 ```python
-# Export provenance as W3C PROV-O Turtle
+# Single entity lineage
 prov_ttl = manager.export_prov_o("apple_inc", format="turtle")
 
-# Export full provenance graph
+# Full provenance graph for all tracked entities
 manager.export_all(path="provenance.ttl", format="turtle")
+
+# Compliance-ready JSON-LD export
+manager.export_all(path="provenance.jsonld", format="json-ld")
 ```
 
----
+## Integration with GraphBuilder
 
-## Integration with Other Modules
-
-Provenance is automatically tracked when using `GraphBuilderWithProvenance`:
+`GraphBuilderWithProvenance` automatically records provenance for every node and edge constructed:
 
 ```python
 from semantica.kg import GraphBuilderWithProvenance
 
 builder = GraphBuilderWithProvenance(provenance=True)
-result = builder.build_single_source(graph_data)
+result  = builder.build_single_source(graph_data)
 
-# The builder records what was used to produce each node/edge
-lineage = result.provenance_manager.get_lineage("entity_id")
+# Each node and edge has a source_id linking back to the originating document
+lineage = result.provenance_manager.get_lineage("apple_inc")
+print(f"Source document: {lineage.source}")
+print(f"Extracted by:    {lineage.extraction_method}")
 ```
 
----
+## Compliance Standards
 
-## See Also
+Provenance tracking in Semantica is designed to satisfy:
+
+| Standard | Requirement Met |
+| -------- | --------------- |
+| **W3C PROV-O** | Full PROV-O compliant serialization (Turtle and JSON-LD) |
+| **HIPAA** | Complete audit trail linking clinical facts to source documents |
+| **SOX** | Immutable change history with timestamps and actor IDs |
+| **GDPR** | Data lineage supporting right-to-erasure impact analysis |
+| **FDA 21 CFR Part 11** | Electronic records with origination timestamp and extraction method |
 
 <CardGroup cols={2}>
   <Card title="Change Management" icon="clock-rotate-left" href="change_management">
-    Version control and audit trails.
+    Version control and snapshot audit trails.
   </Card>
   <Card title="Ingest" icon="database" href="ingest">
-    Provenance begins at ingestion.
+    Provenance begins at the ingestion stage.
   </Card>
   <Card title="Export" icon="file-export" href="export">
-    Include provenance in exports.
+    Include provenance metadata in RDF exports.
   </Card>
   <Card title="Context" icon="brain" href="context">
     Decision provenance via AgentContext.

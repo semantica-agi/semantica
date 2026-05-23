@@ -8,17 +8,19 @@
     "light": "#10B981",
     "dark": "#047857"
   },
-  "favicon": "/assets/img/Semantica Logo.png",
+  "favicon": "/assets/img/semantica-logo.png",
   "logo": {
-    "light": "/assets/img/Semantica Logo.png",
-    "dark": "/assets/img/Semantica Logo.png"
+    "light": "/assets/img/semantica-logo.png",
+    "dark": "/assets/img/semantica-logo.png"
   },
   "font": {
     "headings": {
-      "family": "Lexend"
+      "family": "Space Grotesk",
+      "weight": 700
     },
     "body": {
-      "family": "Inter"
+      "family": "Inter",
+      "weight": 400
     }
   },
   "appearance": {
@@ -41,7 +43,7 @@
   "metadata": {
     "og:title": "Semantica — Accountability & Context Layer for AI",
     "og:description": "Build explainable, auditable knowledge graphs with full provenance. Open source. MIT licensed.",
-    "og:image": "/assets/img/Semantica Logo.png",
+    "og:image": "/assets/img/semantica-logo.png",
     "twitter:card": "summary_large_image",
     "twitter:site": "@BuildSemantica"
   },
@@ -108,10 +110,10 @@
         ]
       },
       {
-        "tab": "API Reference",
+        "tab": "Modules",
         "groups": [
           {
-            "group": "Context & Knowledge",
+            "group": "Context & Intelligence",
             "pages": [
               "reference/context",
               "reference/kg",

@@ -4,36 +4,17 @@ description: "Forward chaining, Rete, deductive, abductive, SPARQL, Datalog, and
 icon: "microchip"
 ---
 
-> Logical inference engine supporting rule-based, SPARQL, Rete, Datalog, and temporal reasoning — all with explainable paths.
+`semantica.reasoning` derives new knowledge from existing facts using logical rules. Every engine produces **explainable inference paths** — traceable chains of rules and facts, not black-box conclusions.
 
----
+## What You Get
 
-## Overview
-
-The **Reasoning Module** derives new knowledge from existing facts using logical rules. Every engine produces **explainable inference paths** — not black-box conclusions.
-
-<CardGroup cols={2}>
-  <Card title="Reasoner" icon="brain">
-    Main facade — forward chaining with IF/THEN rules and variable substitution.
-  </Card>
-  <Card title="ReteEngine" icon="bolt">
-    High-performance pattern matching for large rule sets via the Rete algorithm.
-  </Card>
-  <Card title="SPARQLReasoner" icon="database">
-    Query expansion and property chain inference over RDF graphs.
-  </Card>
-  <Card title="DatalogReasoner" icon="code">
-    Recursive Horn clause rules with bottom-up fixpoint semantics (v0.4.0).
-  </Card>
-  <Card title="TemporalReasoningEngine" icon="clock">
-    All 13 Allen interval algebra relations for time-aware inference.
-  </Card>
-  <Card title="ExplanationGenerator" icon="list-check">
-    Structured explanation paths — how each conclusion was derived.
-  </Card>
-</CardGroup>
-
----
+- **`Reasoner`** — main facade for IF/THEN forward-chaining with variable substitution
+- **`GraphReasoner`** — inference over full knowledge graph structure (transitivity, symmetry, inverses)
+- **`ReteEngine`** — high-performance pattern matching via the Rete algorithm for large rule sets
+- **`SPARQLReasoner`** — query expansion and property chain inference over RDF graphs
+- **`DatalogReasoner`** — recursive Horn clause rules with guaranteed fixpoint termination (v0.4.0)
+- **`TemporalReasoningEngine`** — all 13 Allen interval algebra relations for time-aware inference
+- **`ExplanationGenerator`** — structured explanation paths for every derived conclusion
 
 ## Reasoner (Main Facade)
 
@@ -44,11 +25,11 @@ from semantica.reasoning import Reasoner, Rule, Fact, RuleType
 
 reasoner = Reasoner()
 
-# Add facts
+# Add base facts
 reasoner.add_fact(Fact(subject="John", predicate="is_a", obj="Manager"))
 reasoner.add_fact(Fact(subject="John", predicate="is_a", obj="Employee"))
 
-# Add rules
+# Add an IF/THEN rule
 reasoner.add_rule(Rule(
     rule_type=RuleType.FORWARD_CHAIN,
     conditions=[
@@ -64,7 +45,20 @@ for inference in result.derived_facts:
     print(f"  Derived via: {inference.explanation}")
 ```
 
----
+### Built-In Rule Templates
+
+```python
+engine = Reasoner()
+
+# Transitive closure: A→B, B→C ⟹ A→C
+engine.apply_transitivity("located_in")
+
+# Symmetry: A knows B ⟹ B knows A
+engine.apply_symmetry("knows")
+
+# Inverse: A parent_of B ⟹ B child_of A
+engine.apply_inverse("parent_of", "child_of")
+```
 
 ## GraphReasoner
 
@@ -75,7 +69,7 @@ from semantica.reasoning import GraphReasoner
 
 graph_reasoner = GraphReasoner(kg)
 
-# Infer transitive closure
+# Define a transitive ancestor rule
 graph_reasoner.add_rule({
     "if": [
         {"subject": "?a", "predicate": "parent_of", "object": "?b"},
@@ -89,26 +83,24 @@ for inf in inferences:
     print(f"{inf['subject']} {inf['predicate']} {inf['object']}")
 ```
 
----
-
 ## ReteEngine
 
-High-performance pattern matching using the Rete algorithm — far faster than naive forward chaining for large rule sets because it caches partial matches:
+High-performance pattern matching using the Rete algorithm — far faster than naive forward chaining for large rule sets because it caches partial matches across iterations:
 
 ```python
-from semantica.reasoning import ReteEngine, ReteNode, AlphaNode, BetaNode
+from semantica.reasoning import ReteEngine
 
 engine = ReteEngine()
 engine.load_rules("rules/domain_rules.json")
 results = engine.run(kg)
 
-# Inspect the network
-root: ReteNode = engine.get_root()
+# Inspect the Rete network
+root        = engine.get_root()
 alpha_nodes = engine.get_alpha_nodes()   # single-condition filters
 beta_nodes  = engine.get_beta_nodes()    # join nodes
 ```
 
-Rule format for Rete:
+Rule format (JSON):
 
 ```json
 {
@@ -124,18 +116,16 @@ Rule format for Rete:
 }
 ```
 
----
-
 ## SPARQLReasoner
 
-Query-based inference over RDF graphs:
+Query-based inference over RDF graphs with property chain support:
 
 ```python
-from semantica.reasoning import SPARQLReasoner, SPARQLQueryResult
+from semantica.reasoning import SPARQLReasoner
 
 reasoner = SPARQLReasoner(graph=rdf_graph)
 
-result: SPARQLQueryResult = reasoner.query("""
+result = reasoner.query("""
     PREFIX ex: <http://example.org/>
     SELECT ?person ?company WHERE {
         ?person ex:founded ?company .
@@ -145,32 +135,26 @@ result: SPARQLQueryResult = reasoner.query("""
 
 for row in result.bindings:
     print(row["person"], row["company"])
-```
 
-Property chain inference:
-
-```python
-# Infer: if A knows B and B is colleague_of C, then A knows C
+# Property chain inference: A knows B, B colleague_of C ⟹ A knows C
 reasoner.add_property_chain("knows", ["knows", "colleague_of"])
 inferences = reasoner.infer_property_chains()
 ```
 
----
-
 ## DatalogReasoner (v0.4.0)
 
-Pure-Python bottom-up semi-naive fixpoint evaluation for recursive Horn clause rules. Termination is guaranteed:
+Pure-Python bottom-up semi-naive fixpoint evaluation for recursive Horn clause rules. Termination is **guaranteed** — the engine detects fixpoint convergence and stops:
 
 ```python
 from semantica.reasoning import DatalogReasoner, DatalogFact, DatalogRule
 
 datalog = DatalogReasoner()
 
-# Add base facts
+# Base facts
 datalog.add_fact(DatalogFact("parent", ("alice", "bob")))
-datalog.add_fact(DatalogFact("parent", ("bob",  "charlie")))
+datalog.add_fact(DatalogFact("parent", ("bob",   "charlie")))
 
-# Add recursive rules (Horn clauses)
+# Recursive rules (Horn clauses)
 datalog.add_rule(DatalogRule("ancestor(?X, ?Y) :- parent(?X, ?Y)."))
 datalog.add_rule(DatalogRule("ancestor(?X, ?Z) :- parent(?X, ?Y), ancestor(?Y, ?Z)."))
 
@@ -182,12 +166,6 @@ results = datalog.query("ancestor(alice, ?Z)")
 # → [{"Z": "bob"}, {"Z": "charlie"}]
 ```
 
-<Note>
-  Datalog termination is guaranteed — the engine detects fixpoint convergence and stops automatically. No infinite loops.
-</Note>
-
----
-
 ## TemporalReasoningEngine
 
 Reason about time intervals using all 13 Allen interval algebra relations:
@@ -197,77 +175,58 @@ from semantica.reasoning import TemporalReasoningEngine, TemporalInterval, Inter
 
 engine = TemporalReasoningEngine()
 
-# Define intervals
-ceo_tenure = TemporalInterval(start="1997-09-16", end="2011-08-24")
+ceo_tenure  = TemporalInterval(start="1997-09-16", end="2011-08-24")
 board_member = TemporalInterval(start="2000-01-01", end="2012-06-01")
 
-# Check interval relations (all 13 Allen relations supported)
 relation = engine.get_relation(ceo_tenure, board_member)
-# → IntervalRelation.DURING  (ceo_tenure is during board_member)
-
-# Named relations
-IntervalRelation.BEFORE       # a ends before b starts
-IntervalRelation.MEETS        # a ends exactly when b starts
-IntervalRelation.OVERLAPS     # a starts before b, ends inside b
-IntervalRelation.DURING       # a is fully inside b
-IntervalRelation.STARTS       # a and b start together, a ends first
-IntervalRelation.FINISHES     # a and b end together, a starts later
-IntervalRelation.EQUALS       # identical intervals
-# + 6 inverse relations (AFTER, MET_BY, OVERLAPPED_BY, CONTAINS, STARTED_BY, FINISHED_BY)
+# → IntervalRelation.DURING  (ceo_tenure is fully inside board_member)
 ```
 
----
+All 13 Allen interval algebra relations are supported:
+
+| Relation | Meaning |
+| -------- | ------- |
+| `BEFORE` | A ends before B starts |
+| `MEETS` | A ends exactly when B starts |
+| `OVERLAPS` | A starts before B, ends inside B |
+| `DURING` | A is fully inside B |
+| `STARTS` | A and B start together, A ends first |
+| `FINISHES` | A and B end together, A starts later |
+| `EQUALS` | Identical intervals |
+| + 6 inverses | `AFTER`, `MET_BY`, `OVERLAPPED_BY`, `CONTAINS`, `STARTED_BY`, `FINISHED_BY` |
 
 ## ExplanationGenerator
 
-Generate structured explanations for inferences:
+Generate structured step-by-step explanations for any derived conclusion:
 
 ```python
-from semantica.reasoning import ExplanationGenerator, Explanation, ReasoningPath
+from semantica.reasoning import ExplanationGenerator
 
 generator = ExplanationGenerator(reasoner)
 
-explanation: Explanation = generator.explain(
+explanation = generator.explain(
     conclusion={"subject": "John", "predicate": "has_authority", "object": "true"}
 )
 
 print(explanation.conclusion)
-print(explanation.confidence)
+print(f"Confidence: {explanation.confidence:.2f}")
 
 for step in explanation.reasoning_path.steps:
-    print(f"  Step {step.depth}: {step.fact} via rule '{step.rule_name}'")
+    print(f"  Step {step.depth}: {step.fact}")
+    print(f"    via rule: '{step.rule_name}'")
 ```
-
----
-
-## Built-In Rule Templates
-
-```python
-from semantica.reasoning import Reasoner
-
-engine = Reasoner()
-
-# Apply common logical patterns
-engine.apply_transitivity("located_in")   # A→B, B→C ⟹ A→C
-engine.apply_symmetry("knows")            # A knows B ⟹ B knows A
-engine.apply_inverse("parent_of", "child_of")  # A parent_of B ⟹ B child_of A
-```
-
----
-
-## See Also
 
 <CardGroup cols={2}>
   <Card title="Knowledge Graph" icon="diagram-project" href="kg">
     The knowledge graph being reasoned over.
   </Card>
   <Card title="Ontology" icon="sitemap" href="ontology">
-    Ontology axioms and SHACL constraints.
+    Ontology axioms and SHACL constraints for logical reasoning.
   </Card>
   <Card title="Triplet Store" icon="table" href="triplet_store">
-    RDF backend for SPARQL reasoning.
+    RDF backend for SPARQL-based reasoning.
   </Card>
   <Card title="Context" icon="brain" href="context">
-    Reasoning integrated into agent intelligence.
+    Reasoning integrated into agent decision intelligence.
   </Card>
 </CardGroup>
