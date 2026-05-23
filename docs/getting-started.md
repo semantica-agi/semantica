@@ -5,7 +5,7 @@ icon: "rocket"
 ---
 
 <Tip>
-  Just here for code? Jump straight to the [Quickstart Tutorial](quickstart) or explore the [Cookbook](cookbook) for interactive notebooks.
+  Already installed? Jump to [Quickstart](quickstart). Need setup help first? Start with [Installation](installation).
 </Tip>
 
 ---
@@ -40,6 +40,8 @@ With all optional dependencies:
 ```bash
 pip install semantica[all]
 ```
+
+For virtual environments and platform-specific setup, see the full [Installation](installation).
 
 Verify:
 

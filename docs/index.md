@@ -181,18 +181,23 @@ pip install semantica==0.5.0
 
 ## Start Here
 
+If you're new to Semantica, install first and then open [Quickstart](quickstart). Use [Core Concepts](concepts) or [API Reference](reference/context) when you need more context or exact details.
+
 <CardGroup cols={2}>
+  <Card title="Installation" icon="download" href="installation">
+    Get Semantica installed in under a minute.
+  </Card>
   <Card title="Quickstart" icon="rocket" href="quickstart">
     Build a complete knowledge graph pipeline in 5 minutes.
   </Card>
   <Card title="Core Concepts" icon="book-open" href="concepts">
-    Knowledge graphs, ontologies, and semantic reasoning explained.
+    Use this for the mental model behind the API.
   </Card>
   <Card title="API Reference" icon="rectangle-terminal" href="reference/context">
-    Full documentation for every module, class, and method.
+    Jump here when you need exact module, class, or method details.
   </Card>
   <Card title="Cookbook" icon="flask" href="cookbook">
-    40+ domain-specific notebooks — healthcare, finance, legal, and more.
+    Explore domain notebooks once you have the basics working.
   </Card>
 </CardGroup>
 

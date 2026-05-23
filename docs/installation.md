@@ -12,6 +12,10 @@ icon: "download"
   Python 3.8 or higher required. Python 3.11+ recommended.
 </Note>
 
+<Tip>
+  Once you're set up, read [Getting Started](getting-started) for the overview and [Quickstart](quickstart) for the end-to-end pipeline.
+</Tip>
+
 ---
 
 ## Basic Installation
@@ -178,12 +182,12 @@ Install the [Microsoft Visual C++ Redistributable](https://aka.ms/vs/17/release/
 
 <CardGroup cols={3}>
   <Card title="Getting Started" icon="rocket" href="getting-started">
-    Build your first knowledge graph.
+    Understand what Semantica does before you build.
   </Card>
-  <Card title="Quickstart Tutorial" icon="play" href="quickstart">
-    Full step-by-step pipeline.
+  <Card title="Build the Pipeline" icon="play" href="quickstart">
+    Follow the end-to-end workflow with code.
   </Card>
-  <Card title="Cookbook" icon="flask" href="cookbook">
-    Interactive Jupyter notebooks.
+  <Card title="Browse Examples" icon="flask" href="cookbook">
+    See notebook examples organized by use case.
   </Card>
 </CardGroup>
