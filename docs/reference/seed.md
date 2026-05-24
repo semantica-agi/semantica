@@ -6,6 +6,16 @@ icon: "database"
 
 `semantica.seed` gives your knowledge graph a reliable starting point. Rather than building from an empty graph and hoping extraction produces consistent reference data, you load verified, structured sources first — ISO codes, employee rosters, product catalogs, domain taxonomies — then merge freshly extracted data on top.
 
+## Exported Classes
+
+```python
+from semantica.seed import (
+    SeedDataManager,   # coordinator: register_source, create_foundation_graph, integrate_with_extracted
+    SeedDataSource,    # {name, source_type, path, config} — dataclass for a registered source
+    SeedData,          # {entities, relationships, metadata} — loaded seed data container
+)
+```
+
 ## What You Get
 
 <CardGroup cols={2}>

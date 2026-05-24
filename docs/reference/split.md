@@ -16,6 +16,37 @@ Most LLMs and embedding models have fixed context windows. Documents larger than
 
 Semantica's chunking methods are designed to avoid these failure modes.
 
+## Exported Classes
+
+```python
+from semantica.split import (
+    # Unified splitter (start here)
+    TextSplitter,          # method=: recursive, sentence, token, semantic_transformer,
+                           #          entity_aware, relation_aware, code, structural, markdown
+    Splitter,              # alias for TextSplitter (backward compat)
+    # Data type
+    Chunk,                 # {text, start_char, end_char, token_count, metadata, entities, relationships}
+    # Specialized chunkers
+    SemanticChunker,       # embedding-based semantic boundary detection
+    StructuralChunker,     # heading/section-based splits from ParsedDocument
+    SlidingWindowChunker,  # fixed-size sliding window with overlap
+    TableChunker,          # table-specific chunking
+    EntityAwareChunker,    # KG: preserves named entities across chunk boundaries
+    RelationAwareChunker,  # KG: keeps subject-predicate-object triplets intact
+    GraphBasedChunker,     # splits based on graph community structure
+    OntologyAwareChunker,  # splits respecting ontology concept boundaries
+    HierarchicalChunker,   # multi-level hierarchical chunking
+    ProvenanceTracker,     # track chunk provenance back to source document
+    # Convenience split functions
+    split_recursive,       # split_recursive(text, chunk_size, chunk_overlap)
+    split_by_sentences,    # split_by_sentences(text)
+    split_by_tokens,       # split_by_tokens(text, chunk_size, tokenizer)
+    split_semantic_transformer, # split_semantic_transformer(text, threshold)
+    split_entity_aware,    # split_entity_aware(text, entities)
+    split_relation_aware,  # split_relation_aware(text, relationships)
+)
+```
+
 ## What You Get
 
 <CardGroup cols={2}>

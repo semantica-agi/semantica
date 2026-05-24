@@ -17,6 +17,50 @@ Unstructured data is inconsistent by nature. Without normalization, the same rea
 
 Normalization collapses these variants before any extractor, deduplicator, or graph builder sees the data — producing cleaner entities, fewer false duplicates, and more reliable downstream results.
 
+## Exported Classes
+
+```python
+from semantica.normalize import (
+    # Text normalization
+    TextNormalizer,              # coordinator: strip_html, normalize_unicode, fix_encoding
+    UnicodeNormalizer,           # NFC/NFD/NFKC/NFKD normalization
+    WhitespaceNormalizer,        # collapse spaces, normalize line endings
+    SpecialCharacterProcessor,   # smart quotes, dashes, diacritics
+    TextCleaner,                 # general text cleaning utilities
+    # Entity normalization
+    EntityNormalizer,            # coordinator: normalize_entity(text, entity_type)
+    AliasResolver,               # resolve "ML" -> "Machine Learning" via dictionary
+    EntityDisambiguator,         # disambiguate("Apple", context=...) with confidence
+    NameVariantHandler,          # normalize("Dr. JOHN P. SMITH Jr.") -> "John P. Smith"
+    # Date/time normalization
+    DateNormalizer,              # normalize_date(str) -> ISO 8601
+    TimeZoneNormalizer,          # normalize to UTC or target timezone
+    RelativeDateProcessor,       # "3 days ago" -> datetime
+    TemporalExpressionParser,    # "Q2 2023" -> {start, end, type}
+    # Number normalization
+    NumberNormalizer,            # normalize_number("$1.2B") -> 1200000000.0
+    UnitConverter,               # convert(100, from_unit="km/h", to_unit="m/s")
+    CurrencyNormalizer,          # normalize("$42.50") -> {amount, currency, raw}
+    ScientificNotationHandler,   # parse scientific notation strings
+    # Data cleaning
+    DataCleaner,                 # remove_duplicates, fill_missing
+    DataValidator,               # validate(records, schema={"name": str, "age": int})
+    DuplicateDetector,           # detect duplicate records by similarity threshold
+    MissingValueHandler,         # fill missing values: mean/median/mode/constant
+    # Language & encoding
+    LanguageDetector,            # detect(text) -> {language, confidence}
+    EncodingHandler,             # detect_encoding, to_utf8, remove_bom
+    # Convenience functions
+    normalize_text,              # normalize_text(text, method="default")
+    normalize_entity,            # normalize_entity(name, entity_type="Person")
+    normalize_date,              # normalize_date("Jan 1st, 2020")
+    normalize_number,            # normalize_number("$1,234.56")
+    clean_text,                  # clean_text(text)
+    detect_language,             # detect_language(text)
+    resolve_aliases,             # resolve_aliases(text, aliases_dict)
+)
+```
+
 ## What You Get
 
 <CardGroup cols={2}>

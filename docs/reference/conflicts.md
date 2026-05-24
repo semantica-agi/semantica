@@ -18,6 +18,41 @@ Semantica's conflict detection makes disagreements explicit and actionable:
 - **Logical conflicts** — an entity simultaneously holds two mutually exclusive properties
 - **Relationship conflicts** — the same relationship has inconsistent cardinality or properties across sources
 
+## Exported Classes
+
+```python
+from semantica.conflicts import (
+    # Detection
+    ConflictDetector,            # detect value, type, temporal, logical, relationship conflicts
+    Conflict,                    # {id, entity_id, attribute, values, sources, conflict_type, severity}
+    ConflictType,                # enum: VALUE_CONFLICT, TYPE_CONFLICT, TEMPORAL_CONFLICT, ...
+    # Resolution
+    ConflictResolver,            # resolve conflicts with configurable strategy
+    ResolutionStrategy,          # enum: VOTING, CREDIBILITY_WEIGHTED, MOST_RECENT, FIRST_SEEN, ...
+    ResolutionResult,            # outcome of a resolve_conflicts() call
+    # Convenience strategy aliases
+    voting, credibility_weighted, most_recent, first_seen, highest_confidence,
+    manual_review, expert_review,
+    # Source tracking
+    SourceTracker,               # track which source contributed each property value
+    SourceReference,             # {source_id, credibility, timestamp}
+    PropertySource,              # per-property source attribution record
+    # Analysis
+    ConflictAnalyzer,            # analyze patterns, severity distribution, source stats
+    ConflictPattern,             # recurring conflict pattern detected across entities
+    # Investigation
+    InvestigationGuideGenerator, # generate step-by-step checklists for manual review
+    InvestigationGuide,          # {title, context, steps}
+    InvestigationStep,           # {order, description, check, priority}
+    # Convenience functions
+    detect_conflicts,            # quick: detect_conflicts(entities, attribute="name")
+    resolve_conflicts,           # quick: resolve_conflicts(conflicts, strategy=voting)
+    analyze_conflicts,           # quick: analyze_conflicts(conflicts)
+    track_sources,               # quick: track_sources(entities)
+    generate_investigation_guide,# quick: generate_investigation_guide(conflict)
+)
+```
+
 ## What You Get
 
 <CardGroup cols={2}>

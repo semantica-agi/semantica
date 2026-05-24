@@ -10,6 +10,30 @@ Once configured, any connected AI assistant can extract entities, record decisio
 
 Compatible with **Claude Desktop**, **Windsurf**, **Cline**, **Continue**, **VS Code**, **Roo Code**, **Cursor**, and any MCP-aware client.
 
+## Server Interface
+
+```json
+// Configure in your MCP client (Claude Desktop, Windsurf, Cursor, VS Code, etc.)
+{
+  "mcpServers": {
+    "semantica": {
+      "command": "semantica-mcp"
+    }
+  }
+}
+```
+
+```bash
+# Or run directly
+semantica-mcp
+# or
+python -m semantica.mcp_server
+```
+
+<Tip>
+  `semantica.mcp_server` is a **stdio server process**, not a Python library. It exposes no importable classes — all interaction happens through MCP tool calls from a connected AI client.
+</Tip>
+
 ## What You Get
 
 <CardGroup cols={2}>

@@ -6,6 +6,42 @@ icon: "gear"
 
 `semantica.pipeline` lets you chain Semantica components into reproducible, fault-tolerant workflows with parallel execution and configurable error handling. Pipelines are serializable — save them to YAML and reload in any environment.
 
+## Exported Classes
+
+```python
+from semantica.pipeline import (
+    # Pipeline construction
+    PipelineBuilder,         # DSL: add_step, connect_steps, build
+    Pipeline,                # pipeline definition dataclass
+    PipelineStep,            # step definition: name, step_type, handler, dependencies
+    StepStatus,              # enum: PENDING, RUNNING, COMPLETED, FAILED, SKIPPED
+    PipelineSerializer,      # serialize/deserialize pipeline to JSON/YAML
+    # Execution
+    ExecutionEngine,         # execute_pipeline(pipeline, data) -> ExecutionResult
+    ExecutionResult,         # {success, output, metadata, metrics, errors}
+    PipelineStatus,          # enum: RUNNING, PAUSED, STOPPED
+    ProgressTracker,         # get_progress(pipeline_id) -> {completed, total, pct}
+    # Failure handling
+    FailureHandler,          # configure strategy: skip/retry/abort
+    RetryHandler,            # retry with exponential backoff
+    FallbackHandler,         # fall back to alternative step on failure
+    RetryPolicy,             # {max_retries, backoff, jitter}
+    RetryStrategy,           # enum: FIXED, EXPONENTIAL, LINEAR
+    ErrorSeverity,           # enum: LOW, MEDIUM, HIGH, CRITICAL
+    # Parallelism
+    ParallelismManager,      # execute_parallel(tasks, timeout) — thread or process pool
+    ParallelExecutionResult, # {success, result, error, task_id}
+    # Resource management
+    ResourceScheduler,       # allocate_resources / release_resources
+    ResourceType,            # enum: CPU, MEMORY, GPU, NETWORK, DISK
+    # Validation
+    PipelineValidator,       # validate_pipeline(pipeline) -> ValidationResult
+    # Templates
+    PipelineTemplateManager, # get_template("full-qa") -> pre-wired Pipeline
+    PipelineTemplate,        # template metadata dataclass
+)
+```
+
 ## Why Use a Pipeline?
 
 You could wire Semantica modules together with plain Python code. Pipelines add:

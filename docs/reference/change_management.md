@@ -10,6 +10,29 @@ icon: "clock-rotate-left"
   Compliance frameworks supported out of the box: **HIPAA**, **SOX**, **GDPR**, and **FDA 21 CFR Part 11**.
 </Note>
 
+## Exported Classes
+
+```python
+from semantica.change_management import (
+    # Change metadata
+    ChangeLogEntry,           # snapshot record: version, author, message, checksum, changes
+    # Storage backends
+    VersionStorage,           # abstract storage interface
+    InMemoryVersionStorage,   # fast in-memory backend (dev/test only)
+    SQLiteVersionStorage,     # persistent SQLite backend (production)
+    # Integrity utilities
+    compute_checksum,         # SHA-256 checksum of a graph state
+    verify_checksum,          # verify graph against a stored checksum
+    # Version managers
+    TemporalVersionManager,   # KG version management: snapshot, diff, rollback
+    OntologyVersionManager,   # ontology version management
+    BaseVersionManager,       # base class for custom version managers
+    # Ontology versioning (moved from ontology module)
+    VersionManager,           # OWL ontology version control
+    OntologyVersion,          # ontology version metadata dataclass
+)
+```
+
 ## What You Get
 
 <CardGroup cols={2}>

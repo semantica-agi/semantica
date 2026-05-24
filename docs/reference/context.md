@@ -6,6 +6,47 @@ icon: "brain"
 
 `semantica.context` is the memory and decision layer for AI agents. It stores facts with provenance, records decisions as first-class objects with full causal chains, lets agents search their own history to stay consistent across runs, and answers complex queries by traversing the knowledge graph.
 
+## Exported Classes
+
+```python
+from semantica.context import (
+    # High-level interfaces
+    AgentContext,         # primary entry point: store, retrieve, record_decision, find_precedents
+    DecisionContext,      # decision-focused facade (wraps AgentContext + DecisionRecorder)
+    # Graph primitives
+    ContextGraph,         # in-memory graph: add/get entities, record decisions, find precedents
+    ContextNode,          # {id, label, node_type, properties, embedding, confidence}
+    ContextEdge,          # {source, target, edge_type, weight, properties}
+    # Memory
+    AgentMemory,          # RAG memory: store(text), retrieve(query, max_results)
+    MemoryItem,           # {id, content, timestamp, conversation_id, embedding, metadata}
+    # Retrieval
+    ContextRetriever,     # retrieve(query, max_results, use_graph, min_score)
+    RetrievedContext,     # {content, score, source, metadata}
+    TemporalGraphRetriever, # retrieval with temporal decay weighting
+    # Entity linking
+    EntityLinker,         # link_entity(text, entity_type) -> LinkedEntity with URI
+    EntityLink,           # {entity_id, uri, source_text, confidence}
+    LinkedEntity,         # {canonical_id, uri, aliases, type, properties}
+    # Decision tracking models
+    Decision,             # {id, category, scenario, reasoning, outcome, confidence, timestamp}
+    Policy,               # {id, name, conditions, action, priority}
+    PolicyException,      # {policy_id, decision_id, reason, override_authority}
+    Precedent,            # {decision_id, scenario, outcome, similarity, timestamp}
+    ApprovalChain,        # ordered list of approvers for escalation
+    # Decision tracking classes
+    DecisionRecorder,     # record and persist decisions with embeddings
+    DecisionQuery,        # query decisions: by_category, by_outcome, by_date_range
+    CausalChainAnalyzer,  # trace causality: get_causal_chain, analyze_impact
+    PolicyEngine,         # check_compliance, get_applicable_policies, enforce_policy
+    # Convenience functions
+    record_decision,      # record_decision(category, scenario, reasoning, outcome, confidence)
+    find_precedents,      # find_precedents(scenario, category, limit)
+    analyze_decision_impact, # analyze_decision_impact(decision_id)
+    check_decision_compliance, # check_decision_compliance(decision, policies)
+)
+```
+
 ## What You Get
 
 <CardGroup cols={2}>

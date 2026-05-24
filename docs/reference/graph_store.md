@@ -6,6 +6,38 @@ icon: "server"
 
 `semantica.graph_store` provides a single API for persisting and querying knowledge graphs in production graph databases. Swap backends with a one-line change — no application code changes needed.
 
+## Exported Classes
+
+```python
+from semantica.graph_store import (
+    # Core interface
+    GraphStore,           # unified interface: add_node, add_edge, query, find_paths
+    GraphManager,         # store management and operations
+    NodeManager,          # node CRUD operations
+    RelationshipManager,  # relationship CRUD operations
+    QueryEngine,          # Cypher query execution with caching
+    GraphAnalytics,       # centrality, community detection, shortest path
+    # Backend stores
+    Neo4jStore,           # Neo4j via Bolt — production workloads
+    ApacheAgeStore,       # PostgreSQL + AGE extension
+    AmazonNeptuneStore,   # AWS Neptune — SPARQL/Gremlin/openCypher
+    FalkorDBStore,        # Redis-based — ultra-low latency
+    # Convenience functions
+    create_node,          # create_node(labels, properties)
+    create_nodes,         # bulk: create_nodes(entities)
+    create_relationship,  # create_relationship(start_id, end_id, rel_type)
+    create_relationships, # bulk: create_relationships(rels)
+    get_nodes,            # get_nodes(labels, filters)
+    get_relationships,    # get_relationships(start_id, rel_type)
+    get_neighbors,        # get_neighbors(node_id, direction="both")
+    update_node,          # update_node(node_id, properties)
+    delete_node,          # delete_node(node_id)
+    execute_query,        # execute_query(cypher, parameters)
+    shortest_path,        # shortest_path(source, target)
+    run_analytics,        # run_analytics(graph, algorithm)
+)
+```
+
 ## What You Get
 
 <CardGroup cols={2}>

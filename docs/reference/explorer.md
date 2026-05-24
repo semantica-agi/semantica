@@ -6,6 +6,23 @@ icon: "map"
 
 `semantica.explorer` is a browser-based dashboard for exploring knowledge graphs, managing ontologies, and running visual analyses — no code required after launch.
 
+## Launch Interface
+
+```bash
+# Install and launch
+pip install semantica[explorer]
+
+# Start the Explorer dashboard
+semantica-explorer --graph my_graph.json --port 8000
+
+# Or via Python module
+python -m semantica.explorer --graph my_graph.json --port 8000 --host 0.0.0.0
+```
+
+<Tip>
+  `semantica.explorer` is a **server process**, not a Python library. It exposes no importable classes. Use the CLI or `python -m semantica.explorer` to launch.
+</Tip>
+
 ## What You Get
 
 <CardGroup cols={2}>
