@@ -2,7 +2,7 @@
 
 <img src="Semantica Logo.png" alt="Semantica Logo" width="420"/>
 
-**The Accountability and Context Layer for AI — Context Graphs · Decision Intelligence · Full Provenance**
+**The Accountability and Context Layer for AI · Context Graphs · Decision Intelligence · Full Provenance**
 
 [![Website](https://img.shields.io/badge/Website-getsemantica.ai-0066CC?logo=googlechrome&logoColor=white)](https://getsemantica.ai/)
 [![Docs](https://img.shields.io/badge/Docs-docs.getsemantica.ai-0099FF?logo=readthedocs&logoColor=white)](https://docs.getsemantica.ai/)
@@ -17,6 +17,7 @@
 [![OpenClaw](https://img.shields.io/badge/OpenClaw-Plugin-FF3B30?logo=github&logoColor=white)](https://openclaw.ai)
 
 **[Website](https://getsemantica.ai/)** · **[Docs](https://docs.getsemantica.ai/)** · **[Discord](https://discord.gg/sV34vps5hH)** · **[Changelog](CHANGELOG.md)**
+
 
 ⭐ **Star us if this solves your problem** · 🍴 Fork us · 💬 [Join our Discord](https://discord.gg/sV34vps5hH) · 🐦 [Follow on X](https://x.com/BuildSemantica)
 
