@@ -144,10 +144,11 @@ Triplets are suitable for loading directly into a triplet store or knowledge gra
 Detect events with participants and temporal context:
 
 ```python
+from typing import List
 from semantica.semantic_extract import EventDetector, Event
 
 extractor = EventDetector(method="llm", llm_provider=llm)
-events: list[Event] = extractor.extract(text)
+events: List[Event] = extractor.extract(text)
 
 for event in events:
     print(f"Event type:   {event.type}")
