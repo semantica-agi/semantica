@@ -8,42 +8,17 @@ icon: "microchip"
 
 ## Exported Classes
 
-```python
-from semantica.reasoning import (
-    # Engines
-    Reasoner,                 # IF/THEN forward-chaining facade
-    GraphReasoner,            # inference over full KG structure
-    ReteEngine,               # high-performance Rete pattern matching
-    SPARQLReasoner,           # SPARQL-based RDF inference
-    DatalogReasoner,          # recursive Horn clause fixpoint evaluation
-    TemporalReasoningEngine,  # Allen interval algebra (13 relations)
-    ExplanationGenerator,     # structured step-by-step explanations
-    # Data types
-    Rule,                     # IF/THEN rule definition
-    Fact,                     # base fact (subject, predicate, obj)
-    RuleType,                 # enum: FORWARD_CHAIN, BACKWARD_CHAIN, ...
-    InferenceResult,          # result of infer() — contains derived_facts list
-    DatalogFact,              # Datalog base fact (predicate, args tuple)
-    DatalogRule,              # Datalog Horn clause ("head :- body.")
-    TemporalInterval,         # time interval with start/end
-    IntervalRelation,         # enum of 13 Allen relations
-    # Explanation types
-    Explanation,              # conclusion + confidence + reasoning_path
-    ReasoningPath,            # ordered list of ReasoningSteps
-    ReasoningStep,            # single step: fact + rule_name + depth
-    Justification,            # full justification record
-)
-```
-
-## What You Get
-
-- **`Reasoner`** — main facade for IF/THEN forward-chaining with variable substitution
-- **`GraphReasoner`** — inference over full knowledge graph structure (transitivity, symmetry, inverses)
-- **`ReteEngine`** — high-performance pattern matching via the Rete algorithm for large rule sets
-- **`SPARQLReasoner`** — query expansion and property chain inference over RDF graphs
-- **`DatalogReasoner`** — recursive Horn clause rules with guaranteed fixpoint termination (v0.4.0)
-- **`TemporalReasoningEngine`** — all 13 Allen interval algebra relations for time-aware inference
-- **`ExplanationGenerator`** — structured explanation paths for every derived conclusion
+| Class | Role |
+| --- | --- |
+| `Reasoner` | IF/THEN forward-chaining facade with variable substitution |
+| `GraphReasoner` | Inference over full KG structure (transitivity, symmetry, inverses, property chains) |
+| `ReteEngine` | High-performance Rete pattern matching for large rule sets |
+| `SPARQLReasoner` | Query expansion and property chain inference over RDF graphs |
+| `DatalogReasoner` | Recursive Horn clause rules with guaranteed fixpoint termination |
+| `TemporalReasoningEngine` | All 13 Allen interval algebra relations for time-aware inference |
+| `ExplanationGenerator` | Structured step-by-step explanations with confidence and reasoning path |
+| `Rule` | IF/THEN rule definition: `{conditions, actions, confidence, rule_type}` |
+| `InferenceResult` | Result of `infer()` — contains `derived_facts` and metadata |
 
 ## Quick Start
 

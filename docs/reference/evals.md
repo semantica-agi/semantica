@@ -14,12 +14,15 @@ icon: "chart-line"
 
 When released, `semantica.evals` will provide:
 
-- **KG quality metrics** — completeness, consistency, schema compliance, coverage, and orphan node detection
-- **Extraction accuracy** — NER precision / recall / F1 and relation extraction metrics against gold-standard datasets
-- **Pipeline benchmarking** — throughput (docs/sec), per-step latency, peak memory, and error rate
-- **Regression tracking** — record runs and compare metrics across commits or config changes
-- **Deduplication accuracy** — merge precision, false positive / false negative rates
-- **Reasoning correctness** — inference accuracy, rule coverage, and derivation depth
+| Planned Class | Role |
+| --- | --- |
+| `KGEvaluator` | Completeness, consistency, schema compliance, coverage, and orphan node detection |
+| `ExtractionEvaluator` | NER precision / recall / F1 and relation extraction metrics against gold datasets |
+| `PipelineBenchmark` | Throughput (docs/sec), per-step latency, peak memory, and error rate |
+| `RegressionTracker` | Record runs and compare metrics across commits or config changes |
+| `EvalReport` | Structured report: `{scores, regressions, recommendations}` |
+| `DeduplicationEvaluator` | Merge precision, false positive / false negative rates |
+| `ReasoningEvaluator` | Inference accuracy, rule coverage, and derivation depth |
 
 ## Current Workaround
 

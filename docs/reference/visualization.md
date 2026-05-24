@@ -8,25 +8,14 @@ icon: "chart-bar"
 
 ## Exported Classes
 
-```python
-from semantica.visualization import (
-    # Visualizers
-    KGVisualizer,                # visualize_network(graph), visualize_communities(graph, communities)
-    OntologyVisualizer,          # visualize_hierarchy(ontology), visualize_structure(ontology)
-    EmbeddingVisualizer,         # visualize_2d_projection(embeddings, labels, method="umap")
-    SemanticNetworkVisualizer,   # visualize_network(semantic_network)
-    AnalyticsVisualizer,         # visualize_centrality(analytics), visualize_communities(analytics)
-    TemporalVisualizer,          # visualize_timeline(events), visualize_evolution(snapshots)
-    # D3Visualizer is listed in __all__ but loaded lazily (requires d3js dependency)
-    # Convenience functions
-    visualize_kg,                # visualize_kg(graph, output="interactive", method="default")
-    visualize_ontology,          # visualize_ontology(ontology, output="interactive")
-    visualize_embeddings,        # visualize_embeddings(embeddings, labels, method="umap")
-    visualize_semantic_network,  # visualize_semantic_network(network)
-    visualize_analytics,         # visualize_analytics(analytics_result)
-    visualize_temporal,          # visualize_temporal(temporal_data)
-)
-```
+| Class | Role |
+| --- | --- |
+| `KGVisualizer` | Interactive network, community, and subgraph rendering with force/hierarchical/circular layouts |
+| `OntologyVisualizer` | Class hierarchy and property relationship diagrams from any ontology |
+| `EmbeddingVisualizer` | 2D/3D UMAP or t-SNE projection of embedding spaces with cluster labels |
+| `SemanticNetworkVisualizer` | Weighted semantic network rendering |
+| `AnalyticsVisualizer` | Centrality scores and community distribution charts |
+| `TemporalVisualizer` | Timeline views and graph evolution animations across snapshots |
 
 ## What You Get
 

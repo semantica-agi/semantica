@@ -8,35 +8,16 @@ icon: "file-lines"
 
 ## Exported Classes
 
-```python
-from semantica.parse import (
-    DocumentParser,    # auto-detect format — delegates to format-specific parser
-    PDFParser,         # PDF text extraction
-    DOCXParser,        # Word .docx documents
-    HTMLParser,        # HTML / web pages
-    MarkdownParser,    # Markdown files
-    TXTParser,         # plain text
-    JSONParser,        # JSON documents
-    XMLParser,         # XML documents
-    CSVParser,         # CSV / TSV files
-    WebParser,         # URL fetch + HTML parsing
-    EmailParser,       # .eml / .msg email files
-    CodeParser,        # source code files
-    # Data types
-    ParsedDocument,    # {text, sections, tables, metadata, source_id}
-    DocumentMetadata,  # {title, author, created_date, page_count, language, ...}
-)
-
-# Optional — requires: pip install "semantica[docling]"
-from semantica.parse import DoclingParser  # advanced OCR + layout analysis
-```
-
-## What You Get
-
-- **`DocumentParser`** — standard parser for PDF, DOCX, HTML, TXT, JSON, CSV, PPTX, XLSX — auto-detects format
-- **`DoclingParser`** — advanced parser for complex layouts, merged-cell tables, multi-column PDFs, and OCR (optional dep)
-- **`ParsedDocument`** — structured output with `text`, `sections`, `tables`, and `metadata`
-- **Format-specific parsers** — `PDFParser`, `DOCXParser`, `HTMLParser`, `WebParser`, `EmailParser`, `CodeParser`, etc.
+| Class | Role |
+| --- | --- |
+| `DocumentParser` | Auto-detects format — delegates to format-specific parser (PDF, DOCX, HTML, JSON, CSV, ...) |
+| `DoclingParser` | Complex layouts, merged-cell tables, multi-column PDFs, and OCR (`pip install semantica[docling]`) |
+| `ParsedDocument` | `{text, sections, tables, metadata, source_id}` — structured output from any parser |
+| `DocumentMetadata` | `{title, author, created_date, page_count, language, word_count}` |
+| `PDFParser` | PDF text and metadata extraction |
+| `WebParser` | URL fetch + HTML parsing |
+| `EmailParser` | `.eml` / `.msg` email files with attachment extraction |
+| `CodeParser` | Source code files with syntax-aware block detection |
 
 ## DocumentParser
 

@@ -21,34 +21,16 @@ Semantica uses embeddings for:
 
 ## Exported Classes
 
-```python
-from semantica.embeddings import (
-    # Core generators
-    EmbeddingGenerator,      # main handler: generate_embeddings(text, data_type="text")
-    TextEmbedder,            # text embedding: embed(text), embed_batch(texts)
-    GraphEmbeddingManager,   # embed KG nodes/subgraphs for GraphRAG
-    VectorEmbeddingManager,  # embedding management for vector databases
-    # Provider stores
-    OpenAIStore,             # OpenAI text-embedding-* API
-    BGEStore,                # BAAI/bge-* via sentence-transformers
-    FastEmbedStore,          # ONNX-accelerated, no CUDA required
-    LlamaStore,              # Ollama local embedding models
-    ProviderStoreFactory,    # create(provider="bge", model="...") factory
-    # Pooling strategies
-    MeanPooling,             # default — best for retrieval and clustering
-    MaxPooling,              # captures presence of any feature
-    CLSPooling,              # CLS token (BERT-style classification models)
-    AttentionPooling,        # softmax-weighted sum
-    HierarchicalPooling,     # for long documents exceeding context length
-    PoolingStrategyFactory,  # create(strategy="mean") factory
-    # Convenience functions
-    embed_text,              # embed_text(text, method="sentence_transformers")
-    generate_embeddings,     # generate_embeddings(texts, method="openai")
-    calculate_similarity,    # calculate_similarity(a, b, method="cosine")
-    pool_embeddings,         # pool_embeddings(token_embeddings, strategy="mean")
-    check_available_providers, # returns {"sentence_transformers": True, ...}
-)
-```
+| Class | Role |
+| --- | --- |
+| `EmbeddingGenerator` | Provider-agnostic entry point — handles batching, caching, and provider selection |
+| `TextEmbedder` | Text embedding with disk caching and automatic batch splitting |
+| `GraphEmbeddingManager` | Embed KG nodes and subgraphs for GraphRAG and distance intelligence |
+| `OpenAIStore` | OpenAI `text-embedding-3-small` / `text-embedding-3-large` provider |
+| `BGEStore` | BAAI/bge models via `sentence-transformers` — free, high-quality |
+| `FastEmbedStore` | ONNX-accelerated local embeddings — no CUDA required |
+| `LlamaStore` | Local Ollama embedding models |
+| `MeanPooling` | Default pooling strategy — best for retrieval and clustering |
 
 ## What You Get
 

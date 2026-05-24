@@ -8,44 +8,17 @@ icon: "database"
 
 ## Exported Classes
 
-```python
-from semantica.ingest import (
-    # File ingestion (always available)
-    FileIngestor,         # local files and directories: ingest(path, recursive=True)
-    CloudStorageIngestor, # AWS S3, Google Cloud Storage, Azure Blob Storage
-    FileObject,           # {content, source_id, source_type, metadata, raw_bytes}
-    FileTypeDetector,     # auto-detect file type from extension and magic bytes
-    ParquetIngestor,      # Apache Parquet files and partitioned datasets
-    XMLIngestor,          # XXE-safe lxml XML parsing with optional XSD validation
-    # Web ingestion (requires beautifulsoup4)
-    WebIngestor,          # web scraping: ingest_url(url), crawl(url, max_pages)
-    FeedIngestor,         # RSS/Atom feeds: ingest_feed(url), monitor_feeds(...)
-    FeedMonitor,          # live feed monitoring with callback on new items
-    # Stream ingestion
-    StreamIngestor,       # real-time: ingest_kafka/rabbitmq/kinesis/pulsar
-    KafkaProcessor,       # Kafka consumer group processor
-    RabbitMQProcessor,    # AMQP queue processor
-    KinesisProcessor,     # AWS Kinesis stream processor
-    PulsarProcessor,      # Apache Pulsar consumer
-    # Repository ingestion (requires gitpython)
-    RepoIngestor,         # Git repos: ingest(url_or_path), include_commits=True
-    # Email ingestion
-    EmailIngestor,        # IMAP/POP3: ingest() with attachment extraction
-    # Database ingestion
-    DBIngestor,           # SQL: ingest_database(connection_string, include_tables)
-    SnowflakeIngestor,    # Snowflake: ingest_query(sql), ingest_table(name)
-    OntologyIngestor,     # OWL/RDF ontology files: ingest_ontology(path)
-    # Convenience functions
-    ingest,               # ingest(source, source_type="file") — unified dispatcher
-    ingest_file,          # ingest_file(path, method="directory")
-    ingest_web,           # ingest_web(url, method="url")
-    ingest_feed,          # ingest_feed(url)
-    ingest_stream,        # ingest_stream(topic, ...)
-    ingest_database,      # ingest_database(connection_string, ...)
-    ingest_parquet,       # ingest_parquet(path, columns=[...])
-    ingest_xml,           # ingest_xml(path, validate_xsd=None)
-)
-```
+| Class | Role |
+| --- | --- |
+| `FileIngestor` | PDF, DOCX, HTML, JSON, CSV, Excel, PPTX, ZIP/TAR — type auto-detected from extension |
+| `WebIngestor` | Web scraping and crawling with JavaScript rendering support |
+| `FeedIngestor` | RSS/Atom feed ingestion with live monitoring via `FeedMonitor` |
+| `StreamIngestor` | Real-time ingestion from Kafka, RabbitMQ, AWS Kinesis, and Apache Pulsar |
+| `RepoIngestor` | Git repositories — source files, commit history, README, and metadata |
+| `DBIngestor` | SQL databases via SQLAlchemy — tables, views, and custom queries |
+| `ParquetIngestor` | Apache Parquet files and partitioned datasets with column selection |
+| `XMLIngestor` | XXE-safe XML parsing with optional XSD schema validation |
+| `ingest()` | Unified dispatcher — detects type automatically from source path or URL |
 
 ## What You Get
 

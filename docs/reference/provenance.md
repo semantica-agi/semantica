@@ -8,31 +8,15 @@ icon: "link"
 
 ## Exported Classes
 
-```python
-from semantica.provenance import (
-    ProvenanceManager,   # track entities, get lineage, export PROV-O
-    ProvenanceEntry,     # single provenance record (entity_id, source, method, ...)
-    SourceReference,     # rich source pointer (DOI, page, quote, URL)
-    ProvenanceStorage,   # abstract storage backend
-    InMemoryStorage,     # default in-memory backend
-    SQLiteStorage,       # persistent SQLite backend for production
-    compute_checksum,    # compute tamper-evident hash for an entry
-    verify_checksum,     # verify integrity of a stored entry
-)
-
-# GraphBuilderWithProvenance is in semantica.kg, not semantica.provenance
-from semantica.kg import GraphBuilderWithProvenance
-```
-
-## What You Get
-
-- **`ProvenanceManager`** — track entities and relationships with source attribution and lineage retrieval
-- **`ProvenanceEntry`** / **`SourceReference`** — structured records with DOI, page, quote, confidence, and timestamp
-- **`InMemoryStorage`** / **`SQLiteStorage`** — swappable persistence backends
-- **`compute_checksum`** / **`verify_checksum`** — tamper-evident integrity verification
-- **Lineage graph** — full upstream lineage from any entity back to its source document
-- **W3C PROV-O export** — serialize lineage as Turtle RDF or JSON-LD for compliance reporting
-- **`GraphBuilderWithProvenance`** (in `semantica.kg`) — drop-in replacement that auto-tracks every node and edge
+| Class | Role |
+| --- | --- |
+| `ProvenanceManager` | Track entities and get lineage: `track_entity`, `get_lineage`, `export_provenance` |
+| `ProvenanceEntry` | Single record: `{entity_id, source, method, confidence, timestamp, checksum}` |
+| `SourceReference` | Rich source pointer: `{url, doi, page, quote, author, publication_date}` |
+| `InMemoryStorage` | Default backend — fast, not persisted across restarts |
+| `SQLiteStorage` | Production backend — persists to a local SQLite file |
+| `compute_checksum()` | Returns SHA-256 fingerprint of a provenance entry |
+| `verify_checksum()` | Detects tampering by comparing stored vs recomputed hash |
 
 ## ProvenanceManager
 

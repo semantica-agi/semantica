@@ -18,34 +18,27 @@ Semantica's chunking methods are designed to avoid these failure modes.
 
 ## Exported Classes
 
-```python
-from semantica.split import (
-    # Unified splitter (start here)
-    TextSplitter,          # method=: recursive, sentence, token, semantic_transformer,
-                           #          entity_aware, relation_aware, code, structural, markdown
-    Splitter,              # alias for TextSplitter (backward compat)
-    # Data type
-    Chunk,                 # {text, start_char, end_char, token_count, metadata, entities, relationships}
-    # Specialized chunkers
-    SemanticChunker,       # embedding-based semantic boundary detection
-    StructuralChunker,     # heading/section-based splits from ParsedDocument
-    SlidingWindowChunker,  # fixed-size sliding window with overlap
-    TableChunker,          # table-specific chunking
-    EntityAwareChunker,    # KG: preserves named entities across chunk boundaries
-    RelationAwareChunker,  # KG: keeps subject-predicate-object triplets intact
-    GraphBasedChunker,     # splits based on graph community structure
-    OntologyAwareChunker,  # splits respecting ontology concept boundaries
-    HierarchicalChunker,   # multi-level hierarchical chunking
-    ProvenanceTracker,     # track chunk provenance back to source document
-    # Convenience split functions
-    split_recursive,       # split_recursive(text, chunk_size, chunk_overlap)
-    split_by_sentences,    # split_by_sentences(text)
-    split_by_tokens,       # split_by_tokens(text, chunk_size, tokenizer)
-    split_semantic_transformer, # split_semantic_transformer(text, threshold)
-    split_entity_aware,    # split_entity_aware(text, entities)
-    split_relation_aware,  # split_relation_aware(text, relationships)
-)
-```
+| Class | Role |
+| --- | --- |
+| `TextSplitter` | Unified entry point — swap `method=` without changing downstream code |
+| `Chunk` | `{text, start_char, end_char, token_count, metadata, entities, relationships}` |
+| `SemanticChunker` | Embedding-based topic-shift detection — splits only when content actually changes |
+| `StructuralChunker` | Heading/section-based splits from a `ParsedDocument` |
+| `EntityAwareChunker` | Prevents named entity mentions from being split across chunk boundaries |
+| `RelationAwareChunker` | Keeps subject-predicate-object triplets intact within a single chunk |
+| `HierarchicalChunker` | Multi-level chunking producing parent/child chunk relationships |
+
+**Available `method=` values for `TextSplitter`:**
+
+| Method | Best for |
+| --- | --- |
+| `recursive` | General text — splits on paragraphs, sentences, words in order |
+| `sentence` | Conversational text, QA |
+| `token` | LLM context window enforcement |
+| `semantic_transformer` | Long documents with topic shifts |
+| `entity_aware` | KG extraction pipelines |
+| `code` | Source code files |
+| `structural` | PDFs and DOCX with heading hierarchy |
 
 ## What You Get
 

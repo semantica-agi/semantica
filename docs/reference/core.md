@@ -8,26 +8,13 @@ icon: "gear"
 
 ## Exported Classes
 
-```python
-from semantica.core import (
-    Semantica,       # orchestration class — coordinates full KG pipeline
-    ConfigManager,   # YAML config loading, deep-merge, env var overrides
-    LifecycleManager,# startup/shutdown state machine + health monitoring
-    PluginRegistry,  # plugin discovery, registration, and loading
-    method_registry, # global MethodRegistry instance for custom dispatch
-)
-
-# For custom build methods:
-from semantica.core.methods import build_knowledge_base
-```
-
-## What You Get
-
-- **`Semantica`** — orchestration class for coordinating complex multi-module workflows
-- **`ConfigManager`** — unified config loading, merging, and validation with environment variable overrides
-- **`LifecycleManager`** — startup/shutdown hooks and component health monitoring
-- **`PluginRegistry`** — dynamic plugin discovery, registration, and loading
-- **`method_registry`** — global `MethodRegistry` instance — register and dispatch custom orchestration methods
+| Class | Role |
+| --- | --- |
+| `Semantica` | Orchestration entry point — coordinates the full KG construction pipeline |
+| `ConfigManager` | YAML config loading, deep-merge, validation, and env var overrides |
+| `LifecycleManager` | Startup/shutdown state machine with health monitoring and lifecycle hooks |
+| `PluginRegistry` | Dynamic plugin discovery, registration, and loading |
+| `method_registry` | Global `MethodRegistry` instance — register and dispatch custom orchestration methods |
 
 <Tip>
   **Use individual modules directly** for the vast majority of use cases. Use the `Semantica` orchestration class only when you need application-level lifecycle management or a plugin system.

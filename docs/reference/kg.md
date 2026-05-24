@@ -8,40 +8,20 @@ icon: "diagram-project"
 
 ## Exported Classes
 
-```python
-from semantica.kg import (
-    KnowledgeGraph,             # core graph data structure
-    GraphBuilder,               # construct from entities + relationships
-    GraphBuilderWithProvenance, # auto-tracks provenance for every node/edge
-    EntityResolver,             # entity deduplication during construction
-    GraphAnalyzer,              # temporal evolution, diversity metrics
-    GraphValidator,             # schema and constraint validation
-    TemporalGraphQuery,         # point-in-time snapshots, diffs, interval queries
-    TemporalPatternDetector,    # sequence/cycle/trend detection
-    TemporalVersionManager,     # snapshot creation and version comparison
-    TemporalNormalizer,         # normalize timestamps across granularities
-    BiTemporalFact,             # bi-temporal fact model (transaction + valid time)
-    CentralityCalculator,       # degree, betweenness, closeness, PageRank, eigenvector
-    CommunityDetector,          # Louvain, Leiden, Label Propagation, K-Clique
-    PathFinder,                 # Dijkstra, A*, BFS, K-Shortest paths
-    LinkPredictor,              # Preferential Attachment, Jaccard, Adamic-Adar
-    NodeEmbedder,               # Node2Vec, DeepWalk structural embeddings
-    SimilarityCalculator,       # cosine, Euclidean, Manhattan, correlation similarity
-    ConnectivityAnalyzer,       # connected components, bridges, density
-    ProvenanceTracker,          # source tracking and lineage management
-)
-```
-
-## What You Get
-
-- **`GraphBuilder`** — construct graphs from entities and relationships with automatic entity merging
-- **`TemporalGraphQuery`** — time-aware point-in-time snapshots, diffs, and Allen interval queries (v0.4.0)
-- **`SimilarityCalculator`** — cosine, Euclidean, Manhattan, and correlation similarity scoring
-- **`CentralityCalculator`** — PageRank, degree, betweenness, closeness, eigenvector centrality
-- **`CommunityDetector`** — Louvain, Leiden, Label Propagation, K-Clique community detection
-- **`PathFinder`** — Dijkstra, A\*, BFS, K-Shortest path algorithms
-- **`LinkPredictor`** — Preferential Attachment, Jaccard, Adamic-Adar link prediction
-- **`NodeEmbedder`** — Node2Vec, DeepWalk structural embeddings
+| Class | Role |
+| --- | --- |
+| `KnowledgeGraph` | Core graph data structure — nodes, edges, properties, temporal validity |
+| `GraphBuilder` | Construct from entities + relationships with automatic entity merging |
+| `GraphBuilderWithProvenance` | Drop-in replacement that auto-tracks provenance for every node and edge |
+| `EntityResolver` | Entity deduplication and merging during graph construction |
+| `TemporalGraphQuery` | Point-in-time snapshots, temporal diffs, and all 13 Allen interval queries |
+| `CentralityCalculator` | PageRank, degree, betweenness, closeness, eigenvector centrality |
+| `CommunityDetector` | Louvain, Leiden, Label Propagation, and K-Clique community detection |
+| `PathFinder` | Dijkstra, A*, BFS, and K-Shortest path algorithms |
+| `LinkPredictor` | Preferential Attachment, Jaccard, Adamic-Adar link prediction |
+| `NodeEmbedder` | Node2Vec, DeepWalk structural embeddings for downstream ML |
+| `SimilarityCalculator` | Cosine, Euclidean, Manhattan, and correlation similarity scoring |
+| `GraphValidator` | Schema and constraint validation before persistence |
 
 <Tip>
   For conflict detection and advanced entity resolution, use `semantica.conflicts` and `semantica.deduplication` alongside this module.

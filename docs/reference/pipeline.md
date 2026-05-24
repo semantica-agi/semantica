@@ -8,39 +8,15 @@ icon: "gear"
 
 ## Exported Classes
 
-```python
-from semantica.pipeline import (
-    # Pipeline construction
-    PipelineBuilder,         # DSL: add_step, connect_steps, build
-    Pipeline,                # pipeline definition dataclass
-    PipelineStep,            # step definition: name, step_type, handler, dependencies
-    StepStatus,              # enum: PENDING, RUNNING, COMPLETED, FAILED, SKIPPED
-    PipelineSerializer,      # serialize/deserialize pipeline to JSON/YAML
-    # Execution
-    ExecutionEngine,         # execute_pipeline(pipeline, data) -> ExecutionResult
-    ExecutionResult,         # {success, output, metadata, metrics, errors}
-    PipelineStatus,          # enum: RUNNING, PAUSED, STOPPED
-    ProgressTracker,         # get_progress(pipeline_id) -> {completed, total, pct}
-    # Failure handling
-    FailureHandler,          # configure strategy: skip/retry/abort
-    RetryHandler,            # retry with exponential backoff
-    FallbackHandler,         # fall back to alternative step on failure
-    RetryPolicy,             # {max_retries, backoff, jitter}
-    RetryStrategy,           # enum: FIXED, EXPONENTIAL, LINEAR
-    ErrorSeverity,           # enum: LOW, MEDIUM, HIGH, CRITICAL
-    # Parallelism
-    ParallelismManager,      # execute_parallel(tasks, timeout) — thread or process pool
-    ParallelExecutionResult, # {success, result, error, task_id}
-    # Resource management
-    ResourceScheduler,       # allocate_resources / release_resources
-    ResourceType,            # enum: CPU, MEMORY, GPU, NETWORK, DISK
-    # Validation
-    PipelineValidator,       # validate_pipeline(pipeline) -> ValidationResult
-    # Templates
-    PipelineTemplateManager, # get_template("full-qa") -> pre-wired Pipeline
-    PipelineTemplate,        # template metadata dataclass
-)
-```
+| Class | Role |
+| --- | --- |
+| `PipelineBuilder` | DSL for wiring steps: `add_step`, `connect_steps`, `set_parallel`, `build` |
+| `ExecutionEngine` | Runs a built pipeline: `execute_pipeline(pipeline, data)` → `ExecutionResult` |
+| `ExecutionResult` | `{success, output, metadata, metrics, errors}` — full run summary |
+| `FailureHandler` | Per-step strategy: `skip`, `retry`, `abort`, or `fallback` on failure |
+| `ParallelismManager` | Thread or process pool for concurrent step execution with configurable workers |
+| `PipelineValidator` | Catches dependency cycles, missing handlers, and config errors before running |
+| `PipelineTemplateManager` | Pre-built templates: `"full-qa"`, `"extract-only"`, `"kg-build"` |
 
 ## Why Use a Pipeline?
 

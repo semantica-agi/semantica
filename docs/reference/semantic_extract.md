@@ -8,38 +8,21 @@ icon: "magnifying-glass-chart"
 
 ## Exported Classes
 
-```python
-from semantica.semantic_extract import (
-    # Primary extractors
-    NamedEntityRecognizer,  # full NER coordinator (confidence_threshold, merge_overlapping)
-    NERExtractor,           # core NER implementation used by NamedEntityRecognizer
-    RelationExtractor,      # typed relationship extraction
-    TripletExtractor,       # (subject, predicate, object) triplet generation
-    EventDetector,          # event detection with participants and temporal context
-    CoreferenceResolver,    # resolve pronouns and aliases to canonical entities
-    # Data types
-    Entity,                 # {id, text, type, confidence, start, end}
-    Relation,               # {subject, predicate, object, confidence}
-    Event,                  # {type, participants, temporal, location, confidence}
-    CoreferenceChain,       # list of mentions resolving to the same entity
-    # Advanced
-    EntityClassifier,       # classify entity candidates by type
-    CustomEntityDetector,   # pattern/dictionary-based custom entity detection
-    TemporalEventProcessor, # extract temporal information from events
-)
-```
-
 <Tip>
   `NamedEntityRecognizer` is the high-level coordinator with confidence thresholding and overlap merging. `NERExtractor` is the lower-level implementation. For most use cases, start with `NERExtractor` for simplicity or `NamedEntityRecognizer` for fine-grained control.
 </Tip>
 
-## What You Get
-
-- **`NERExtractor`** / **`NamedEntityRecognizer`** — named entity recognition: Person, Organization, Location, Date, and custom types
-- **`RelationExtractor`** — typed semantic relationships between entities (`founded_by`, `located_in`, etc.)
-- **`TripletExtractor`** — direct `(subject, predicate, object)` triplet generation for RDF-ready output
-- **`EventDetector`** — event detection with participants, temporal context, and confidence scores
-- **`CoreferenceResolver`** — resolve "Apple" and "the company" to the same entity across a document
+| Class | Role |
+| --- | --- |
+| `NamedEntityRecognizer` | High-level NER with confidence thresholding and overlap merging |
+| `NERExtractor` | Core NER implementation — use directly for simplicity |
+| `RelationExtractor` | Typed relationship extraction (`founded_by`, `located_in`, ...) |
+| `TripletExtractor` | Direct `(subject, predicate, object)` triplet generation for RDF output |
+| `EventDetector` | Event detection with participants, temporal context, and confidence scores |
+| `CoreferenceResolver` | Resolve "Apple" and "the company" to the same canonical entity |
+| `Entity` | `{id, text, type, confidence, start, end}` |
+| `Relation` | `{subject, predicate, object, confidence}` |
+| `Event` | `{type, participants, temporal, location, confidence}` |
 
 ## Quick Start
 

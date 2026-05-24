@@ -8,13 +8,11 @@ icon: "database"
 
 ## Exported Classes
 
-```python
-from semantica.seed import (
-    SeedDataManager,   # coordinator: register_source, create_foundation_graph, integrate_with_extracted
-    SeedDataSource,    # {name, source_type, path, config} — dataclass for a registered source
-    SeedData,          # {entities, relationships, metadata} — loaded seed data container
-)
-```
+| Class | Role |
+| --- | --- |
+| `SeedDataManager` | Coordinator: `register_source`, `load_all`, `create_foundation_graph`, `integrate_with_extracted` |
+| `SeedDataSource` | Config dataclass: `{name, source_type, path, config}` — one per registered source |
+| `SeedData` | Loaded data container: `{entities, relationships, metadata}` returned by `load_all` |
 
 ## What You Get
 

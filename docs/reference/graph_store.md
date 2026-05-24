@@ -8,35 +8,15 @@ icon: "server"
 
 ## Exported Classes
 
-```python
-from semantica.graph_store import (
-    # Core interface
-    GraphStore,           # unified interface: add_node, add_edge, query, find_paths
-    GraphManager,         # store management and operations
-    NodeManager,          # node CRUD operations
-    RelationshipManager,  # relationship CRUD operations
-    QueryEngine,          # Cypher query execution with caching
-    GraphAnalytics,       # centrality, community detection, shortest path
-    # Backend stores
-    Neo4jStore,           # Neo4j via Bolt — production workloads
-    ApacheAgeStore,       # PostgreSQL + AGE extension
-    AmazonNeptuneStore,   # AWS Neptune — SPARQL/Gremlin/openCypher
-    FalkorDBStore,        # Redis-based — ultra-low latency
-    # Convenience functions
-    create_node,          # create_node(labels, properties)
-    create_nodes,         # bulk: create_nodes(entities)
-    create_relationship,  # create_relationship(start_id, end_id, rel_type)
-    create_relationships, # bulk: create_relationships(rels)
-    get_nodes,            # get_nodes(labels, filters)
-    get_relationships,    # get_relationships(start_id, rel_type)
-    get_neighbors,        # get_neighbors(node_id, direction="both")
-    update_node,          # update_node(node_id, properties)
-    delete_node,          # delete_node(node_id)
-    execute_query,        # execute_query(cypher, parameters)
-    shortest_path,        # shortest_path(source, target)
-    run_analytics,        # run_analytics(graph, algorithm)
-)
-```
+| Class | Role |
+| --- | --- |
+| `GraphStore` | Unified interface: `add_node`, `add_edge`, `query`, `find_paths`, `get_neighbors` |
+| `QueryEngine` | Parameterized Cypher execution with result caching and explain plans |
+| `GraphAnalytics` | Centrality, community detection, shortest path, and PageRank on stored graphs |
+| `Neo4jStore` | Production workloads via Bolt — supports APOC and GDS plugins |
+| `ApacheAgeStore` | PostgreSQL + AGE extension — no separate graph server needed |
+| `AmazonNeptuneStore` | AWS Neptune — SPARQL, Gremlin, and openCypher endpoints |
+| `FalkorDBStore` | Redis-based — sub-millisecond latency for real-time applications |
 
 ## What You Get
 

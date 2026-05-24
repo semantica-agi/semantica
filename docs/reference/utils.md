@@ -8,28 +8,20 @@ icon: "wrench"
 
 ## Exported Classes
 
-```python
-from semantica.utils import (
-    # Logging
-    setup_logging,    # configure root logger — level, format (json/text)
-    get_logger,       # get a named logger instance
-    log_performance,  # @decorator — logs function name, duration, exception
-    # Validation
-    validate_entity,  # validate entity dict structure, raises ValidationError
-    validate_config,  # validate config dict against schema, raises ValidationError
-    # Progress tracking
-    ProgressTracker,  # class-based tracker with ETA
-    track_progress,   # wraps any iterable with live progress bar
-    # Helpers
-    clean_text,       # normalize whitespace, strip control characters
-    hash_data,        # deterministic SHA-256 hash of any serializable object
-    safe_filename,    # sanitize a string for use as a filename
-    # Exceptions
-    SemanticaError,   # base exception for all Semantica errors
-    ValidationError,  # raised when input fails validation
-    ProcessingError,  # raised during extraction, graph build, or pipeline step
-)
-```
+| Name | Type | Role |
+| --- | --- | --- |
+| `setup_logging` | function | Configure root logger — `level`, `format` (`"json"` or `"text"`) |
+| `get_logger` | function | Get a named logger instance |
+| `log_performance` | decorator | Logs function name, duration, and any exception |
+| `validate_entity` | function | Validate entity dict structure — raises `ValidationError` on failure |
+| `validate_config` | function | Validate config dict against schema — raises `ValidationError` on failure |
+| `ProgressTracker` | class | Class-based progress tracker with ETA and step callbacks |
+| `track_progress` | function | Wrap any iterable with a live progress bar |
+| `clean_text` | function | Normalize whitespace and strip control characters |
+| `hash_data` | function | Deterministic SHA-256 hash of any serializable object |
+| `SemanticaError` | exception | Base exception for all Semantica errors |
+| `ValidationError` | exception | Raised when input fails validation |
+| `ProcessingError` | exception | Raised during extraction, graph build, or pipeline step |
 
 ## What You Get
 

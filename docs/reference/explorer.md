@@ -23,6 +23,15 @@ python -m semantica.explorer --graph my_graph.json --port 8000 --host 0.0.0.0
   `semantica.explorer` is a **server process**, not a Python library. It exposes no importable classes. Use the CLI or `python -m semantica.explorer` to launch.
 </Tip>
 
+| CLI Flag | Default | Description |
+| --- | --- | --- |
+| `--graph` | required | Path to a graph JSON/pickle file to load on startup |
+| `--port` | `8000` | HTTP port to listen on |
+| `--host` | `127.0.0.1` | Bind address — use `0.0.0.0` to expose on the network |
+| `--no-browser` | off | Suppress auto-opening the browser tab |
+| `--config` | — | Path to a YAML config file for graph store and auth settings |
+| `--debug` | off | Enable debug mode with hot-reload |
+
 ## What You Get
 
 <CardGroup cols={2}>

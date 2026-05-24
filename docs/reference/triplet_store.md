@@ -8,27 +8,14 @@ icon: "table"
 
 ## Exported Classes
 
-```python
-from semantica.triplet_store import (
-    # Core interface
-    TripletStore,     # unified: add_triplet, get_triplets, execute_query, bulk_load
-    QueryEngine,      # SPARQL execution: execute_query, optimize_query, plan_query
-    BulkLoader,       # high-volume loading with progress tracking and transaction support
-    # Backend stores
-    BlazegraphStore,  # Blazegraph REST API (HTTP/HTTPS, Named Graphs, SPARQL 1.1)
-    JenaStore,        # Apache Jena Fuseki (SPARQL 1.1, TDB2, GeoSPARQL)
-    RDF4JStore,       # Eclipse RDF4J (SailRepository, in-memory or native)
-    # Convenience functions
-    add_triplet,      # add_triplet(subject, predicate, obj)
-    add_triplets,     # bulk: add_triplets(triplets)
-    get_triplets,     # get_triplets(subject=None, predicate=None, obj=None)
-    delete_triplet,   # delete_triplet(subject, predicate, obj)
-    execute_query,    # execute_query(sparql, result_format="json")
-    optimize_query,   # optimize_query(sparql) -> optimized SPARQL string
-    bulk_load,        # bulk_load(file_path, format="turtle")
-    validate_triplets,# validate_triplets(triplets) -> ValidationResult
-)
-```
+| Class | Role |
+| --- | --- |
+| `TripletStore` | Unified interface: `add_triplet`, `get_triplets`, `delete_triplet`, `execute_query`, `bulk_load` |
+| `QueryEngine` | SPARQL 1.1 execution with query optimization and result streaming |
+| `BulkLoader` | High-volume RDF loading with progress tracking and transaction batching |
+| `BlazegraphStore` | Blazegraph REST API — Named Graphs, SPARQL 1.1 Update, GeoSPARQL |
+| `JenaStore` | Apache Jena Fuseki — TDB2 backend, GeoSPARQL, SPARQL 1.1 |
+| `RDF4JStore` | Eclipse RDF4J — SailRepository, in-memory or native store |
 
 ## What You Get
 

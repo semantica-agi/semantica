@@ -12,26 +12,14 @@ icon: "clock-rotate-left"
 
 ## Exported Classes
 
-```python
-from semantica.change_management import (
-    # Change metadata
-    ChangeLogEntry,           # snapshot record: version, author, message, checksum, changes
-    # Storage backends
-    VersionStorage,           # abstract storage interface
-    InMemoryVersionStorage,   # fast in-memory backend (dev/test only)
-    SQLiteVersionStorage,     # persistent SQLite backend (production)
-    # Integrity utilities
-    compute_checksum,         # SHA-256 checksum of a graph state
-    verify_checksum,          # verify graph against a stored checksum
-    # Version managers
-    TemporalVersionManager,   # KG version management: snapshot, diff, rollback
-    OntologyVersionManager,   # ontology version management
-    BaseVersionManager,       # base class for custom version managers
-    # Ontology versioning (moved from ontology module)
-    VersionManager,           # OWL ontology version control
-    OntologyVersion,          # ontology version metadata dataclass
-)
-```
+| Class | Role |
+| --- | --- |
+| `TemporalVersionManager` | Snapshot, diff, rollback, and per-entity audit trail for temporal KGs |
+| `OntologyVersionManager` | Schema versioning with backward-compatible migration support |
+| `InMemoryVersionStorage` | Fast in-memory storage for dev and testing — no persistence |
+| `SQLiteVersionStorage` | Production storage — persists to a local SQLite file |
+| `compute_checksum()` | Returns SHA-256 fingerprint of a graph or ontology state |
+| `verify_checksum()` | Detects tampering by comparing stored vs recomputed checksum |
 
 ## What You Get
 

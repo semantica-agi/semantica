@@ -8,30 +8,27 @@ icon: "copy"
 
 ## Exported Classes
 
-```python
-from semantica.deduplication import (
-    DuplicateDetector,      # pairwise + batch duplicate detection
-    EntityMerger,           # merge duplicate groups with per-property policies
-    SimilarityCalculator,   # Levenshtein, Jaro-Winkler, cosine, Jaccard, embedding
-    ClusterBuilder,         # Union-Find + hierarchical clustering
-    PropertyMergeRule,      # enum: KEEP_FIRST, KEEP_LONGEST, UNION, VOTING, ...
-    MergeStrategyManager,   # manage and apply merge strategies
-    # Convenience functions
-    detect_duplicates,      # quick: detect_duplicates(entities, method="semantic_v2")
-    merge_entities,         # quick: merge_entities(entities, duplicates, method="union")
-    calculate_similarity,   # quick: calculate_similarity(a, b, method="hybrid_v2")
-    # Registry
-    method_registry,        # register custom similarity functions
-)
-```
+| Class | Role |
+| --- | --- |
+| `DuplicateDetector` | Pairwise and batch detection with configurable strategy and threshold |
+| `EntityMerger` | Merge duplicate groups with per-property merge policies (`KEEP_FIRST`, `UNION`, `VOTING`, ...) |
+| `SimilarityCalculator` | Levenshtein, Jaro-Winkler, cosine, Jaccard, and embedding similarity |
+| `ClusterBuilder` | Union-Find and hierarchical clustering for large-scale batch deduplication |
+| `PropertyMergeRule` | Enum of merge policies used by `EntityMerger` |
+| `MergeStrategyManager` | Manage and apply named merge strategies across entity types |
+| `detect_duplicates()` | Quick function: `detect_duplicates(entities, method="semantic_v2")` |
+| `merge_entities()` | Quick function: `merge_entities(entities, duplicates, method="union")` |
 
-## What You Get
+**Available `method=` values:**
 
-- **`DuplicateDetector`** — pairwise and batch duplicate detection with configurable strategies
-- **`EntityMerger`** — merge duplicate groups with configurable property-level merge policies
-- **`SimilarityCalculator`** — multi-factor similarity: Levenshtein, Jaro-Winkler, cosine, Jaccard, embedding
-- **`ClusterBuilder`** — Union-Find and hierarchical clustering for large-scale batch deduplication
-- **Convenience functions** — `detect_duplicates`, `merge_entities`, `calculate_similarity`
+| Method | Speed | Notes |
+| --- | --- | --- |
+| `exact` | Fastest | Exact string match only |
+| `fuzzy` | Fast | Levenshtein + Jaro-Winkler |
+| `semantic` | Moderate | Embedding cosine similarity |
+| `blocking_v2` | Fast | Sorted neighborhood blocking (v2) |
+| `hybrid_v2` | Balanced | Blocking + multi-feature scoring (v2) |
+| `semantic_v2` | Best accuracy | Embedding + structural features, up to 7× faster than v1 |
 
 ## DuplicateDetector
 

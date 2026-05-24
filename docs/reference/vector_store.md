@@ -8,39 +8,17 @@ icon: "database"
 
 ## Exported Classes
 
-```python
-from semantica.vector_store import (
-    # Core interface
-    VectorStore,          # unified: store_vectors, search_vectors, update_vectors, delete_vectors
-    VectorIndexer,        # build/rebuild FAISS/ANN indices
-    VectorRetriever,      # kNN and hybrid search
-    VectorManager,        # store management and CRUD operations
-    # Backend stores
-    FAISSStore,           # local disk / in-memory (Flat, IVF, HNSW, PQ index types)
-    WeaviateStore,        # cloud/self-hosted, schema-aware, GraphQL queries
-    QdrantStore,          # cloud/self-hosted, payload filtering
-    MilvusStore,          # highly scalable, partitioning and complex queries
-    PineconeStore,        # managed cloud vector database
-    PgVectorStore,        # PostgreSQL with pgvector extension
-    # Hybrid & metadata search
-    HybridSearch,         # fuse vector + metadata results (RRF or weighted average)
-    MetadataFilter,       # MetadataFilter().eq("category", "science").gt("year", 2020)
-    SearchRanker,         # configurable re-ranking after fusion
-    MetadataStore,        # inverted index for fast metadata filtering
-    NamespaceManager,     # multi-tenant namespace isolation
-    # Decision-specific helpers
-    DecisionEmbeddingPipeline, # end-to-end: record + embed + store + retrieve
-    quick_decision,       # quick_decision(text, entities, outcome) — shorthand record
-    find_precedents,      # find_precedents(scenario, k=5) — similarity search
-    # Convenience functions
-    store_vectors,        # store_vectors(vectors, metadata)
-    search_vectors,       # search_vectors(query_vector, k=10)
-    hybrid_search,        # hybrid_search(query_vector, filter=...)
-    update_vectors,       # update_vectors(ids, new_vectors)
-    delete_vectors,       # delete_vectors(ids)
-    create_index,         # create_index(index_type="hnsw", dimension=768)
-)
-```
+| Class | Role |
+| --- | --- |
+| `VectorStore` | Unified interface: `store_vectors`, `search_vectors`, `update_vectors`, `delete_vectors` |
+| `HybridSearch` | Fuses dense vector similarity with sparse BM25/keyword results via RRF or weighted average |
+| `MetadataFilter` | Chainable filter builder: `.eq("type", "person").gt("year", 2020).in_("tag", [...])` |
+| `NamespaceManager` | Multi-tenant isolation — separate index namespaces per project or user |
+| `FAISSStore` | Local disk or in-memory — Flat, IVF, HNSW, and PQ index types |
+| `WeaviateStore` | Cloud or self-hosted, schema-aware, GraphQL queries |
+| `QdrantStore` | Cloud or self-hosted with payload-based filtering |
+| `PineconeStore` | Managed cloud vector database with serverless and pod modes |
+| `PgVectorStore` | PostgreSQL with `pgvector` extension — no extra infrastructure |
 
 ## What You Get
 
