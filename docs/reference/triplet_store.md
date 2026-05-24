@@ -12,8 +12,8 @@ icon: "table"
   <Card title="TripletStore" icon="server">
     Unified interface across Blazegraph, Apache Jena (Fuseki), and RDF4J — swap backends with one parameter.
   </Card>
-  <Card title="InMemoryTripletStore" icon="bolt">
-    Zero-setup in-memory store for unit tests and small datasets — no server, no Docker required.
+  <Card title="TripletStore (in-memory)" icon="bolt">
+    Zero-setup in-memory mode via `backend="memory"` for unit tests and small datasets — no server required.
   </Card>
   <Card title="SPARQL" icon="magnifying-glass">
     Full SELECT, CONSTRUCT, ASK, and UPDATE query support with pagination for large result sets.
@@ -137,30 +137,6 @@ icon: "table"
     ```
 
     Best for: Enterprise Java ecosystems, Eclipse Foundation deployments, plugin-based reasoning.
-  </Tab>
-  <Tab title="InMemory">
-    ```python
-    from semantica.triplet_store import InMemoryTripletStore
-
-    store = InMemoryTripletStore()
-
-    store.add_triplet("ex:alice", "ex:knows", "ex:bob")
-    store.add_triplet("ex:bob",   "ex:works_for", "ex:acme")
-
-    results = store.sparql("""
-        SELECT ?person ?company WHERE {
-            ?person ex:works_for ?company .
-        }
-    """)
-
-    # Serialize to string for inspection
-    ttl = store.export_to_string(format="turtle")
-    print(ttl)
-    ```
-
-    `InMemoryTripletStore` shares the same interface as `TripletStore` — swap backends without changing query code.
-
-    Best for: unit tests, CI pipelines, small datasets, zero-infrastructure local exploration.
   </Tab>
   <Tab title="Backend Comparison">
 
@@ -305,7 +281,7 @@ results = store.sparql("SELECT * WHERE { ?s ?p ?o } LIMIT 10")
 ## Tips and Common Pitfalls
 
 <Tip>
-  **Use `InMemoryTripletStore` for unit tests, Jena or Blazegraph for production.** The in-memory backend requires zero server setup and is safe for CI. It does not persist across process restarts — switch to a server-backed store before deploying. No code changes needed, just the `backend=` parameter.
+  **Use Apache Jena (Fuseki) for development and Blazegraph for production.** Jena runs with a single Docker command, supports OWL reasoning natively, and requires no licence. Switch to Blazegraph for high-throughput workloads by changing the `backend=` parameter — no other code changes needed.
 </Tip>
 
 <Warning>

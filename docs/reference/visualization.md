@@ -9,20 +9,17 @@ icon: "chart-bar"
 ## What You Get
 
 <CardGroup cols={2}>
-  <Card title="GraphVisualizer" icon="diagram-project">
-    Interactive HTML (PyVis) and static image (Matplotlib) graph rendering with layout options.
+  <Card title="KGVisualizer" icon="diagram-project">
+    Interactive network and community graph rendering with force, hierarchical, and circular layouts.
   </Card>
   <Card title="OntologyVisualizer" icon="sitemap">
-    Class hierarchy and property relationship visualization from any OntologyManager.
+    Class hierarchy and property relationship visualization from any ontology.
   </Card>
   <Card title="EmbeddingVisualizer" icon="vector-square">
     UMAP, t-SNE, and PCA dimensionality reduction plots for embedding cluster analysis.
   </Card>
   <Card title="TemporalVisualizer" icon="clock">
-    Timeline views, animated evolution, snapshot comparison, and temporal pattern highlights.
-  </Card>
-  <Card title="DistanceVisualizer (v0.5.0)" icon="circle-nodes">
-    Ego-mode neighborhood views and N×N distance matrix heatmaps from Distance Intelligence.
+    Timeline views, network evolution animation, snapshot comparison, and temporal pattern highlights.
   </Card>
   <Card title="AnalyticsVisualizer" icon="chart-bar">
     Centrality rankings, community-colored graphs, and degree distribution histograms.
@@ -34,37 +31,33 @@ icon: "chart-bar"
 <Steps>
   <Step title="Render a knowledge graph">
     ```python
-    from semantica.visualization import GraphVisualizer
+    from semantica.visualization import KGVisualizer
 
-    viz = GraphVisualizer()
+    viz = KGVisualizer(layout="force", color_scheme="default")
 
-    # Interactive HTML — opens in browser, supports hover and click
-    viz.visualize(graph, output="graph.html")
+    # Interactive — opens in browser, supports hover and click
+    viz.visualize_network(graph, output="interactive")
     ```
   </Step>
   <Step title="Apply layout and color options">
     ```python
-    viz.visualize(
+    viz = KGVisualizer(layout="force", color_scheme="vibrant")
+
+    viz.visualize_network(
         graph,
-        output="graph.html",
-        layout="force_directed",   # "force_directed" | "hierarchical" | "circular" | "spring"
+        output="html",
+        file_path="graph.html",
         node_color_by="type",      # color nodes by entity type attribute
-        edge_label="relation",     # show edge relationship labels
-        color_scheme="vibrant",    # color palette — see Color Schemes section
-        max_nodes=500,             # limit rendering for large graphs
     )
     ```
   </Step>
   <Step title="Export to static formats">
     ```python
     # Static PNG — for reports and embedding in documents
-    viz.visualize(graph, output="graph.png", dpi=150)
+    viz.visualize_network(graph, output="png", file_path="graph.png")
 
     # Vector SVG — for publications and scalable diagrams
-    viz.visualize(graph, output="graph.svg")
-
-    # PDF — for print or compliance reports
-    viz.visualize(graph, output="graph.pdf")
+    viz.visualize_network(graph, output="svg", file_path="graph.svg")
     ```
   </Step>
 </Steps>
@@ -72,32 +65,34 @@ icon: "chart-bar"
 ## Visualizers
 
 <Tabs>
-  <Tab title="GraphVisualizer">
+  <Tab title="KGVisualizer">
     Interactive and static knowledge graph rendering:
 
     ```python
-    from semantica.visualization import GraphVisualizer
+    from semantica.visualization import KGVisualizer
 
-    viz = GraphVisualizer()
+    viz = KGVisualizer(layout="force", color_scheme="default")
 
-    # Interactive HTML
-    viz.visualize(graph, output="graph.html")
+    # Interactive — opens in browser
+    viz.visualize_network(graph, output="interactive")
 
-    # Static PNG with custom DPI
-    viz.visualize(graph, output="graph.png", backend="matplotlib", dpi=150)
+    # Save as HTML file
+    viz.visualize_network(graph, output="html", file_path="graph.html")
 
-    # Display inline (Jupyter or default browser)
-    viz.show(graph)
+    # Static PNG
+    viz.visualize_network(graph, output="png", file_path="graph.png")
+
+    # Community-colored graph
+    viz.visualize_communities(graph, communities, file_path="communities.html")
     ```
 
-    **Layout options:**
+    **Layout options (`layout=`):**
 
     | Layout | Description | Best For |
     | ------ | ----------- | -------- |
-    | `force_directed` | Physics simulation — clusters emerge naturally | General graphs |
+    | `force` | Physics simulation — clusters emerge naturally | General graphs |
     | `hierarchical` | Top-down tree layout | Taxonomies, org charts |
     | `circular` | Nodes on a circle, edges as chords | Small dense graphs |
-    | `spring` | Spring-force layout (Fruchterman-Reingold) | Medium graphs |
   </Tab>
   <Tab title="OntologyVisualizer">
     Visualize class hierarchies and property relationships:
@@ -122,10 +117,11 @@ icon: "chart-bar"
 
     viz = EmbeddingVisualizer()
 
-    viz.visualize(
+    viz.visualize_2d_projection(
         embeddings=embeddings,
         labels=labels,
-        output="embeddings.html",
+        output="interactive",
+        file_path="embeddings.html",
         method="umap",    # "umap" | "tsne" | "pca"
     )
     ```
@@ -141,47 +137,20 @@ icon: "chart-bar"
 
     ```python
     from semantica.visualization import TemporalVisualizer
-    from datetime import datetime
 
     viz = TemporalVisualizer()
 
-    # Static timeline of additions and removals
-    viz.visualize_timeline(temporal_kg, output="timeline.html")
+    # Timeline of entity/relationship changes
+    viz.visualize_timeline(temporal_kg, output="interactive")
 
-    # Animated evolution — one frame per time step
-    viz.animate(temporal_kg, output="evolution.html", fps=2)
+    # Animated network evolution — one frame per time step
+    viz.visualize_network_evolution(temporal_kg, output="html", file_path="evolution.html")
 
     # Side-by-side snapshot comparison
-    snap_a = temporal_kg.at(datetime(2020, 1, 1))
-    snap_b = temporal_kg.at(datetime(2023, 1, 1))
-    viz.compare_snapshots(snap_a, snap_b, output="snapshot_diff.html")
+    viz.visualize_snapshot_comparison(snap_a, snap_b, output="html", file_path="diff.html")
 
-    # Pattern visualization — highlight recurring temporal patterns
-    viz.visualize_patterns(temporal_kg, pattern_type="recurrence", output="patterns.html")
-    ```
-  </Tab>
-  <Tab title="DistanceVisualizer (v0.5.0)">
-    Semantic neighborhood and distance matrix visualization from Distance Intelligence:
-
-    ```python
-    from semantica.visualization import DistanceVisualizer
-
-    viz = DistanceVisualizer()
-
-    # Ego-mode: neighborhood of one node colored by distance band
-    viz.visualize_ego(
-        graph,
-        center_node="Apple Inc.",
-        output="ego.html",
-        radius=0.5,    # semantic distance radius
-    )
-
-    # N×N distance matrix heatmap
-    viz.visualize_distance_matrix(
-        matrix=distance_matrix,
-        labels=node_labels,
-        output="distance_heatmap.html",
-    )
+    # Recurring temporal patterns
+    viz.visualize_temporal_patterns(temporal_kg, output="html", file_path="patterns.html")
     ```
   </Tab>
   <Tab title="AnalyticsVisualizer">
@@ -245,13 +214,10 @@ viz.visualize(graph, output="graph.html", color_scheme="vibrant")
 
 ## Graph Explorer (Full Dashboard)
 
-For a full browser-based UI with search, path finding, and the Ontology Hub, use `semantica.explorer`:
+For a full browser-based UI with search, path finding, and the Ontology Hub, launch the Explorer via the CLI:
 
-```python
-from semantica.explorer import start_explorer
-
-start_explorer(graph=kg, port=8080)
-# Opens at http://localhost:8080
+```bash
+semantica explore
 ```
 
 See the [Explorer reference](explorer) for the full feature set and REST API.
@@ -279,7 +245,7 @@ See the [Explorer reference](explorer) for the full feature set and REST API.
 </Warning>
 
 <Tip>
-  **For interactive dashboards, prefer Explorer.** `GraphVisualizer.visualize()` generates a self-contained HTML file. `start_explorer()` gives a full live web app with search, filtering, path-finding, and REST API. Use Explorer for team exploration, Visualizer for standalone report embeds.
+  **For interactive dashboards, prefer Explorer.** `KGVisualizer.visualize_network()` generates a self-contained HTML file. The Explorer CLI (`semantica explore`) gives a full live web app with search, filtering, path-finding, and REST API. Use Explorer for team exploration, Visualizer for standalone report embeds.
 </Tip>
 
 <CardGroup cols={2}>

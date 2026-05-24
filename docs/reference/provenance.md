@@ -12,8 +12,8 @@ icon: "link"
   <Card title="ProvenanceManager" icon="link">
     Track entities, relationships, and activities with full source attribution and confidence scores.
   </Card>
-  <Card title="ActivityTracker" icon="clock">
-    Record pipeline activities and which entities they produced or consumed.
+  <Card title="ProvenanceTracker" icon="clock">
+    Track entity and relationship lineage within a knowledge graph.
   </Card>
   <Card title="Lineage Graph" icon="diagram-project">
     Full directed lineage from any entity back to its originating source document.

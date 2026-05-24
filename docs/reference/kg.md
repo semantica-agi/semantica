@@ -12,11 +12,11 @@ icon: "diagram-project"
   <Card title="GraphBuilder" icon="hammer">
     Construct graphs from entities and relationships with automatic entity merging.
   </Card>
-  <Card title="TemporalKnowledgeGraph" icon="clock">
-    Time-aware edges (`valid_from`/`valid_until`) and point-in-time queries (v0.4.0).
+  <Card title="TemporalGraphQuery" icon="clock">
+    Time-aware queries — filter by `valid_from`/`valid_until`, range queries, and evolution analysis.
   </Card>
-  <Card title="DistanceCalculator" icon="ruler">
-    Semantic neighborhoods, N×N distance matrices, and distance band classification (v0.5.0).
+  <Card title="ConnectivityAnalyzer" icon="circle-nodes">
+    Connected components, bridge detection, and edge density analysis.
   </Card>
   <Card title="CentralityCalculator" icon="star">
     PageRank, degree, betweenness, closeness, and eigenvector centrality.
@@ -104,60 +104,40 @@ kg      = builder.build(entities=entities, relationships=relationships)
   Always use `merge_entities=True` in production. Without it, "Steve Jobs" extracted from five different documents creates five separate person nodes. `GraphBuilder(merge_entities=True)` uses edit distance matching to consolidate them at build time.
 </Warning>
 
-## Temporal Knowledge Graphs (v0.4.0)
+## Temporal Queries
 
-Attach `valid_from` / `valid_until` time windows to nodes and edges for point-in-time queries and historical analysis:
+Use `TemporalGraphQuery` to run time-aware queries against a knowledge graph whose relationships carry `valid_from` / `valid_until` fields:
 
 ```python
-from semantica.kg import TemporalKnowledgeGraph, TemporalGraphQuery
+from semantica.kg import TemporalGraphQuery
 from datetime import datetime
 
-tkg = TemporalKnowledgeGraph()
-
-tkg.add_node("ceo_role",  valid_from=datetime(2020, 1, 1), valid_until=datetime(2023, 6, 1))
-tkg.add_edge(
-    "alice", "acme_corp", "ceo_of",
-    valid_from=datetime(2020, 1, 1),
-    valid_until=datetime(2023, 6, 1)
+query_engine = TemporalGraphQuery(
+    enable_temporal_reasoning=True,
+    temporal_granularity="day",
 )
 
-# Point-in-time snapshot
-snapshot = tkg.at(datetime(2021, 6, 15))
+# Point-in-time query — returns only edges valid at the given time
+result_2021 = query_engine.query_at_time(kg, query="", at_time=datetime(2021, 6, 15))
+result_2023 = query_engine.query_at_time(kg, query="", at_time=datetime(2023, 1, 1))
 
-# Query and diff via TemporalGraphQuery
-query         = TemporalGraphQuery(tkg)
-snap_2020     = query.query_at_time(datetime(2020, 1, 1))
-snap_2023     = query.query_at_time(datetime(2023, 1, 1))
-added         = [r for r in snap_2023.relationships if r not in snap_2020.relationships]
-print(f"New edges since 2020: {len(added)}")
+# Compare what changed between two snapshots
+added = [
+    r for r in result_2023["relationships"]
+    if r not in result_2021["relationships"]
+]
+print(f"New edges since 2021: {len(added)}")
+
+# Range query — edges valid within a time window
+range_result = query_engine.query_time_range(kg, query="", start_time=datetime(2020, 1, 1), end_time=datetime(2023, 1, 1))
+
+# Evolution analysis
+evolution = query_engine.analyze_evolution(kg)
 ```
 
 <Note>
-  Edges added without `valid_from`/`valid_until` are treated as **always-valid**. For historical data, always attach timestamps — otherwise point-in-time queries return misleading results.
+  Relationships added without `valid_from`/`valid_until` are treated as **always-valid**. For historical data, always attach timestamps — otherwise point-in-time queries return misleading results.
 </Note>
-
-## Distance Intelligence (v0.5.0)
-
-Semantic neighborhood exploration for any entity in the graph:
-
-```python
-from semantica.kg import DistanceCalculator
-
-calc = DistanceCalculator(kg)
-
-# Semantic neighborhood of a single node
-neighborhood = calc.semantic_neighborhood("Apple Inc.", radius=0.4)
-
-# N×N pairwise distance matrix
-matrix = calc.distance_matrix(["Apple Inc.", "Google", "Microsoft"])
-
-# Classify nodes into distance bands: "near" | "mid" | "far"
-bands = calc.classify_bands(neighborhood)
-```
-
-<Warning>
-  `DistanceCalculator` is expensive at large scale — the N×N matrix requires embedding all entities and computing pairwise cosine similarities. Cache the result between runs and only recompute for changed entities.
-</Warning>
 
 ## Graph Analytics
 

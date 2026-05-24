@@ -150,16 +150,12 @@ icon: "database"
     from semantica.ingest import WebIngestor
 
     ingestor = WebIngestor(
-        rate_limit=1.0,       # seconds between requests
+        delay=1.0,            # seconds between requests
         respect_robots=True,  # honor robots.txt
-        max_depth=2           # crawl depth from seed URLs
+        timeout=30,
     )
 
-    sources = ingestor.ingest("https://example.com/about")
-    sources = ingestor.ingest_urls([
-        "https://example.com/page1",
-        "https://example.com/page2",
-    ])
+    sources = ingestor.ingest_url("https://example.com/about")
     ```
 
     ### FeedIngestor (RSS/Atom)
@@ -168,13 +164,12 @@ icon: "database"
     from semantica.ingest import FeedIngestor
 
     ingestor = FeedIngestor()
-    sources  = ingestor.ingest("https://feeds.example.com/rss")
+    feed     = ingestor.ingest_feed("https://feeds.example.com/rss")
 
-    # Live monitoring — callback fires on new items
-    ingestor.monitor(
-        "https://feeds.example.com/rss",
-        interval=300,
-        callback=process_new_items
+    # Live monitoring — returns a FeedMonitor; callback fires on new items
+    monitor = ingestor.monitor_feeds(
+        ["https://feeds.example.com/rss"],
+        callback=process_new_items,
     )
     ```
 
@@ -264,11 +259,11 @@ icon: "database"
     ```python
     from semantica.ingest import DBIngestor
 
-    ingestor = DBIngestor(
+    ingestor = DBIngestor()
+    result   = ingestor.ingest_database(
         connection_string="postgresql://user:pass@localhost/db",
-        query="SELECT id, content, created_at FROM documents WHERE status='active'"
+        include_tables=["documents"],
     )
-    sources = ingestor.ingest()
     ```
 
     ### SnowflakeIngestor
@@ -283,9 +278,10 @@ icon: "database"
         password=os.getenv("SNOWFLAKE_PASSWORD"),
         warehouse="COMPUTE_WH",
         database="ANALYTICS",
-        schema="PUBLIC"
+        schema="PUBLIC",
     )
-    sources = ingestor.ingest(query="SELECT * FROM documents")
+    result = ingestor.ingest_query("SELECT * FROM documents")
+    result = ingestor.ingest_table("documents")
     ```
 
   </Tab>
@@ -297,48 +293,32 @@ icon: "database"
     ```python
     from semantica.ingest import StreamIngestor
 
-    # Kafka
-    ingestor = StreamIngestor(
-        backend="kafka",
-        bootstrap_servers="localhost:9092",
+    ingestor = StreamIngestor()
+
+    # Kafka — returns KafkaProcessor
+    processor = ingestor.ingest_kafka(
         topic="documents",
-        group_id="semantica-consumer",
-        auto_offset_reset="earliest",
+        bootstrap_servers=["localhost:9092"],
     )
-    sources = ingestor.ingest(max_messages=1000)
 
-    # RabbitMQ
-    ingestor = StreamIngestor(
-        backend="rabbitmq",
-        host="localhost",
+    # RabbitMQ — returns RabbitMQProcessor
+    processor = ingestor.ingest_rabbitmq(
         queue="document_queue",
-        routing_key="docs.ingest",
-        prefetch_count=100,
+        connection_url="amqp://guest:guest@localhost/",
     )
 
-    # AWS Kinesis
-    ingestor = StreamIngestor(
-        backend="kinesis",
+    # AWS Kinesis — returns KinesisProcessor
+    processor = ingestor.ingest_kinesis(
         stream_name="documents-stream",
         region="us-east-1",
-        shard_iterator_type="TRIM_HORIZON",
     )
 
-    # Apache Pulsar
-    ingestor = StreamIngestor(
-        backend="pulsar",
-        service_url="pulsar://localhost:6650",
+    # Apache Pulsar — returns PulsarProcessor
+    processor = ingestor.ingest_pulsar(
         topic="persistent://public/default/documents",
-        subscription_name="semantica-sub",
+        service_url="pulsar://localhost:6650",
     )
-
-    # Live monitoring — callback fires on each new message
-    ingestor.monitor(callback=process_document, poll_interval=1.0)
     ```
-
-    <Warning>
-      Without a `max_messages` limit, `StreamIngestor.ingest()` blocks indefinitely waiting for new messages. Use `max_messages=1000` for batch processing; use `.monitor(callback=...)` for continuous streaming.
-    </Warning>
   </Tab>
 </Tabs>
 
@@ -349,23 +329,21 @@ Ingest existing OWL or RDF ontology files as structured knowledge sources:
 ```python
 from semantica.ingest import OntologyIngestor
 
-ingestor = OntologyIngestor(
-    format="turtle",   # "turtle" | "xml" | "json-ld" | "nt" | "n3"
-)
+ingestor = OntologyIngestor()
 
-sources = ingestor.ingest("domain_ontology.owl")
-sources = ingestor.ingest("ontologies/")
+ontology_data  = ingestor.ingest_ontology("domain_ontology.owl", format="turtle")
+ontology_list  = ingestor.ingest_directory("ontologies/", recursive=True)
 ```
 
-## DataSource Object
+## FileObject
 
-All ingestors return a list of `DataSource` objects with a consistent schema:
+`FileIngestor` returns `FileObject` instances:
 
-<Accordion title="DataSource schema">
+<Accordion title="FileObject schema">
 
 ```python
 @dataclass
-class DataSource:
+class FileObject:
     content:     str             # raw text content
     source_id:   str             # unique identifier
     source_type: str             # "file" | "web" | "database" | "stream" | ...
@@ -402,16 +380,8 @@ method_registry.register("file", "my_format", my_ingestor)
   **`XMLIngestor` is XXE-safe by default.** Do not use standard `xml.etree.ElementTree` to pre-parse XML before passing to Semantica — it doesn't block XXE attacks. `XMLIngestor` uses lxml with `resolve_entities=False` to safely parse untrusted XML.
 </Warning>
 
-<Warning>
-  **Stream ingestors need explicit `max_messages` for batch runs.** Without a limit, `StreamIngestor.ingest()` blocks indefinitely waiting for new messages. Use `max_messages=1000` for batch processing; use `.monitor(callback=...)` for continuous streaming.
-</Warning>
-
 <Tip>
-  **Rate-limit web crawling.** `WebIngestor(rate_limit=1.0, respect_robots=True)` is the responsible default. Without rate limiting, you risk getting blocked by the target server or violating its terms of service.
-</Tip>
-
-<Tip>
-  **All ingestors return the same `DataSource` schema.** This means you can mix sources in a single pipeline without any adapter code — `FileIngestor`, `DBIngestor`, and `StreamIngestor` outputs are all directly composable with `DocumentParser` and `NERExtractor`.
+  **Rate-limit web crawling.** `WebIngestor(delay=1.0, respect_robots=True)` is the responsible default. Without rate limiting, you risk getting blocked by the target server or violating its terms of service.
 </Tip>
 
 <CardGroup cols={2}>

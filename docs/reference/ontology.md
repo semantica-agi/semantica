@@ -1,72 +1,64 @@
 ---
 title: "Ontology Module"
-description: "Automated ontology generation, SHACL validation, SKOS vocabularies, alignment, diff/migration, and the visual Ontology Hub."
+description: "Automated ontology generation, OWL export, SHACL validation, domain ontologies, and modular ontology development."
 icon: "sitemap"
 ---
 
-`semantica.ontology` provides the full lifecycle for knowledge graph schemas — from auto-generation and SHACL validation to visual editing in the Ontology Hub (v0.5.0). Use it for schema design, data modeling, semantic web interoperability, and SHACL-based data quality validation.
+`semantica.ontology` provides the full lifecycle for knowledge graph schemas — from auto-generation and OWL export to SHACL validation and modular ontology development. Use it for schema design, data modeling, and semantic web interoperability.
 
 ## What You Get
 
 <CardGroup cols={2}>
-  <Card title="OntologyManager" icon="sitemap">
-    Define classes, properties, relationships, and constraints for your knowledge graph schema.
-  </Card>
   <Card title="OntologyGenerator" icon="wand-magic-sparkles">
     Auto-generate ontologies from existing graph data using a 6-stage pipeline.
   </Card>
-  <Card title="SHACLGenerator / SHACLValidator" icon="shield-check">
-    Generate SHACL shapes from an ontology and validate graphs for constraint compliance.
+  <Card title="SHACLGenerator / OntologyValidator" icon="shield-check">
+    Generate SHACL shapes from an ontology and validate ontologies for structural consistency.
   </Card>
-  <Card title="SKOSVocabulary" icon="list-tree">
-    Controlled vocabulary and taxonomy management using the W3C SKOS standard.
+  <Card title="CompetencyQuestionsManager" icon="circle-question">
+    Capture, manage, and validate competency questions that define ontology requirements.
   </Card>
-  <Card title="OntologyAligner" icon="arrows-left-right">
-    Align and merge ontologies across schemas — maps concepts with confidence scores.
+  <Card title="ReuseManager" icon="arrows-left-right">
+    Integrate published ontologies (schema.org, FOAF) instead of generating from scratch.
   </Card>
-  <Card title="Ontology Hub (v0.5.0)" icon="display">
-    Visual browser UI for the full ontology lifecycle — editor, SHACL Studio, and health dashboard.
+  <Card title="DomainOntologies" icon="list-tree">
+    Pre-built domain ontologies for biomedical, finance, legal, supply chain, and more.
+  </Card>
+  <Card title="OntologyEvaluator" icon="chart-bar">
+    Measure coverage, completeness, and granularity — validate against competency questions.
   </Card>
 </CardGroup>
 
 ## Quick Start
 
 <Steps>
-  <Step title="Define your schema">
+  <Step title="Generate an ontology from your knowledge graph">
     ```python
-    from semantica.ontology import OntologyManager
+    from semantica.ontology import OntologyGenerator
 
-    ontology = OntologyManager()
-    ontology.add_class("Person",       properties=["name", "birth_date"])
-    ontology.add_class("Organization", properties=["name", "founded_date"])
-    ontology.add_relationship("works_for", domain="Person", range="Organization")
-    ontology.add_constraint("Person", "must_have_name")
+    generator = OntologyGenerator()
+    ontology  = generator.generate_from_graph(kg)
     ```
   </Step>
-  <Step title="Validate your graph against the schema">
+  <Step title="Validate the ontology">
     ```python
-    is_valid = ontology.validate_graph(kg)
+    from semantica.ontology import OntologyValidator
 
-    # Or use SHACL for granular constraint reporting
-    from semantica.ontology import SHACLGenerator, SHACLValidator
+    validator = OntologyValidator(reasoner="hermit", check_consistency=True)
+    result    = validator.validate(ontology)
 
-    shapes    = SHACLGenerator().generate(ontology)
-    validator = SHACLValidator()
-    report    = validator.validate(kg, shapes=shapes)
-
-    if not report.conforms:
-        for v in report.violations:
-            print(f"Violation: {v.message} on {v.node}  (path: {v.path})")
+    if not result.is_valid:
+        for issue in result.issues:
+            print(f"Issue: {issue.message}  (severity: {issue.severity})")
     ```
   </Step>
   <Step title="Export to OWL">
     ```python
-    from semantica.ontology import OWLExporter
+    from semantica.ontology import OWLGenerator
 
-    exporter = OWLExporter()
-    exporter.export(ontology, path="ontology.ttl",  format="turtle")
-    exporter.export(ontology, path="ontology.owl",  format="xml")
-    exporter.export(ontology, path="ontology.json", format="json-ld")
+    owl_gen = OWLGenerator()
+    owl_gen.export_owl(ontology, file_path="ontology.ttl", format="turtle")
+    owl_gen.export_owl(ontology, file_path="ontology.owl", format="xml")
     ```
   </Step>
 </Steps>
@@ -147,59 +139,6 @@ The pipeline runs through these stages in order:
     ```
   </Step>
 </Steps>
-
-## SKOS Vocabularies
-
-Build controlled vocabularies and taxonomies using the W3C SKOS standard:
-
-```python
-from semantica.ontology import SKOSVocabulary
-
-vocab = SKOSVocabulary()
-vocab.add_concept("Machine Learning",  broader="Artificial Intelligence")
-vocab.add_concept("Deep Learning",     broader="Machine Learning")
-vocab.add_concept("Computer Vision",   broader="Deep Learning")
-vocab.add_alt_label("ML", for_concept="Machine Learning")
-
-skos_ttl = vocab.export(format="turtle")
-```
-
-## Ontology Alignment
-
-<Tabs>
-  <Tab title="Align Two Ontologies">
-    Map concepts across two ontologies:
-
-    ```python
-    from semantica.ontology import OntologyAligner
-
-    aligner   = OntologyAligner()
-    alignment = aligner.align(source_ontology, target_ontology)
-
-    for mapping in alignment.mappings:
-        print(f"{mapping.source} → {mapping.target}  (confidence: {mapping.confidence:.2f})")
-
-    merged = aligner.merge(source_ontology, target_ontology, alignment)
-    ```
-  </Tab>
-  <Tab title="Diff and Migration">
-    Compare versions and generate migration scripts:
-
-    ```python
-    from semantica.ontology import OntologyDiff, OntologyMigrator
-
-    diff    = OntologyDiff()
-    changes = diff.compare(ontology_v1, ontology_v2)
-
-    for change in changes:
-        print(f"{change.type}: {change.element} — {change.description}")
-
-    migrator         = OntologyMigrator()
-    migration_script = migrator.generate_migration(changes)
-    migrator.apply(kg, migration_script)
-    ```
-  </Tab>
-</Tabs>
 
 ## Advanced Generation Tools
 
@@ -351,20 +290,15 @@ for q, result in zip(questions, cq_results):
 
 ## Ontology Hub (v0.5.0)
 
-A visual browser UI for the full ontology lifecycle, served by `semantica.explorer`:
+A visual browser UI for the full ontology lifecycle, served by the Explorer CLI:
 
 ```bash
 pip install "semantica[explorer]"
-```
-
-```python
-from semantica.explorer import start_explorer
-
-start_explorer(graph=kg, port=8080)
+semantica explore
 # Navigate to http://localhost:8080 → Ontology Hub tab
 ```
 
-Features: visual editor, SHACL Studio, alignment authoring, health dashboard, and version control.
+Features: visual editor, SHACL Studio, health dashboard, and version control.
 
 ## Tips and Common Pitfalls
 
@@ -381,7 +315,7 @@ Features: visual editor, SHACL Studio, alignment authoring, health dashboard, an
 </Warning>
 
 <Warning>
-  **Always validate with SHACL after schema changes.** When you add new classes or properties, run `SHACLValidator.validate(kg, shapes)` immediately. SHACL violations often surface data quality issues that were silently passing before.
+  **Always validate after schema changes.** When you add new classes or properties, run `OntologyValidator.validate(ontology)` immediately. Validation issues often surface data quality problems that were silently passing before.
 </Warning>
 
 <Tip>
@@ -391,10 +325,6 @@ Features: visual editor, SHACL Studio, alignment authoring, health dashboard, an
 <Tip>
   **Namespace your terms consistently.** All classes and properties need stable IRIs. Use `NamespaceManager` to generate them programmatically — never hardcode IRI strings in code, because base URIs change when projects move.
 </Tip>
-
-<Warning>
-  **Diff before migration.** Always run `OntologyDiff.compare()` before `OntologyMigrator.apply()`. The diff shows exactly which graph entities will be affected — some migrations (renaming a class) require updating thousands of existing nodes.
-</Warning>
 
 <CardGroup cols={2}>
   <Card title="Reasoning" icon="microchip" href="reasoning">

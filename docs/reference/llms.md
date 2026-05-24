@@ -15,8 +15,8 @@ icon: "microchip"
   <Card title="Unified LLMProvider Interface" icon="arrows-left-right">
     `complete()`, `chat()`, and `stream()` work identically across all providers — swap with a one-line change.
   </Card>
-  <Card title="create_provider() Factory" icon="gear">
-    Instantiate any provider from a name string — drive provider selection entirely from YAML config or environment variables.
+  <Card title="LiteLLM (100+ Models)" icon="gear">
+    One class, every provider — Anthropic, Gemini, Ollama, DeepSeek, Azure, Bedrock, and 90+ more via LiteLLM model strings.
   </Card>
   <Card title="Local Inference" icon="server">
     Ollama and HuggingFace run fully on-premise — no API key, no data leaves your machine, air-gap compatible.
@@ -69,14 +69,15 @@ The base install includes Groq and DeepSeek. Other providers require optional ex
     entities = ner.extract("Apple Inc. was founded by Steve Jobs in 1976.")
     ```
   </Step>
-  <Step title="Use create_provider() for config-driven selection">
+  <Step title="Use LiteLLM for config-driven provider selection">
     ```python
-    from semantica.llms import create_provider
+    from semantica.llms import LiteLLM
     from semantica.core import ConfigManager
 
     config = ConfigManager("config.yaml")
-    llm    = create_provider(
-        config.get("llm_provider.name"),
+    # LiteLLM model strings include the provider prefix:
+    # "anthropic/claude-opus-4-7", "gemini/gemini-1.5-pro", "ollama/llama3.2"
+    llm = LiteLLM(
         model=config.get("llm_provider.model"),
         api_key=config.get("llm_provider.api_key"),
     )
@@ -117,69 +118,77 @@ llm = OpenAI(
 )
 ```
 
-```python Anthropic
-from semantica.llms import Anthropic
+```python Anthropic (via LiteLLM)
+from semantica.llms import LiteLLM
 import os
 
-llm = Anthropic(
-    model="claude-opus-4-7",
+# Anthropic Claude is accessed via LiteLLM using the "anthropic/" prefix
+llm = LiteLLM(
+    model="anthropic/claude-opus-4-7",
     api_key=os.getenv("ANTHROPIC_API_KEY"),
     max_tokens=8192,
     temperature=0.0,
-    max_retries=3,
-    timeout=120,
 )
 ```
 
-```python Gemini
-from semantica.llms import Gemini
+```python Gemini (via LiteLLM)
+from semantica.llms import LiteLLM
 import os
 
-llm = Gemini(
-    model="gemini-1.5-pro",
+# Google Gemini is accessed via LiteLLM using the "gemini/" prefix
+llm = LiteLLM(
+    model="gemini/gemini-1.5-pro",
     api_key=os.getenv("GOOGLE_API_KEY"),
     temperature=0.0,
     max_tokens=8192,
-    timeout=120,
 )
 ```
 
-```python Ollama (Local)
-from semantica.llms import Ollama
+```python Ollama / Local (via LiteLLM)
+from semantica.llms import LiteLLM
 
-llm = Ollama(
-    model="llama3.2",
-    base_url="http://localhost:11434",   # default Ollama address
+# Ollama local models via LiteLLM using the "ollama/" prefix
+llm = LiteLLM(
+    model="ollama/llama3.2",
+    base_url="http://localhost:11434",  # default Ollama address
     temperature=0.0,
-    timeout=180,    # local models can be slower; increase for large models
+    timeout=180,   # local models can be slower; increase for large models
 )
 # No API key — model runs entirely on your machine
 ```
 
-```python DeepSeek
-from semantica.llms import DeepSeek
+```python DeepSeek (via Groq or LiteLLM)
+from semantica.llms import Groq   # Groq hosts DeepSeek models
 import os
 
-llm = DeepSeek(
-    model="deepseek-chat",
+llm = Groq(
+    model="deepseek-r1-distill-llama-70b",
+    api_key=os.getenv("GROQ_API_KEY"),
+    temperature=0.0,
+    max_tokens=4096,
+)
+
+# Or via LiteLLM for the native DeepSeek endpoint:
+from semantica.llms import LiteLLM
+llm = LiteLLM(
+    model="deepseek/deepseek-chat",
     api_key=os.getenv("DEEPSEEK_API_KEY"),
     temperature=0.0,
     max_tokens=4096,
-    max_retries=3,
 )
 ```
 
-```python Novita AI
-from semantica.llms import NovitaAI
+```python Novita AI (via LiteLLM)
+from semantica.llms import LiteLLM
 import os
 
-llm = NovitaAI(
-    model="deepseek/deepseek-v3.2",
+# Novita AI via LiteLLM using the "novita/" prefix
+llm = LiteLLM(
+    model="novita/deepseek/deepseek-v3",
     api_key=os.getenv("NOVITA_API_KEY"),
     temperature=0.0,
     max_tokens=4096,
 )
-# OpenAI-compatible endpoint; also accepts deepseek/deepseek-r1, meta-llama models
 ```
 
 ```python LiteLLM (100+ models)
@@ -193,13 +202,13 @@ llm = LiteLLM(
     max_tokens=4096,
 )
 # Supports: OpenAI, Anthropic, Gemini, Cohere, Azure, Bedrock, Together AI, and 90+ more
-# Use the LiteLLM model string format: "anthropic/claude-3-5-sonnet", "bedrock/anthropic.claude-v2"
+# Use the LiteLLM model string format: "anthropic/claude-opus-4-7", "bedrock/anthropic.claude-v2"
 ```
 
 ```python HuggingFace (Local)
-from semantica.llms import HuggingFace
+from semantica.llms import HuggingFaceLLM
 
-llm = HuggingFace(
+llm = HuggingFaceLLM(
     model="mistralai/Mistral-7B-Instruct-v0.3",
     device="cuda",           # "cpu" | "cuda" | "mps" (Apple Silicon)
     max_new_tokens=512,
@@ -231,11 +240,11 @@ llm = HuggingFace(
 | -------- | --------- | ----------- |
 | `OpenAI` | `organization` | OpenAI organisation ID |
 | `OpenAI` | `project` | OpenAI project ID |
-| `Ollama` | `base_url` | Ollama server address (default: `http://localhost:11434`) |
-| `HuggingFace` | `device` | Compute device: `"cpu"` / `"cuda"` / `"mps"` |
-| `HuggingFace` | `load_in_4bit` | Enable 4-bit quantisation (requires `bitsandbytes`) |
-| `HuggingFace` | `max_new_tokens` | Maximum new tokens to generate (replaces `max_tokens`) |
-| `LiteLLM` | `model` | Full LiteLLM model string, e.g. `"anthropic/claude-3-5-sonnet"` |
+| `LiteLLM` | `model` | Full LiteLLM model string, e.g. `"anthropic/claude-opus-4-7"`, `"gemini/gemini-1.5-pro"`, `"ollama/llama3.2"` |
+| `LiteLLM` | `base_url` | Override endpoint — use for Ollama (`http://localhost:11434`) or proxies |
+| `HuggingFaceLLM` | `device` | Compute device: `"cpu"` / `"cuda"` / `"mps"` |
+| `HuggingFaceLLM` | `load_in_4bit` | Enable 4-bit quantisation (requires `bitsandbytes`) |
+| `HuggingFaceLLM` | `max_new_tokens` | Maximum new tokens to generate (replaces `max_tokens`) |
 
 ## Direct API Usage
 

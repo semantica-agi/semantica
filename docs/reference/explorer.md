@@ -40,73 +40,40 @@ Requires `uvicorn` and `fastapi`. Included automatically with `pip install seman
 ## Launch
 
 <Steps>
-  <Step title="Build your graph and launch Explorer">
+  <Step title="Save your graph and launch Explorer">
     ```python
-    from semantica.explorer import start_explorer
+    import json
     from semantica.kg import GraphBuilder
-    from semantica.ontology import OntologyManager
 
-    kg       = GraphBuilder().build(entities=entities, relationships=relationships)
-    ontology = OntologyManager()
+    kg = GraphBuilder().build(entities=entities, relationships=relationships)
 
-    start_explorer(
-        graph=kg,
-        ontology=ontology,     # optional — enables Ontology Hub tab
-        port=8080,
-        host="127.0.0.1",
-        open_browser=True,
-    )
-    # → Serving at http://127.0.0.1:8080
+    # Export graph to JSON file
+    with open("my_graph.json", "w") as f:
+        json.dump({"entities": kg.entities, "relationships": kg.relationships}, f)
+    ```
+
+    ```bash
+    semantica-explorer --graph my_graph.json
+    # → Serving at http://127.0.0.1:8000
     ```
   </Step>
-  <Step title="Or launch from the CLI">
+  <Step title="Custom host and port">
     ```bash
-    # Start on a saved graph
-    semantica-explorer --graph my_graph.json
-
-    # Custom host and port
     semantica-explorer --graph my_graph.json --host 0.0.0.0 --port 8080
 
     # Skip auto-opening the browser
     semantica-explorer --graph my_graph.json --no-browser
     ```
   </Step>
-  <Step title="Enable authentication for shared environments">
-    ```python
-    start_explorer(
-        graph=kg,
-        port=8080,
-        enable_auth=True,
-        api_key="my-secret-key",
-        cors_origins=["https://app.example.com"],
-        session_timeout=1800,   # 30-minute inactivity timeout
-    )
-    ```
-  </Step>
   <Step title="Switch graphs without restarting">
     ```bash
-    curl -X POST http://localhost:8080/api/import \
+    curl -X POST http://localhost:8000/api/import \
       -H "Content-Type: multipart/form-data" \
       -F "file=@updated_graph.json"
     # Browser dashboard reloads automatically
     ```
   </Step>
 </Steps>
-
-## `start_explorer()` Parameters
-
-| Parameter | Type | Default | Description |
-| --------- | ---- | ------- | ----------- |
-| `graph` | `KnowledgeGraph` or `ContextGraph` | *(required)* | The graph to load into Explorer |
-| `ontology` | `OntologyManager` | `None` | Ontology to load into the Ontology Hub tab |
-| `port` | `int` | `8000` | Port to bind the server |
-| `host` | `str` | `"127.0.0.1"` | Host to bind. Use `"0.0.0.0"` for network access |
-| `open_browser` | `bool` | `True` | Auto-open the dashboard in the default browser |
-| `session_timeout` | `int` | `3600` | Session inactivity timeout in seconds; `None` disables |
-| `enable_auth` | `bool` | `False` | Require `X-API-Key` header on all API requests |
-| `api_key` | `str` | `None` | API key value when `enable_auth=True` |
-| `cors_origins` | `list[str]` | `["*"]` | Allowed CORS origins. Restrict in production |
-| `log_level` | `str` | `"info"` | Uvicorn log level (`"debug"` / `"info"` / `"warning"`) |
 
 ## CLI Reference
 
@@ -153,15 +120,6 @@ Requires `uvicorn` and `fastapi`. Included automatically with `pip install seman
   </Tab>
   <Tab title="Session Management">
     Thread-safe sessions with rollback protection:
-
-    ```python
-    start_explorer(
-        graph=kg,
-        session_timeout=1800,   # 30-minute inactivity timeout
-        enable_auth=True,
-        api_key="my-secret-key",
-    )
-    ```
 
     - Sessions are per connected browser tab
     - Write operations (annotate, import) roll back automatically on failure
@@ -296,12 +254,12 @@ WebSocket event schema:
 | SPARQL SELECT (simple pattern) | < 20ms |
 | N×N distance matrix (100 nodes) | ~2s (with embedding cache) |
 
-The node search index is built on startup. For graphs > 500k nodes, pass `index_build_timeout=120` to `start_explorer()` to allow more time.
+The node search index is built on startup. For graphs > 500k nodes, allow extra startup time before connecting.
 
 ## Tips and Common Pitfalls
 
 <Warning>
-  **Set `max_nodes` when loading large graphs.** `start_explorer(graph=kg, max_nodes=50000)` limits the rendered node count — Explorer's force-directed layout becomes unusable above ~10k nodes without limiting. Use `graph.filter(node_type="Organization")` first to focus on what matters.
+  **Filter large graphs before saving to JSON.** The CLI loads the entire JSON file into memory. For graphs > 10k nodes, filter to the relevant subgraph (e.g., by entity type) before exporting to JSON — Explorer's force-directed layout becomes unusable on very large graphs.
 </Warning>
 
 <Warning>

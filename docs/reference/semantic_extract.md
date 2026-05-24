@@ -64,7 +64,7 @@ icon: "magnifying-glass-chart"
   <Card title="TripletExtractor" icon="table">
     Direct `(subject, predicate, object)` triplet generation for RDF-ready output.
   </Card>
-  <Card title="EventExtractor" icon="calendar">
+  <Card title="EventDetector" icon="calendar">
     Event detection with participants, temporal context, and confidence scores.
   </Card>
   <Card title="CoreferenceResolver" icon="link">
@@ -215,14 +215,14 @@ triplets = trip.extract(text)
 
 Triplets are suitable for loading directly into a triplet store or knowledge graph without a separate relation extraction step.
 
-## EventExtractor
+## EventDetector
 
 Detect events with participants and temporal context:
 
 ```python
-from semantica.semantic_extract import EventExtractor
+from semantica.semantic_extract import EventDetector
 
-extractor = EventExtractor(method="llm", llm_provider=llm)
+extractor = EventDetector(method="llm", llm_provider=llm)
 events    = extractor.extract(text)
 ```
 

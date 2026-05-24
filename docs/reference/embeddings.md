@@ -70,18 +70,21 @@ providers = check_available_providers()
     from semantica.embeddings import EmbeddingGenerator
 
     # Default — Sentence-Transformers, free, runs locally
-    generator = EmbeddingGenerator(model="sentence-transformers")
+    generator = EmbeddingGenerator()
+
+    # Custom model via config dict
+    generator = EmbeddingGenerator(config={"text": {"method": "sentence_transformers", "model_name": "BAAI/bge-large-en-v1.5"}})
     ```
   </Step>
   <Step title="Generate embeddings">
     ```python
-    embeddings = generator.generate(["Text about AI", "Machine learning concepts"])
+    embeddings = generator.generate_embeddings(["Text about AI", "Machine learning concepts"])
     ```
   </Step>
   <Step title="Compute similarity">
     ```python
     # Cosine similarity — 0.0 (unrelated) to 1.0 (identical meaning)
-    score = generator.similarity(embeddings[0], embeddings[1])
+    score = generator.compare_embeddings(embeddings[0], embeddings[1], method="cosine")
     print(f"Similarity: {score:.3f}")
     ```
   </Step>
@@ -124,14 +127,14 @@ providers = check_available_providers()
     ```python
     from semantica.embeddings import EmbeddingGenerator
 
-    # Default model — all-MiniLM-L6-v2, dimension 384
-    generator = EmbeddingGenerator(model="sentence-transformers")
+    # Default — Sentence-Transformers with all-MiniLM-L6-v2
+    generator = EmbeddingGenerator()
 
-    # Specific HuggingFace model
-    generator = EmbeddingGenerator(model="BAAI/bge-large-en-v1.5")
+    # Custom model via set_text_model
+    generator.set_text_model("sentence_transformers", "BAAI/bge-large-en-v1.5")
 
-    embeddings = generator.generate(texts)
-    similarity = generator.similarity(embeddings[0], embeddings[1])
+    embeddings = generator.generate_embeddings(texts)
+    similarity = generator.compare_embeddings(embeddings[0], embeddings[1])
     ```
 
     Best for: default prototyping, no API key, good quality.
@@ -140,23 +143,20 @@ providers = check_available_providers()
     ```python
     from semantica.embeddings import EmbeddingGenerator
 
-    generator = EmbeddingGenerator(model="fastembed")
-    embeddings = generator.generate(texts)
+    generator = EmbeddingGenerator()
+    generator.set_text_model("fastembed", "BAAI/bge-small-en-v1.5")
+    embeddings = generator.generate_embeddings(texts)
     ```
 
     Best for: CPU-only production, lowest latency without GPU.
   </Tab>
   <Tab title="OpenAI">
     ```python
-    from semantica.embeddings import EmbeddingGenerator
+    from semantica.embeddings import OpenAIStore
     import os
 
-    generator = EmbeddingGenerator(
-        model="openai",
-        model_name="text-embedding-3-small",
-        api_key=os.getenv("OPENAI_API_KEY"),
-    )
-    embeddings = generator.generate(texts)
+    store     = OpenAIStore(api_key=os.getenv("OPENAI_API_KEY"), model="text-embedding-3-small")
+    embedding = store.embed("Hello world")
     ```
 
     Best for: highest quality (3-large), or matching an OpenAI LLM pipeline.
@@ -175,14 +175,11 @@ providers = check_available_providers()
     ```python
     from semantica.embeddings import EmbeddingGenerator
 
-    # NVIDIA GPU
-    generator = EmbeddingGenerator(model="sentence-transformers", device="cuda")
+    # Set device via text embedder config
+    generator = EmbeddingGenerator(config={"text": {"device": "cuda"}})
 
     # Apple Silicon (M1/M2/M3)
-    generator = EmbeddingGenerator(model="sentence-transformers", device="mps")
-
-    # CPU (default)
-    generator = EmbeddingGenerator(model="sentence-transformers", device="cpu")
+    generator = EmbeddingGenerator(config={"text": {"device": "mps"}})
     ```
 
     GPU reduces embedding time by 5–20× depending on batch size and model.
@@ -193,13 +190,10 @@ providers = check_available_providers()
 
 | Parameter | Type | Default | Description |
 | --------- | ---- | ------- | ----------- |
-| `model` | `str` | `"sentence-transformers"` | Provider name or HuggingFace model ID |
-| `model_name` | `str` | Provider default | Specific model within a provider (OpenAI) |
-| `api_key` | `str` | `None` | API key for cloud providers; reads env var if omitted |
-| `device` | `str` | `"cpu"` | Compute device: `"cpu"` / `"cuda"` / `"mps"` |
-| `batch_size` | `int` | `32` | Texts per forward pass |
-| `normalize` | `bool` | `True` | L2-normalise output vectors (required for cosine similarity) |
-| `cache_dir` | `str` | `None` | Directory for disk caching of computed embeddings |
+| `config` | `dict` | `None` | Config dict; `config["text"]` is passed to `TextEmbedder` |
+| `**kwargs` | | | Additional key/value config merged into `config` |
+
+Use `generator.set_text_model(method, model_name)` to switch the embedding model after construction.
 
 ## TextEmbedder
 
