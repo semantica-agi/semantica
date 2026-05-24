@@ -360,21 +360,27 @@ print(f"Invalid: {result.error_count}")
 ## Pipeline Integration
 
 ```python
-from semantica.pipeline import Pipeline
+from semantica.pipeline import PipelineBuilder, ExecutionEngine
 from semantica.ingest import FileIngestor
 from semantica.normalize import TextNormalizer
 from semantica.semantic_extract import NERExtractor
 from semantica.llms import Groq
 import os
 
-llm = Groq(model="llama-3.3-70b-versatile", api_key=os.getenv("GROQ_API_KEY"))
+llm       = Groq(model="llama-3.3-70b-versatile", api_key=os.getenv("GROQ_API_KEY"))
+ingestor  = FileIngestor()
+normalizer = TextNormalizer(strip_html=True, normalize_unicode=True)
+extractor = NERExtractor(method="llm", llm_provider=llm)
 
-pipeline = Pipeline()
-pipeline.add_step("ingest",    FileIngestor())
-pipeline.add_step("normalize", TextNormalizer(strip_html=True, normalize_unicode=True))
-pipeline.add_step("extract",   NERExtractor(method="llm", llm_provider=llm))
+builder = PipelineBuilder()
+builder.add_step("ingest",    "file_ingest",    handler=ingestor.ingest)
+builder.add_step("normalize", "text_normalize", handler=normalizer.normalize)
+builder.add_step("extract",   "ner_extract",    handler=extractor.extract)
+builder.connect_steps("ingest",    "normalize")
+builder.connect_steps("normalize", "extract")
 
-result = pipeline.run("data/documents/")
+pipeline = builder.build("normalize_pipeline")
+result   = ExecutionEngine().execute_pipeline(pipeline, data="data/documents/")
 ```
 
 ## Tips and Common Pitfalls

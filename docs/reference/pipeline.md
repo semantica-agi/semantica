@@ -405,25 +405,29 @@ Checks performed:
     ```python
     from semantica.pipeline import ParallelismManager
 
-    manager = ParallelismManager(max_workers=8, pool_type="thread")
+    # use_processes=False (default) → thread pool for I/O-bound tasks
+    manager = ParallelismManager(max_workers=8, use_processes=False)
 
-    tasks  = [{"fn": ner.extract, "args": [text]} for text in texts]
-    result = manager.execute_parallel(tasks, timeout=60)
+    tasks   = [{"fn": ner.extract, "args": [text]} for text in texts]
+    results = manager.execute_parallel(tasks, timeout=60)
+    # returns List[ParallelExecutionResult]
 
-    print(f"Successful: {result.success_count}, Failed: {result.failure_count}")
+    successes = [r for r in results if r.success]
+    failures  = [r for r in results if not r.success]
     ```
 
-    Use thread pools for **I/O-bound** steps: web fetching, database queries, API calls. Threads share memory and context-switch cheaply between waiting operations.
+    Use thread pools for **I/O-bound** steps: web fetching, database queries, API calls.
   </Tab>
   <Tab title="Process pool (CPU-bound)">
     ```python
-    manager = ParallelismManager(max_workers=4, pool_type="process")
+    # use_processes=True → process pool, bypasses Python GIL
+    manager = ParallelismManager(max_workers=4, use_processes=True)
 
-    tasks  = [{"fn": embedder.embed, "args": [chunk]} for chunk in chunks]
-    result = manager.execute_parallel(tasks, timeout=120)
+    tasks   = [{"fn": embedder.generate_embeddings, "args": [chunk]} for chunk in chunks]
+    results = manager.execute_parallel(tasks, timeout=120)
     ```
 
-    Use process pools for **CPU-bound** steps: embedding computation, OCR, large NER batches. Processes bypass Python's GIL for true multi-core parallelism.
+    Use process pools for **CPU-bound** steps: embedding, OCR, large NER batches.
   </Tab>
 </Tabs>
 

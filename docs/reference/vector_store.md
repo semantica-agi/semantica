@@ -317,12 +317,6 @@ from semantica.vector_store import MetadataStore
 
 meta_store = MetadataStore()
 
-# Define schema fields
-meta_store.add_field("author",   str,   required=True)
-meta_store.add_field("year",     int,   required=True)
-meta_store.add_field("category", str)
-meta_store.add_field("score",    float, default=0.0)
-
 # Store and retrieve metadata
 meta_store.store_metadata("doc1", {"author": "Alice", "year": 2024, "category": "research"})
 meta_store.store_metadata("doc2", {"author": "Bob",   "year": 2023, "category": "review"})
@@ -423,7 +417,7 @@ store = VectorStore(backend="faiss", dimension=768, metric="cosine")
 </Warning>
 
 <Tip>
-  **Update metadata without re-embedding.** `store.update_metadata(id, {...})` changes attached fields (status, tags, review date) without re-running the embedding model. Use this for state changes that don't affect semantic content.
+  **Update metadata without re-embedding.** `MetadataStore.update_metadata(id, {...})` changes attached fields (status, tags, review date) without re-running the embedding model. Use this for state changes that don't affect semantic content.
 </Tip>
 
 <CardGroup cols={2}>
