@@ -10,8 +10,8 @@
   },
   "favicon": "/assets/img/semantica-logo.png",
   "logo": {
-    "light": "/assets/img/semantica-wordmark-light.svg",
-    "dark": "/assets/img/semantica-wordmark-dark.svg"
+    "light": "/assets/img/semantica-logo.png",
+    "dark": "/assets/img/semantica-logo.png"
   },
   "font": {
     "headings": {
