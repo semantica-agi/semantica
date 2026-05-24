@@ -45,30 +45,39 @@ icon: "database"
   </Step>
   <Step title="Add vectors">
     ```python
-    store.add_vectors(
-        embeddings=embeddings,
-        ids=["doc1", "doc2"],
+    # Add text documents (auto-embedded)
+    ids = store.add_documents(
+        documents=["text one", "text two"],
+        metadata=[{"title": "Document 1"}, {"title": "Document 2"}]
+    )
+
+    # Add pre-computed vectors
+    ids = store.store_vectors(
+        vectors=[embedding1, embedding2],
         metadata=[{"title": "Document 1"}, {"title": "Document 2"}]
     )
     ```
   </Step>
   <Step title="Search by semantic similarity">
     ```python
-    results = store.search(query_vector, top_k=10)
+    # Search by text query (auto-embeds the query)
+    results = store.search("machine learning", limit=10)
+
+    # Search by pre-computed vector
+    results = store.search_vectors(query_vector, k=10)
+
     for r in results:
         print(f"{r['id']} — score: {r['score']:.3f}")
-        print(f"  metadata: {r['metadata']}")
     ```
   </Step>
   <Step title="Filter results by metadata">
     ```python
-    # Equality, range, and set filters
-    results = store.search(query_vector, filters={
-        "$and": [
-            {"category": "research"},
-            {"year": {"$gte": 2022}}
-        ]
-    })
+    from semantica.vector_store import HybridSearch, MetadataFilter
+
+    mf = MetadataFilter().eq("category", "research").gt("year", 2022)
+
+    search  = HybridSearch(vector_store=store)
+    results = search.search(query=query_vector, k=10, metadata_filter=mf)
     ```
   </Step>
 </Steps>
@@ -161,65 +170,96 @@ See the [PgVector Guide](../vector_stores/pgvector) for full setup.
 
 ## Hybrid Search
 
-Combine vector similarity with keyword/metadata filters for higher precision:
+Use `HybridSearch` with a `MetadataFilter` to combine vector similarity with metadata conditions:
 
 ```python
-results = store.hybrid_search(
-    query_vector=query_embedding,
-    query_text="machine learning",  # keyword component
-    top_k=10,
-    alpha=0.7,                      # 0.0 = keyword only, 1.0 = vector only
-    filters={"category": "research", "year": {"$gte": 2022}}
+from semantica.vector_store import HybridSearch, MetadataFilter
+
+mf = (
+    MetadataFilter()
+    .eq("category", "research")
+    .gt("year", 2022)
 )
+
+search  = HybridSearch(vector_store=store)
+results = search.search(
+    query=query_vector,      # np.ndarray or query string (auto-embedded)
+    k=10,
+    metadata_filter=mf
+)
+
+for r in results:
+    print(f"{r['id']} — score: {r['score']:.3f}  metadata: {r['metadata']}")
 ```
 
 ## Metadata Filtering
 
+`MetadataFilter` supports chained conditions — all conditions are ANDed:
+
 ```python
-# Equality
-results = store.search(query_vector, filters={"author": "John Smith"})
+from semantica.vector_store import MetadataFilter
 
-# Range
-results = store.search(query_vector, filters={"date": {"$gte": "2023-01-01"}})
+mf = MetadataFilter().eq("author", "John Smith")          # equality
+mf = MetadataFilter().ne("status", "archived")            # not equal
+mf = MetadataFilter().gt("year", 2022).lte("year", 2024)  # range
+mf = MetadataFilter().in_list("tag", ["ai", "ml"])        # set membership
+mf = MetadataFilter().contains("title", "neural")         # substring / list contains
 
-# Set membership
-results = store.search(query_vector, filters={"tag": {"$in": ["ai", "ml"]}})
-
-# Compound AND
-results = store.search(query_vector, filters={
-    "$and": [
-        {"category": "research"},
-        {"year": {"$gte": 2022}}
-    ]
-})
+# Multiple conditions — all must match (AND)
+mf = (
+    MetadataFilter()
+    .eq("category", "research")
+    .gt("year", 2022)
+    .contains("title", "language model")
+)
 ```
 
 ## Namespace Isolation
 
-Isolate vectors per tenant, project, or use case:
+Use `NamespaceManager` to assign vectors to named namespaces for multi-tenant isolation:
 
 ```python
-store = VectorStore(backend="faiss", dimension=768)
+from semantica.vector_store import NamespaceManager, VectorStore
 
-# Write to separate namespaces
-store.add_vectors(embeddings_a, ids_a, namespace="tenant_a")
-store.add_vectors(embeddings_b, ids_b, namespace="tenant_b")
+store      = VectorStore(backend="faiss", dimension=768)
+ns_manager = NamespaceManager()
 
-# Search is scoped to the specified namespace
-results = store.search(query_vector, namespace="tenant_a")
+ns_manager.create_namespace("tenant_a", description="Customer A data")
+ns_manager.create_namespace("tenant_b", description="Customer B data")
+
+# Store vectors, then assign them to a namespace
+ids_a = store.store_vectors(embeddings_a, metadata=metadata_a)
+for vid in ids_a:
+    ns_manager.add_vector_to_namespace(vid, "tenant_a")
+
+# List all namespace names
+for name in ns_manager.list_namespaces():
+    print(name)
+
+ns_manager.delete_namespace("tenant_a")
 ```
 
 ## Batch Operations
 
 ```python
-# Batch add — automatically chunked for memory efficiency
-store.add_vectors_batch(embeddings_list, ids_list, batch_size=1000)
+# Batch add text documents — chunked automatically by batch_size
+ids = store.add_documents(
+    documents=large_doc_list,
+    metadata=large_meta_list,
+    batch_size=1000
+)
 
-# Batch delete
-store.delete_vectors(ids=["doc1", "doc2", "doc3"])
+# Batch add pre-computed vectors
+ids = store.store_vectors(vectors=embeddings_list, metadata=meta_list)
 
-# Update metadata without re-embedding
-store.update_metadata("doc1", {"status": "archived", "reviewed": True})
+# Delete by vector ID list
+store.delete_vectors(vector_ids=["vec_0", "vec_1", "vec_2"])
+
+# Replace vectors (re-embed then update)
+store.update_vectors(
+    vector_ids=["vec_0"],
+    new_vectors=[new_embedding]
+)
 ```
 
 ## Backend Comparison
@@ -236,79 +276,87 @@ store.update_metadata("doc1", {"status": "archived", "reviewed": True})
 
 ## HybridSearch
 
-`HybridSearch` is the low-level class behind `store.hybrid_search()` — use it directly when you need custom result fusion logic:
+`HybridSearch` combines vector similarity with metadata filtering, and can fuse results from multiple sources:
 
 ```python
-from semantica.vector_store import HybridSearch, VectorStore
+from semantica.vector_store import HybridSearch, MetadataFilter, SearchRanker
 
-store  = VectorStore(backend="faiss", dimension=768)
-hybrid = HybridSearch(vector_store=store)
+# Single-source search with metadata filter
+search = HybridSearch(vector_store=store)
+mf     = MetadataFilter().eq("category", "research").gt("year", 2022)
 
-results = hybrid.search(
-    query_vector=query_embedding,
-    query_text="machine learning frameworks",
-    top_k=20,
-    vector_weight=0.7,       # weight for vector similarity leg
-    keyword_weight=0.3,      # weight for BM25/keyword leg
-    fusion="rrf",            # "rrf" (Reciprocal Rank Fusion) | "weighted_avg"
-    filters={"category": "research", "year": {"$gte": 2022}},
-    deduplicate=True,
+results = search.search(
+    query=query_vector,   # np.ndarray or query string
+    k=10,
+    metadata_filter=mf
 )
 
-for r in results:
-    print(f"{r['id']}  vector_score={r['vector_score']:.3f}  final_score={r['score']:.3f}")
+# Multi-source fusion (RRF across multiple stores)
+sources = [
+    {"vectors": v1, "metadata": m1, "ids": ids1},
+    {"vectors": v2, "metadata": m2, "ids": ids2},
+]
+fused = search.multi_source_search(query_vector, sources, k=10)
+
+# Custom fusion strategy
+ranker = SearchRanker(strategy="reciprocal_rank_fusion")  # or "weighted_average"
+fused  = ranker.rank([results_list_1, results_list_2], k=60)
 ```
 
 | Fusion strategy | Description |
 | --------------- | ----------- |
-| `rrf` | Reciprocal Rank Fusion — rank-based combination, robust to score scale differences |
-| `weighted_avg` | Weighted average of normalised scores — requires `vector_weight` + `keyword_weight` = 1.0 |
+| `reciprocal_rank_fusion` | Rank-based combination via RRF constant `k=60` — robust to score scale differences |
+| `weighted_average` | Weighted average of scores — pass `weights=[0.7, 0.3]` to `rank()` |
 
 ## MetadataStore
 
-`MetadataStore` manages structured metadata attached to vectors — query by field values without a vector:
+`MetadataStore` indexes structured metadata and lets you query by field values without a vector:
 
 ```python
 from semantica.vector_store import MetadataStore
 
 meta_store = MetadataStore()
 
-meta_store.register_schema({
-    "author":   "str",
-    "year":     "int",
-    "category": "str",
-    "score":    "float",
-})
+# Define schema fields
+meta_store.add_field("author",   str,   required=True)
+meta_store.add_field("year",     int,   required=True)
+meta_store.add_field("category", str)
+meta_store.add_field("score",    float, default=0.0)
 
-meta_store.add("doc1", {"author": "Alice", "year": 2024, "category": "research"})
-meta_store.add("doc2", {"author": "Bob",   "year": 2023, "category": "review"})
+# Store and retrieve metadata
+meta_store.store_metadata("doc1", {"author": "Alice", "year": 2024, "category": "research"})
+meta_store.store_metadata("doc2", {"author": "Bob",   "year": 2023, "category": "review"})
 
-results = meta_store.filter({"category": "research", "year": {"$gte": 2023}})
-meta    = meta_store.get("doc1")
-meta_store.update("doc1", {"score": 0.92})
+# Query — returns List[str] of matching vector IDs
+ids  = meta_store.query_metadata({"category": "research", "year": 2024})
+
+# Get and update metadata for a specific vector
+meta = meta_store.get_metadata("doc1")
+meta_store.update_metadata("doc1", {"score": 0.92})
 ```
 
 ## NamespaceManager
 
-Isolates vector collections per tenant, project, or model version:
+Assigns vector IDs to named namespaces for multi-tenant or multi-model isolation:
 
 ```python
-from semantica.vector_store import NamespaceManager, VectorStore
+from semantica.vector_store import NamespaceManager
 
-base_store = VectorStore(backend="faiss", dimension=768)
-ns_manager  = NamespaceManager(vector_store=base_store)
+ns_manager = NamespaceManager()
 
 ns_manager.create_namespace("tenant_a", description="Customer A data")
 ns_manager.create_namespace("tenant_b", description="Customer B data")
 
-ns_manager.add_vectors("tenant_a", embeddings_a, ids_a, metadata_a)
-ns_manager.add_vectors("tenant_b", embeddings_b, ids_b, metadata_b)
+# Assign vector IDs to a namespace after storing them
+for vid in ids_a:
+    ns_manager.add_vector_to_namespace(vid, "tenant_a")
 
-# Search is scoped — tenant_a never sees tenant_b's data
-results = ns_manager.search("tenant_a", query_vector, top_k=10)
+# Inspect namespaces
+for name in ns_manager.list_namespaces():   # returns List[str]
+    print(name)
 
-for ns in ns_manager.list_namespaces():
-    print(f"{ns['name']}: {ns['vector_count']} vectors")
+# Look up which namespace a vector belongs to
+ns = ns_manager.get_vector_namespace("vec_0")
 
 ns_manager.delete_namespace("tenant_a")
 ```

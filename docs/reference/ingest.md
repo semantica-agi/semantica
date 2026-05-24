@@ -22,10 +22,10 @@ icon: "database"
     Real-time ingestion from Kafka, RabbitMQ, AWS Kinesis, and Apache Pulsar.
   </Card>
   <Card title="Cloud Storage" icon="cloud">
-    S3Ingestor, GCSIngestor, and GDriveIngestor with authentication options.
+    `CloudStorageIngestor` — unified client for AWS S3, Google Cloud Storage, and Azure Blob Storage.
   </Card>
   <Card title="Database Ingestors" icon="database">
-    DBIngestor, SnowflakeIngestor, MongoIngestor, and DuckDBIngestor.
+    `DBIngestor` (SQL via SQLAlchemy) and `SnowflakeIngestor` for data warehouse queries.
   </Card>
 </CardGroup>
 
@@ -61,18 +61,25 @@ icon: "database"
   </Step>
   <Step title="Feed sources into the pipeline">
     ```python
-    from semantica.pipeline import Pipeline
+    from semantica.pipeline import PipelineBuilder, ExecutionEngine
     from semantica.parse import DocumentParser
     from semantica.semantic_extract import NERExtractor
     from semantica.llms import Groq
 
-    llm = Groq(model="llama-3.3-70b-versatile", api_key=os.getenv("GROQ_API_KEY"))
+    llm       = Groq(model="llama-3.3-70b-versatile", api_key=os.getenv("GROQ_API_KEY"))
+    ingestor  = FileIngestor()
+    parser    = DocumentParser()
+    extractor = NERExtractor(method="llm", llm_provider=llm)
 
-    pipeline = Pipeline()
-    pipeline.add_step("ingest",   FileIngestor())
-    pipeline.add_step("parse",    DocumentParser())
-    pipeline.add_step("extract",  NERExtractor(method="llm", llm_provider=llm))
-    result = pipeline.run("data/")
+    builder = PipelineBuilder()
+    builder.add_step("ingest",  "file_ingest",    handler=ingestor.ingest_file)
+    builder.add_step("parse",   "document_parse", handler=parser.parse)
+    builder.add_step("extract", "ner_extract",    handler=extractor.extract)
+    builder.connect_steps("ingest", "parse")
+    builder.connect_steps("parse",  "extract")
+
+    pipeline = builder.build("my_pipeline")
+    result   = ExecutionEngine().execute_pipeline(pipeline, data="data/")
     ```
   </Step>
 </Steps>
@@ -213,54 +220,40 @@ icon: "database"
     ```
   </Tab>
   <Tab title="Cloud Storage">
-    ### S3Ingestor
+    ### CloudStorageIngestor
 
-    Ingest files directly from AWS S3 buckets:
+    `CloudStorageIngestor` is a unified client for AWS S3, Google Cloud Storage, and Azure Blob Storage:
 
     ```python
-    from semantica.ingest import S3Ingestor
+    from semantica.ingest import CloudStorageIngestor
     import os
 
-    ingestor = S3Ingestor(
+    # AWS S3
+    ingestor = CloudStorageIngestor(
+        provider="s3",
         bucket="my-documents-bucket",
         prefix="reports/2024/",
         region="us-east-1",
         aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID"),
         aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY"),
-        # Or omit credentials to use IAM instance profile
+        # Omit credentials to use IAM instance profile / environment variables
     )
     sources = ingestor.ingest()
-    sources = ingestor.ingest(pattern="**/*.pdf")
-    ```
 
-    ### GCSIngestor
-
-    Ingest files from Google Cloud Storage:
-
-    ```python
-    from semantica.ingest import GCSIngestor
-
-    ingestor = GCSIngestor(
+    # Google Cloud Storage
+    ingestor = CloudStorageIngestor(
+        provider="gcs",
         bucket="my-gcs-bucket",
         prefix="data/",
         credentials_file="gcp-credentials.json",  # or use ADC
     )
     sources = ingestor.ingest()
-    ```
 
-    ### GDriveIngestor
-
-    Ingest files from Google Drive folders via OAuth 2.0:
-
-    ```python
-    from semantica.ingest import GDriveIngestor
-
-    ingestor = GDriveIngestor(
-        credentials_file="oauth_credentials.json",
-        token_file="token.json",
-        folder_id="1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs9",
-        file_types=["pdf", "docx", "txt"],
-        recursive=True,
+    # Azure Blob Storage
+    ingestor = CloudStorageIngestor(
+        provider="azure",
+        container="documents",
+        connection_string=os.getenv("AZURE_STORAGE_CONNECTION_STRING"),
     )
     sources = ingestor.ingest()
     ```
@@ -295,47 +288,6 @@ icon: "database"
     sources = ingestor.ingest(query="SELECT * FROM documents")
     ```
 
-    ### MongoIngestor
-
-    Ingest documents from MongoDB collections:
-
-    ```python
-    from semantica.ingest import MongoIngestor
-    import os
-
-    ingestor = MongoIngestor(
-        connection_string=os.getenv("MONGO_URI"),
-        database="mydb",
-        collection="articles",
-        query={"status": "published", "year": {"$gte": 2022}},
-        projection={"title": 1, "body": 1, "author": 1},
-        content_field="body",
-        limit=10000,
-    )
-    sources = ingestor.ingest()
-    ```
-
-    ### DuckDBIngestor
-
-    Ingest data from DuckDB databases or directly from Parquet/CSV files via DuckDB SQL:
-
-    ```python
-    from semantica.ingest import DuckDBIngestor
-
-    # In-memory DuckDB — query a Parquet file directly
-    ingestor = DuckDBIngestor(
-        query="SELECT id, text, created_at FROM read_parquet('data/*.parquet') WHERE year >= 2023",
-    )
-    sources = ingestor.ingest()
-
-    # Persistent DuckDB database file
-    ingestor = DuckDBIngestor(
-        database_path="analytics.duckdb",
-        query="SELECT doc_id AS id, content, metadata FROM documents",
-        content_field="content",
-    )
-    sources = ingestor.ingest()
-    ```
   </Tab>
   <Tab title="Stream">
     ### StreamIngestor
@@ -459,7 +411,7 @@ method_registry.register("file", "my_format", my_ingestor)
 </Tip>
 
 <Tip>
-  **All ingestors return the same `DataSource` schema.** This means you can mix sources in a single pipeline without any adapter code — `FileIngestor`, `MongoIngestor`, and `StreamIngestor` outputs are all directly composable with `DocumentParser` and `NERExtractor`.
+  **All ingestors return the same `DataSource` schema.** This means you can mix sources in a single pipeline without any adapter code — `FileIngestor`, `DBIngestor`, and `StreamIngestor` outputs are all directly composable with `DocumentParser` and `NERExtractor`.
 </Tip>
 
 <CardGroup cols={2}>
