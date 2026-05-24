@@ -113,6 +113,17 @@ for v in versions:
 kg_v1 = manager.get_version("v1.0")
 ```
 
+### TemporalVersionManager Methods
+
+| Method | Returns | Description |
+| ------ | ------- | ----------- |
+| `create_snapshot(graph, version, author, message)` | `str` | Create a version snapshot, returns snapshot ID |
+| `get_version(version_id)` | `KnowledgeGraph` | Retrieve a graph at a specific version |
+| `list_versions()` | `List[Version]` | List all versions with metadata |
+| `diff(from_version, to_version)` | `DiffResult` | Compare two snapshots |
+| `rollback(version_id)` | `KnowledgeGraph` | Restore graph to a previous version |
+| `get_checksum(snapshot_id)` | `str` | Get SHA-256 checksum of a snapshot |
+
 ## Diff Analysis
 
 Compare any two snapshots to see exactly what changed — useful for code review, incident investigation, and regulatory audit:

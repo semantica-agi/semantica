@@ -81,6 +81,24 @@ parser = DoclingParser(
 parsed = parser.parse("data/scanned_contract.pdf")
 ```
 
+## Supported Formats
+
+| Format | Extension | Parser Used | Notes |
+| ------ | --------- | ----------- | ----- |
+| PDF | `.pdf` | `PDFParser` / `DoclingParser` | Text, tables, metadata; Docling adds OCR |
+| Word | `.docx` | Built-in | Text, headings, tables, metadata |
+| HTML | `.html`, `.htm` | `HTMLParser` / `WebParser` | `WebParser` fetches remote URLs |
+| Markdown | `.md` | Built-in | Preserves heading hierarchy |
+| Plain text | `.txt` | `TXTParser` | Minimal metadata |
+| JSON | `.json` | `JSONParser` | One object per line or array |
+| CSV / TSV | `.csv`, `.tsv` | `CSVParser` | Header auto-detected |
+| Excel | `.xlsx`, `.xls` | Built-in | Sheet selection supported |
+| PowerPoint | `.pptx` | Built-in | `DoclingParser` for embedded charts |
+| Email | `.eml`, `.msg` | `EmailParser` | Attachments extracted |
+| XML | `.xml` | `XMLIngestor` | XXE-safe, optional XSD validation |
+| Archive | `.zip`, `.tar` | `FileIngestor` | Recursive extraction |
+| Source code | `.py`, `.js`, `.java`, ... | `CodeParser` | AST-aware block detection |
+
 ## Parsed Document Object
 
 Both parsers return a `ParsedDocument` with the same structure:
@@ -106,6 +124,14 @@ class DocumentMetadata:
     word_count:   int
     format:       str               # "pdf" | "docx" | "pptx" | ...
 ```
+
+## DocumentParser Methods
+
+| Method | Returns | Description |
+| ------ | ------- | ----------- |
+| `parse(source)` | `ParsedDocument` | Auto-detect format and extract text, sections, metadata |
+| `parse_batch(sources)` | `List[ParsedDocument]` | Process multiple sources in parallel |
+| `is_supported(path)` | `bool` | Check if the file extension is supported |
 
 ## Integration with FileIngestor
 

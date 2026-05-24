@@ -78,6 +78,19 @@ icon: "server"
   </Step>
 </Steps>
 
+## GraphStore Methods
+
+| Method | Returns | Description |
+| ------ | ------- | ----------- |
+| `create_nodes(entities)` | `List[str]` | Create nodes from entity list, returns node IDs |
+| `add_edges(relationships)` | `List[str]` | Add edges from relationship list, returns edge IDs |
+| `query(cypher, parameters)` | `List[dict]` | Execute Cypher query with optional parameters |
+| `create_index(label, property)` | `None` | Create an index for faster lookups |
+| `delete_node(node_id)` | `bool` | Delete a node by ID |
+| `delete_edge(edge_id)` | `bool` | Delete an edge by ID |
+| `get_node(node_id)` | `dict` | Retrieve a node by ID |
+| `get_neighbors(node_id)` | `List[dict]` | Get all neighbors of a node |
+
 ## Backends
 
 <Tabs>

@@ -185,6 +185,23 @@ results = store.sparql("""
 """)
 ```
 
+## TripletStore Methods
+
+| Method | Returns | Description |
+| ------ | ------- | ----------- |
+| `add_triplet(s, p, o, graph=None)` | `str` | Add a single triplet, returns triplet ID |
+| `add_triplets_bulk(triplets)` | `List[str]` | Batch add triplets with transaction support |
+| `get_triplets(graph=None)` | `List[dict]` | Retrieve all triplets or from a named graph |
+| `delete_triplet(triplet_id)` | `bool` | Delete a triplet by ID |
+| `sparql(query)` | `List[dict]` | Execute SPARQL SELECT query |
+| `sparql_construct(query)` | `Graph` | Execute SPARQL CONSTRUCT query |
+| `sparql_ask(query)` | `bool` | Execute SPARQL ASK query |
+| `sparql_update(query)` | `None` | Execute SPARQL UPDATE (INSERT/DELETE) |
+| `bulk_load(file, format)` | `None` | Load RDF file (turtle, nt, xml) |
+| `export(path, format)` | `None` | Export to turtle, nt, xml |
+| `list_graphs()` | `List[str]` | List all named graphs |
+| `clear_graph(graph_uri)` | `None` | Delete all triples from a named graph |
+
 ## SPARQL Queries
 
 ```python

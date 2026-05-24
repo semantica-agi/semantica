@@ -151,6 +151,17 @@ relation_conflicts = detector.detect_relationship_conflicts(kg)
 - `LOGICAL` conflicts require an ontology or SHACL schema to be loaded; without one, they are not detected
 - Detection runs in O(n·sources) time — it groups by entity+attribute and checks disagreement within each group
 
+### ConflictDetector Methods
+
+| Method | Returns | Description |
+| ------ | ------- | ----------- |
+| `detect_conflicts(kg)` | `List[Conflict]` | Detect all conflict types at once |
+| `detect_value_conflicts(entities, attribute)` | `List[Conflict]` | Detect value disagreements on a specific attribute |
+| `detect_type_conflicts(entities)` | `List[Conflict]` | Detect type classification conflicts |
+| `detect_temporal_conflicts(entities)` | `List[Conflict]` | Detect overlapping validity window conflicts |
+| `detect_logical_conflicts(kg)` | `List[Conflict]` | Detect ontology/SHACL constraint violations |
+| `detect_relationship_conflicts(kg)` | `List[Conflict]` | Detect relationship property conflicts |
+
 ## ConflictResolver
 
 ```python

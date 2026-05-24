@@ -76,6 +76,16 @@ manager.track_entity(
 )
 ```
 
+## ProvenanceManager Methods
+
+| Method | Returns | Description |
+| ------ | ------- | ----------- |
+| `track_entity(entity_id, source_reference, confidence)` | `str` | Record a provenance entry, returns entry ID |
+| `get_lineage(entity_id)` | `ProvenanceEntry` | Retrieve full lineage for an entity |
+| `export_prov_o(entity_id, format)` | `str` | Export single entity as W3C PROV-O Turtle/JSON-LD |
+| `export_all(path, format)` | `None` | Export full provenance graph to file |
+| `verify_checksum(entry, checksum)` | `bool` | Verify entry hasn't been tampered with |
+
 ## Tamper-Evident Checksums
 
 Verify that provenance records have not been modified after creation:

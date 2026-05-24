@@ -83,6 +83,14 @@ icon: "file-export"
   </Step>
 </Steps>
 
+## RDFExporter Constructor Parameters
+
+| Parameter | Type | Default | Description |
+| --------- | ---- | ------- | ----------- |
+| `namespace_manager` | `NamespaceManager` | `None` | Custom namespace prefix manager |
+| `include_provenance` | `bool` | `False` | Embed W3C PROV-O lineage triples |
+| `provenance_manager` | `ProvenanceManager` | `None` | Provenance source when `include_provenance=True` |
+
 ## Exporters
 
 <Tabs>

@@ -124,6 +124,18 @@ num    = normalize_number("$1.2B")                          # → 1200000000.0
 lang   = detect_language("Bonjour le monde")                # → {"language": "fr", "confidence": 0.98}
 ```
 
+## TextNormalizer Constructor Parameters
+
+| Parameter | Type | Default | Description |
+| --------- | ---- | ------- | ----------- |
+| `lowercase` | `bool` | `False` | Convert to lowercase |
+| `remove_punctuation` | `bool` | `False` | Strip all punctuation |
+| `remove_extra_whitespace` | `bool` | `True` | Collapse tabs, newlines, non-breaking spaces |
+| `strip_html` | `bool` | `False` | Remove HTML tags and decode entities |
+| `normalize_unicode` | `bool` | `True` | Apply Unicode normal form |
+| `fix_encoding` | `bool` | `True` | Repair cp1252/latin-1 mojibake |
+| `form` | `str` | `"NFC"` | Unicode form: `"NFC"` / `"NFD"` / `"NFKC"` / `"NFKD"` |
+
 ## Normalizers
 
 <Tabs>

@@ -336,6 +336,27 @@ icon: "database"
   </Tab>
 </Tabs>
 
+## Convenience Function
+
+| Parameter | Type | Default | Description |
+| --------- | ---- | ------- | ----------- |
+| `source` | `str` | required | File path, directory, URL, or connection string |
+| `source_type` | `str` | `"auto"` | `"file"`, `"web"`, `"db"`, `"stream"`, `"feed"`, `"repo"` — auto-detected from path if omitted |
+| `recursive` | `bool` | `False` | Scan subdirectories for file-based sources |
+| `metadata` | `dict` | `{}` | Extra metadata attached to every returned `DataSource` |
+
+Returns `List[DataSource]` — each item has `content`, `metadata`, `source_id`, and `source_type`.
+
+## DataSource Fields
+
+| Field | Type | Description |
+| ----- | ---- | ----------- |
+| `content` | `str` | Extracted or loaded text content |
+| `metadata` | `dict` | Title, author, URL, date, page count, etc. |
+| `source_id` | `str` | Unique identifier for this source |
+| `source_type` | `str` | `"file"`, `"web"`, `"database"`, `"stream"`, ... |
+| `raw_bytes` | `Optional[bytes]` | Original binary content (if available) |
+
 ## OntologyIngestor
 
 Ingest existing OWL or RDF ontology files as structured knowledge sources:

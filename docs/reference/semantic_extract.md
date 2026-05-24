@@ -41,6 +41,13 @@ triplets      = TripletExtractor(method="llm", llm_provider=llm).extract(text)
 
 <img src="/assets/img/diagrams/extraction-pipeline.svg" alt="Semantic extraction pipeline: raw text fans into NER, Relation, and Coreference extractors, then merges into a Triplet Generator" style={{ width: '100%', borderRadius: '12px', margin: '0 0 24px' }} />
 
+## Extractor Methods
+
+| Method | Returns | Description |
+| ------ | ------- | ----------- |
+| `extract(text)` | `List[Entity]` / `List[Relation]` / `List[Triplet]` / `List[Event]` | Extract from single text input |
+| `extract_batch(texts, batch_size)` | `List[List[...]]` | Process multiple texts in parallel |
+
 ## NERExtractor
 
 ```python

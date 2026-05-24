@@ -43,6 +43,16 @@ if not report.conforms:
 engine.export(ontology, "ontology.ttl", format="turtle")
 ```
 
+### OntologyEngine Methods
+
+| Method | Description |
+| ------ | ----------- |
+| `generate_ontology(data)` | Run the 6-stage pipeline on entity/relationship data |
+| `validate(kg)` | Check a knowledge graph against generated SHACL shapes |
+| `export(ontology, path, format)` | Serialize to `"turtle"`, `"xml"`, or `"json-ld"` |
+| `align(other_ontology)` | Align and merge with another ontology |
+| `evaluate(ontology, kg)` | Compute coverage, completeness, and granularity metrics |
+
 ## OntologyGenerator (6-Stage Pipeline)
 
 Generate a formal ontology automatically from your knowledge graph entities and relationships:
@@ -89,6 +99,17 @@ if not report.conforms:
         print(f"  Node: {violation.node}")
         print(f"  Path: {violation.path}")
 ```
+
+### Validation Report Fields
+
+| Field | Type | Description |
+| ----- | ---- | ----------- |
+| `conforms` | `bool` | `True` if the graph passes all SHACL constraints |
+| `violations` | `List[SHACLViolation]` | Detailed failure records |
+| `severity` | `str` | `"violation"`, `"warning"`, or `"info"` |
+| `message` | `str` | Human-readable constraint failure description |
+| `node` | `str` | IRI of the violating graph node |
+| `path` | `str` | IRI of the violating property path |
 
 ## LLM-Powered Ontology Generation
 
