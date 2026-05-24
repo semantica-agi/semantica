@@ -6,6 +6,30 @@ icon: "file-export"
 
 `semantica.export` serializes knowledge graphs to every downstream format — semantic web standards, analytics pipelines, graph databases, and vector stores. All exporters share a consistent `export(graph, path, format)` interface.
 
+## Exported Classes
+
+```python
+from semantica.export import (
+    RDFExporter,         # Turtle, JSON-LD, N-Triples, RDF/XML
+    ParquetExporter,     # columnar Parquet (Spark, BigQuery, Databricks, Snowflake)
+    LPGExporter,         # Cypher CREATE/MERGE for Neo4j / Memgraph
+    ArangoAQLExporter,   # AQL INSERT for ArangoDB
+    GraphExporter,       # GraphML, GEXF, Graphviz DOT
+    OWLExporter,         # OWL 2.0 in Turtle, XML, JSON-LD
+    CSVExporter,         # flat CSV nodes + edges
+    VectorExporter,      # embedding vectors as JSON, NumPy, or FAISS
+    ArrowExporter,       # Apache Arrow IPC (zero-copy transfer)
+    DistanceExporter,    # semantic distance matrices and ego-graphs
+    ReportGenerator,     # human-readable analytics reports (HTML, Markdown, JSON)
+    NamespaceManager,    # register and resolve RDF namespace prefixes
+    SemanticNetworkYAMLExporter,  # YAML semantic network export
+    # Convenience functions
+    export_rdf, export_parquet, export_csv, export_lpg,
+    export_arango, export_graph, export_owl, export_vector,
+    export_arrow, generate_report,
+)
+```
+
 ## What You Get
 
 <CardGroup cols={2}>

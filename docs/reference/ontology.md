@@ -1,330 +1,210 @@
 ---
 title: "Ontology Module"
-description: "Automated ontology generation, OWL export, SHACL validation, domain ontologies, and modular ontology development."
+description: "Automated ontology generation, SHACL validation, OWL/RDF export, namespace management, and LLM-powered ontology generation."
 icon: "sitemap"
 ---
 
-`semantica.ontology` provides the full lifecycle for knowledge graph schemas — from auto-generation and OWL export to SHACL validation and modular ontology development. Use it for schema design, data modeling, and semantic web interoperability.
+`semantica.ontology` provides the full lifecycle for knowledge graph schemas — from auto-generation and SHACL validation to OWL/RDF export. Use it for schema design, data modeling, semantic web interoperability, and SHACL-based data quality validation.
+
+## Exported Classes
+
+```python
+from semantica.ontology import (
+    OntologyGenerator,       # auto-generate from KG data (6-stage pipeline)
+    LLMOntologyGenerator,    # LLM-powered ontology generation
+    OntologyEngine,          # unified orchestration facade
+    ClassInferrer,           # class discovery and hierarchy building
+    PropertyGenerator,       # property inference and XSD type mapping
+    SHACLGenerator,          # generate SHACL shapes from ontology
+    OntologyValidator,       # validate graphs against SHACL shapes
+    SHACLValidationReport,   # validation report with violations list
+    SHACLViolation,          # individual constraint violation
+    OWLGenerator,            # OWL/RDF serialization (Turtle, XML, JSON-LD)
+    OntologyEvaluator,       # quality evaluation: coverage, completeness
+    NamespaceManager,        # IRI generation and namespace prefix management
+    OntologyAligner,         # align and merge ontologies across schemas (use OntologyEngine)
+    AssociativeClassBuilder, # N-ary relationship intermediate class creation
+    NamingConventions,       # PascalCase/camelCase enforcement
+    DomainOntologies,        # pre-built domain ontologies
+    ingest_ontology,         # load ontology from file
+)
+```
 
 ## What You Get
 
-<CardGroup cols={2}>
-  <Card title="OntologyGenerator" icon="wand-magic-sparkles">
-    Auto-generate ontologies from existing graph data using a 6-stage pipeline.
-  </Card>
-  <Card title="SHACLGenerator / OntologyValidator" icon="shield-check">
-    Generate SHACL shapes from an ontology and validate ontologies for structural consistency.
-  </Card>
-  <Card title="CompetencyQuestionsManager" icon="circle-question">
-    Capture, manage, and validate competency questions that define ontology requirements.
-  </Card>
-  <Card title="ReuseManager" icon="arrows-left-right">
-    Integrate published ontologies (schema.org, FOAF) instead of generating from scratch.
-  </Card>
-  <Card title="DomainOntologies" icon="list-tree">
-    Pre-built domain ontologies for biomedical, finance, legal, supply chain, and more.
-  </Card>
-  <Card title="OntologyEvaluator" icon="chart-bar">
-    Measure coverage, completeness, and granularity — validate against competency questions.
-  </Card>
-</CardGroup>
+- **`OntologyGenerator`** — auto-generate ontologies from existing knowledge graph data (6-stage pipeline)
+- **`LLMOntologyGenerator`** — LLM-powered ontology generation for complex domains
+- **`OntologyEngine`** — unified facade that orchestrates the full ontology lifecycle
+- **`SHACLGenerator`** / **`OntologyValidator`** — generate SHACL shapes and validate any graph
+- **`OWLGenerator`** — serialize ontologies to Turtle, RDF/XML, JSON-LD
+- **`NamespaceManager`** — IRI generation, prefix management, namespace binding
+- **`OntologyEvaluator`** — coverage, completeness, and granularity quality metrics
+- **`AssociativeClassBuilder`** — model N-ary relationships as intermediate OWL classes
 
-## Quick Start
+## OntologyEngine (Unified Facade)
 
-<Steps>
-  <Step title="Generate an ontology from your knowledge graph">
-    ```python
-    from semantica.ontology import OntologyGenerator
+The `OntologyEngine` orchestrates the full ontology lifecycle — generation, validation, export, and versioning:
 
-    generator = OntologyGenerator()
-    ontology  = generator.generate_from_graph(kg)
-    ```
-  </Step>
-  <Step title="Validate the ontology">
-    ```python
-    from semantica.ontology import OntologyValidator
+```python
+from semantica.ontology import OntologyEngine
 
-    validator = OntologyValidator(reasoner="hermit", check_consistency=True)
-    result    = validator.validate(ontology)
+engine = OntologyEngine(base_uri="https://example.org/ontology/")
 
-    if not result.is_valid:
-        for issue in result.issues:
-            print(f"Issue: {issue.message}  (severity: {issue.severity})")
-    ```
-  </Step>
-  <Step title="Export to OWL">
-    ```python
-    from semantica.ontology import OWLGenerator
+# Generate ontology from KG data
+ontology = engine.generate_ontology({"entities": entities, "relationships": relationships})
 
-    owl_gen = OWLGenerator()
-    owl_gen.export_owl(ontology, file_path="ontology.ttl", format="turtle")
-    owl_gen.export_owl(ontology, file_path="ontology.owl", format="xml")
-    ```
-  </Step>
-</Steps>
+# Validate a graph against the generated SHACL shapes
+report = engine.validate(kg)
+if not report.conforms:
+    for v in report.violations:
+        print(f"{v.severity}: {v.message} on {v.node}")
 
-## Auto-Generation — 6-Stage Pipeline
+# Export to OWL Turtle
+engine.export(ontology, "ontology.ttl", format="turtle")
+```
 
-Generate an ontology automatically from your knowledge graph data:
+## OntologyGenerator (6-Stage Pipeline)
+
+Generate a formal ontology automatically from your knowledge graph entities and relationships:
 
 ```python
 from semantica.ontology import OntologyGenerator
 
-generator = OntologyGenerator()
-ontology  = generator.generate_from_graph(kg)
+generator = OntologyGenerator(base_uri="https://example.org/ontology/")
+ontology  = generator.generate_ontology({
+    "entities":      entities,
+    "relationships": relationships,
+})
 ```
 
 The pipeline runs through these stages in order:
 
-<Steps>
-  <Step title="Stage 1 — Semantic Network Parsing">
-    Extracts concepts and patterns from entity/relationship data.
+1. **Semantic Network Parsing** — extract concepts and patterns from entity/relationship data
+2. **YAML-to-Definition** — transform patterns into intermediate class definitions
+3. **Definition-to-Types** — map definitions to OWL types (`owl:Class`, `owl:ObjectProperty`)
+4. **Hierarchy Generation** — build taxonomy trees using transitive closure and cycle detection
+5. **TTL Generation** — serialize to Turtle format using `rdflib`
+6. **Quality Evaluation** — assess coverage, completeness, and granularity metrics
 
-    ```python
-    generator        = OntologyGenerator()
-    semantic_network = generator.parse_semantic_network(kg)
-    ```
-  </Step>
-  <Step title="Stage 2 — YAML-to-Definition (intermediate representation)">
-    Transforms extracted patterns into intermediate class definitions.
+## SHACL Validation
 
-    ```python
-    definitions = generator.build_definitions(semantic_network)
-    ```
-  </Step>
-  <Step title="Stage 3 — Definition-to-OWL Types">
-    Maps definitions to OWL types (`owl:Class`, `owl:ObjectProperty`).
-
-    ```python
-    from semantica.ontology import ClassInferrer, PropertyGenerator
-
-    class_inferrer = ClassInferrer()
-    classes        = class_inferrer.infer_classes(kg.entities)
-
-    prop_generator = PropertyGenerator()
-    properties     = prop_generator.infer_properties(kg.entities, kg.relationships, classes)
-    ```
-  </Step>
-  <Step title="Stage 4 — Hierarchy Generation">
-    Builds taxonomy trees using transitive closure and cycle detection.
-
-    ```python
-    hierarchy = generator.build_hierarchy(classes)
-    ```
-  </Step>
-  <Step title="Stage 5 — TTL Generation">
-    Serializes to Turtle format using `rdflib`.
-
-    ```python
-    from semantica.ontology import OWLGenerator
-
-    owl_gen = OWLGenerator()
-    ttl_str = owl_gen.generate_owl(
-        {"classes": classes, "properties": properties, "hierarchy": hierarchy},
-        format="turtle",   # "turtle" | "xml" | "json-ld" | "n3"
-    )
-    ```
-  </Step>
-  <Step title="Stage 6 — Quality Evaluation">
-    Assesses coverage, completeness, and granularity metrics.
-
-    ```python
-    from semantica.ontology import OntologyEvaluator
-
-    evaluator = OntologyEvaluator()
-    report    = evaluator.evaluate(ttl_str, kg)
-    print(f"Coverage:     {report.coverage:.2%}")
-    print(f"Completeness: {report.completeness:.2%}")
-    print(f"Granularity:  {report.granularity:.2%}")
-    ```
-  </Step>
-</Steps>
-
-## Advanced Generation Tools
-
-<Tabs>
-  <Tab title="RequirementsSpecManager">
-    Capture and manage ontology requirements before generation:
-
-    ```python
-    from semantica.ontology import RequirementsSpecManager
-
-    spec = RequirementsSpecManager()
-    spec.add_competency_question("What organizations are headquartered in California?")
-    spec.add_competency_question("Who founded each organization?")
-    spec.add_competency_question("What products does each organization sell?")
-
-    spec.set_scope(
-        domain="Technology industry",
-        excluded_types=["Event", "Date"],
-        min_confidence=0.7,
-    )
-
-    generator = OntologyGenerator()
-    ontology  = generator.generate_from_graph(kg, requirements=spec)
-    ```
-  </Tab>
-  <Tab title="LLMOntologyGenerator">
-    Generate ontologies directly from natural language:
-
-    ```python
-    from semantica.ontology import LLMOntologyGenerator
-    from semantica.llms import Groq
-    import os
-
-    llm       = Groq(model="llama-3.3-70b-versatile", api_key=os.getenv("GROQ_API_KEY"))
-    generator = LLMOntologyGenerator(llm_provider=llm)
-
-    ontology = generator.generate_from_description(
-        description="An ontology for tracking pharmaceutical clinical trials, including drugs, patients, dosages, outcomes, and adverse events.",
-        num_classes=20,
-    )
-
-    ontology = generator.generate_from_corpus(
-        documents=["clinical_trial_protocol.pdf"],
-        domain_hint="biomedical",
-    )
-
-    ontology = generator.refine(
-        ontology,
-        questions=["What dosage was given to each patient?", "What adverse events occurred?"],
-    )
-    ```
-  </Tab>
-  <Tab title="ReuseManager">
-    Integrate published ontologies instead of generating from scratch:
-
-    ```python
-    from semantica.ontology import ReuseManager
-
-    manager = ReuseManager()
-    manager.load_ontology("schema.org", source="https://schema.org/version/latest/schemaorg-current-https.ttl")
-    manager.load_ontology("foaf",       source="http://xmlns.com/foaf/spec/index.rdf")
-
-    candidates = manager.find_reusable_classes(
-        your_classes=["Person", "Organization", "Product"],
-        loaded_ontologies=["schema.org", "foaf"],
-    )
-    for candidate in candidates:
-        print(f"{candidate.local_class} → reuse {candidate.external_uri}  (similarity: {candidate.similarity:.2f})")
-
-    merged = manager.merge_reused(your_ontology, candidates)
-    ```
-  </Tab>
-  <Tab title="DomainOntologies">
-    Pre-built domain ontologies for common verticals:
-
-    ```python
-    from semantica.ontology import DomainOntologies
-
-    catalog = DomainOntologies()
-
-    for domain in catalog.list_domains():
-        print(f"{domain.name}: {domain.description}  ({domain.class_count} classes)")
-
-    biomedical   = catalog.load("biomedical")    # SNOMED CT-aligned
-    finance      = catalog.load("finance")       # FinancialInstrument, Company, Market
-    legal        = catalog.load("legal")         # Contract, Party, Jurisdiction
-    supply_chain = catalog.load("supply_chain")  # Supplier, Product, Shipment
-
-    biomedical.add_class("ClinicalTrial", parent="Study", properties=["phase", "participants"])
-    ```
-
-    Available domains: `biomedical`, `finance`, `legal`, `supply_chain`, `cybersecurity`, `e_commerce`, `hr`.
-  </Tab>
-</Tabs>
-
-## ModuleManager
-
-Build ontologies as composable modules — keep domain logic separated and reusable:
+Generate SHACL shapes from an ontology and validate any graph against them:
 
 ```python
-from semantica.ontology import ModuleManager
+from semantica.ontology import SHACLGenerator, OntologyValidator, SHACLValidationReport, SHACLViolation
 
-manager = ModuleManager()
+# Generate shapes from ontology
+generator  = SHACLGenerator()
+shapes     = generator.generate(ontology)
+shapes_ttl = shapes.serialize(format="turtle")
 
-core_module    = manager.create_module("core",    base_uri="http://example.org/core#")
-finance_module = manager.create_module("finance", base_uri="http://example.org/finance#")
+# Validate a graph against the shapes
+validator = OntologyValidator()
+report: SHACLValidationReport = validator.validate(kg, shapes=shapes)
 
-core_module.add_class("Entity",     properties=["id", "name"])
-finance_module.add_class("Company", parent="Entity", properties=["ticker", "revenue"])
-
-finance_module.import_module(core_module)
-unified = manager.merge_modules([core_module, finance_module])
+if not report.conforms:
+    violation: SHACLViolation
+    for violation in report.violations:
+        print(f"{violation.severity}: {violation.message}")
+        print(f"  Node: {violation.node}")
+        print(f"  Path: {violation.path}")
 ```
 
-## NamespaceManager
+## LLM-Powered Ontology Generation
 
-Manage IRI prefixes and generate consistent URIs for all ontology terms:
+For complex or novel domains where schema patterns are hard to infer statistically:
+
+```python
+from semantica.ontology import LLMOntologyGenerator
+from semantica.llms import Groq
+import os
+
+llm = Groq(model="llama-3.3-70b-versatile", api_key=os.getenv("GROQ_API_KEY"))
+
+generator = LLMOntologyGenerator(llm_provider=llm)
+ontology  = generator.generate(
+    domain_description="A biomedical ontology for clinical trial protocols",
+    examples=["Patient", "Trial", "Intervention", "Outcome"],
+)
+```
+
+## OWL / RDF Export
+
+```python
+from semantica.ontology import OWLGenerator
+
+generator = OWLGenerator()
+generator.generate(ontology, path="ontology.ttl",  format="turtle")
+generator.generate(ontology, path="ontology.owl",  format="xml")
+generator.generate(ontology, path="ontology.json", format="json-ld")
+```
+
+## Namespace Management
 
 ```python
 from semantica.ontology import NamespaceManager
 
-ns_manager = NamespaceManager(base_uri="http://example.org/")
-ns_manager.register("ex",     "http://example.org/")
-ns_manager.register("schema", "https://schema.org/")
+ns = NamespaceManager(base_uri="https://example.org/")
+ns.register("ex",     "https://example.org/")
+ns.register("schema", "https://schema.org/")
+ns.register("owl",    "http://www.w3.org/2002/07/owl#")
 
-class_iri = ns_manager.generate_iri("Person")          # → "http://example.org/Person"
-prop_iri  = ns_manager.generate_iri("worksFor", prefix="ex")  # → "http://example.org/worksFor"
-iri       = ns_manager.resolve("schema:Organization")   # → "https://schema.org/Organization"
+# Generate IRIs for classes and properties
+class_iri    = ns.generate_class_iri("Person")
+property_iri = ns.generate_property_iri("worksFor")
 ```
 
-## OntologyEvaluator
+## Ontology Evaluation
 
-Measure quality across coverage, completeness, and competency questions:
+Measure coverage, completeness, and granularity of a generated ontology:
 
 ```python
 from semantica.ontology import OntologyEvaluator
 
 evaluator = OntologyEvaluator()
-report    = evaluator.evaluate(ontology, kg)
-print(f"Coverage:     {report.coverage:.2%}")
-print(f"Completeness: {report.completeness:.2%}")
-print(f"Granularity:  {report.granularity:.2%}")
+result    = evaluator.evaluate(ontology, kg)
 
-questions  = ["What organizations were founded in California?", "Who are the employees of Apple Inc.?"]
-cq_results = evaluator.validate_competency_questions(ontology, kg, questions)
-for q, result in zip(questions, cq_results):
-    print(f"Q: {q}  →  Answerable: {result.answerable}  ({result.reason})")
+print(f"Class coverage:    {result.class_coverage:.2f}")
+print(f"Property coverage: {result.property_coverage:.2f}")
+print(f"Completeness:      {result.completeness:.2f}")
+print(f"Granularity:       {result.granularity:.2f}")
+
+for gap in result.gaps:
+    print(f"Gap: {gap.description}")
+```
+
+## Ingest an Existing Ontology
+
+Load and parse an ontology file for downstream use:
+
+```python
+from semantica.ontology import ingest_ontology
+
+ontology_data = ingest_ontology("schema.ttl")     # Turtle
+ontology_data = ingest_ontology("schema.owl")     # OWL/XML
+ontology_data = ingest_ontology("schema.jsonld")  # JSON-LD
 ```
 
 ## Ontology Hub (v0.5.0)
 
-A visual browser UI for the full ontology lifecycle, served by the Explorer CLI:
+A visual browser UI for the full ontology lifecycle. Launch via CLI:
 
 ```bash
 pip install "semantica[explorer]"
-semantica explore
+semantica-explorer --port 8080
 # Navigate to http://localhost:8080 → Ontology Hub tab
 ```
 
-Features: visual editor, SHACL Studio, health dashboard, and version control.
+Features:
 
-## Tips and Common Pitfalls
+- **Visual editor** — create and edit classes, properties, and relationships in the browser
+- **SHACL Studio** — author and validate SHACL shapes with live feedback
+- **Health dashboard** — coverage, completeness, and constraint violation metrics
+- **Version control** — snapshot, diff, and restore ontology versions
 
-<Tip>
-  **Define competency questions before generating.** An ontology without competency questions has no measurable success criteria. Write 5–10 natural language questions your ontology must answer before calling `OntologyGenerator`. Then validate them with `OntologyEvaluator.validate_competency_questions()`.
-</Tip>
-
-<Tip>
-  **Reuse before generating.** `DomainOntologies` and `ReuseManager` give you schema.org, FOAF, and domain-specific ontologies that took years to develop. Reusing established classes (`schema:Organization`, `foaf:Person`) also improves interoperability with external data.
-</Tip>
-
-<Warning>
-  **`LLMOntologyGenerator` is great for prototyping, not production.** LLM-generated ontologies are a useful starting point but need expert review. Use `OntologyEvaluator` and manual SHACL authoring to harden the schema before relying on it for production graph validation.
-</Warning>
-
-<Warning>
-  **Always validate after schema changes.** When you add new classes or properties, run `OntologyValidator.validate(ontology)` immediately. Validation issues often surface data quality problems that were silently passing before.
-</Warning>
-
-<Tip>
-  **Use `ModuleManager` for large ontologies.** A monolithic 500-class ontology becomes unmanageable quickly. Split by domain (`core`, `finance`, `legal`) and use `owl:imports` to compose them — changes in one module don't break others.
-</Tip>
-
-<Tip>
-  **Namespace your terms consistently.** All classes and properties need stable IRIs. Use `NamespaceManager` to generate them programmatically — never hardcode IRI strings in code, because base URIs change when projects move.
-</Tip>
+<Note>
+  Ontology versioning (`VersionManager`, `OntologyVersion`) has moved to `semantica.change_management`. Import from there: `from semantica.change_management import VersionManager`.
+</Note>
 
 <CardGroup cols={2}>
   <Card title="Reasoning" icon="microchip" href="reasoning">

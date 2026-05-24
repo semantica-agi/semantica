@@ -6,6 +6,31 @@ icon: "wrench"
 
 `semantica.utils` provides shared infrastructure used throughout Semantica. Most users won't call it directly, but its APIs are available when you need fine-grained control over logging, validation, progress tracking, or error handling.
 
+## Exported Classes
+
+```python
+from semantica.utils import (
+    # Logging
+    setup_logging,    # configure root logger — level, format (json/text)
+    get_logger,       # get a named logger instance
+    log_performance,  # @decorator — logs function name, duration, exception
+    # Validation
+    validate_entity,  # validate entity dict structure, raises ValidationError
+    validate_config,  # validate config dict against schema, raises ValidationError
+    # Progress tracking
+    ProgressTracker,  # class-based tracker with ETA
+    track_progress,   # wraps any iterable with live progress bar
+    # Helpers
+    clean_text,       # normalize whitespace, strip control characters
+    hash_data,        # deterministic SHA-256 hash of any serializable object
+    safe_filename,    # sanitize a string for use as a filename
+    # Exceptions
+    SemanticaError,   # base exception for all Semantica errors
+    ValidationError,  # raised when input fails validation
+    ProcessingError,  # raised during extraction, graph build, or pipeline step
+)
+```
+
 ## What You Get
 
 <CardGroup cols={2}>
