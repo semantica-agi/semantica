@@ -4,6 +4,73 @@ from typing import Any, Iterable, Mapping, Sequence
 
 from .metrics import accuracy_score, absolute_lift, relative_lift, safe_mean
 
+# JSON Schema for a single track report — used to fail fast on malformed output
+# before it is persisted to effectiveness_offline.json.
+TRACK_REPORT_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "required": ["name", "sample_size", "metrics"],
+    "properties": {
+        "name":        {"type": "string", "minLength": 1},
+        "sample_size": {"type": "integer", "minimum": 0},
+        "metrics":     {"type": "object"},
+        "slices":      {"type": "object"},
+        "baselines":   {"type": "object"},
+        "coverage":    {"type": "object"},
+        "metadata":    {"type": "object"},
+    },
+    "additionalProperties": True,
+}
+
+# Schema for the top-level effectiveness_offline.json file written by the runner.
+EFFECTIVENESS_REPORT_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "required": ["timestamp", "mode", "exit_code", "summary"],
+    "properties": {
+        "timestamp":   {"type": "string"},
+        "mode":        {"type": "string", "enum": ["offline", "optional", "real_llm", "all"]},
+        "command":     {"type": "array", "items": {"type": "string"}},
+        "exit_code":   {"type": "integer"},
+        "summary": {
+            "type": "object",
+            "required": ["passed", "failed", "skipped"],
+            "properties": {
+                "passed":     {"type": "integer", "minimum": 0},
+                "failed":     {"type": "integer", "minimum": 0},
+                "skipped":    {"type": "integer", "minimum": 0},
+                "deselected": {"type": "integer", "minimum": 0},
+                "errors":     {"type": "integer", "minimum": 0},
+            },
+        },
+    },
+}
+
+
+def validate_track_report(report: Mapping[str, Any]) -> None:
+    """Validate a track report against TRACK_REPORT_SCHEMA.
+
+    Raises jsonschema.ValidationError on schema violations so malformed track
+    output is caught before it can be persisted.  If jsonschema is not installed
+    the check is skipped (non-blocking) — install it to enable strict validation.
+    """
+    try:
+        import jsonschema  # type: ignore[import]
+        jsonschema.validate(instance=dict(report), schema=TRACK_REPORT_SCHEMA)
+    except ImportError:
+        pass
+
+
+def validate_effectiveness_report(report: Mapping[str, Any]) -> None:
+    """Validate the top-level effectiveness_offline.json payload.
+
+    Raises jsonschema.ValidationError on schema violations.  Skipped silently
+    when jsonschema is unavailable.
+    """
+    try:
+        import jsonschema  # type: ignore[import]
+        jsonschema.validate(instance=dict(report), schema=EFFECTIVENESS_REPORT_SCHEMA)
+    except ImportError:
+        pass
+
 
 def coverage_summary(
     *,
@@ -67,6 +134,7 @@ def make_track_report(
     }
     for key, value in metrics.items():
         report[key] = value
+    validate_track_report(report)
     return report
 
 

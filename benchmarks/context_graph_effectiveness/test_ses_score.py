@@ -213,7 +213,16 @@ def ses_report(
             eligible=len(components),
             required=len(required_components),
         ),
-        metadata={"required_components": sorted(required_components)},
+        metadata={
+            "required_components": sorted(required_components),
+            # This is the offline CI estimate (8 components, no real-LLM tracks).
+            # The canonical full SES_v2 is reported only by the weekly
+            # benchmark_real_llm.yml run that includes real-LLM tracks.
+            # Expected offline range: 0.68–0.74.
+            "ses_label": "SES_v2_offline",
+            "ses_offline_range": [0.68, 0.74],
+            "full_ses_v2_source": "benchmark_real_llm.yml (weekly)",
+        },
     )
     require_reportable(
         report,

@@ -70,18 +70,17 @@ def run_effectiveness_suite(
 
     if report_json:
         os.makedirs(os.path.dirname(report_json), exist_ok=True)
+        payload = {
+            "timestamp": datetime.now().isoformat(),
+            "mode": mode,
+            "command": cmd,
+            "exit_code": result.returncode,
+            "summary": _parse_pytest_summary(f"{result.stdout}\n{result.stderr}"),
+        }
+        from benchmarks.context_graph_effectiveness.reporting import validate_effectiveness_report
+        validate_effectiveness_report(payload)
         with open(report_json, "w", encoding="utf-8") as handle:
-            json.dump(
-                {
-                    "timestamp": datetime.now().isoformat(),
-                    "mode": mode,
-                    "command": cmd,
-                    "exit_code": result.returncode,
-                    "summary": _parse_pytest_summary(f"{result.stdout}\n{result.stderr}"),
-                },
-                handle,
-                indent=2,
-            )
+            json.dump(payload, handle, indent=2)
     if result.returncode != 0:
         print("\n[EFFECTIVENESS] One or more effectiveness tests FAILED.")
         if strict:

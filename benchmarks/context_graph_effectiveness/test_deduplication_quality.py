@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from unittest.mock import patch
+
 from benchmarks.context_graph_effectiveness.metrics import precision_recall_f1
 from benchmarks.context_graph_effectiveness.thresholds import THRESHOLDS
 from semantica.deduplication.cluster_builder import ClusterBuilder
@@ -112,3 +114,28 @@ def test_incremental_detection_efficiency():
     ]
     scores = [calculator.calculate_similarity(new_entity, entity, track=False).score for entity in existing]
     assert max(scores) == scores[0]
+
+
+def test_detect_duplicates_not_called_in_benchmark_pipeline():
+    """Regression guard: semantica.deduplication.methods.detect_duplicates() has a known
+    infinite-recursion risk.  The benchmark pipeline must use SimilarityCalculator /
+    ClusterBuilder / EntityMerger directly and must never invoke the module-level
+    detect_duplicates() wrapper.  This test enforces that invariant by asserting the
+    function is never reached during a representative benchmark operation.
+    """
+    with patch(
+        "semantica.deduplication.methods.detect_duplicates",
+        side_effect=RecursionError("detect_duplicates called — infinite recursion risk"),
+    ) as mock_detect:
+        calculator = SimilarityCalculator(similarity_threshold=0.75)
+        calculator.calculate_similarity(
+            {"id": "1", "name": "Apple Inc.", "type": "Company"},
+            {"id": "2", "name": "Apple", "type": "Company"},
+            track=False,
+        )
+        builder = ClusterBuilder(similarity_threshold=0.75)
+        builder.build_clusters([
+            {"id": "a", "name": "Acme Corp.", "type": "Company"},
+            {"id": "b", "name": "Acme", "type": "Company"},
+        ])
+        mock_detect.assert_not_called()
