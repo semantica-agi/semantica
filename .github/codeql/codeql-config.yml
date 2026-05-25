@@ -1,0 +1,11 @@
+name: "Semantica CodeQL Config"
+
+# Exclude auto-generated notebook exports and bundled third-party JS.
+# Files in cookbook/**/*.html are self-contained Plotly/MapLibre bundles
+# produced by Jupyter nbconvert — they embed minified third-party libraries
+# (Plotly, MapLibre GL JS) whose internal patterns trigger false-positive JS
+# alerts (js/incomplete-url-substring-sanitization, js/insecure-randomness,
+# js/prototype-pollution-utility). These are not application code.
+paths-ignore:
+  - "cookbook/**/*.html"
+  - "cookbook/**/*.js"

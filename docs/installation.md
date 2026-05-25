@@ -1,14 +1,25 @@
-# Installation
-
-Get Semantica installed in under a minute.
-
-!!! success "Available on PyPI"
-    `pip install semantica` — that's it.
-
-!!! note "Requirements"
-    Python 3.8 or higher. Python 3.11+ recommended.
-
 ---
+title: "Installation"
+description: "Get Semantica installed in under a minute."
+icon: "download"
+---
+
+<Check>
+  **Available on PyPI** — `pip install semantica` and you're ready.
+</Check>
+
+<Note>
+  Python 3.8 or higher is required. Python 3.11+ is recommended.
+</Note>
+
+## System Requirements
+
+| Component | Minimum | Recommended |
+| --------- | ------- | ----------- |
+| Python | 3.8 | 3.11+ |
+| OS | Windows / Linux / Mac | Linux / Mac |
+| RAM | 4 GB | 16 GB+ |
+| Storage | 2 GB | 20 GB+ (models and data) |
 
 ## Basic Installation
 
@@ -28,94 +39,85 @@ pip install semantica[all]
 python -c "import semantica; print(semantica.__version__)"
 ```
 
----
-
 ## Virtual Environment (Recommended)
 
-=== "venv"
-
+<Tabs>
+  <Tab title="venv">
     ```bash
     python -m venv venv
-    source venv/bin/activate      # Linux / Mac
-    venv\Scripts\activate         # Windows
+    source venv/bin/activate   # Linux / Mac
+    venv\Scripts\activate      # Windows
     pip install semantica
     ```
-
-=== "conda"
-
+  </Tab>
+  <Tab title="conda">
     ```bash
     conda create -n semantica python=3.11
     conda activate semantica
     pip install semantica
     ```
-
----
+  </Tab>
+</Tabs>
 
 ## Optional Dependencies
 
 Install only what you need:
 
-=== "GPU"
-
+<Tabs>
+  <Tab title="GPU">
     ```bash
     pip install semantica[gpu]
     ```
-    Includes PyTorch with CUDA, FAISS GPU, CuPy.
-
-=== "Visualization"
-
+    Includes PyTorch with CUDA, FAISS GPU, and CuPy.
+  </Tab>
+  <Tab title="Visualization">
     ```bash
     pip install semantica[viz]
     ```
-    Includes PyVis, Graphviz, UMAP.
-
-=== "LLM Providers"
-
+    Includes PyVis, Graphviz, and UMAP.
+  </Tab>
+  <Tab title="LLM Providers">
     ```bash
-    pip install semantica[llm-all]          # all providers
-
-    pip install semantica[llm-openai]       # OpenAI
-    pip install semantica[llm-anthropic]    # Anthropic
-    pip install semantica[llm-gemini]       # Google Gemini
-    pip install semantica[llm-groq]         # Groq
-    pip install semantica[llm-ollama]       # Ollama (local)
+    pip install semantica[llm-all]       # all providers
+    pip install semantica[llm-openai]    # OpenAI
+    pip install semantica[llm-anthropic] # Anthropic
+    pip install semantica[llm-gemini]    # Google Gemini
+    pip install semantica[llm-groq]      # Groq
+    pip install semantica[llm-ollama]    # Ollama (local)
     ```
-
-=== "Cloud"
-
+  </Tab>
+  <Tab title="Cloud">
     ```bash
     pip install semantica[cloud]
     ```
-    Includes AWS S3, Azure Blob, Google Cloud Storage.
-
----
+    Includes AWS S3, Azure Blob, and Google Cloud Storage.
+  </Tab>
+</Tabs>
 
 ## Install from Source
 
 For the latest development version or to contribute:
 
 ```bash
-git clone https://github.com/Hawksight-AI/semantica.git
+git clone https://github.com/semantica-agi/semantica.git
 cd semantica
 
-pip install -e .          # core only
-pip install -e ".[all]"   # all extras
-pip install -e ".[dev]"   # dev tools (pytest, black, etc.)
+pip install -e .         # core only
+pip install -e ".[all]"  # all extras
+pip install -e ".[dev]"  # dev tools (pytest, black, etc.)
 ```
 
-If you encounter issues with the PyPI release, install directly from the main branch:
+Install directly from the main branch if the PyPI release has issues:
 
 ```bash
-pip install git+https://github.com/Hawksight-AI/semantica.git@main
+pip install git+https://github.com/semantica-agi/semantica.git@main
 ```
-
----
 
 ## Troubleshooting
 
 ### ModuleNotFoundError
 
-Check you have the right environment active:
+Make sure you're in the right environment:
 
 ```bash
 pip list | grep semantica
@@ -127,7 +129,7 @@ pip install --upgrade semantica
 ```bash
 pip install --upgrade pip
 pip install build wheel
-pip install semantica --no-deps   # install without optional deps first
+pip install semantica --no-deps  # install without optional deps first
 ```
 
 ### GPU dependencies fail
@@ -142,28 +144,31 @@ pip install semantica[gpu]
 ### Permission denied
 
 ```bash
-pip install --user semantica      # or use a virtual environment
+pip install --user semantica  # or use a virtual environment
+```
+
+### Windows `[all]` install fails
+
+This was fixed in **v0.5.0**. Upgrade to the latest release:
+
+```bash
+pip install --upgrade semantica
 ```
 
 ### Windows PyTorch DLL errors
 
 Install the [Microsoft Visual C++ Redistributable](https://aka.ms/vs/17/release/vc_redist.x64.exe). This is a Windows system dependency, not a Semantica bug.
 
----
-
-## System Requirements
-
-| Component | Minimum | Recommended |
-|-----------|---------|-------------|
-| Python | 3.8 | 3.11+ |
-| OS | Windows / Linux / Mac | Linux / Mac |
-| RAM | 4 GB | 16 GB+ |
-| Storage | 2 GB | 20 GB+ (for models and data) |
-
----
-
 ## Next Steps
 
-- [Getting Started](getting-started.md) — build your first knowledge graph
-- [Quickstart Tutorial](quickstart.md) — full step-by-step pipeline
-- [Cookbook](cookbook.md) — interactive Jupyter notebook tutorials
+<CardGroup cols={3}>
+  <Card title="Getting Started" icon="rocket" href="getting-started">
+    Understand what Semantica does before you build.
+  </Card>
+  <Card title="Build the Pipeline" icon="play" href="quickstart">
+    Follow the end-to-end workflow with code.
+  </Card>
+  <Card title="Browse Examples" icon="flask" href="cookbook">
+    See notebook examples organized by use case.
+  </Card>
+</CardGroup>

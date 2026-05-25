@@ -249,11 +249,18 @@ class BaseProvider:
                 mode = instructor.Mode.TOOLS  # Default mode
                 
                 if provider_name == "OpenAIProvider" and self.client:
-                    if hasattr(instructor, "from_provider"):
+                    custom_base_url = getattr(self, "base_url", None)
+                    if custom_base_url:
+                        # OpenAI-compatible custom endpoint: Mode.TOOLS is not reliably
+                        # supported by third-party servers (Qwen, LLaMA gateways, etc.).
+                        # Mode.JSON asks the model to return plain JSON and is broadly
+                        # supported across all OpenAI-compatible APIs.
+                        client = instructor.from_openai(self.client, mode=instructor.Mode.JSON)
+                    elif hasattr(instructor, "from_provider"):
                         try:
                             client = instructor.from_provider(
-                                provider=f"openai/{kwargs.get('model', self.model)}", 
-                                api_key=self.api_key
+                                provider=f"openai/{kwargs.get('model', self.model)}",
+                                api_key=self.api_key,
                             )
                         except Exception:
                             client = instructor.from_openai(self.client)
@@ -395,14 +402,51 @@ class BaseProvider:
 
                     if provider_name == "GroqProvider":
                         create_kwargs["response_format"] = {"type": "json_object"}
-                    
-                    response = client.chat.completions.create(**create_kwargs)
+
+                    try:
+                        response = client.chat.completions.create(**create_kwargs)
+                    except Exception as primary_err:
+                        # Mode.TOOLS can fail on standard OpenAI endpoints for certain
+                        # models (streaming quirks, schema binding issues). Retry once
+                        # with Mode.JSON before giving up entirely.
+                        # Custom-base_url providers already use Mode.JSON from the start,
+                        # so we only retry here for the standard OpenAI path.
+                        if (
+                            provider_name == "OpenAIProvider"
+                            and not getattr(self, "base_url", None)
+                            and hasattr(self, "client")
+                            and self.client
+                        ):
+                            self.logger.warning(
+                                "instructor Mode.TOOLS failed for %s (%s); retrying with Mode.JSON.",
+                                provider_name,
+                                primary_err,
+                                exc_info=True,
+                            )
+                            json_client = instructor.from_openai(self.client, mode=instructor.Mode.JSON)
+                            # Build a clean kwargs dict for the Mode.JSON retry: drop
+                            # response_format (Mode.JSON handles schema differently)
+                            # but keep response_model/max_retries so instructor still
+                            # validates the typed output.
+                            retry_kwargs = {
+                                k: v for k, v in create_kwargs.items()
+                                if k != "response_format"
+                            }
+                            response = json_client.chat.completions.create(**retry_kwargs)
+                        else:
+                            raise
+
+                    verbose_mode = kwargs.get("verbose", False) or self.config.get("verbose", False)
                     if verbose_mode:
                         import sys
                         print(f"    [BaseProvider.generate_typed] Typed response received via instructor ({provider_name}).", flush=True, file=sys.stdout)
                     return response
             except Exception as e:
-                self.logger.warning(f"Instructor generation failed ({e}), falling back to manual repair loop.")
+                self.logger.warning(
+                    "Instructor generation failed (%s), falling back to manual repair loop.",
+                    e,
+                    exc_info=True,
+                )
 
         # Fallback: Manual repair loop
         last_error = None
@@ -410,9 +454,19 @@ class BaseProvider:
         
         for attempt in range(max_retries):
             try:
-                # 1. Generate JSON
-                # We use generate_structured to get the dict/list
-                json_result = self.generate_structured(current_prompt, max_retries=1, **kwargs)
+                # 1. Generate JSON – try structured mode first, then fall back to
+                # plain generate() + parse.  Custom gateways that reject
+                # response_format=json_object would otherwise loop forever here.
+                try:
+                    json_result = self.generate_structured(current_prompt, max_retries=1, **kwargs)
+                except Exception as struct_err:
+                    self.logger.warning(
+                        "generate_structured failed (%s); retrying with plain generate() + JSON parse.",
+                        struct_err,
+                        exc_info=True,
+                    )
+                    raw_content = self.generate(current_prompt, **kwargs)
+                    json_result = self._parse_json(raw_content)
                 
                 # 2. Validate with Schema
                 # If the result is a list and schema expects a wrapper, or vice versa, we might need adjustment
@@ -508,22 +562,51 @@ class OpenAIProvider(BaseProvider):
     """OpenAI provider implementation."""
 
     def __init__(
-        self, api_key: Optional[str] = None, model: str = "gpt-3.5-turbo", **kwargs
+        self,
+        api_key: Optional[str] = None,
+        model: str = "gpt-3.5-turbo",
+        base_url: Optional[str] = None,
+        **kwargs,
     ):
-        """Initialize OpenAI provider."""
+        """Initialize OpenAI provider.
+
+        Args:
+            api_key: OpenAI API key (or OPENAI_API_KEY env var).
+            model: Default model name.
+            base_url: Optional custom base URL for OpenAI-compatible endpoints
+                (e.g. local gateways, Qwen, LLaMA proxies).  When set,
+                ``instructor`` will use ``Mode.JSON`` instead of
+                ``Mode.TOOLS`` because most OpenAI-compatible servers do not
+                implement the full function-calling protocol.
+        """
         super().__init__(**kwargs)
         self.api_key = api_key or config.get_api_key("openai")
         self.model = model
+        self.base_url = base_url  # None → standard OpenAI; set → custom endpoint
         self.client = None
         self._init_client()
 
     def _init_client(self):
-        """Initialize OpenAI client."""
+        """Initialize OpenAI client, respecting a custom base_url if provided."""
+        if self.base_url:
+            # Reject non-HTTP schemes (file://, ftp://, etc.) to prevent SSRF
+            # when base_url originates from configuration rather than hardcoded values.
+            from urllib.parse import urlparse
+            scheme = urlparse(self.base_url).scheme
+            if scheme not in ("http", "https"):
+                raise ValueError(
+                    f"OpenAIProvider base_url must use http or https, got scheme {scheme!r}. "
+                    f"Only HTTP(S) endpoints are permitted."
+                )
+
         try:
             from openai import OpenAI
 
             if self.api_key:
-                self.client = OpenAI(api_key=self.api_key)
+                init_kwargs: Dict[str, Any] = {"api_key": self.api_key}
+                if self.base_url:
+                    init_kwargs["base_url"] = self.base_url
+                self.client = OpenAI(**init_kwargs)
         except (ImportError, OSError):
             self.client = None
             self.logger.warning(
@@ -559,8 +642,13 @@ class OpenAIProvider(BaseProvider):
         create_kwargs = {
             "model": kwargs.get("model", self.model),
             "messages": [{"role": "user", "content": prompt}],
-            "response_format": {"type": "json_object"},
         }
+        # response_format=json_object is only safe for standard OpenAI endpoints.
+        # Custom gateways (base_url set) often reject or mishandle this parameter,
+        # causing silent fallback to pattern extraction.
+        if not self.base_url:
+            create_kwargs["response_format"] = {"type": "json_object"}
+
         self._add_if_set(create_kwargs, kwargs, "temperature", "max_completion_tokens", "max_tokens",
                          "top_p", "frequency_penalty", "presence_penalty", "seed", "stop", "logit_bias", "user")
 
@@ -694,19 +782,6 @@ class GroqProvider(BaseProvider):
         except Exception as e:
             self.client = None
             self.logger.error(f"Failed to initialize Groq client: {e}")
-
-    def is_available(self) -> bool:
-        """Check if provider is available and return diagnostic info."""
-        if self.client is None:
-            if not self.api_key:
-                return False  # Missing API key
-            try:
-                from groq import Groq
-            except ImportError:
-                return False  # Library not installed
-            return False
-            
-        return True
 
     def _test_connection(self):
         """Internal method to verify connection."""
@@ -939,20 +1014,22 @@ class DeepSeekProvider(BaseProvider):
     def __init__(self, api_key: Optional[str] = None, model: str = "deepseek-chat", **kwargs):
         super().__init__(**kwargs)
         self.api_key = api_key or config.get_api_key("deepseek")
+        self.base_url = "https://api.deepseek.com/v1"
         self.model = model
+        self.base_url = "https://api.deepseek.com/v1"
         self.client = None
         self._init_client()
 
     def _init_client(self):
         try:
-            import deepseek  # type: ignore[import-untyped]
+            from openai import OpenAI
 
             if self.api_key:
-                self.client = deepseek.Client(api_key=self.api_key)
+                self.client = OpenAI(api_key=self.api_key, base_url=self.base_url)
         except (ImportError, OSError):
             self.client = None
             self.logger.warning(
-                "deepseek library not installed. Install with: pip install semantica[llm-deepseek]"
+                "openai library not installed. Install with: pip install semantica[llm-openai]"
             )
 
     def is_available(self) -> bool:

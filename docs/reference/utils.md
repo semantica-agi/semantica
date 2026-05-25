@@ -1,227 +1,233 @@
-# Utils
-
-> **Shared utilities for logging, validation, error handling, and common operations.**
-
+---
+title: "Utils Module"
+description: "Shared utilities for logging, validation, error handling, progress tracking, and common operations."
+icon: "wrench"
 ---
 
-## 🎯 Overview
+`semantica.utils` provides shared infrastructure used throughout Semantica. Most users won't call it directly, but its APIs are available when you need fine-grained control over logging, validation, progress tracking, or error handling.
 
-The **Utils Module** provides shared utilities used throughout all Semantica modules. It includes logging, error handling, validation, progress tracking, and common helper functions.
+## Exported Classes
 
-### What is the Utils Module?
+| Name | Type | Role |
+| --- | --- | --- |
+| `setup_logging` | function | Configure root logger — `level`, `format` (`"json"` or `"text"`) |
+| `get_logger` | function | Get a named logger instance |
+| `log_performance` | decorator | Logs function name, duration, and any exception |
+| `validate_entity` | function | Validate entity dict structure — raises `ValidationError` on failure |
+| `validate_config` | function | Validate config dict against schema — raises `ValidationError` on failure |
+| `ProgressTracker` | class | Class-based progress tracker with ETA and step callbacks |
+| `track_progress` | function | Wrap any iterable with a live progress bar |
+| `clean_text` | function | Normalize whitespace and strip control characters |
+| `hash_data` | function | Deterministic SHA-256 hash of any serializable object |
+| `SemanticaError` | exception | Base exception for all Semantica errors |
+| `ValidationError` | exception | Raised when input fails validation |
+| `ProcessingError` | exception | Raised during extraction, graph build, or pipeline step |
 
-The Utils module provides:
+## What You Get
 
-- **Logging**: Structured logging with performance tracking
-- **Error Handling**: Custom exception hierarchy and error formatting
-- **Validation**: Data validation for entities, relationships, and configuration
-- **Progress Tracking**: Track long-running operations
-- **Helpers**: Common functions for text cleaning, hashing, file I/O
-- **Type Definitions**: Shared TypedDicts and Enums for type safety
+<CardGroup cols={2}>
+  <Card title="Logging" icon="scroll">
+    Structured logging with `@log_performance` decorator and quality metrics via environment variables.
+  </Card>
+  <Card title="Validation" icon="shield-check">
+    `validate_entity` and `validate_config` with a typed `ValidationError` carrying field and value context.
+  </Card>
+  <Card title="Progress Tracking" icon="bars-progress">
+    `track_progress` wraps any iterable — auto-detects console vs Jupyter for the right renderer.
+  </Card>
+  <Card title="Helper Functions" icon="wrench">
+    `clean_text`, `hash_data`, `safe_filename`, and nested dict utilities used throughout the framework.
+  </Card>
+  <Card title="Exception Hierarchy" icon="triangle-exclamation">
+    `SemanticaError` → `ValidationError`, `ProcessingError` — typed exceptions for targeted recovery.
+  </Card>
+  <Card title="File Utilities" icon="file">
+    `read_json_file` with `ProcessingError` on failure — no boilerplate try/except around JSON I/O.
+  </Card>
+</CardGroup>
 
-### Why Use the Utils Module?
+## Logging
 
-- **Consistency**: Shared utilities ensure consistent behavior across modules
-- **Error Handling**: Standardized error handling and reporting
-- **Logging**: Unified logging across all modules
-- **Validation**: Reusable validation functions
-- **Type Safety**: Shared type definitions for better IDE support
+<Steps>
+  <Step title="Initialize logging at application startup">
+    ```python
+    from semantica.utils import setup_logging, get_logger
 
-### How It Works
+    setup_logging(level="INFO")   # "DEBUG" | "INFO" | "WARNING" | "ERROR"
+    logger = get_logger(__name__)
+    ```
+  </Step>
+  <Step title="Instrument expensive functions with the performance decorator">
+    ```python
+    from semantica.utils import log_performance, log_execution_time
 
-The Utils module is used internally by all Semantica modules. You typically don't use it directly, but it provides:
+    @log_performance
+    def process_data(data):
+        logger.info(f"Processing {len(data)} items")
+        # Logs function name, duration, and any exception automatically
 
-- **Logging Functions**: `` `get_logger()` ``, `` `setup_logging()` ``
-- **Validation Functions**: `` `validate_entity()` ``, `` `validate_relationship()` ``
-- **Error Classes**: Custom exceptions for different error types
-- **Progress Tracking**: `` `ProgressTracker` `` for long operations
-- **Helper Functions**: Text cleaning, hashing, file operations
+    @log_execution_time
+    def expensive_step(data):
+        ...
+    # Logs: "expensive_step completed in 2.34s"
+    ```
+  </Step>
+  <Step title="Configure via environment variables">
+    ```bash
+    export SEMANTICA_LOG_LEVEL=DEBUG
+    export SEMANTICA_LOG_FORMAT=json     # "json" | "text"
+    export SEMANTICA_PROGRESS_BAR=true
+    ```
+  </Step>
+</Steps>
 
-<div class="grid cards" markdown>
-
--   :material-console-line:{ .lg .middle } **Logging**
-
-    ---
-
-    Structured logging with performance tracking and error reporting
-
--   :material-alert-circle-outline:{ .lg .middle } **Error Handling**
-
-    ---
-
-    Custom exception hierarchy and error formatting
-
--   :material-check-all:{ .lg .middle } **Validation**
-
-    ---
-
-    Data validation for entities, relationships, and configuration
-
--   :material-progress-clock:{ .lg .middle } **Progress Tracking**
-
-    ---
-
-    Track long-running operations with console or file output
-
--   :material-tools:{ .lg .middle } **Helpers**
-
-    ---
-
-    Common functions for text cleaning, hashing, and file I/O
-
--   :material-code-json:{ .lg .middle } **Type Definitions**
-
-    ---
-
-    Shared TypedDicts and Enums for type safety
-
-</div>
-
-!!! tip "When to Use"
-    - **Development**: Use `setup_logging` to configure output.
-    - **Data Cleaning**: Use `clean_text` and `normalize_entities`.
-    - **Validation**: Use `validate_data` before processing external input.
-    - **Debugging**: Use `log_performance` to find bottlenecks.
-
----
-
-## ⚙️ Key Components
-
-### Logging
-- **Structured Output**: JSON or formatted text logs.
-- **Performance Metrics**: Decorators for timing functions.
-- **Quality Logging**: Specialized loggers for data quality issues.
-
-### Validation
-- **Schema Validation**: Check dictionary structure against requirements.
-- **Type Checking**: Runtime type validation.
-- **Constraint Checking**: Numeric ranges, string lengths, regex patterns.
-
-### Progress Tracking
-- **Multi-Environment**: Supports Console (tqdm), Jupyter, and File logging.
-- **Module Awareness**: Tracks progress per module.
-
----
-
-## Main Classes
-
-### Logger
-
-Centralized logging configuration.
-
-**Functions:**
-
-| Function | Description |
-|----------|-------------|
-| `setup_logging(level)` | Configure global logging |
-| `get_logger(name)` | Get named logger instance |
-| `log_performance(func)` | Decorator for timing |
-
-**Example:**
+## Validation
 
 ```python
-from semantica.utils import setup_logging, get_logger, log_performance
+from semantica.utils import validate_entity, validate_config, ValidationError
 
-setup_logging(level="INFO")
-logger = get_logger(__name__)
-
-@log_performance
-def process_data(data):
-    logger.info(f"Processing {len(data)} items")
-```
-
-### Validators
-
-Data validation functions.
-
-**Functions:**
-
-| Function | Description |
-|----------|-------------|
-| `validate_entity(data)` | Check entity structure |
-| `validate_config(cfg)` | Check configuration |
-
-**Example:**
-
-```python
-from semantica.utils import validate_entity, ValidationError
-
+# Validate an entity dict
 try:
-    validate_entity({"id": "1", "type": "PERSON"})
+    validate_entity({"id": "1", "type": "PERSON", "text": "Alice"})
 except ValidationError as e:
-    print(f"Invalid entity: {e}")
+    print(f"Invalid entity: {e.message}")
+    print(f"  Field:   {e.field}")
+    print(f"  Value:   {e.value}")
+
+# Validate a configuration dict
+try:
+    validate_config(config)
+except ValidationError as e:
+    print(f"Invalid config: {e}")
 ```
 
-### ProgressTracker
+| Function | Description |
+| -------- | ----------- |
+| `validate_entity(data)` | Check entity dict has required fields and correct types |
+| `validate_config(cfg)` | Check configuration dict against schema |
 
-Tracks execution progress.
-
-**Classes:**
-
-| Class | Description |
-|-------|-------------|
-| `ProgressTracker` | Main tracker interface |
-| `ConsoleProgressDisplay` | CLI output |
-
-**Example:**
+## Progress Tracking
 
 ```python
 from semantica.utils import track_progress
 
-for item in track_progress(items, desc="Processing"):
+# Wraps any iterable — auto-detects console vs Jupyter
+for item in track_progress(items, desc="Processing documents"):
     process(item)
 ```
 
----
+Supports:
+- **Console** — tqdm progress bar with ETA
+- **Jupyter** — notebook-compatible widget (auto-detected)
+- **File** — write progress to a log file
 
-## Convenience Functions
+## Helper Functions
 
 ```python
 from semantica.utils import clean_text, hash_data, safe_filename
 
-# Text cleaning
-clean = clean_text("  Hello   World  ")  # "Hello World"
+# Normalize whitespace and strip control characters
+clean = clean_text("  Hello   World  ")     # → "Hello World"
 
-# Hashing
-id = hash_data({"key": "value"})
+# Deterministic SHA-256 hash of any JSON-serializable object
+uid   = hash_data({"key": "value"})         # → hex digest string
 
-# File safety
-fname = safe_filename("My File?.txt")  # "My_File_.txt"
+# Sanitize a string for use as a filename
+fname = safe_filename("My File?.txt")       # → "My_File_.txt"
 ```
 
----
+## Nested Dict Utilities
 
-## Configuration
+Helper functions for deep configuration access — used extensively inside `Config` and `ConfigManager`:
 
-### Environment Variables
+```python
+from semantica.utils import get_nested_value, set_nested_value, merge_dicts
 
-```bash
-export SEMANTICA_LOG_LEVEL=DEBUG
-export SEMANTICA_LOG_FORMAT=json
-export SEMANTICA_PROGRESS_BAR=true
+config = {
+    "processing": {"batch_size": 32, "max_workers": 4},
+    "llm":        {"provider": "groq", "model": "llama-3.3-70b-versatile"},
+}
+
+# Dot-notation read — returns default if key path is absent
+batch = get_nested_value(config, "processing.batch_size", default=16)
+# → 32
+
+# Dot-notation write
+set_nested_value(config, "processing.batch_size", 64)
+
+# Deep merge — nested keys are merged recursively
+base      = {"a": {"x": 1, "y": 2}, "b": 3}
+overrides = {"a": {"y": 99, "z": 4}, "c": 5}
+merged    = merge_dicts(base, overrides, deep=True)
+# → {"a": {"x": 1, "y": 99, "z": 4}, "b": 3, "c": 5}
 ```
 
----
+## Exception Hierarchy
 
-## Best Practices
+<AccordionGroup>
+  <Accordion title="Exception types and when they're raised">
 
-1.  **Use `get_logger`**: Always use `get_logger(__name__)` instead of `print` for production code.
-2.  **Validate Early**: Validate input data at the boundary (Ingest/Parse) using `validate_data`.
-3.  **Handle Exceptions**: Catch `SemanticaError` for framework-specific errors.
-4.  **Clean Text**: Use `clean_text` before embedding or extraction to improve quality.
+```python
+from semantica.utils import SemanticaError, ValidationError, ProcessingError
 
----
+try:
+    run_pipeline(data)
+except ValidationError as e:
+    # Input data did not pass schema validation
+    logger.error(f"Validation failed at field '{e.field}': {e.message}")
+except ProcessingError as e:
+    # Failure during extraction or graph construction
+    logger.error(f"Processing failed at step {e.step}: {e}")
+except SemanticaError as e:
+    # Catch-all for all Semantica framework errors
+    logger.error(f"Framework error: {e}")
+```
 
-## Cookbook
+| Exception | When Raised |
+| --------- | ----------- |
+| `SemanticaError` | Base class — all framework errors inherit from this |
+| `ValidationError` | Input data failed schema or type validation |
+| `ProcessingError` | Failure during extraction, graph build, or pipeline step |
 
-The Utils module is used throughout all Semantica modules. See any cookbook tutorial for examples of logging, validation, and error handling in practice.
+  </Accordion>
+</AccordionGroup>
 
-- **[Welcome to Semantica](https://github.com/Hawksight-AI/semantica/blob/main/cookbook/introduction/01_Welcome_to_Semantica.ipynb)**: See utils in action across all modules
-  - **Topics**: Framework overview, all modules, utilities
-  - **Difficulty**: Beginner
-  - **Use Cases**: Understanding utility functions used throughout Semantica
+## File Utilities
 
-## See Also
+```python
+from semantica.utils import read_json_file
 
-- [Core Module](core.md) - Uses Utils for infrastructure
-- [Pipeline Module](pipeline.md) - Uses ProgressTracker
+# Read and parse a JSON file — raises ProcessingError on failure
+config = read_json_file("config.json")
+```
+
+## Tips and Common Pitfalls
+
+<Warning>
+  **Call `setup_logging(level="INFO")` once at application startup.** Without it, Semantica falls back to Python's root logger, which may be silent or misconfigured. Call it before importing other Semantica modules to capture initialization messages.
+</Warning>
+
+<Tip>
+  **Use `@log_performance` on expensive functions.** The decorator logs function name, duration, and any raised exception automatically — no manual `time.time()` bookkeeping needed. Essential for profiling multi-step pipelines where one step is a hidden bottleneck.
+</Tip>
+
+<Tip>
+  **`hash_data()` is deterministic across runs.** Given the same input dict (any JSON-serializable object), `hash_data()` always returns the same SHA-256 hex string — suitable as a cache key or idempotency token in pipeline steps.
+</Tip>
+
+<Tip>
+  **Catch `SemanticaError` as the broadest exception net.** All framework errors inherit from `SemanticaError`, so `except SemanticaError` catches validation failures, processing errors, and everything in between. Use specific subclasses for targeted recovery logic.
+</Tip>
+
+<Tip>
+  **`track_progress` auto-detects Jupyter.** In a terminal it renders a tqdm progress bar; in a Jupyter notebook it renders an interactive widget. You don't need to check the environment — the same call works in both.
+</Tip>
+
+<CardGroup cols={2}>
+  <Card title="Core" icon="gear" href="core">
+    Framework orchestration that uses Utils internally.
+  </Card>
+  <Card title="Pipeline" icon="arrows-turn-to-dots" href="pipeline">
+    Uses ProgressTracker for per-step tracking.
+  </Card>
+</CardGroup>

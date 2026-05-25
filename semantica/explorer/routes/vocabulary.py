@@ -1,141 +1,236 @@
-"""
-Vocabulary routes - SKOS ingestion, scheme listing, and hierarchy trees.
+﻿"""
+Vocabulary routes for SKOS scheme discovery, hierarchy browsing, and import.
 """
 
 import asyncio
 from collections import defaultdict
-from typing import List
+from typing import Dict, List, Optional
 
-from fastapi import APIRouter, Depends, File, Query, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
 
 from ..dependencies import get_session
-from ..schemas import ConceptNode, VocabularyScheme
+from ..schemas import ConceptNode, ConceptSummary, VocabularyImportResponse, VocabularyScheme
 from ..session import GraphSession
 from ..utils.rdf_parser import parse_skos_file
 
 router = APIRouter(prefix="/api/vocabulary", tags=["Vocabulary"])
+
+_MAX_UPLOAD_BYTES = 10 * 1024 * 1024  # 10 MB
+_ALLOWED_EXTENSIONS = frozenset({".ttl", ".rdf", ".owl", ".xml", ".jsonld", ".json-ld", ".json"})
+
+
+def _concept_summary(node: dict, scheme_uri: Optional[str] = None, parent_uri: Optional[str] = None) -> ConceptSummary:
+    properties = node.get("properties", {})
+    alt_labels = properties.get("alt_labels") or []
+    if isinstance(alt_labels, str):
+        alt_labels = [alt_labels]
+    return ConceptSummary(
+        uri=node.get("id", ""),
+        pref_label=properties.get("pref_label") or properties.get("content", node.get("content", node.get("id", ""))),
+        alt_labels=list(alt_labels),
+        description=properties.get("description"),
+        notation=properties.get("notation"),
+        scheme_uri=scheme_uri,
+        parent_uri=parent_uri,
+    )
+
+
+def _collect_scheme_members(edges: List[dict], scheme_uri: str) -> set[str]:
+    members: set[str] = set()
+    for edge in edges:
+        source = edge.get("source")
+        target = edge.get("target")
+        edge_type = edge.get("type")
+        if target == scheme_uri and edge_type in {"skos:inScheme", "skos:topConceptOf"}:
+            members.add(source)
+        elif source == scheme_uri and edge_type == "skos:hasTopConcept":
+            members.add(target)
+    return members
+
+
+def _collect_parent_map(member_ids: set[str], edges: List[dict]) -> Dict[str, str]:
+    parent_by_child: Dict[str, str] = {}
+    for edge in edges:
+        source = edge.get("source")
+        target = edge.get("target")
+        edge_type = edge.get("type")
+        if source not in member_ids or target not in member_ids:
+            continue
+        if edge_type == "skos:broader":
+            parent_by_child.setdefault(source, target)
+        elif edge_type == "skos:narrower":
+            parent_by_child.setdefault(target, source)
+    return parent_by_child
+
+
+def _build_hierarchy(concepts: Dict[str, ConceptSummary], parent_by_child: Dict[str, str]) -> List[ConceptNode]:
+    children_by_parent: Dict[str, List[str]] = defaultdict(list)
+    for child_uri, parent_uri in parent_by_child.items():
+        if child_uri != parent_uri:
+            children_by_parent[parent_uri].append(child_uri)
+
+    def attach(uri: str, trail: set[str]) -> ConceptNode:
+        concept = concepts[uri]
+        child_nodes = [
+            attach(child_uri, trail | {uri})
+            for child_uri in sorted(children_by_parent.get(uri, []))
+            if child_uri not in trail
+        ]
+        return ConceptNode(
+            uri=concept.uri,
+            pref_label=concept.pref_label,
+            alt_labels=concept.alt_labels,
+            description=concept.description,
+            notation=concept.notation,
+            scheme_uri=concept.scheme_uri,
+            parent_uri=concept.parent_uri,
+            children=child_nodes or None,
+        )
+
+    root_ids = [uri for uri in sorted(concepts.keys()) if uri not in parent_by_child]
+    if not root_ids:
+        root_ids = sorted(concepts.keys())
+    return [attach(uri, {uri}) for uri in root_ids]
 
 
 @router.get("/schemes", response_model=List[VocabularyScheme])
 async def list_schemes(
     session: GraphSession = Depends(get_session),
 ):
-    """List all available SKOS Concept Schemes (Vocabularies)."""
     nodes, _ = await asyncio.to_thread(
-        session.get_nodes, node_type="skos:ConceptScheme", skip=0, limit=999_999
+        session.get_nodes,
+        node_type="skos:ConceptScheme",
+        skip=0,
+        limit=999_999,
     )
-    
-    schemes = []
-    for n in nodes:
-        meta = n.get("metadata", n.get("properties", {}))
-        schemes.append(
-            VocabularyScheme(
-                uri=n.get("id", ""),
-                label=meta.get("content", n.get("content", n.get("id", ""))),
-                description=meta.get("description"),
-            )
+    return [
+        VocabularyScheme(
+            uri=node.get("id", ""),
+            label=node.get("properties", {}).get("content", node.get("content", node.get("id", ""))),
+            description=node.get("properties", {}).get("description"),
         )
-    return schemes
+        for node in nodes
+    ]
 
 
-@router.post("/import")
-async def import_vocabulary(
-    file: UploadFile = File(...),
+@router.get("/concepts", response_model=List[ConceptSummary])
+async def list_concepts(
+    scheme: str = Query(..., description="ConceptScheme URI"),
+    search: Optional[str] = Query(None, description="Filter concepts by label or metadata"),
     session: GraphSession = Depends(get_session),
 ):
-    """
-    Import a SKOS vocabulary from a .ttl or .rdf file.
-    """
-    content = await file.read()
-    filename = file.filename or "vocabulary.ttl"
-    
+    nodes, _ = await asyncio.to_thread(
+        session.get_nodes,
+        node_type="skos:Concept",
+        search=search,
+        skip=0,
+        limit=999_999,
+    )
+    edges, _ = await asyncio.to_thread(session.get_edges, skip=0, limit=999_999)
 
-    parse_format = "xml" if filename.endswith((".rdf", ".owl")) else "turtle"
-    
-    try:
-        nodes, edges = await asyncio.to_thread(parse_skos_file, content, parse_format)
-    except ValueError as exc:
-        from fastapi import HTTPException
-        raise HTTPException(status_code=422, detail=str(exc))
+    member_ids = _collect_scheme_members(edges, scheme)
+    parent_by_child = _collect_parent_map(member_ids, edges)
 
-    added_nodes = await asyncio.to_thread(session.add_nodes, nodes)
-    added_edges = await asyncio.to_thread(session.add_edges, edges)
+    concepts = []
+    for node in nodes:
+        node_id = node.get("id")
+        if node_id not in member_ids:
+            continue
+        concepts.append(_concept_summary(node, scheme_uri=scheme, parent_uri=parent_by_child.get(node_id)))
 
-    return {
-        "status": "success",
-        "filename": filename,
-        "nodes_added": added_nodes,
-        "edges_added": added_edges,
-    }
+    return sorted(concepts, key=lambda concept: (concept.pref_label.lower(), concept.uri))
 
 
 @router.get("/hierarchy", response_model=List[ConceptNode])
 async def get_hierarchy(
-    scheme: str = Query(..., description="The URI of the ConceptScheme to load"),
+    scheme: str = Query(..., description="ConceptScheme URI"),
     session: GraphSession = Depends(get_session),
 ):
-    """
-    Fetch the nested broader/narrower tree for a specific vocabulary scheme.
-    Executes in O(V+E) time by building the adjacency list in memory.
-    """
-
     nodes, _ = await asyncio.to_thread(
-        session.get_nodes, node_type="skos:Concept", skip=0, limit=999_999
+        session.get_nodes,
+        node_type="skos:Concept",
+        skip=0,
+        limit=999_999,
     )
     edges, _ = await asyncio.to_thread(session.get_edges, skip=0, limit=999_999)
 
-  
-    scheme_node_ids = set()
-    for e in edges:
-        src, tgt, etype = e.get("source"), e.get("target"), e.get("type")
-        if tgt == scheme and etype in ("skos:inScheme", "skos:topConceptOf"):
-            scheme_node_ids.add(src)
-        elif src == scheme and etype == "skos:hasTopConcept":
-            scheme_node_ids.add(tgt)
+    member_ids = _collect_scheme_members(edges, scheme)
+    parent_by_child = _collect_parent_map(member_ids, edges)
 
-    node_map = {}
-    for n in nodes:
-        nid = n.get("id")
-        if nid in scheme_node_ids:
-            meta = n.get("metadata", n.get("properties", {}))
-            node_map[nid] = ConceptNode(
-                uri=nid,
-                pref_label=meta.get("content", n.get("content", nid)),
-                alt_labels=meta.get("alt_labels", []),
-                children=[]
+    concepts: Dict[str, ConceptSummary] = {}
+    for node in nodes:
+        node_id = node.get("id")
+        if node_id not in member_ids:
+            continue
+        concepts[node_id] = _concept_summary(
+            node,
+            scheme_uri=scheme,
+            parent_uri=parent_by_child.get(node_id),
+        )
+
+    return _build_hierarchy(concepts, parent_by_child)
+
+
+@router.post("/import", response_model=VocabularyImportResponse)
+async def import_vocabulary(
+    file: Optional[UploadFile] = File(None),
+    text: Optional[str] = Form(None),
+    format: Optional[str] = Form(None),
+    session: GraphSession = Depends(get_session),
+):
+    if file is None and not text:
+        raise HTTPException(status_code=422, detail="Provide either a vocabulary file or raw RDF text.")
+
+    filename = file.filename if file else None
+    if file is not None:
+        if filename:
+            import os as _os
+            ext = _os.path.splitext(filename.lower())[1]
+            if ext not in _ALLOWED_EXTENSIONS:
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"Unsupported file type '{ext}'. Allowed: {sorted(_ALLOWED_EXTENSIONS)}",
+                )
+        content = await file.read()
+        if len(content) > _MAX_UPLOAD_BYTES:
+            raise HTTPException(
+                status_code=413,
+                detail=f"Upload exceeds the {_MAX_UPLOAD_BYTES // (1024 * 1024)} MB limit.",
             )
+    else:
+        encoded = text.encode("utf-8")
+        if len(encoded) > _MAX_UPLOAD_BYTES:
+            raise HTTPException(
+                status_code=413,
+                detail=f"Text payload exceeds the {_MAX_UPLOAD_BYTES // (1024 * 1024)} MB limit.",
+            )
+        content = encoded
 
-
-    parent_to_children = defaultdict(list)
-    has_parent = set()
-
-    for e in edges:
-        src, tgt, etype = e.get("source"), e.get("target"), e.get("type")
-        if src in node_map and tgt in node_map:
-            if etype == "skos:broader":
-                # Source is narrower (child), Target is broader (parent)
-                parent_to_children[tgt].append(src)
-                has_parent.add(src)
-            elif etype == "skos:narrower":
-                # Source is broader (parent), Target is narrower (child)
-                parent_to_children[src].append(tgt)
-                has_parent.add(tgt)
-
-    # Assemble nested tree — cycle-safe via visited set.
-    def _attach_children(nid: str, visited: set) -> ConceptNode:
-        node_obj = node_map[nid]
-        child_ids = [c for c in parent_to_children.get(nid, []) if c not in visited]
-        if child_ids:
-            node_obj.children = [
-                _attach_children(cid, visited | {nid}) for cid in child_ids
-            ]
+    parse_format = (format or "").strip().lower() or None
+    if parse_format is None:
+        if filename:
+            lower_name = filename.lower()
+            if lower_name.endswith((".rdf", ".owl", ".xml")):
+                parse_format = "xml"
+            elif lower_name.endswith((".jsonld", ".json-ld", ".json")):
+                parse_format = "json-ld"
+            else:
+                parse_format = "turtle"
         else:
-            node_obj.children = None  # leaf node signal for the UI
-        return node_obj
+            parse_format = "turtle"
 
-    roots = [
-        _attach_children(nid, {nid})
-        for nid in node_map
-        if nid not in has_parent
-    ]
-    return roots
+    try:
+        nodes, edges = await asyncio.to_thread(parse_skos_file, content, parse_format)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    nodes_added = await asyncio.to_thread(session.add_nodes, nodes)
+    edges_added = await asyncio.to_thread(session.add_edges, edges)
+
+    return VocabularyImportResponse(
+        status="success",
+        filename=filename,
+        nodes_added=nodes_added,
+        edges_added=edges_added,
+        format=parse_format,
+    )

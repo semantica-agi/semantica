@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "semantica"
-version = "0.3.0"
-description = "🧠 Semantica - A Framework for building Context Graphs and Decision Intelligence Layers for AI"
+version = "0.5.0"
+description = "🧠 Semantica - An Open Source Framework for building Semantic Layers and Knowledge Engineering"
 readme = "README.md"
 license = { text = "MIT" }
 
@@ -90,7 +90,7 @@ llm-groq = ["groq>=0.4.0"]
 llm-gemini = ["google-genai>=0.1.0"]
 llm-anthropic = ["anthropic>=0.18.0"]
 llm-ollama = ["ollama>=0.1.0"]
-llm-deepseek = ["deepseek>=0.1.0"]
+llm-deepseek = ["openai>=1.0.0"]
 llm-litellm = ["litellm>=1.0.0"]
 llm-instructor = ["instructor>=1.0.0"]
 
@@ -104,6 +104,7 @@ parse-docling = ["docling>=1.0.0"]
 # ---- Database Connectors ----
 db-snowflake = ["snowflake-connector-python>=3.0.0", "cryptography>=3.4.0"]
 db-arrow = ["pyarrow>=10.0.0"]
+ingest-parquet = ["pyarrow>=10.0.0"]
 
 db-all = [
   "semantica[db-snowflake,db-arrow]"
@@ -211,10 +212,10 @@ explorer-lite = [
   "streamlit-agraph>=0.0.45"
 ]
 
-# Everything
+# Everything (cross-platform — gpu excluded; install semantica[gpu] separately on Linux)
 all = [
-  "semantica[dev,viz,gpu,infra,cloud,monitoring,llm-all,models-huggingface,split-all,graph-all,vectorstore-all,parse-docling,explorer]",
-  "semantica[dev,viz,gpu,infra,cloud,monitoring,llm-all,models-huggingface,split-all,graph-all,vectorstore-all,parse-docling,agno]"
+  "semantica[dev,viz,infra,cloud,monitoring,llm-all,models-huggingface,split-all,graph-all,vectorstore-all,parse-docling,ingest-parquet,explorer]",
+  "semantica[dev,viz,infra,cloud,monitoring,llm-all,models-huggingface,split-all,graph-all,vectorstore-all,parse-docling,ingest-parquet,agno]"
 ]
 
 # ---------------- ENTRYPOINTS ----------------
@@ -223,6 +224,7 @@ semantica = "semantica.cli:main"
 semantica-server = "semantica.server:main"
 semantica-worker = "semantica.worker:main"
 semantica-explorer = "semantica.explorer:main"
+semantica-mcp = "semantica.mcp_server:main"
 
 # ---------------- TOOLING ----------------
 [tool.setuptools.packages.find]

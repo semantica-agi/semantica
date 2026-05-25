@@ -64,6 +64,7 @@ from typing import Any, Dict, List, Optional, Set
 from collections import deque
 
 from ..graph_store import GraphStore
+from ..utils.helpers import classify_path_distance
 from ..utils.logging import get_logger
 from .decision_models import Decision
 
@@ -677,3 +678,102 @@ class CausalChainAnalyzer:
         else:
             decisions.sort(key=lambda d: d.metadata.get("causal_distance", 0))
         return decisions
+
+    def interpret_causal_distance(
+        self,
+        source_id: str,
+        target_id: str,
+    ) -> Dict[str, Any]:
+        """
+        Traverse only causal-typed edges and return a structured distance report.
+
+        Returns a dict matching CausalDistanceReport with keys:
+            source_id, target_id, causal_path, causal_hop_count,
+            intermediate_decisions, confidence_decay, weakest_link, interpretation
+        """
+        from collections import deque as _deque
+
+        CAUSAL_TYPES = {"causes", "influences", "leads_to", "supports",
+                        "CAUSED", "INFLUENCED", "PRECEDENT_FOR"}
+
+        graph = self.graph_store
+
+        # ContextGraph-native BFS over causal edges
+        if hasattr(graph, "nodes") and hasattr(graph, "_adjacency"):
+            if source_id not in graph.nodes:
+                return self._unreachable_report(source_id, target_id)
+
+            queue = _deque([(source_id, [source_id], 1.0, None)])
+            visited: Set[str] = {source_id}
+
+            while queue:
+                current_id, path, decay, weakest = queue.popleft()
+                if current_id == target_id:
+                    hop_count = len(path) - 1
+                    intermediates = [
+                        n for n in path[1:-1]
+                        if str(getattr(graph.nodes.get(n), "node_type", "")).lower() == "decision"
+                    ]
+                    band = classify_path_distance(hop_count)
+                    interp = self._causal_interpretation(hop_count, decay, band)
+                    return {
+                        "source_id": source_id,
+                        "target_id": target_id,
+                        "causal_path": path,
+                        "causal_hop_count": hop_count,
+                        "intermediate_decisions": intermediates,
+                        "confidence_decay": round(decay, 6),
+                        "weakest_link": weakest,
+                        "interpretation": interp,
+                    }
+
+                with graph._lock:
+                    outgoing = list(graph._adjacency.get(current_id, []))
+
+                for edge in outgoing:
+                    if edge.edge_type not in CAUSAL_TYPES:
+                        continue
+                    nxt = edge.target_id
+                    if nxt in visited:
+                        continue
+                    visited.add(nxt)
+                    new_decay = decay * edge.weight
+                    new_weakest = weakest
+                    if weakest is None or edge.weight < weakest.get("edge_weight", 1.0):
+                        new_weakest = {"source": current_id, "target": nxt, "edge_weight": edge.weight}
+                    queue.append((nxt, path + [nxt], new_decay, new_weakest))
+
+            return self._unreachable_report(source_id, target_id)
+
+        # GraphStore fallback — return not-reachable; callers can use get_causal_chain instead
+        return self._unreachable_report(source_id, target_id)
+
+    @staticmethod
+    def _causal_interpretation(hop_count: int, decay: float, band: str) -> str:
+        if band == "direct":
+            base = f"Direct cause with confidence {decay:.2f}."
+        elif band == "near":
+            base = (
+                f"Mediated through {hop_count - 1} decision(s); "
+                f"confidence decays to {decay:.2f}"
+            )
+            base += " — moderate evidence." if decay > 0.4 else " — weak evidence."
+        else:
+            base = (
+                f"Distal influence across {hop_count} causal steps; "
+                f"confidence near {decay:.2f} — weak signal."
+            )
+        return base
+
+    @staticmethod
+    def _unreachable_report(source_id: str, target_id: str) -> Dict[str, Any]:
+        return {
+            "source_id": source_id,
+            "target_id": target_id,
+            "causal_path": [],
+            "causal_hop_count": 0,
+            "intermediate_decisions": [],
+            "confidence_decay": 0.0,
+            "weakest_link": None,
+            "interpretation": "No causal path found between the two nodes.",
+        }

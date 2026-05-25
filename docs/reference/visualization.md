@@ -1,302 +1,275 @@
-# Visualization
-
-> **Comprehensive visualization suite for Knowledge Graphs, Ontologies, Embeddings, and Temporal data.**
-
+---
+title: "Visualization Module"
+description: "Interactive and static knowledge graph, ontology, embedding, and temporal visualization."
+icon: "chart-bar"
 ---
 
-## 🎯 Overview
+`semantica.visualization` renders knowledge graphs, ontologies, embedding spaces, and temporal data as interactive HTML or static images — without launching the full Explorer server.
 
-<div class="grid cards" markdown>
+## Exported Classes
 
--   :material-graph:{ .lg .middle } **KG Visualization**
+| Class | Role |
+| --- | --- |
+| `KGVisualizer` | Interactive network, community, and subgraph rendering with force/hierarchical/circular layouts |
+| `OntologyVisualizer` | Class hierarchy and property relationship diagrams from any ontology |
+| `EmbeddingVisualizer` | 2D/3D UMAP or t-SNE projection of embedding spaces with cluster labels |
+| `SemanticNetworkVisualizer` | Weighted semantic network rendering |
+| `AnalyticsVisualizer` | Centrality scores and community distribution charts |
+| `TemporalVisualizer` | Timeline views and graph evolution animations across snapshots |
 
-    ---
+## What You Get
 
-    Interactive network graphs with Force-directed, Hierarchical, and Circular layouts
+<CardGroup cols={2}>
+  <Card title="KGVisualizer" icon="diagram-project">
+    Interactive network and community graph rendering with force, hierarchical, and circular layouts.
+  </Card>
+  <Card title="OntologyVisualizer" icon="sitemap">
+    Class hierarchy and property relationship visualization from any ontology.
+  </Card>
+  <Card title="EmbeddingVisualizer" icon="vector-square">
+    UMAP, t-SNE, and PCA dimensionality reduction plots for embedding cluster analysis.
+  </Card>
+  <Card title="TemporalVisualizer" icon="clock">
+    Timeline views, network evolution animation, snapshot comparison, and temporal pattern highlights.
+  </Card>
+  <Card title="AnalyticsVisualizer" icon="chart-bar">
+    Centrality rankings, community-colored graphs, and degree distribution histograms.
+  </Card>
+</CardGroup>
 
--   :material-file-tree:{ .lg .middle } **Ontology View**
+## Quick Start
 
-    ---
+<Steps>
+  <Step title="Render a knowledge graph">
+    ```python
+    from semantica.visualization import KGVisualizer
 
-    Visualize class hierarchies, property domains/ranges, and taxonomy trees
+    viz = KGVisualizer(layout="force", color_scheme="default")
 
--   :material-chart-scatter-plot:{ .lg .middle } **Embedding Projector**
+    # Interactive — opens in browser, supports hover and click
+    viz.visualize_network(graph, output="interactive")
+    ```
+  </Step>
+  <Step title="Apply layout and color options">
+    ```python
+    viz = KGVisualizer(layout="force", color_scheme="vibrant")
 
-    ---
+    viz.visualize_network(
+        graph,
+        output="html",
+        file_path="graph.html",
+        node_color_by="type",      # color nodes by entity type attribute
+    )
+    ```
+  </Step>
+  <Step title="Export to static formats">
+    ```python
+    # Static PNG — for reports and embedding in documents
+    viz.visualize_network(graph, output="png", file_path="graph.png")
 
-    2D/3D visualization of vector embeddings using UMAP, t-SNE, and PCA
+    # Vector SVG — for publications and scalable diagrams
+    viz.visualize_network(graph, output="svg", file_path="graph.svg")
+    ```
+  </Step>
+</Steps>
 
--   :material-clock-time-four-outline:{ .lg .middle } **Temporal Analysis**
+## Visualizers
 
-    ---
+<Tabs>
+  <Tab title="KGVisualizer">
+    Interactive and static knowledge graph rendering:
 
-    Timeline views and graph evolution visualization
+    ```python
+    from semantica.visualization import KGVisualizer
 
--   :material-chart-bar:{ .lg .middle } **Analytics Dashboards**
+    viz = KGVisualizer(layout="force", color_scheme="default")
 
-    ---
+    # Interactive — opens in browser
+    viz.visualize_network(graph, output="interactive")
 
-    Visual dashboards for centrality, community structure, and connectivity
+    # Save as HTML file
+    viz.visualize_network(graph, output="html", file_path="graph.html")
 
--   :material-export:{ .lg .middle } **Multi-Format Export**
+    # Static PNG
+    viz.visualize_network(graph, output="png", file_path="graph.png")
 
-    ---
+    # Community-colored graph
+    viz.visualize_communities(graph, communities, file_path="communities.html")
+    ```
 
-    Export to HTML (interactive), PNG, SVG, PDF, and JSON
+    **Layout options (`layout=`):**
 
-</div>
+    | Layout | Description | Best For |
+    | ------ | ----------- | -------- |
+    | `force` | Physics simulation — clusters emerge naturally | General graphs |
+    | `hierarchical` | Top-down tree layout | Taxonomies, org charts |
+    | `circular` | Nodes on a circle, edges as chords | Small dense graphs |
+  </Tab>
+  <Tab title="OntologyVisualizer">
+    Visualize class hierarchies and property relationships:
 
-!!! tip "When to Use"
-    - **Exploration**: Interactively explore graph connections and clusters
-    - **Reporting**: Generate static charts for reports and presentations
-    - **Debugging**: Visually inspect graph structure and disconnected components
-    - **Analysis**: Identify patterns, outliers, and trends in data
+    ```python
+    from semantica.visualization import OntologyVisualizer
 
----
+    viz = OntologyVisualizer()
 
-## ⚙️ Algorithms Used
+    # Full ontology graph — classes, properties, and constraints
+    viz.visualize(ontology, output="ontology.html")
 
-### Layout Algorithms
+    # Class hierarchy only — cleaner for large ontologies
+    viz.visualize_hierarchy(ontology, output="hierarchy.html")
+    ```
+  </Tab>
+  <Tab title="EmbeddingVisualizer">
+    Project high-dimensional embeddings into 2D for cluster analysis:
 
-The visualization module uses various layout algorithms:
+    ```python
+    from semantica.visualization import EmbeddingVisualizer
 
-- **Force-Directed**: Simulates physical forces (repulsion between nodes, springs for edges) to find equilibrium
-- **Hierarchical**: Tree-based layout for taxonomies and directed acyclic graphs (DAGs)
-- **Circular**: Arranges nodes in a circle, useful for analyzing interconnectivity
-- **Community-Based**: Groups nodes by community (Louvain/Leiden) and separates clusters
+    viz = EmbeddingVisualizer()
 
-### Dimensionality Reduction
+    viz.visualize_2d_projection(
+        embeddings=embeddings,
+        labels=labels,
+        output="interactive",
+        file_path="embeddings.html",
+        method="umap",    # "umap" | "tsne" | "pca"
+    )
+    ```
 
-The module supports multiple dimensionality reduction techniques:
+    | Method | Speed | Preserves | Best For |
+    | ------ | ----- | --------- | -------- |
+    | `umap` | Fast | Global + local structure | Large datasets, cluster discovery |
+    | `tsne` | Medium | Local structure | Tight cluster separation |
+    | `pca` | Very fast | Variance | Quick overview, linear structure |
+  </Tab>
+  <Tab title="TemporalVisualizer">
+    Visualize how a knowledge graph changes over time:
 
-- **UMAP**: Uniform Manifold Approximation and Projection - Preserves global structure better than t-SNE
-- **t-SNE**: t-Distributed Stochastic Neighbor Embedding - Good for local clustering
-- **PCA**: Principal Component Analysis - Linear projection for variance maximization
+    ```python
+    from semantica.visualization import TemporalVisualizer
 
-### Analytics Visualization
-- **Centrality Sizing**: Node size proportional to Degree/Betweenness/PageRank.
-- **Heatmaps**: Matrix visualization for adjacency or similarity.
-- **Sankey Diagrams**: Flow visualization for lineage or process steps.
+    viz = TemporalVisualizer()
 
----
+    # Timeline of entity/relationship changes
+    viz.visualize_timeline(temporal_kg, output="interactive")
 
-## Main Classes
+    # Animated network evolution — one frame per time step
+    viz.visualize_network_evolution(temporal_kg, output="html", file_path="evolution.html")
 
-### KGVisualizer
+    # Side-by-side snapshot comparison
+    viz.visualize_snapshot_comparison(snap_a, snap_b, output="html", file_path="diff.html")
 
-Visualizes Knowledge Graph structure and communities.
+    # Recurring temporal patterns
+    viz.visualize_temporal_patterns(temporal_kg, output="html", file_path="patterns.html")
+    ```
+  </Tab>
+  <Tab title="AnalyticsVisualizer">
+    Visualize graph analytics results — centrality, communities, and degree distribution:
 
-**Methods:**
+    ```python
+    from semantica.visualization import AnalyticsVisualizer
+    from semantica.kg import CentralityCalculator, CommunityDetector
 
-| Method | Description |
-|--------|-------------|
-| `visualize_network(graph)` | Standard network plot |
-| `visualize_communities(graph)` | Color by community |
-| `visualize_centrality(graph, centrality, centrality_type)` | Size/color by centrality |
-| `visualize_entity_types(graph)` | Entity type distribution |
-| `visualize_relationship_matrix(graph)` | Relationship frequency heatmap |
+    calc       = CentralityCalculator()
+    centrality = calc.calculate_all_centrality(kg)
 
-**Example:**
+    detector    = CommunityDetector()
+    communities = detector.detect_communities(kg, algorithm="louvain")
+
+    viz = AnalyticsVisualizer()
+
+    # Bar chart of top-N nodes by centrality measure
+    viz.visualize_centrality(centrality, metric="pagerank", top_k=20, output="centrality.html")
+
+    # Community-colored graph
+    viz.visualize_communities(kg, communities, output="communities.html")
+
+    # Degree distribution histogram
+    viz.visualize_degree_distribution(kg, output="degree_dist.html")
+
+    # Combined analytics dashboard
+    viz.visualize_analytics_dashboard(
+        kg, centrality=centrality, communities=communities,
+        output="analytics_dashboard.html",
+    )
+    ```
+  </Tab>
+</Tabs>
+
+## Color Schemes
+
+All visualizers accept a `color_scheme` parameter:
 
 ```python
-from semantica.visualization import KGVisualizer
-
-viz = KGVisualizer(layout="force", height=800)
-fig = viz.visualize_network(kg, output="interactive")
-fig.write_html("graph.html")
+viz.visualize(graph, output="graph.html", color_scheme="vibrant")
 ```
 
-### OntologyVisualizer
+| Scheme | Description | Best For |
+| ------ | ----------- | -------- |
+| `default` | Blue-grey palette | General use |
+| `vibrant` | High-contrast, saturated colours | Presentations |
+| `pastel` | Soft, muted tones | Light backgrounds |
+| `dark` | Dark background with bright nodes | Dark-mode dashboards |
+| `light` | White background, thin edges | Publications, print |
+| `colorblind` | Okabe-Ito safe palette | Accessibility |
 
-Visualizes schema and taxonomy.
+## Export Formats
 
-**Methods:**
+| Format | Interactive | Scalable | Best For |
+| ------ | ----------- | -------- | -------- |
+| `.html` | Yes | N/A | Web dashboards, exploratory analysis |
+| `.png` | No | No | Reports, Jupyter notebooks |
+| `.svg` | No | Yes | Publications, slide decks |
+| `.pdf` | No | Yes | Print, compliance exports |
 
-| Method | Description |
-|--------|-------------|
-| `visualize_hierarchy(ontology)` | Tree view of classes |
-| `visualize_properties(ontology)` | Property domain/range graph |
-| `visualize_structure(ontology)` | Class-property network |
-| `visualize_class_property_matrix(ontology)` | Class vs property heatmap |
-| `visualize_metrics(ontology)` | Metrics dashboard |
-| `visualize_semantic_model(model)` | Visualize semantic model/network |
+## Graph Explorer (Full Dashboard)
 
-### EmbeddingVisualizer
-
-Project high-dimensional vectors to 2D/3D.
-
-**Methods:**
-
-| Method | Description | Algorithm |
-|--------|-------------|-----------|
-| `visualize_2d_projection(embeddings, labels, method)` | 2D Scatter plot | UMAP/t-SNE/PCA |
-| `visualize_3d_projection(embeddings, labels, method)` | 3D Scatter plot | UMAP/t-SNE/PCA |
-| `visualize_similarity_heatmap(embeddings, labels)` | Pairwise similarity | Cosine |
-| `visualize_clustering(embeddings, cluster_labels, method)` | Colored by cluster | UMAP/t-SNE/PCA |
-| `visualize_multimodal_comparison(text_emb, image_emb, audio_emb)` | Compare modalities | UMAP/PCA |
-
-**Example:**
-
-```python
-from semantica.visualization import EmbeddingVisualizer
-
-viz = EmbeddingVisualizer()
-viz.visualize_2d_projection(
-    embeddings, 
-    labels=labels, 
-    method="umap",
-    output="embeddings.html"
-)
-```
-
-### SemanticNetworkVisualizer
-
-Visualizes semantic network structure and distributions.
-
-**Methods:**
-
-| Method | Description |
-|--------|-------------|
-| `visualize_network(semantic_network)` | Network visualization |
-| `visualize_node_types(semantic_network)` | Node type distribution |
-| `visualize_edge_types(semantic_network)` | Edge type distribution |
-
-### AnalyticsVisualizer
-
-Visualizes graph analytics results.
-
-**Methods:**
-
-| Method | Description |
-|--------|-------------|
-| `visualize_centrality_rankings(centrality, centrality_type, top_n)` | Top-k bar chart |
-| `visualize_community_structure(graph, communities)` | Community network |
-| `visualize_connectivity(connectivity)` | Components and sizes |
-| `visualize_degree_distribution(graph)` | Degree histogram |
-| `visualize_metrics_dashboard(metrics)` | Metrics dashboard |
-| `visualize_centrality_comparison(centrality_results, top_n)` | Grouped comparison |
-
-### TemporalVisualizer
-
-Visualizes time-series and graph evolution.
-
-**Methods:**
-
-| Method | Description |
-|--------|-------------|
-| `visualize_timeline(events)` | Event timeline |
-| `visualize_temporal_patterns(patterns)` | Pattern durations |
-| `visualize_snapshot_comparison(snapshots)` | Compare snapshots |
-| `visualize_version_history(version_history)` | Version timeline |
-| `visualize_metrics_evolution(metrics_history, timestamps)` | Metrics over time |
-
----
-
-## Convenience Functions
-
-```python
-from semantica.visualization import (
-    visualize_kg,
-    visualize_embeddings,
-    visualize_ontology,
-    visualize_semantic_network,
-    visualize_analytics,
-    visualize_temporal,
-    list_available_methods,
-)
-
-# One-line visualization
-visualize_kg(kg, output="graph.html")
-visualize_embeddings(embeddings, method="umap")
-visualize_ontology(ontology, method="hierarchy")
-visualize_semantic_network(semantic_network)
-visualize_analytics({"centrality": centrality}, method="centrality")
-visualize_temporal(temporal_data, method="timeline")
-list_available_methods()
-```
-
----
-
-## Configuration
-
-### Environment Variables
+For a full browser-based UI with search, path finding, and the Ontology Hub, launch the Explorer via the CLI:
 
 ```bash
-export VISUALIZATION_DEFAULT_LAYOUT=force
-export VISUALIZATION_COLOR_SCHEME=vibrant
-export VISUALIZATION_OUTPUT_FORMAT=interactive
+semantica explore
 ```
 
-### YAML Configuration
+See the [Explorer reference](explorer) for the full feature set and REST API.
 
-```yaml
-visualization:
-  layout:
-    algorithm: force
-    iterations: 50
-    
-  style:
-    node_size: 10
-    edge_width: 1
-    color_scheme: "vibrant" # vibrant, pastel, dark
-    
-  export:
-    width: 1200
-    height: 800
-    scale: 2.0
-```
+## Tips and Common Pitfalls
 
----
+<Warning>
+  **Use `max_nodes=500` for large graphs.** Force-directed layouts become unreadable and very slow above ~1,000 nodes. Limit with `max_nodes=500` or filter to a subgraph (e.g., top 100 nodes by PageRank) before visualizing.
+</Warning>
 
-## Integration Examples
+<Tip>
+  **HTML output is always the best starting point.** Interactive HTML lets you zoom, pan, hover for details, and hide node types — giving you orders of magnitude more exploratory power than a static PNG. Only export to PNG/SVG/PDF when embedding in a report.
+</Tip>
 
-### Exploratory Data Analysis (EDA)
+<Tip>
+  **Use `color_scheme="colorblind"` in publications and dashboards.** The Okabe-Ito palette is readable for everyone, including the ~8% of male readers who are red-green colorblind. Reserve `vibrant` for internal presentations only.
+</Tip>
 
-```python
-from semantica.kg import GraphBuilder
-from semantica.visualization import KGVisualizer, AnalyticsVisualizer
+<Tip>
+  **UMAP is faster than t-SNE at scale.** For embedding spaces with >5,000 points, UMAP completes in seconds; t-SNE may take minutes. Both produce good cluster separation — use UMAP for exploratory speed, t-SNE for final publication-quality plots.
+</Tip>
 
-# 1. Build Knowledge Graph
-builder = GraphBuilder()
-kg = builder.build(sources=sample_data)
+<Warning>
+  **`TemporalVisualizer.animate()` can produce large files.** Animated HTML files include all frames and can reach dozens of MB for long time series. Use `fps=1` or reduce the number of time steps for a manageable file size.
+</Warning>
 
-# 2. Visualize Structure
-kg_viz = KGVisualizer()
-kg_viz.visualize_network(kg, output="structure.html")
+<Tip>
+  **For interactive dashboards, prefer Explorer.** `KGVisualizer.visualize_network()` generates a self-contained HTML file. The Explorer CLI (`semantica explore`) gives a full live web app with search, filtering, path-finding, and REST API. Use Explorer for team exploration, Visualizer for standalone report embeds.
+</Tip>
 
-# 3. Visualize Analytics
-analytics_viz = AnalyticsVisualizer()
-centrality = {"rankings": [{"node": "A", "score": 0.9}, {"node": "B", "score": 0.7}]}
-analytics_viz.visualize_centrality_rankings(centrality, centrality_type="degree", top_n=10, output="centrality.png")
-analytics_viz.visualize_degree_distribution(kg, output="degree_dist.png")
-```
-
----
-
-## Best Practices
-
-1.  **Filter First**: Don't try to visualize 1M nodes. Filter to a subgraph of <5000 nodes for readability.
-2.  **Use Interactive**: Interactive HTML plots (Plotly) allow zooming and hovering, which is essential for dense graphs.
-3.  **Color Meaningfully**: Use color to represent node types or communities, not just random assignment.
-4.  **Size by Importance**: Map node size to centrality (e.g., PageRank) to highlight important entities.
-
----
-
-## See Also
-- [Knowledge Graph Module](kg.md) - The data source
-- [Embeddings Module](embeddings.md) - Source for vector visualizations
-- [Ontology Module](ontology.md) - Source for hierarchy visualizations
-
-## Cookbook
-
-Interactive tutorials to learn graph visualization:
-
-- **[Visualization](https://github.com/Hawksight-AI/semantica/blob/main/cookbook/introduction/16_Visualization.ipynb)**: Basic graph visualization techniques
-  - **Topics**: Graph visualization, network diagrams, basic plotting
-  - **Difficulty**: Beginner
-  - **Use Cases**: Visualizing knowledge graphs, understanding graph structure
-
-- **[Complete Visualization Suite](https://github.com/Hawksight-AI/semantica/blob/main/cookbook/advanced/03_Complete_Visualization_Suite.ipynb)**: Creating interactive, publication-ready visualizations
-  - **Topics**: PyVis, NetworkX, D3.js, interactive visualizations, publication-ready graphics
-  - **Difficulty**: Intermediate
-  - **Use Cases**: Advanced visualizations, presentations, publications
+<CardGroup cols={2}>
+  <Card title="Knowledge Graph" icon="diagram-project" href="kg">
+    The graph being visualized.
+  </Card>
+  <Card title="Ontology" icon="sitemap" href="ontology">
+    Visualize ontology class structure.
+  </Card>
+  <Card title="Embeddings" icon="vector-square" href="embeddings">
+    Generate the embeddings visualized here.
+  </Card>
+  <Card title="Explorer" icon="globe" href="explorer">
+    Full interactive Knowledge Explorer UI.
+  </Card>
+</CardGroup>

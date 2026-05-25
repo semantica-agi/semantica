@@ -70,34 +70,13 @@ Author: Semantica Contributors
 License: MIT
 """
 
-from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Union
 from urllib.parse import quote
 
 from ..utils.exceptions import ProcessingError, ValidationError
 from ..utils.logging import get_logger
 from ..utils.progress_tracker import get_progress_tracker
-from .ner_extractor import Entity
-from .relation_extractor import Relation
-
-
-@dataclass
-class Triplet:
-    """RDF triplet representation."""
-
-    subject: str
-    predicate: str
-    object: str
-    confidence: float = 1.0
-    metadata: Dict[str, Any] = field(default_factory=dict)
-
-    def get(self, key: str, default: Any = None) -> Any:
-        """Get attribute value like a dictionary."""
-        return getattr(self, key, default)
-
-    def __getitem__(self, key: str) -> Any:
-        """Get item like a dictionary."""
-        return getattr(self, key)
+from .types import Entity, Relation, Triplet
 
 
 class TripletExtractor:

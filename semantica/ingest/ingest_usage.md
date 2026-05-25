@@ -1,23 +1,25 @@
 # Ingest Module Usage Guide
 
-This guide demonstrates how to use the ingest module for ingesting data from various sources including files, web content, feeds, streams, repositories, emails, and databases.
+This guide demonstrates how to use the ingest module for ingesting data from various sources including files, XML, web content, feeds, streams, repositories, emails, and databases.
 
 ## Table of Contents
 
 1. [Basic Usage](#basic-usage)
 2. [File Ingestion](#file-ingestion)
-3. [Web Ingestion](#web-ingestion)
-4. [Feed Ingestion](#feed-ingestion)
-5. [Stream Ingestion](#stream-ingestion)
-6. [Repository Ingestion](#repository-ingestion)
-7. [Email Ingestion](#email-ingestion)
-8. [Database Ingestion](#database-ingestion)
-9. [MCP Server Ingestion](#mcp-server-ingestion)
-10. [Unified Ingestion](#unified-ingestion)
-11. [Using Methods](#using-methods)
-12. [Using Registry](#using-registry)
-13. [Configuration](#configuration)
-14. [Advanced Examples](#advanced-examples)
+3. [Parquet Ingestion](#parquet-ingestion)
+4. [XML Ingestion](#xml-ingestion)
+5. [Web Ingestion](#web-ingestion)
+6. [Feed Ingestion](#feed-ingestion)
+7. [Stream Ingestion](#stream-ingestion)
+8. [Repository Ingestion](#repository-ingestion)
+9. [Email Ingestion](#email-ingestion)
+10. [Database Ingestion](#database-ingestion)
+11. [MCP Server Ingestion](#mcp-server-ingestion)
+12. [Unified Ingestion](#unified-ingestion)
+13. [Using Methods](#using-methods)
+14. [Using Registry](#using-registry)
+15. [Configuration](#configuration)
+16. [Advanced Examples](#advanced-examples)
 
 ## Basic Usage
 
@@ -29,6 +31,12 @@ from semantica.ingest import ingest
 # Ingest a file (auto-detects source type)
 result = ingest("document.pdf", source_type="file")
 
+# Ingest a Parquet file
+result = ingest("events.parquet")
+
+# Ingest an XML file
+result = ingest("catalog.xml")
+
 # Ingest from web URL
 result = ingest("https://example.com", source_type="web")
 
@@ -39,17 +47,21 @@ result = ingest("https://example.com/feed.xml", source_type="feed")
 ### Using Main Classes
 
 ```python
-from semantica.ingest import FileIngestor, WebIngestor
+from semantica.ingest import FileIngestor, WebIngestor, XMLIngestor
 
 # Create ingestor
 file_ingestor = FileIngestor()
 web_ingestor = WebIngestor(delay=1.0, respect_robots=True)
+xml_ingestor = XMLIngestor()
 
 # Ingest files
 files = file_ingestor.ingest_directory("./documents", recursive=True)
 
 # Ingest web content
 content = web_ingestor.ingest_url("https://example.com")
+
+# Ingest XML content
+xml_data = xml_ingestor.ingest_file("catalog.xml")
 ```
 
 ## File Ingestion
@@ -140,6 +152,126 @@ file_type = detector.detect_type("document.pdf")
 with open("document.pdf", "rb") as f:
     content = f.read(1024)
     file_type = detector.detect_type("document.pdf", content=content)
+```
+
+## Parquet Ingestion
+
+Parquet ingestion requires PyArrow:
+
+```bash
+pip install pyarrow
+```
+
+### Single Parquet File
+
+```python
+from semantica.ingest import ParquetIngestor, ingest_parquet
+
+# Using convenience function
+data = ingest_parquet(
+    "events.parquet",
+    columns=["event_id", "event_type"],
+    limit=1000,
+)
+
+# Using class directly
+ingestor = ParquetIngestor()
+data = ingestor.ingest_file("events.parquet")
+
+print(f"Rows returned: {data.row_count}")
+print(f"Columns: {data.columns}")
+print(f"Total rows in file: {data.metadata['total_rows']}")
+```
+
+### Schema and Metadata Extraction
+
+```python
+from semantica.ingest import ParquetIngestor
+
+ingestor = ParquetIngestor()
+
+schema = ingestor.extract_schema("events.parquet")
+metadata = ingestor.extract_metadata("events.parquet")
+
+print(schema["columns"])
+print(metadata["compression_codecs"])
+print(metadata["row_groups"])
+```
+
+### Partitioned Parquet Directories
+
+```python
+from semantica.ingest import ingest_parquet
+
+# Reads Hive-style directories such as country=US/year=2026/part-0.parquet
+data = ingest_parquet(
+    "./warehouse/events",
+    method="directory",
+    columns=["event_id", "event_type", "country", "year"],
+)
+
+print(data.metadata["partition_columns"])
+print(data.metadata["partition_values"])
+```
+
+## XML Ingestion
+
+### Single XML File
+
+```python
+from semantica.ingest import XMLIngestor, ingest_xml
+
+# Using convenience function
+xml_data = ingest_xml("catalog.xml")
+
+# Using class directly
+ingestor = XMLIngestor()
+xml_data = ingestor.ingest_file("catalog.xml")
+
+print(f"Root: {xml_data.root_tag}")
+print(f"Namespaces: {xml_data.namespaces}")
+print(f"Elements: {xml_data.metadata['element_count']}")
+```
+
+### XML Namespaces and Attributes
+
+```python
+from semantica.ingest import XMLIngestor
+
+data = XMLIngestor().ingest_file("catalog.xml")
+
+for element in data.elements:
+    print(element["path"], element["tag"], element["attributes"])
+```
+
+### XSD and DTD Validation
+
+```python
+from semantica.ingest import XMLIngestor, ingest_xml
+
+# XSD validation runs automatically when schema_path is provided
+validated = ingest_xml("catalog.xml", schema_path="catalog.xsd")
+print(validated.validation["schema"]["valid"])
+
+# Return a report without raising on validation errors
+report = XMLIngestor().validate_file(
+    "catalog.xml",
+    schema_path="catalog.xsd",
+    validate_dtd=True,
+)
+print(report["is_valid"])
+```
+
+### XML Metadata
+
+```python
+from semantica.ingest import ingest_xml
+
+metadata = ingest_xml("catalog.xml", method="metadata")
+
+print(metadata["root_tag"])
+print(metadata["namespace_count"])
+print(metadata["tag_counts"])
 ```
 
 ## Web Ingestion
@@ -936,6 +1068,8 @@ from semantica.ingest import ingest
 
 # Auto-detect source type from source
 result = ingest("document.pdf")  # Auto-detects file
+result = ingest("events.parquet")  # Auto-detects Parquet
+result = ingest("catalog.xml")  # Auto-detects XML
 result = ingest("https://example.com")  # Auto-detects web
 result = ingest("https://example.com/feed.xml")  # Auto-detects feed
 result = ingest("postgresql://user:pass@localhost/db")  # Auto-detects database
@@ -949,6 +1083,7 @@ from semantica.ingest import ingest
 
 # Explicit source type
 result = ingest("document.pdf", source_type="file")
+result = ingest("catalog.xml", source_type="xml")
 result = ingest("https://example.com", source_type="web")
 result = ingest("https://example.com/feed.xml", source_type="feed")
 ```
@@ -982,7 +1117,9 @@ from semantica.ingest.methods import (
     ingest_repository,
     ingest_email,
     ingest_database,
-    ingest_mcp
+    ingest_mcp,
+    ingest_parquet,
+    ingest_xml,
 )
 
 # File ingestion
@@ -1005,6 +1142,12 @@ emails = ingest_email({"host": "imap.example.com", "username": "user", "password
 
 # Database ingestion
 data = ingest_database("postgresql://user:pass@localhost/db", table="users")
+
+# Parquet ingestion
+events = ingest_parquet("events.parquet", columns=["event_id"], limit=1000)
+
+# XML ingestion
+xml_data = ingest_xml("catalog.xml", schema_path="catalog.xsd")
 
 # MCP server ingestion via URL
 data = ingest_mcp("http://localhost:8000/mcp", method="resources")
@@ -1189,16 +1332,16 @@ from semantica.ingest.methods import ingest_file
 def custom_pdf_ingestion(source, **kwargs):
     """Custom PDF ingestion with special processing."""
     from semantica.ingest import FileIngestor
-    
+
     ingestor = FileIngestor()
     file_obj = ingestor.ingest_file(source, **kwargs)
-    
+
     # Custom processing
     if file_obj.file_type == "pdf":
         # Add custom metadata
         file_obj.metadata["processed"] = True
         file_obj.metadata["custom_field"] = "custom_value"
-    
+
     return file_obj
 
 # Register custom method
@@ -1286,7 +1429,7 @@ for source_type, source_list in sources.items():
 1. **Parallel Processing**: Use parallel processing for multiple sources
    ```python
    from concurrent.futures import ThreadPoolExecutor
-   
+
    with ThreadPoolExecutor() as executor:
        executor.submit(ingest_file, "./documents1")
        executor.submit(ingest_file, "./documents2")
@@ -1329,4 +1472,3 @@ for source_type, source_list in sources.items():
    for batch in process_in_batches(large_dataset, batch_size=1000):
        result = ingest(batch)
    ```
-

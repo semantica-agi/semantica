@@ -1,0 +1,82 @@
+<svg viewBox="0 0 740 300" xmlns="http://www.w3.org/2000/svg">
+<title>Semantic Extraction Pipeline</title>
+<defs>
+  <style>text{font-family:Inter,system-ui,-apple-system,sans-serif}</style>
+  <filter id="sh" x="-12%" y="-12%" width="124%" height="124%">
+    <feDropShadow dx="0" dy="2" stdDeviation="5" flood-color="#00000012"/>
+  </filter>
+  <linearGradient id="g-text" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0%" stop-color="#475569"/><stop offset="100%" stop-color="#334155"/>
+  </linearGradient>
+  <linearGradient id="g-ner" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0%" stop-color="#818cf8"/><stop offset="100%" stop-color="#4f46e5"/>
+  </linearGradient>
+  <linearGradient id="g-rel" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0%" stop-color="#a78bfa"/><stop offset="100%" stop-color="#7c3aed"/>
+  </linearGradient>
+  <linearGradient id="g-coref" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0%" stop-color="#38bdf8"/><stop offset="100%" stop-color="#0284c7"/>
+  </linearGradient>
+  <linearGradient id="g-trip" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0%" stop-color="#34d399"/><stop offset="100%" stop-color="#059669"/>
+  </linearGradient>
+  <linearGradient id="g-kg" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0%" stop-color="#fb923c"/><stop offset="100%" stop-color="#ea580c"/>
+  </linearGradient>
+  <clipPath id="ctext"><rect x="250" y="20" width="240" height="54" rx="10"/></clipPath>
+  <clipPath id="cner"><rect x="40" y="120" width="170" height="72" rx="10"/></clipPath>
+  <clipPath id="crel"><rect x="285" y="120" width="170" height="72" rx="10"/></clipPath>
+  <clipPath id="ccoref"><rect x="530" y="120" width="170" height="72" rx="10"/></clipPath>
+  <clipPath id="ctrip"><rect x="200" y="228" width="340" height="52" rx="10"/></clipPath>
+  <marker id="arr" markerWidth="9" markerHeight="7" refX="8" refY="3.5" orient="auto">
+    <polygon points="0 0, 9 3.5, 0 7" fill="#94a3b8"/>
+  </marker>
+</defs>
+
+<rect width="740" height="300" fill="#f1f5f9" rx="16"/>
+<text x="370" y="288" text-anchor="middle" font-size="10" fill="#94a3b8">All extractors support pattern · ml · llm modes — swap with one parameter change</text>
+
+<!-- ── INPUT TEXT ── -->
+<rect x="250" y="20" width="240" height="54" rx="10" fill="white" filter="url(#sh)"/>
+<rect x="250" y="20" width="240" height="24" fill="url(#g-text)" clip-path="url(#ctext)"/>
+<text x="370" y="35" text-anchor="middle" font-size="9.5" font-weight="700" fill="white" opacity="0.8" letter-spacing="1">INPUT</text>
+<text x="370" y="50" text-anchor="middle" font-size="12" font-weight="700" fill="white">Raw Text</text>
+<text x="370" y="65" text-anchor="middle" font-size="10.5" fill="#475569">"Apple Inc. was founded by Steve Jobs in 1976"</text>
+
+<!-- Fan-out arrows: Text → 3 extractors -->
+<line x1="310" y1="74" x2="160" y2="118" stroke="#cbd5e1" stroke-width="1.5" marker-end="url(#arr)"/>
+<line x1="370" y1="74" x2="370" y2="118" stroke="#cbd5e1" stroke-width="1.5" marker-end="url(#arr)"/>
+<line x1="430" y1="74" x2="580" y2="118" stroke="#cbd5e1" stroke-width="1.5" marker-end="url(#arr)"/>
+
+<!-- ── NER EXTRACTOR ── -->
+<rect x="40" y="120" width="170" height="72" rx="10" fill="white" filter="url(#sh)"/>
+<rect x="40" y="120" width="170" height="28" fill="url(#g-ner)" clip-path="url(#cner)"/>
+<text x="125" y="136" text-anchor="middle" font-size="10" font-weight="700" fill="white">NERExtractor</text>
+<text x="125" y="163" text-anchor="middle" font-size="10.5" fill="#334155" font-weight="600">Entities</text>
+<text x="125" y="178" text-anchor="middle" font-size="9.5" fill="#64748b">PERSON · ORG · LOC · DATE</text>
+
+<!-- ── RELATION EXTRACTOR ── -->
+<rect x="285" y="120" width="170" height="72" rx="10" fill="white" filter="url(#sh)"/>
+<rect x="285" y="120" width="170" height="28" fill="url(#g-rel)" clip-path="url(#crel)"/>
+<text x="370" y="136" text-anchor="middle" font-size="10" font-weight="700" fill="white">RelationExtractor</text>
+<text x="370" y="163" text-anchor="middle" font-size="10.5" fill="#334155" font-weight="600">Relations</text>
+<text x="370" y="178" text-anchor="middle" font-size="9.5" fill="#64748b">founded · located_in · works_for</text>
+
+<!-- ── COREFERENCE RESOLVER ── -->
+<rect x="530" y="120" width="170" height="72" rx="10" fill="white" filter="url(#sh)"/>
+<rect x="530" y="120" width="170" height="28" fill="url(#g-coref)" clip-path="url(#ccoref)"/>
+<text x="615" y="136" text-anchor="middle" font-size="10" font-weight="700" fill="white">CoreferenceResolver</text>
+<text x="615" y="163" text-anchor="middle" font-size="10.5" fill="#334155" font-weight="600">References</text>
+<text x="615" y="178" text-anchor="middle" font-size="9.5" fill="#64748b">"the company" → Apple Inc.</text>
+
+<!-- Fan-in arrows: 3 extractors → Triplet Generator -->
+<line x1="160" y1="192" x2="280" y2="226" stroke="#cbd5e1" stroke-width="1.5" marker-end="url(#arr)"/>
+<line x1="370" y1="192" x2="370" y2="226" stroke="#cbd5e1" stroke-width="1.5" marker-end="url(#arr)"/>
+<line x1="580" y1="192" x2="460" y2="226" stroke="#cbd5e1" stroke-width="1.5" marker-end="url(#arr)"/>
+
+<!-- ── TRIPLET GENERATOR ── -->
+<rect x="200" y="228" width="340" height="52" rx="10" fill="white" filter="url(#sh)"/>
+<rect x="200" y="228" width="340" height="24" fill="url(#g-trip)" clip-path="url(#ctrip)"/>
+<text x="370" y="243" text-anchor="middle" font-size="10" font-weight="700" fill="white">TripletExtractor — (subject, predicate, object)</text>
+<text x="370" y="267" text-anchor="middle" font-size="10.5" fill="#334155" font-weight="600">(Steve Jobs, founded, Apple Inc.)  ·  (Apple Inc., located_in, Cupertino)</text>
+</svg>

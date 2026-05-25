@@ -1,0 +1,109 @@
+<svg viewBox="0 0 780 310" xmlns="http://www.w3.org/2000/svg">
+<title>AgentContext Memory and Decision Flow</title>
+<defs>
+  <style>text{font-family:Inter,system-ui,-apple-system,sans-serif}</style>
+  <filter id="sh" x="-12%" y="-12%" width="124%" height="130%">
+    <feDropShadow dx="0" dy="2" stdDeviation="6" flood-color="#00000014"/>
+  </filter>
+  <linearGradient id="g-agent" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0%" stop-color="#475569"/><stop offset="100%" stop-color="#1e293b"/>
+  </linearGradient>
+  <linearGradient id="g-ctx" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0%" stop-color="#818cf8"/><stop offset="100%" stop-color="#4f46e5"/>
+  </linearGradient>
+  <linearGradient id="g-vec" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0%" stop-color="#38bdf8"/><stop offset="100%" stop-color="#0284c7"/>
+  </linearGradient>
+  <linearGradient id="g-kg" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0%" stop-color="#34d399"/><stop offset="100%" stop-color="#059669"/>
+  </linearGradient>
+  <clipPath id="cag"><rect x="20" y="100" width="140" height="110" rx="12"/></clipPath>
+  <clipPath id="cctx"><rect x="270" y="70" width="240" height="170" rx="14"/></clipPath>
+  <clipPath id="cvec"><rect x="620" y="80" width="144" height="80" rx="10"/></clipPath>
+  <clipPath id="ckg"><rect x="620" y="190" width="144" height="80" rx="10"/></clipPath>
+  <marker id="arr" markerWidth="9" markerHeight="7" refX="8" refY="3.5" orient="auto">
+    <polygon points="0 0, 9 3.5, 0 7" fill="#94a3b8"/>
+  </marker>
+  <marker id="arr-rev" markerWidth="9" markerHeight="7" refX="1" refY="3.5" orient="auto">
+    <polygon points="9 0, 0 3.5, 9 7" fill="#94a3b8"/>
+  </marker>
+</defs>
+
+<rect width="780" height="310" fill="#f1f5f9" rx="16"/>
+<text x="390" y="30" text-anchor="middle" font-size="13" font-weight="700" fill="#334155">AgentContext — Memory, Decisions &amp; Graph Intelligence</text>
+
+<!-- ── AI AGENT ── -->
+<rect x="20" y="100" width="140" height="110" rx="12" fill="white" filter="url(#sh)"/>
+<rect x="20" y="100" width="140" height="36" fill="url(#g-agent)" clip-path="url(#cag)"/>
+<text x="90" y="118" text-anchor="middle" font-size="9" font-weight="700" fill="white" opacity="0.75" letter-spacing="1">AGENT</text>
+<text x="90" y="132" text-anchor="middle" font-size="12.5" font-weight="700" fill="white">AI Agent</text>
+<text x="90" y="157" text-anchor="middle" font-size="10.5" fill="#475569" font-weight="600">store(fact)</text>
+<text x="90" y="172" text-anchor="middle" font-size="10.5" fill="#475569" font-weight="600">retrieve(query)</text>
+<text x="90" y="187" text-anchor="middle" font-size="10.5" fill="#475569" font-weight="600">record_decision()</text>
+
+<!-- Bidirectional arrow Agent ↔ AgentContext -->
+<line x1="162" y1="148" x2="262" y2="148" stroke="#cbd5e1" stroke-width="1.5" marker-end="url(#arr)"/>
+<line x1="262" y1="162" x2="162" y2="162" stroke="#cbd5e1" stroke-width="1.5" marker-end="url(#arr)"/>
+<text x="212" y="144" text-anchor="middle" font-size="9" fill="#94a3b8">calls</text>
+<text x="212" y="176" text-anchor="middle" font-size="9" fill="#94a3b8">results</text>
+
+<!-- ── AGENT CONTEXT (hub) ── -->
+<rect x="270" y="70" width="240" height="170" rx="14" fill="white" filter="url(#sh)"/>
+<rect x="270" y="70" width="240" height="40" fill="url(#g-ctx)" clip-path="url(#cctx)"/>
+<text x="390" y="89" text-anchor="middle" font-size="9" font-weight="700" fill="white" opacity="0.75" letter-spacing="1">CORE MODULE</text>
+<text x="390" y="105" text-anchor="middle" font-size="13" font-weight="700" fill="white">AgentContext</text>
+
+<!-- Method pills inside AgentContext -->
+<rect x="286" y="124" width="96" height="22" rx="6" fill="#eef2ff"/>
+<text x="334" y="139" text-anchor="middle" font-size="10" font-weight="600" fill="#4f46e5">store(content)</text>
+
+<rect x="392" y="124" width="102" height="22" rx="6" fill="#eef2ff"/>
+<text x="443" y="139" text-anchor="middle" font-size="10" font-weight="600" fill="#4f46e5">retrieve(query)</text>
+
+<rect x="286" y="155" width="130" height="22" rx="6" fill="#f0fdf4"/>
+<text x="351" y="170" text-anchor="middle" font-size="10" font-weight="600" fill="#059669">record_decision()</text>
+
+<rect x="426" y="155" width="68" height="22" rx="6" fill="#f0fdf4"/>
+<text x="460" y="170" text-anchor="middle" font-size="10" font-weight="600" fill="#059669">find_precedents()</text>
+
+<rect x="286" y="186" width="106" height="22" rx="6" fill="#ecfeff"/>
+<text x="339" y="201" text-anchor="middle" font-size="10" font-weight="600" fill="#0891b2">analyze_influence()</text>
+
+<rect x="402" y="186" width="92" height="22" rx="6" fill="#ecfeff"/>
+<text x="448" y="201" text-anchor="middle" font-size="10" font-weight="600" fill="#0891b2">get_causal_chain()</text>
+
+<!-- Arrow AgentContext → VectorStore -->
+<line x1="510" y1="130" x2="612" y2="118" stroke="#cbd5e1" stroke-width="1.5" marker-end="url(#arr)"/>
+<text x="558" y="116" text-anchor="middle" font-size="9" fill="#94a3b8">embed + index</text>
+
+<!-- Arrow VectorStore → AgentContext (return) -->
+<line x1="612" y1="134" x2="510" y2="148" stroke="#cbd5e1" stroke-width="1.5" marker-end="url(#arr)"/>
+<text x="558" y="148" text-anchor="middle" font-size="9" fill="#94a3b8">top-k results</text>
+
+<!-- Arrow AgentContext → ContextGraph -->
+<line x1="510" y1="200" x2="612" y2="220" stroke="#cbd5e1" stroke-width="1.5" marker-end="url(#arr)"/>
+<text x="558" y="222" text-anchor="middle" font-size="9" fill="#94a3b8">store decision</text>
+
+<!-- Arrow ContextGraph → AgentContext (return) -->
+<line x1="612" y1="234" x2="510" y2="216" stroke="#cbd5e1" stroke-width="1.5" marker-end="url(#arr)"/>
+<text x="558" y="250" text-anchor="middle" font-size="9" fill="#94a3b8">causal chain</text>
+
+<!-- ── VECTOR STORE ── -->
+<rect x="620" y="80" width="144" height="80" rx="10" fill="white" filter="url(#sh)"/>
+<rect x="620" y="80" width="144" height="28" fill="url(#g-vec)" clip-path="url(#cvec)"/>
+<text x="692" y="97" text-anchor="middle" font-size="10" font-weight="700" fill="white">VectorStore</text>
+<text x="692" y="124" text-anchor="middle" font-size="10.5" fill="#334155" font-weight="600">Semantic memory</text>
+<text x="692" y="139" text-anchor="middle" font-size="9.5" fill="#64748b">FAISS · Pinecone · Qdrant</text>
+<text x="692" y="152" text-anchor="middle" font-size="9.5" fill="#64748b">embedding-backed retrieval</text>
+
+<!-- ── CONTEXT GRAPH ── -->
+<rect x="620" y="190" width="144" height="80" rx="10" fill="white" filter="url(#sh)"/>
+<rect x="620" y="190" width="144" height="28" fill="url(#g-kg)" clip-path="url(#ckg)"/>
+<text x="692" y="207" text-anchor="middle" font-size="10" font-weight="700" fill="white">ContextGraph</text>
+<text x="692" y="234" text-anchor="middle" font-size="10.5" fill="#334155" font-weight="600">Decision graph</text>
+<text x="692" y="249" text-anchor="middle" font-size="9.5" fill="#64748b">causal chains · precedents</text>
+<text x="692" y="262" text-anchor="middle" font-size="9.5" fill="#64748b">centrality · community</text>
+
+<!-- Bottom note -->
+<text x="390" y="290" text-anchor="middle" font-size="10" fill="#94a3b8">decision_tracking=True enables full audit trail — every agent action is recorded and traceable</text>
+</svg>

@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">
+  <!-- App icon background -->
+  <rect width="64" height="64" rx="12" fill="white"/>
+
+  <!-- Brain outline (two-lobe, front view) — scaled up to fill more space -->
+  <path d="
+    M 32,4
+    C 25,4 16,9 12,16
+    C 8,23 6,31 8,39
+    C 10,46 16,53 23,55
+    C 25,61 28,64 32,64
+    C 36,64 39,61 41,55
+    C 48,53 54,46 56,39
+    C 58,31 56,23 52,16
+    C 48,9 39,4 32,4 Z
+  " fill="none" stroke="#1A5B6A" stroke-width="2.2"/>
+
+  <!-- Central sulcus -->
+  <path d="M 32,4 C 33,20 32,46 32,64" fill="none" stroke="#1A5B6A" stroke-width="1.6" opacity="0.5"/>
+
+  <!-- Left hemisphere fold -->
+  <path d="M 8,24 C 13,22 18,22 21,26" fill="none" stroke="#1A5B6A" stroke-width="1.1" opacity="0.5"/>
+
+  <!-- Right hemisphere fold -->
+  <path d="M 56,24 C 51,22 46,22 43,26" fill="none" stroke="#1A5B6A" stroke-width="1.1" opacity="0.5"/>
+
+  <!-- Neural network edges -->
+  <g stroke="#2AABCC" stroke-width="1.4">
+    <line x1="17" y1="15" x2="32" y2="26"/>
+    <line x1="47" y1="15" x2="32" y2="26"/>
+    <line x1="8"  y1="33" x2="32" y2="26"/>
+    <line x1="56" y1="33" x2="32" y2="26"/>
+    <line x1="16" y1="47" x2="32" y2="26"/>
+    <line x1="48" y1="47" x2="32" y2="26"/>
+    <line x1="17" y1="15" x2="47" y2="15"/>
+    <line x1="8"  y1="33" x2="16" y2="47"/>
+    <line x1="56" y1="33" x2="48" y2="47"/>
+  </g>
+
+  <!-- Neural nodes -->
+  <circle cx="17" cy="15" r="4"   fill="#F5A623" stroke="white" stroke-width="1.2"/>
+  <circle cx="47" cy="15" r="4"   fill="#2AABCC" stroke="white" stroke-width="1.2"/>
+  <circle cx="8"  cy="33" r="4"   fill="#2AABCC" stroke="white" stroke-width="1.2"/>
+  <circle cx="32" cy="26" r="5"   fill="#2AABCC" stroke="white" stroke-width="1.5"/>
+  <circle cx="56" cy="33" r="4"   fill="#2AABCC" stroke="white" stroke-width="1.2"/>
+  <circle cx="16" cy="47" r="4"   fill="#2AABCC" stroke="white" stroke-width="1.2"/>
+  <circle cx="48" cy="47" r="4"   fill="#F5A623" stroke="white" stroke-width="1.2"/>
+</svg>

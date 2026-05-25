@@ -1,0 +1,35 @@
+{
+  "name": "semantica-codex",
+  "description": "Semantica plugin for Codex: knowledge graph commands, export capabilities, and reasoning workflows.",
+  "version": "0.1.0",
+  "author": {
+    "name": "Semantica Contributors"
+  },
+  "homepage": "https://github.com/Hawksight-AI/semantica",
+  "repository": "https://github.com/Hawksight-AI/semantica",
+  "license": "MIT",
+  "keywords": [
+    "semantica",
+    "knowledge graph",
+    "codex",
+    "context graphs",
+    "decision intelligence",
+    "explainability",
+    "causal analysis",
+    "provenance",
+    "ontology",
+    "graph analytics",
+    "semantic extraction",
+    "visualization",
+    "reasoning",
+    "extraction",
+    "mcp"
+  ],
+  "skills": "./skills",
+  "interface": {
+    "displayName": "Semantica Codex Plugin",
+    "shortDescription": "Knowledge graph skills for Semantica workflows",
+    "category": "Productivity",
+    "developerName": "Semantica Contributors"
+  }
+}

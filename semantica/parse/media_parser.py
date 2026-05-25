@@ -27,6 +27,7 @@ Author: Semantica Contributors
 License: MIT
 """
 
+from fractions import Fraction
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
@@ -34,6 +35,14 @@ from ..utils.exceptions import ProcessingError, ValidationError
 from ..utils.logging import get_logger
 from ..utils.progress_tracker import get_progress_tracker
 from .image_parser import ImageParser
+
+
+def _safe_parse_fps(r_frame_rate: str) -> Optional[float]:
+    """Parse a frame-rate fraction string (e.g. '30000/1001') without eval()."""
+    try:
+        return float(Fraction(r_frame_rate))
+    except (ValueError, ZeroDivisionError):
+        return None
 
 
 class MediaParser:
@@ -265,7 +274,7 @@ class MediaParser:
                                         video_data.get("format", {}).get("duration", 0)
                                     ),
                                     "codec": stream.get("codec_name"),
-                                    "fps": eval(stream.get("r_frame_rate", "0/1"))
+                                    "fps": _safe_parse_fps(stream.get("r_frame_rate"))
                                     if stream.get("r_frame_rate")
                                     else None,
                                 }

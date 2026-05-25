@@ -1,0 +1,261 @@
+{
+  "$schema": "https://mintlify.com/docs.json",
+  "theme": "maple",
+  "name": "Semantica",
+  "description": "The Accountability and Context Layer for AI — Context Graphs · Decision Intelligence · Full Provenance",
+  "colors": {
+    "primary": "#059669",
+    "light": "#10B981",
+    "dark": "#047857"
+  },
+  "favicon": "/assets/img/semantica-logo.png",
+  "logo": {
+    "light": "/assets/img/semantica-logo.png",
+    "dark": "/assets/img/semantica-logo.png"
+  },
+  "font": {
+    "headings": {
+      "family": "Space Grotesk",
+      "weight": 700
+    },
+    "body": {
+      "family": "Inter",
+      "weight": 400
+    }
+  },
+  "appearance": {
+    "default": "dark"
+  },
+  "background": {
+    "color": {
+      "dark": "#0A0A0A",
+      "light": "#FAF7F0"
+    }
+  },
+  "chat": {
+    "enabled": true
+  },
+  "feedback": {
+    "thumbsRating": true,
+    "suggestEdit": true,
+    "raiseIssue": true
+  },
+  "metadata": {
+    "og:title": "Semantica — Accountability & Context Layer for AI",
+    "og:description": "Build explainable, auditable knowledge graphs with full provenance. Open source. MIT licensed.",
+    "og:image": "/assets/img/semantica-logo.png",
+    "twitter:card": "summary_large_image",
+    "twitter:site": "@BuildSemantica"
+  },
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Overview",
+            "pages": [
+              "index"
+            ]
+          },
+          {
+            "group": "Core Concepts",
+            "pages": [
+              "concepts",
+              "modules",
+              "use-cases",
+              "glossary"
+            ]
+          },
+          {
+            "group": "Guides",
+            "pages": [
+              "architecture",
+              "learning-more"
+            ]
+          },
+          {
+            "group": "Integrations",
+            "pages": [
+              "integrations/agno",
+              "integrations/docling",
+              "integrations/snowflake"
+            ]
+          },
+          {
+            "group": "Graph Stores",
+            "pages": [
+              "graph_stores/apache_age"
+            ]
+          },
+          {
+            "group": "Vector Stores",
+            "pages": [
+              "vector_stores/pgvector"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Quick Start",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "installation",
+              "quickstart",
+              "getting-started"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Modules",
+        "groups": [
+          {
+            "group": "Context & Intelligence",
+            "pages": [
+              "reference/context",
+              "reference/kg",
+              "reference/semantic_extract",
+              "reference/reasoning",
+              "reference/ontology"
+            ]
+          },
+          {
+            "group": "Storage",
+            "pages": [
+              "reference/vector_store",
+              "reference/graph_store",
+              "reference/triplet_store"
+            ]
+          },
+          {
+            "group": "Data Pipeline",
+            "pages": [
+              "reference/ingest",
+              "reference/parse",
+              "reference/split",
+              "reference/normalize",
+              "reference/embeddings",
+              "reference/pipeline"
+            ]
+          },
+          {
+            "group": "Quality & Provenance",
+            "pages": [
+              "reference/deduplication",
+              "reference/conflicts",
+              "reference/provenance",
+              "reference/change_management"
+            ]
+          },
+          {
+            "group": "Output",
+            "pages": [
+              "reference/export",
+              "reference/visualization",
+              "reference/explorer"
+            ]
+          },
+          {
+            "group": "Utilities",
+            "pages": [
+              "reference/llms",
+              "reference/seed",
+              "reference/evals",
+              "reference/utils",
+              "reference/core",
+              "reference/mcp_server"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Cookbook",
+        "groups": [
+          {
+            "group": "Cookbook",
+            "pages": [
+              "cookbook"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "FAQ",
+        "groups": [
+          {
+            "group": "FAQ",
+            "pages": [
+              "faq"
+            ]
+          },
+          {
+            "group": "Community",
+            "pages": [
+              "community",
+              "community-projects",
+              "contributing-guide",
+              "governance",
+              "citation",
+              "project-license"
+            ]
+          }
+        ]
+      }
+    ],
+    "global": {
+      "anchors": [
+        {
+          "anchor": "Discord",
+          "href": "https://discord.gg/sV34vps5hH",
+          "icon": "discord"
+        },
+        {
+          "anchor": "GitHub",
+          "href": "https://github.com/semantica-agi/semantica",
+          "icon": "github"
+        },
+        {
+          "anchor": "PyPI",
+          "href": "https://pypi.org/project/semantica/",
+          "icon": "python"
+        },
+        {
+          "anchor": "Follow on X",
+          "href": "https://x.com/BuildSemantica",
+          "icon": "x-twitter"
+        }
+      ]
+    }
+  },
+  "navbar": {
+    "links": [
+      {
+        "label": "GitHub",
+        "href": "https://github.com/semantica-agi/semantica"
+      },
+      {
+        "label": "Discord",
+        "href": "https://discord.gg/sV34vps5hH"
+      }
+    ],
+    "primary": {
+      "type": "button",
+      "label": "pip install semantica",
+      "href": "https://pypi.org/project/semantica/"
+    }
+  },
+  "search": {
+    "prompt": "Search docs...",
+    "location": "topbar"
+  },
+  "footer": {
+    "socials": {
+      "github": "https://github.com/semantica-agi/semantica",
+      "discord": "https://discord.gg/sV34vps5hH",
+      "x": "https://x.com/BuildSemantica"
+    }
+  }
+}

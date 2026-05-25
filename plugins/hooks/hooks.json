@@ -1,0 +1,12 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {"matcher": "Write|Edit", "hooks": [{"type": "command", "command": "FILE=$(jq -r .tool_input.file_path 2>/dev/null); if echo $FILE | grep -qE semantica/; then python -c 'import ast,sys; ast.parse(open(sys.argv[1]).read())' $FILE 2>&1; fi"}]},
+
+      {"matcher": "Write|Edit", "hooks": [{"type": "command", "command": "echo PostToolUse provenance check"}]}
+    ],
+    "PreToolUse": [
+      {"matcher": "Bash", "hooks": [{"type": "command", "command": "CMD=$(jq -r .tool_input.command 2>/dev/null); if echo $CMD | grep -q deduplication/methods; then echo WARNING: use DuplicateDetector directly >&2; fi"}]}
+    ]
+  }
+}

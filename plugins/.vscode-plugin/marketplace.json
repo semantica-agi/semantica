@@ -1,0 +1,17 @@
+{
+  "name": "semantica-vscode",
+  "plugins": [
+    {
+      "name": "semantica",
+      "description": "Semantica plugin for VS Code: knowledge graph skills, reasoning, extraction, and visualization.",
+      "source": "./",
+      "category": "Productivity",
+      "tags": [
+        "knowledge-graph",
+        "reasoning",
+        "semantica",
+        "vscode"
+      ]
+    }
+  ]
+}

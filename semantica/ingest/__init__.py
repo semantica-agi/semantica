@@ -7,12 +7,15 @@ including files, web content, feeds, streams, repositories, emails, and database
 Algorithms Used:
 
 File Ingestion:
-    - File Type Detection: Multi-method detection (extension-based, MIME type, magic number analysis)
+    - File Type Detection: Multi-method detection using extension,
+      MIME type, and magic number analysis
     - Directory Scanning: Recursive directory traversal with filtering
-    - Cloud Storage Integration: AWS S3, Google Cloud Storage, Azure Blob Storage API integration
+    - Cloud Storage Integration: AWS S3, Google Cloud Storage, Azure Blob
+      Storage API integration
     - File Validation: Size limits, format validation, content verification
     - Batch Processing: Parallel file processing with progress tracking
-    - Magic Number Analysis: Binary file signature detection for accurate type identification
+    - Magic Number Analysis: Binary file signature detection for accurate
+      type identification
 
 Web Ingestion:
     - HTTP Request Handling: GET/POST requests with retry logic and error handling
@@ -46,9 +49,11 @@ Repository Ingestion:
     - Git Operations: Repository cloning, branch checking, commit traversal
     - Code Extraction: File content extraction with language detection
     - Commit Analysis: Git log parsing, diff analysis, statistics calculation
-    - Language Detection: File extension and content-based programming language identification
+    - Language Detection: File extension and content-based programming
+      language identification
     - Code Structure Analysis: AST parsing for classes, functions, imports extraction
-    - Dependency Analysis: Package manager file parsing (requirements.txt, package.json, etc.)
+    - Dependency Analysis: Package manager file parsing
+      (requirements.txt, package.json, etc.)
     - Documentation Extraction: README, docstring, and comment extraction
 
 Email Ingestion:
@@ -61,7 +66,8 @@ Email Ingestion:
     - Link Extraction: URL extraction from email HTML content
 
 Database Ingestion:
-    - Database Connection: SQLAlchemy-based connection management with connection pooling
+    - Database Connection: SQLAlchemy-based connection management with
+      connection pooling
     - SQL Query Execution: Parameterized query execution with result set processing
     - Schema Introspection: Database schema analysis and table/column discovery
     - Data Type Conversion: Database-specific type to Python type conversion
@@ -87,6 +93,8 @@ Main Classes:
     - EmailIngestor: Email protocol handling
     - DBIngestor: Database export handling
     - OntologyIngestor: Ontology file processing
+    - ParquetIngestor: Apache Parquet file and partitioned dataset processing
+    - XMLIngestor: XML file parsing, validation, and metadata extraction
     - MethodRegistry: Registry for custom ingestion methods
     - IngestConfig: Configuration manager for ingest module
 
@@ -100,6 +108,8 @@ Convenience Functions:
     - ingest_email: Email ingestion wrapper
     - ingest_database: Database ingestion wrapper
     - ingest_ontology: Ontology ingestion wrapper
+    - ingest_parquet: Parquet ingestion wrapper
+    - ingest_xml: XML ingestion wrapper
 
 
 Example Usage:
@@ -112,22 +122,18 @@ Example Usage:
     >>> content = ingest_web("https://example.com", method="url")
 """
 
-from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from __future__ import annotations
+
+import importlib
+from typing import Any, Dict, Tuple
 
 from .config import IngestConfig, ingest_config
-from .db_ingestor import DatabaseConnector, DataExporter, DBIngestor, TableData
-from .email_ingestor import AttachmentProcessor, EmailData, EmailIngestor
-from .email_ingestor import EmailParser as EmailIngestorParser
-from .feed_ingestor import FeedData, FeedIngestor, FeedItem, FeedMonitor, FeedParser
 from .file_ingestor import (
     CloudStorageIngestor,
     FileIngestor,
     FileObject,
     FileTypeDetector,
 )
-from .mcp_client import MCPClient, MCPResource, MCPTool
-from .mcp_ingestor import MCPData, MCPIngestor
 from .methods import (
     get_ingest_method,
     ingest,
@@ -137,40 +143,118 @@ from .methods import (
     ingest_file,
     ingest_mcp,
     ingest_ontology,
+    ingest_parquet,
     ingest_repository,
     ingest_stream,
     ingest_web,
+    ingest_xml,
     list_available_methods,
 )
 from .registry import MethodRegistry, method_registry
-from .repo_ingestor import (
-    CodeExtractor,
-    CodeFile,
-    CommitInfo,
-    GitAnalyzer,
-    RepoIngestor,
-)
-from .stream_ingestor import (
-    KafkaProcessor,
-    KinesisProcessor,
-    PulsarProcessor,
-    RabbitMQProcessor,
-    StreamIngestor,
-    StreamMessage,
-    StreamMonitor,
-    StreamProcessor,
-)
-from .web_ingestor import (
-    ContentExtractor,
-    RateLimiter,
-    RobotsChecker,
-    SitemapCrawler,
-    WebContent,
-    WebIngestor,
-)
 
-from .ontology_ingestor import OntologyData, OntologyIngestor
-from .snowflake_ingestor import SnowflakeConnector, SnowflakeData, SnowflakeIngestor
+_LAZY_EXPORTS: Dict[str, Tuple[str, str]] = {
+    # Web ingestion
+    "WebIngestor": (".web_ingestor", "WebIngestor"),
+    "WebContent": (".web_ingestor", "WebContent"),
+    "RateLimiter": (".web_ingestor", "RateLimiter"),
+    "RobotsChecker": (".web_ingestor", "RobotsChecker"),
+    "ContentExtractor": (".web_ingestor", "ContentExtractor"),
+    "SitemapCrawler": (".web_ingestor", "SitemapCrawler"),
+    # Feed ingestion
+    "FeedIngestor": (".feed_ingestor", "FeedIngestor"),
+    "FeedItem": (".feed_ingestor", "FeedItem"),
+    "FeedData": (".feed_ingestor", "FeedData"),
+    "FeedParser": (".feed_ingestor", "FeedParser"),
+    "FeedMonitor": (".feed_ingestor", "FeedMonitor"),
+    # Stream ingestion
+    "StreamIngestor": (".stream_ingestor", "StreamIngestor"),
+    "StreamMessage": (".stream_ingestor", "StreamMessage"),
+    "StreamProcessor": (".stream_ingestor", "StreamProcessor"),
+    "KafkaProcessor": (".stream_ingestor", "KafkaProcessor"),
+    "RabbitMQProcessor": (".stream_ingestor", "RabbitMQProcessor"),
+    "KinesisProcessor": (".stream_ingestor", "KinesisProcessor"),
+    "PulsarProcessor": (".stream_ingestor", "PulsarProcessor"),
+    "StreamMonitor": (".stream_ingestor", "StreamMonitor"),
+    # Repository ingestion
+    "RepoIngestor": (".repo_ingestor", "RepoIngestor"),
+    "CodeFile": (".repo_ingestor", "CodeFile"),
+    "CommitInfo": (".repo_ingestor", "CommitInfo"),
+    "CodeExtractor": (".repo_ingestor", "CodeExtractor"),
+    "GitAnalyzer": (".repo_ingestor", "GitAnalyzer"),
+    # Email ingestion
+    "EmailIngestor": (".email_ingestor", "EmailIngestor"),
+    "EmailData": (".email_ingestor", "EmailData"),
+    "AttachmentProcessor": (".email_ingestor", "AttachmentProcessor"),
+    "EmailIngestorParser": (".email_ingestor", "EmailParser"),
+    # Database ingestion
+    "DBIngestor": (".db_ingestor", "DBIngestor"),
+    "TableData": (".db_ingestor", "TableData"),
+    "DatabaseConnector": (".db_ingestor", "DatabaseConnector"),
+    "DataExporter": (".db_ingestor", "DataExporter"),
+    # MCP ingestion
+    "MCPIngestor": (".mcp_ingestor", "MCPIngestor"),
+    "MCPData": (".mcp_ingestor", "MCPData"),
+    "MCPClient": (".mcp_client", "MCPClient"),
+    "MCPResource": (".mcp_client", "MCPResource"),
+    "MCPTool": (".mcp_client", "MCPTool"),
+    # Ontology ingestion
+    "OntologyIngestor": (".ontology_ingestor", "OntologyIngestor"),
+    "OntologyData": (".ontology_ingestor", "OntologyData"),
+    # Snowflake ingestion
+    "SnowflakeIngestor": (".snowflake_ingestor", "SnowflakeIngestor"),
+    "SnowflakeData": (".snowflake_ingestor", "SnowflakeData"),
+    "SnowflakeConnector": (".snowflake_ingestor", "SnowflakeConnector"),
+    # Parquet ingestion
+    "ParquetIngestor": (".parquet_ingestor", "ParquetIngestor"),
+    "ParquetData": (".parquet_ingestor", "ParquetData"),
+    # XML ingestion
+    "XMLIngestor": (".xml_ingestor", "XMLIngestor"),
+    "XMLIngestionData": (".xml_ingestor", "XMLIngestionData"),
+}
+
+_OPTIONAL_DEPENDENCY_MESSAGES = {
+    ".repo_ingestor": (
+        "Repository ingestion requires optional dependency 'GitPython'. "
+        "Install it before importing RepoIngestor or using ingest_repository()."
+    ),
+    ".web_ingestor": (
+        "Web ingestion requires optional dependency 'beautifulsoup4'. "
+        "Install it before importing WebIngestor or using ingest_web()."
+    ),
+    ".feed_ingestor": (
+        "Feed ingestion requires optional dependency 'beautifulsoup4'. "
+        "Install it before importing FeedIngestor or using ingest_feed()."
+    ),
+    ".email_ingestor": (
+        "Email ingestion requires optional dependency 'beautifulsoup4'. "
+        "Install it before importing EmailIngestor or using ingest_email()."
+    ),
+    ".parquet_ingestor": (
+        "Parquet ingestion requires optional dependency 'pyarrow'. "
+        "Install it before importing ParquetIngestor or using ingest_parquet()."
+    ),
+}
+
+
+def __getattr__(name: str) -> Any:
+    """Load optional ingestion backends only when callers request them."""
+    if name not in _LAZY_EXPORTS:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+    module_name, attr_name = _LAZY_EXPORTS[name]
+    try:
+        module = importlib.import_module(module_name, __name__)
+    except ModuleNotFoundError as exc:
+        message = _OPTIONAL_DEPENDENCY_MESSAGES.get(module_name)
+        missing_name = getattr(exc, "name", None)
+        if message and missing_name in {"git", "bs4", "pyarrow"}:
+            raise ImportError(message) from exc
+        raise
+
+    value = getattr(module, attr_name)
+    globals()[name] = value
+    return value
+
 
 __all__ = [
     # File ingestion
@@ -229,6 +313,12 @@ __all__ = [
     "SnowflakeIngestor",
     "SnowflakeData",
     "SnowflakeConnector",
+    # Parquet ingestion
+    "ParquetIngestor",
+    "ParquetData",
+    # XML ingestion
+    "XMLIngestor",
+    "XMLIngestionData",
     # Registry and Methods
     "MethodRegistry",
     "method_registry",
@@ -241,6 +331,8 @@ __all__ = [
     "ingest_email",
     "ingest_database",
     "ingest_ontology",
+    "ingest_parquet",
+    "ingest_xml",
     "ingest_mcp",
     "get_ingest_method",
     "list_available_methods",
@@ -248,4 +340,3 @@ __all__ = [
     "IngestConfig",
     "ingest_config",
 ]
-

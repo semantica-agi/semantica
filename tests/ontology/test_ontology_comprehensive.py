@@ -165,6 +165,45 @@ class TestOntologyComprehensive(unittest.TestCase):
         self.assertIn("Person", owl_output)
         self.assertIn("hasName", owl_output)
 
+    def test_owl_generator_user_facing_schema_compatibility(self):
+        try:
+            from semantica.ontology.owl_generator import OWLGenerator
+        except ImportError:
+            self.skipTest("OWLGenerator not importable")
+
+        generator = OWLGenerator()
+        ontology = {
+            "name": "UserFacingOntology",
+            "uri": "http://example.org/ontology/",
+            "classes": [
+                # label should be preferred over name for generated class IRI
+                {"name": "Human", "label": "Person", "subclassOf": "Agent"},
+            ],
+            "properties": [
+                {
+                    # label should be preferred over name for generated property IRI
+                    "name": "birthDateInternal",
+                    "label": "birthDate",
+                    "type": "datatype",
+                    "domain": "Person",
+                    # datatype range may be list in user-facing schema
+                    "range": ["xsd:date", "http://example.org/ontology/CustomDateType"],
+                }
+            ],
+        }
+
+        owl_output = generator.generate_owl(ontology, format="turtle")
+
+        self.assertIn("owl:DatatypeProperty", owl_output)
+        self.assertIn("@prefix : <http://example.org/ontology/> .", owl_output)
+        self.assertIn("rdfs:subClassOf", owl_output)
+        self.assertIn("birthDate", owl_output)
+        self.assertIn("xsd:date", owl_output)
+        self.assertIn("CustomDateType", owl_output)
+        self.assertIn(":Person", owl_output)
+        self.assertIn(":Agent", owl_output)
+        self.assertNotIn("https://semantica.dev/ontology/", owl_output)
+
     # --- OntologyValidator Tests ---
     # Removed as per request
         

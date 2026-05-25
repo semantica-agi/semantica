@@ -245,16 +245,21 @@ class LLMExtraction:
             return relations
 
     def _build_entity_prompt(self, text: str, entities: List[Entity]) -> str:
-        """Build prompt for entity enhancement."""
-        entities_str = "\n".join([f"- {e.text} ({e.label})" for e in entities])
+        """Build prompt for entity enhancement.
 
-        return f"""Analyze the following text and enhance the entity extraction:
+        User-supplied content is serialised as JSON strings so that special
+        characters (newlines, quotes, prompt-injection attempts) cannot escape
+        the data section and override the system instructions.
+        """
+        import json as _json
+        safe_text = _json.dumps(text)
+        safe_entities = _json.dumps([{"text": e.text, "label": e.label} for e in entities])
 
-Text:
-{text}
+        return f"""Analyze the text provided in the JSON fields below and enhance the entity extraction.
 
-Extracted Entities:
-{entities_str}
+INPUT_TEXT: {safe_text}
+
+EXTRACTED_ENTITIES: {safe_entities}
 
 Please:
 1. Verify each entity is correctly identified
@@ -265,21 +270,29 @@ Please:
 Return the enhanced entity list in JSON format."""
 
     def _build_relation_prompt(self, text: str, relations: List[Relation]) -> str:
-        """Build prompt for relation enhancement."""
-        relations_str = "\n".join(
+        """Build prompt for relation enhancement.
+
+        User-supplied content is serialised as JSON strings to prevent
+        prompt-injection via crafted text or relation labels.
+        """
+        import json as _json
+        safe_text = _json.dumps(text)
+        safe_relations = _json.dumps(
             [
-                f"- {r.subject.text} --[{r.predicate}]--> {r.object.text}"
+                {
+                    "subject": r.subject.text,
+                    "predicate": r.predicate,
+                    "object": r.object.text,
+                }
                 for r in relations
             ]
         )
 
-        return f"""Analyze the following text and enhance the relation extraction:
+        return f"""Analyze the text provided in the JSON fields below and enhance the relation extraction.
 
-Text:
-{text}
+INPUT_TEXT: {safe_text}
 
-Extracted Relations:
-{relations_str}
+EXTRACTED_RELATIONS: {safe_relations}
 
 Please:
 1. Verify each relation is correct

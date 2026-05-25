@@ -562,3 +562,25 @@ def retry_on_error(
         return wrapper
 
     return decorator
+
+
+def classify_path_distance(hop_count: int) -> str:
+    """Classify a path hop count into a human-readable distance band.
+
+    Bands:
+        "direct"    — 0–1 hops (single edge or self)
+        "near"      — 2–3 hops (closely related)
+        "mid-range" — 4–6 hops (reachable but separated)
+        "distant"   — 7+ hops (weakly coupled)
+
+    This is the single source of truth for distance-band thresholds used by
+    both the Explorer API (PathResponse.distance_band) and the KGVisualizer
+    (highlight_path edge styling).
+    """
+    if hop_count <= 1:
+        return "direct"
+    if hop_count <= 3:
+        return "near"
+    if hop_count <= 6:
+        return "mid-range"
+    return "distant"

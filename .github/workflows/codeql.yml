@@ -23,16 +23,17 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@v3
+        uses: github/codeql-action/init@v4
         with:
           languages: python
           queries: security-and-quality
+          config-file: .github/codeql/codeql-config.yml
 
       - name: Autobuild
-        uses: github/codeql-action/autobuild@v3
+        uses: github/codeql-action/autobuild@v4
 
       - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@v3
+        uses: github/codeql-action/analyze@v4
         with:
           category: "/language:python"
           upload: false
@@ -42,45 +43,26 @@ jobs:
         # Uploads results only when Default Setup is not active.
         # If Default Setup is still enabled, this step skips gracefully
         # instead of failing the workflow with HTTP 409.
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: ${{ steps.codeql.outputs.sarif-output }}
           category: "/language:python"
           wait-for-processing: true
         continue-on-error: true
 
-  dismiss-fixed-alerts:
-    name: Dismiss Fixed Security Alerts
-    runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-    steps:
-      - name: Dismiss resolved CodeQL alerts via API
-        env:
-          GH_TOKEN: ${{ github.token }}
-          REPO: ${{ github.repository }}
-        run: |
-          FIXED_PATTERNS=(
-            "py/clear-text-logging-sensitive-data"
-            "py/incomplete-url-substring-sanitization"
-            "actions/missing-workflow-permissions"
-          )
-
-          # Fetch all open code scanning alerts
-          ALERTS=$(gh api repos/$REPO/code-scanning/alerts \
-            --jq '.[] | {number: .number, rule: .rule.id, state: .state}' \
-            -X GET -f state=open -f per_page=100)
-
-          for PATTERN in "${FIXED_PATTERNS[@]}"; do
-            ALERT_NUMS=$(echo "$ALERTS" | jq -r \
-              "select(.rule == \"$PATTERN\") | .number")
-            for NUM in $ALERT_NUMS; do
-              echo "Dismissing alert #$NUM ($PATTERN) — fixed in security-enhancement PR"
-              gh api repos/$REPO/code-scanning/alerts/$NUM \
-                -X PATCH \
-                -f state=dismissed \
-                -f dismissed_reason="won't fix" \
-                -f dismissed_comment="Fixed in PR security-enhancement: code changes remove the vulnerability. Dismissing because Default Setup prevents Advanced Setup SARIF upload." \
-                && echo "  ✓ Alert #$NUM dismissed" \
-                || echo "  ⚠ Could not dismiss alert #$NUM (may already be closed)"
-            done
-          done
+  # NOTE: Auto-dismissal by rule-id is intentionally removed.
+  # Dismissing every alert that matches a rule ID would silently suppress
+  # future real vulnerabilities of the same type. The alerts below were
+  # individually triaged and dismissed manually in the security-enhancement
+  # PR (alerts #12–#18). New alerts must be reviewed and dismissed by hand,
+  # or will auto-close when the underlying code no longer triggers them.
+  #
+  # If you need to dismiss a specific known-safe alert, pin its alert NUMBER
+  # here and remove it once CodeQL stops reporting it naturally. Example:
+  #
+  #   PINNED_ALERT_NUMBERS=(12 13 14 15 16 17 18)
+  #   for NUM in "${PINNED_ALERT_NUMBERS[@]}"; do
+  #     gh api repos/$REPO/code-scanning/alerts/$NUM \
+  #       -X PATCH -f state=dismissed -f dismissed_reason="false positive" \
+  #       -f dismissed_comment="<reason>"
+  #   done

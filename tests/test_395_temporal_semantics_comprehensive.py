@@ -1054,13 +1054,15 @@ class TestFindPrecedentsAsOf:
         )
 
         # as_of 2022 — Alice's decision doesn't exist yet
+        # Use similarity_threshold=0.0 so word-overlap doesn't filter out candidates;
+        # find_precedents_by_scenario returns {"decision": {...}, "similarity": ...} dicts.
         precedents = self.graph.find_precedents_by_scenario(
             "approve loan for Carol",
             as_of="2022-01-01T00:00:00Z",
+            similarity_threshold=0.0,
         )
-        scenarios = [p.get("scenario", "") for p in precedents]
+        scenarios = [p["decision"]["scenario"] for p in precedents]
         # Bob's decision should be reachable; Alice's should not appear
-        # (implementation may not filter on valid_from, just check it doesn't crash)
         assert isinstance(precedents, list)
         assert "approve loan for Bob" in scenarios
         assert "approve loan for Alice" not in scenarios

@@ -170,6 +170,55 @@ class TripletStore:
         RDFS_DOMAIN = "http://www.w3.org/2000/01/rdf-schema#domain"
         RDFS_RANGE = "http://www.w3.org/2000/01/rdf-schema#range"
 
+        # Resolve base URI from ontology — used to mint entity/class/property IRIs
+        # that are reconcilable with the ontology's own namespace.
+        ns = ontology.get("namespace") or {}
+        if isinstance(ns, dict):
+            base_uri = ns.get("base_uri") or ontology.get("uri") or ""
+        else:
+            base_uri = ontology.get("uri") or ""
+        # Ensure trailing separator so "base_uri + local" is always a valid IRI path.
+        if base_uri and not base_uri.endswith(("/", "#")):
+            base_uri = base_uri + "/"
+
+        # Known W3C vocabulary prefixes — expanded before base_uri is applied so
+        # values like "owl:Thing" or "xsd:date" are never re-namespaced under
+        # the ontology's own base URI.
+        _KNOWN_PREFIXES = {
+            "xsd":      "http://www.w3.org/2001/XMLSchema#",
+            "rdf":      "http://www.w3.org/1999/02/22-rdf-syntax-ns#",
+            "rdfs":     "http://www.w3.org/2000/01/rdf-schema#",
+            "owl":      "http://www.w3.org/2002/07/owl#",
+            "skos":     "http://www.w3.org/2004/02/skos/core#",
+            "semantica": "https://semantica.dev/ontology/",
+        }
+
+        def _resolve_iri(local: object, kind: str) -> str:
+            """Expand a bare local name to a full IRI.
+
+            Accepts any type for *local* — non-strings are coerced via str()
+            so integer/numeric IDs passed from graph builders do not crash.
+
+            Resolution order:
+            1. Already an absolute IRI (http / https / urn:) → return as-is.
+            2. Known vocabulary prefix (xsd:, rdf:, rdfs:, owl:, skos:,
+               semantica:) → expand to the canonical W3C IRI.
+            3. base_uri is set → append local name to base_uri.
+            4. Fallback → ``urn:<kind>:<local>``.
+            """
+            local = str(local) if local is not None else ""
+            if not local:
+                return f"urn:{kind}:unknown"
+            if local.startswith(("http://", "https://", "urn:")):
+                return local
+            if ":" in local:
+                prefix, name = local.split(":", 1)
+                if prefix in _KNOWN_PREFIXES:
+                    return f"{_KNOWN_PREFIXES[prefix]}{name}"
+            if base_uri:
+                return f"{base_uri}{local}"
+            return f"urn:{kind}:{local}"
+
         # 1. Process Ontology
         classes = ontology.get("classes", [])
         properties = ontology.get("properties", [])
@@ -180,18 +229,13 @@ class TripletStore:
             if not cls_uri:
                 continue
 
-            if not cls_uri.startswith("http") and not cls_uri.startswith("urn:"):
-                # Fallback if no URI provided
-                cls_uri = f"urn:class:{cls_uri}"
-
+            cls_uri = _resolve_iri(cls_uri, "class")
             triplets.append(Triplet(cls_uri, RDF_TYPE, OWL_CLASS))
 
             # Hierarchy
             parent = cls.get("parent") or cls.get("subClassOf")
             if parent:
-                parent_uri = parent
-                if not parent.startswith("http") and not parent.startswith("urn:"):
-                    parent_uri = f"urn:class:{parent}"
+                parent_uri = _resolve_iri(parent, "class")
                 triplets.append(Triplet(cls_uri, RDFS_SUBCLASS, parent_uri))
 
         for prop in properties:
@@ -199,8 +243,7 @@ class TripletStore:
             if not prop_uri:
                 continue
 
-            if not prop_uri.startswith("http") and not prop_uri.startswith("urn:"):
-                prop_uri = f"urn:property:{prop_uri}"
+            prop_uri = _resolve_iri(prop_uri, "property")
 
             # Determine property type (Object or Datatype)
             # Default to ObjectProperty if not specified
@@ -218,9 +261,7 @@ class TripletStore:
                     domains = [domains]
 
                 for domain in domains:
-                    domain_uri = domain
-                    if not domain.startswith("http") and not domain.startswith("urn:"):
-                        domain_uri = f"urn:class:{domain}"
+                    domain_uri = _resolve_iri(domain, "class")
                     triplets.append(Triplet(prop_uri, RDFS_DOMAIN, domain_uri))
 
             if "range" in prop:
@@ -229,9 +270,7 @@ class TripletStore:
                     ranges = [ranges]
 
                 for range_ in ranges:
-                    range_uri = range_
-                    if not range_.startswith("http") and not range_.startswith("urn:"):
-                        range_uri = f"urn:class:{range_}"
+                    range_uri = _resolve_iri(range_, "class")
                     triplets.append(Triplet(prop_uri, RDFS_RANGE, range_uri))
 
         # 2. Process Knowledge Graph
@@ -245,28 +284,19 @@ class TripletStore:
             if not entity_id:
                 continue
 
-            entity_uri = entity.get("uri")
-            if not entity_uri:
-                entity_uri = f"urn:entity:{entity_id}"
-
+            entity_uri = entity.get("uri") or _resolve_iri(entity_id, "entity")
             entity_map[entity_id] = entity_uri
 
             # Entity Type
             entity_type = entity.get("type")
             if entity_type:
-                type_uri = entity_type
-                if not entity_type.startswith("http") and not entity_type.startswith(
-                    "urn:"
-                ):
-                    type_uri = f"urn:class:{entity_type}"
+                type_uri = _resolve_iri(entity_type, "class")
                 triplets.append(Triplet(entity_uri, RDF_TYPE, type_uri))
 
             # Entity Properties
             props = entity.get("properties", {})
             for k, v in props.items():
-                prop_uri = k
-                if not k.startswith("http") and not k.startswith("urn:"):
-                    prop_uri = f"urn:property:{k}"
+                prop_uri = _resolve_iri(k, "property")
                 triplets.append(Triplet(entity_uri, prop_uri, str(v)))
 
         for rel in relationships:
@@ -277,11 +307,9 @@ class TripletStore:
             if not source_id or not target_id or not rel_type:
                 continue
 
-            source_uri = entity_map.get(source_id, f"urn:entity:{source_id}")
-            target_uri = entity_map.get(target_id, f"urn:entity:{target_id}")
-            rel_uri = rel_type
-            if not rel_type.startswith("http") and not rel_type.startswith("urn:"):
-                rel_uri = f"urn:property:{rel_type}"
+            source_uri = entity_map.get(source_id) or _resolve_iri(source_id, "entity")
+            target_uri = entity_map.get(target_id) or _resolve_iri(target_id, "entity")
+            rel_uri = _resolve_iri(rel_type, "property")
 
             triplets.append(Triplet(source_uri, rel_uri, target_uri))
 

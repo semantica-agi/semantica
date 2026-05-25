@@ -873,7 +873,6 @@ class TestOllamaProviderBaseURLGap:
         ollama_mock.Client = MagicMock(return_value=MagicMock())
         with patch.dict("sys.modules", {"ollama": ollama_mock}):
             from semantica.semantic_extract.providers import OllamaProvider
-            OllamaProvider(
             provider = OllamaProvider(
                 model_name="llama3",
                 base_url="http://192.168.1.10:11434",

@@ -1,330 +1,196 @@
-# LLM Providers Module
+---
+title: "LLMs Module"
+description: "Unified interface for Groq, OpenAI, LiteLLM (Anthropic, Gemini, Ollama, DeepSeek, Azure, Bedrock, 100+ models), and HuggingFace."
+icon: "microchip"
+---
 
-The `semantica.llms` module provides a unified interface for LLM providers, supporting Groq, OpenAI, HuggingFace, and LiteLLM (100+ LLMs) with clean imports and consistent API.
+`semantica.llms` provides a single consistent API across every major LLM provider. Every provider is a drop-in replacement for the `llm_provider=` parameter in extractors, reasoning engines, and agents.
 
-## Overview
-
-The **LLM Providers Module** provides a unified interface for Large Language Model (LLM) providers. It abstracts away provider-specific details, enabling you to switch between different LLM providers without changing your code.
-
-### What is the LLM Providers Module?
-
-The LLM Providers module provides:
-
-- **Unified LLM APIs**: Single interface for Groq, OpenAI, HuggingFace, and LiteLLM (100+ models)
-- **Easy Provider Switching**: Change providers without code changes
-- **Multiple Model Support**: Access to 100+ LLMs through LiteLLM
-- **GraphRAG Integration**: Seamless integration with GraphRAG reasoning features
-- **Structured Output**: Generate structured data with robust JSON parsing and automatic retries (3 attempts).
-
-### Why Use the LLM Providers Module?
-
-- **Flexibility**: Switch between providers based on cost, speed, or capability
-- **Consistency**: Same API regardless of provider
-- **Local Models**: Support for local HuggingFace models
-- **Fast Inference**: Groq for ultra-fast inference
-- **Enterprise Models**: Access to OpenAI, Anthropic, and other enterprise providers
-
-### How It Works
-
-The LLM Providers module follows a simple workflow:
-
-1. **Provider Selection**: Choose a provider (Groq, OpenAI, HuggingFace, LiteLLM)
-2. **Model Configuration**: Configure model name, API keys, and parameters
-3. **Text Generation**: Generate text using a consistent API
-4. **Structured Output**: Optionally generate structured data (JSON, entities, etc.)
-
-## Quick Start
+## Exported Classes
 
 ```python
-from semantica.llms import Groq, OpenAI, HuggingFaceLLM, LiteLLM
-import os
-
-# Groq - Fast inference
-groq = Groq(model="llama-3.1-8b-instant", api_key=os.getenv("GROQ_API_KEY"))
-response = groq.generate("What is AI?")
-
-# OpenAI
-openai = OpenAI(model="gpt-4", api_key=os.getenv("OPENAI_API_KEY"))
-response = openai.generate("What is AI?")
-
-# HuggingFace - Local models
-hf = HuggingFaceLLM(model_name="gpt2")  # or model="gpt2"
-response = hf.generate("What is AI?")
-
-# LiteLLM - Unified interface to 100+ LLMs
-litellm = LiteLLM(model="openai/gpt-4o", api_key=os.getenv("OPENAI_API_KEY"))
-response = litellm.generate("What is AI?")
+from semantica.llms import Groq, OpenAI, LiteLLM, HuggingFaceLLM
 ```
+
+| Class | Provider | API Key Required |
+| ----- | -------- | ---------------- |
+| `Groq` | Groq Cloud | `GROQ_API_KEY` |
+| `OpenAI` | OpenAI / any OpenAI-compatible gateway | `OPENAI_API_KEY` |
+| `LiteLLM` | 100+ providers via LiteLLM routing | Depends on model |
+| `HuggingFaceLLM` | Local HuggingFace Transformers | None (local) |
+
+<Tip>
+  **Anthropic, Gemini, Ollama, DeepSeek, Azure, Bedrock, Cohere, and 90+ others** are all available via `LiteLLM` using their model-string prefix. See the [LiteLLM section](#litellm-100-providers) below.
+</Tip>
+
+## What You Get
+
+- **Unified `LLMProvider` interface** — swap providers with a one-line change, no application code changes
+- **`LiteLLM`** — single class for 100+ providers using model-string routing
+- **Local models** — `HuggingFaceLLM` runs fully on-premise, no API key
+- **Streaming** — token-by-token output for low-latency UX
+- **Custom gateways** — point `OpenAI` at any OpenAI-compatible endpoint via `base_url`
 
 ## Providers
 
-### Groq
+<CodeGroup>
 
-Fast inference provider using Groq's API.
-
-```python
+```python Groq
 from semantica.llms import Groq
-
-groq = Groq(
-    model="llama-3.1-8b-instant",
-    api_key="your-api-key"  # or use GROQ_API_KEY env var
-)
-
-response = groq.generate("Hello, world!")
-structured = groq.generate_structured("Extract entities from: Apple Inc.")
-```
-
-**Parameters:**
-- `model` (str): Model name (default: "llama-3.1-8b-instant")
-- `api_key` (str, optional): Groq API key (default: from GROQ_API_KEY env var)
-- `**kwargs`: Additional provider options
-
-**Methods:**
-- `generate(prompt: str, **kwargs) -> str`: Generate text from prompt
-- `generate_structured(prompt: str, **kwargs) -> Dict[str, Any]`: Generate structured JSON output
-- `is_available() -> bool`: Check if provider is available
-
-### OpenAI
-
-OpenAI API provider for GPT models.
-
-```python
-from semantica.llms import OpenAI
-
-openai = OpenAI(
-    model="gpt-4",
-    api_key="your-api-key"  # or use OPENAI_API_KEY env var
-)
-
-response = openai.generate("Hello, world!")
-```
-
-**Parameters:**
-- `model` (str): Model name (default: "gpt-3.5-turbo")
-- `api_key` (str, optional): OpenAI API key (default: from OPENAI_API_KEY env var)
-- `**kwargs`: Additional provider options
-
-**Methods:**
-- `generate(prompt: str, **kwargs) -> str`: Generate text from prompt
-- `generate_structured(prompt: str, **kwargs) -> Dict[str, Any]`: Generate structured JSON output
-- `is_available() -> bool`: Check if provider is available
-
-### HuggingFaceLLM
-
-Local LLM inference using HuggingFace Transformers.
-
-```python
-from semantica.llms import HuggingFaceLLM
-
-hf = HuggingFaceLLM(
-    model_name="gpt2",
-    device="cuda"  # or "cpu", default: auto-detect
-)
-
-response = hf.generate("Hello, world!")
-```
-
-**Parameters:**
-- `model_name` (str, optional): HuggingFace model name (default: "gpt2")
-- `model` (str, optional): Alias for model_name (for consistency with other providers)
-- `device` (str, optional): Device to use ("cuda" or "cpu", default: auto-detect)
-- `**kwargs`: Additional provider options
-
-**Note:** Both `model` and `model_name` are supported for consistency with other providers.
-
-**Methods:**
-- `generate(prompt: str, **kwargs) -> str`: Generate text from prompt
-- `generate_structured(prompt: str, **kwargs) -> Dict[str, Any]`: Generate structured JSON output
-- `is_available() -> bool`: Check if provider is available
-
-### LiteLLM
-
-Unified interface to 100+ LLM providers via LiteLLM library.
-
-```python
-from semantica.llms import LiteLLM
-
-# Use any provider via LiteLLM
-litellm = LiteLLM(
-    model="openai/gpt-4o",  # Provider/model format
-    api_key=os.getenv("OPENAI_API_KEY")
-)
-
-# Or use other providers
-litellm = LiteLLM(model="anthropic/claude-sonnet-4-20250514")
-litellm = LiteLLM(model="groq/llama-3.1-8b-instant")
-litellm = LiteLLM(model="azure/gpt-4")
-
-response = litellm.generate("Hello, world!")
-```
-
-**Parameters:**
-- `model` (str): Model identifier in format "provider/model-name"
-  - Examples: "openai/gpt-4o", "anthropic/claude-sonnet-4-20250514", "groq/llama-3.1-8b-instant", "azure/gpt-4"
-- `api_key` (str, optional): API key (can use environment variables)
-- `**kwargs`: Additional LiteLLM options (temperature, max_tokens, etc.)
-
-**Methods:**
-- `generate(prompt: str, **kwargs) -> str`: Generate text from prompt
-- `generate_structured(prompt: str, **kwargs) -> Dict[str, Any]`: Generate structured JSON output
-- `is_available() -> bool`: Check if provider is available
-
-**Supported Providers:**
-- OpenAI, Anthropic, Groq, Azure, Bedrock, Vertex AI, Cohere, Mistral, and 90+ more
-- See [LiteLLM Documentation](https://docs.litellm.ai/) for full list
-
-## Integration with GraphRAG
-
-The LLM providers integrate seamlessly with GraphRAG reasoning:
-
-```python
-from semantica.context import AgentContext
-from semantica.llms import Groq
-from semantica.vector_store import VectorStore
 import os
 
-context = AgentContext(
-    vector_store=VectorStore(backend="faiss"),
-    knowledge_graph=kg
+llm = Groq(
+    model="llama-3.3-70b-versatile",   # default
+    api_key=os.getenv("GROQ_API_KEY"),
+    max_tokens=64000,
+    temperature=0.0,
 )
-
-llm_provider = Groq(
-    model="llama-3.1-8b-instant",
-    api_key=os.getenv("GROQ_API_KEY")
-)
-
-result = context.query_with_reasoning(
-    query="What IPs are associated with security alerts?",
-    llm_provider=llm_provider,
-    max_hops=2
-)
-
-print(f"Response: {result['response']}")
-print(f"Reasoning Path: {result['reasoning_path']}")
+# Best for: high-throughput extraction, fast inference at low cost
 ```
 
-## Common Parameters
+```python OpenAI
+from semantica.llms import OpenAI
+import os
 
-All providers support common generation parameters:
+llm = OpenAI(
+    model="gpt-4o",
+    api_key=os.getenv("OPENAI_API_KEY"),
+    temperature=0.0,
+)
+# Best for: general purpose, function calling, JSON mode
+```
 
-- `temperature` (float): Sampling temperature (0.0-2.0)
-- `max_tokens` (int): Maximum tokens to generate
-- `top_p` (float): Nucleus sampling parameter
-- `frequency_penalty` (float): Frequency penalty
-- `presence_penalty` (float): Presence penalty
+```python LiteLLM (100+ providers)
+from semantica.llms import LiteLLM
+import os
 
-Example:
+# pip install "semantica[llm-litellm]"
+
+# Anthropic Claude
+llm = LiteLLM(model="anthropic/claude-opus-4-5",         api_key=os.getenv("ANTHROPIC_API_KEY"))
+
+# Google Gemini
+llm = LiteLLM(model="gemini/gemini-1.5-pro",             api_key=os.getenv("GOOGLE_API_KEY"))
+
+# Ollama (local — no API key)
+llm = LiteLLM(model="ollama/llama3.2:3b",                api_base="http://localhost:11434")
+
+# DeepSeek
+llm = LiteLLM(model="deepseek/deepseek-chat",            api_key=os.getenv("DEEPSEEK_API_KEY"))
+
+# Azure OpenAI
+llm = LiteLLM(model="azure/gpt-4o",                      api_key=os.getenv("AZURE_API_KEY"))
+
+# AWS Bedrock
+llm = LiteLLM(model="bedrock/anthropic.claude-3-5-sonnet-20241022-v2:0")
+
+# Novita AI
+llm = LiteLLM(model="novita/deepseek/deepseek-v3.2",     api_key=os.getenv("NOVITA_API_KEY"))
+```
+
+```python HuggingFaceLLM (Local)
+from semantica.llms import HuggingFaceLLM
+
+llm = HuggingFaceLLM(
+    model="mistralai/Mistral-7B-Instruct-v0.3",
+    device="cuda",           # "cpu" | "cuda" | "mps"
+    max_new_tokens=512,
+    temperature=0.1,
+)
+# Bring your own model — full local control, no API key
+```
+
+</CodeGroup>
+
+## LiteLLM — 100+ Providers
+
+`LiteLLM` is the recommended way to access any provider not directly exported by `semantica.llms`. Use the `provider/model` string format:
 
 ```python
-response = groq.generate(
-    "What is AI?",
-    temperature=0.7,
-    max_tokens=500,
-    top_p=0.9
-)
+from semantica.llms import LiteLLM
+import os
+
+# Pattern: LiteLLM(model="<provider>/<model-name>")
+providers = {
+    "Anthropic":  LiteLLM(model="anthropic/claude-opus-4-5",       api_key=os.getenv("ANTHROPIC_API_KEY")),
+    "Gemini":     LiteLLM(model="gemini/gemini-1.5-pro",            api_key=os.getenv("GOOGLE_API_KEY")),
+    "Ollama":     LiteLLM(model="ollama/llama3.2:3b",               api_base="http://localhost:11434"),
+    "DeepSeek":   LiteLLM(model="deepseek/deepseek-chat",           api_key=os.getenv("DEEPSEEK_API_KEY")),
+    "Azure":      LiteLLM(model="azure/gpt-4o",                     api_key=os.getenv("AZURE_API_KEY")),
+    "Bedrock":    LiteLLM(model="bedrock/anthropic.claude-3-5-sonnet-20241022-v2:0"),
+    "Cohere":     LiteLLM(model="cohere/command-r-plus",            api_key=os.getenv("COHERE_API_KEY")),
+    "Novita AI":  LiteLLM(model="novita/deepseek/deepseek-v3.2",    api_key=os.getenv("NOVITA_API_KEY")),
+}
+
+# Every LiteLLM instance implements the same .generate() interface
+response = providers["Anthropic"].generate("Explain GraphRAG in one paragraph.")
 ```
 
-## Error Handling
+<Note>
+  The full list of supported LiteLLM model strings is at [docs.litellm.ai/docs/providers](https://docs.litellm.ai/docs/providers). Use the `provider/model` format shown above.
+</Note>
 
-All providers gracefully handle errors:
+## Custom / Enterprise Gateways
 
-```python
-try:
-    response = groq.generate("Hello")
-except ProcessingError as e:
-    print(f"Generation failed: {e}")
-```
-
-If a provider is not available (library not installed, API key missing), a `ProcessingError` is raised with a helpful message.
-
-### Built-in Retries
-The `generate_structured` method includes built-in retry logic for all providers:
-- **Attempts**: 3
-- **Wait Time**: 1 second base with exponential backoff
-- **Triggers**: Network errors, rate limits, and malformed JSON responses.
-
-### Robust JSON Parsing
-`BaseProvider` uses an enhanced `_parse_json` method that can handle:
-- Markdown code blocks (e.g., ```json ... ```)
-- Extra text before or after the JSON object
-- Common LLM formatting inconsistencies.
-
-## Examples
-
-### Basic Text Generation
-
-```python
-from semantica.llms import Groq
-
-groq = Groq(model="llama-3.1-8b-instant")
-response = groq.generate("Explain quantum computing in simple terms.")
-print(response)
-```
-
-### Structured Output
+Any OpenAI-compatible endpoint — internal routing layers, Qwen proxies, or private LLaMA deployments:
 
 ```python
 from semantica.llms import OpenAI
 
-openai = OpenAI(model="gpt-4")
-result = openai.generate_structured(
-    "Extract entities from: Apple Inc. was founded by Steve Jobs in 1976."
+llm = OpenAI(
+    model="qwen2.5-72b",
+    api_key=os.getenv("GATEWAY_API_KEY"),
+    base_url="https://my-internal-gateway.company.com/v1",
 )
-# Returns: {"entities": [{"name": "Apple Inc.", "type": "Organization"}, ...]}
 ```
 
-### Using LiteLLM for Multiple Providers
+<Note>
+  `base_url` is validated at construction time. Non-HTTP(S) schemes raise `ValueError` to prevent SSRF attacks (fixed in v0.5.0).
+</Note>
+
+## Using in Extractors
+
+All extractors accept any provider as `llm_provider=`:
 
 ```python
-from semantica.llms import LiteLLM
+from semantica.semantic_extract import NERExtractor, RelationExtractor, TripletExtractor
 
-# Switch between providers easily
-providers = [
-    LiteLLM(model="openai/gpt-4o"),
-    LiteLLM(model="anthropic/claude-sonnet-4-20250514"),
-    LiteLLM(model="groq/llama-3.1-8b-instant")
-]
+llm = Groq(model="llama-3.3-70b-versatile", api_key=os.getenv("GROQ_API_KEY"))
 
-for provider in providers:
-    response = provider.generate("What is AI?")
-    print(f"{provider.model}: {response[:50]}...")
+ner  = NERExtractor(method="llm",      llm_provider=llm, max_retries=3)
+rel  = RelationExtractor(method="llm", llm_provider=llm)
+trip = TripletExtractor(method="llm",  llm_provider=llm)
 ```
 
-## Installation
+## Provider Comparison
 
-Most providers require additional dependencies:
+| Provider | Import | Speed | Cost | Local | Context | Best For |
+| -------- | ------ | ----- | ---- | ----- | ------- | -------- |
+| Groq | `Groq` | Very fast | Low | No | 128k | High-throughput extraction |
+| OpenAI | `OpenAI` | Fast | Medium | No | 128k | General purpose, function calling |
+| Anthropic | `LiteLLM(model="anthropic/...")` | Fast | Medium | No | 200k | Complex reasoning, safety |
+| Gemini | `LiteLLM(model="gemini/...")` | Fast | Low | No | 1M | Long context, multimodal |
+| Ollama | `LiteLLM(model="ollama/...")` | Medium | Free | Yes | Varies | Privacy, air-gapped |
+| DeepSeek | `LiteLLM(model="deepseek/...")` | Fast | Very low | No | 64k | Coding, analysis |
+| Azure OpenAI | `LiteLLM(model="azure/...")` | Fast | Medium | No | 128k | Enterprise, compliance |
+| AWS Bedrock | `LiteLLM(model="bedrock/...")` | Fast | Varies | No | Varies | AWS-native workloads |
+| HuggingFace | `HuggingFaceLLM` | Slow | Free | Yes | Varies | Custom models, BYOM |
 
-```bash
-# Groq
-pip install groq
+<Tip>
+  For production extraction pipelines, Groq delivers the best throughput-to-cost ratio. For complex multi-hop reasoning, Claude Opus or GPT-4o provide the highest accuracy.
+</Tip>
 
-# OpenAI
-pip install openai
-
-# HuggingFace
-pip install transformers torch
-
-# LiteLLM (supports 100+ providers)
-pip install litellm
-```
-
-## Cookbook
-
-Interactive tutorials that use LLM providers:
-
-- **[Advanced Extraction](https://github.com/Hawksight-AI/semantica/blob/main/cookbook/advanced/01_Advanced_Extraction.ipynb)**: Custom extractors and LLM-based extraction
-  - **Topics**: LLM extraction, custom models, complex pattern matching
-  - **Difficulty**: Advanced
-  - **Use Cases**: Domain-specific extraction, complex schemas
-
-- **[GraphRAG Complete](https://github.com/Hawksight-AI/semantica/blob/main/cookbook/use_cases/advanced_rag/01_GraphRAG_Complete.ipynb)**: Production-ready GraphRAG system using LLMs
-  - **Topics**: GraphRAG, LLM integration, hybrid retrieval
-  - **Difficulty**: Advanced
-  - **Use Cases**: Building AI applications with knowledge graphs
-
-## See Also
-
-- [Context Module](context.md) - GraphRAG with multi-hop reasoning
-- [Semantic Extract Module](semantic_extract.md) - Entity and relationship extraction
-- [GraphRAG Cookbook](https://github.com/Hawksight-AI/semantica/blob/main/cookbook/use_cases/advanced_rag/01_GraphRAG_Complete.ipynb) - Complete GraphRAG example
-
+<CardGroup cols={2}>
+  <Card title="Semantic Extract" icon="magnifying-glass" href="semantic_extract">
+    Use LLMs for NER and relation extraction.
+  </Card>
+  <Card title="Agno Integration" icon="robot" href="../integrations/agno">
+    LLM providers in Agno multi-agent teams.
+  </Card>
+  <Card title="Reasoning" icon="brain" href="reasoning">
+    LLM-backed deductive and abductive reasoning.
+  </Card>
+  <Card title="Context" icon="diagram-project" href="context">
+    GraphRAG uses LLMs for reasoning over knowledge graphs.
+  </Card>
+</CardGroup>

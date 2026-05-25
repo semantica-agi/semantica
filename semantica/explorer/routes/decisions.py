@@ -1,37 +1,30 @@
-"""
-Decision routes : decision listing, causal chains, precedents, compliance.
-
-Uses ContextGraph-native queries so it works without a Neo4j/FalkorDB backend.
+﻿"""
+Decision routes using ContextGraph-native fallbacks.
 """
 
 import asyncio
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from ..dependencies import get_session
-from ..schemas import (
-    CausalChainResponse,
-    ComplianceResponse,
-    DecisionResponse,
-)
+from ..schemas import CausalChainResponse, CausalDistanceReport, ComplianceResponse, DecisionResponse
 from ..session import GraphSession
 
 router = APIRouter(prefix="/api/decisions", tags=["Decisions"])
 
 
-def _node_to_decision(n: dict) -> DecisionResponse:
-    """Map a ContextGraph node dict to a DecisionResponse."""
-    meta = n.get("metadata", {})
+def _node_to_decision(node: dict) -> DecisionResponse:
+    properties = node.get("properties", {})
     return DecisionResponse(
-        decision_id=n.get("id", ""),
-        category=meta.get("category", ""),
-        scenario=meta.get("scenario", ""),
-        reasoning=meta.get("reasoning", ""),
-        outcome=meta.get("outcome", ""),
-        confidence=float(meta.get("confidence", 0.0)),
-        timestamp=meta.get("timestamp"),
-        metadata=meta,
+        decision_id=node.get("id", ""),
+        category=properties.get("category", ""),
+        scenario=properties.get("scenario", ""),
+        reasoning=properties.get("reasoning", ""),
+        outcome=properties.get("outcome", ""),
+        confidence=float(properties.get("confidence", 0.0) or 0.0),
+        timestamp=properties.get("timestamp"),
+        metadata=properties,
     )
 
 
@@ -42,19 +35,21 @@ async def list_decisions(
     limit: int = Query(50, ge=1, le=500),
     session: GraphSession = Depends(get_session),
 ):
-    """List decision nodes (type='decision') with optional category filter."""
     nodes, _ = await asyncio.to_thread(
-        session.get_nodes, node_type="decision", skip=0, limit=999_999
+        session.get_nodes,
+        node_type="decision",
+        skip=0,
+        limit=999_999,
     )
 
     if category:
         nodes = [
-            n for n in nodes
-            if n.get("metadata", {}).get("category", "").lower() == category.lower()
+            node
+            for node in nodes
+            if str(node.get("properties", {}).get("category", "")).lower() == category.lower()
         ]
 
-    page = nodes[skip: skip + limit]
-    return [_node_to_decision(n) for n in page]
+    return [_node_to_decision(node) for node in nodes[skip : skip + limit]]
 
 
 @router.get("/{decision_id}", response_model=DecisionResponse)
@@ -62,10 +57,9 @@ async def get_decision(
     decision_id: str,
     session: GraphSession = Depends(get_session),
 ):
-    """Get a single decision by ID."""
     node = await asyncio.to_thread(session.get_node, decision_id)
     if node is None:
-        raise KeyError(decision_id)
+        raise HTTPException(status_code=404, detail=f"Decision '{decision_id}' not found")
     return _node_to_decision(node)
 
 
@@ -74,27 +68,20 @@ async def get_causal_chain(
     decision_id: str,
     session: GraphSession = Depends(get_session),
 ):
-    """
-    Trace the causal chain for a decision.
-
-    Uses BFS neighbour traversal over ``caused_by`` / ``influences``
-    relationship types as a lightweight, backend-agnostic fallback.
-    """
     node = await asyncio.to_thread(session.get_node, decision_id)
     if node is None:
-        raise KeyError(decision_id)
+        raise HTTPException(status_code=404, detail=f"Decision '{decision_id}' not found")
 
-    # Walk outbound causal edges (up to 5 hops)
-    neighbors = await asyncio.to_thread(session.get_neighbors, decision_id, depth=5)
+    neighbors = await asyncio.to_thread(session.get_neighbors, decision_id, 5)
     chain = [
         {
-            "id": nb.get("id"),
-            "type": nb.get("type"),
-            "relationship": nb.get("relationship"),
-            "hop": nb.get("hop"),
-            "content": nb.get("content", ""),
+            "id": neighbor.get("id"),
+            "type": neighbor.get("type"),
+            "relationship": neighbor.get("relationship"),
+            "hop": neighbor.get("hop"),
+            "content": neighbor.get("content", ""),
         }
-        for nb in neighbors
+        for neighbor in neighbors
     ]
     return CausalChainResponse(decision_id=decision_id, chain=chain)
 
@@ -105,40 +92,51 @@ async def get_precedents(
     limit: int = Query(10, ge=1, le=100),
     session: GraphSession = Depends(get_session),
 ):
-    """
-    Find precedent decisions similar to the given decision.
-
-    Lightweight: looks for other decision-type nodes and ranks by shared
-    category and keyword overlap.
-    """
     node = await asyncio.to_thread(session.get_node, decision_id)
     if node is None:
-        raise KeyError(decision_id)
+        raise HTTPException(status_code=404, detail=f"Decision '{decision_id}' not found")
 
-    meta = node.get("metadata", {})
-    category = meta.get("category", "")
-    scenario_words = set(meta.get("scenario", "").lower().split())
+    properties = node.get("properties", {})
+    category = str(properties.get("category", ""))
+    scenario_words = set(str(properties.get("scenario", "")).lower().split())
 
     all_decisions, _ = await asyncio.to_thread(
-        session.get_nodes, node_type="decision", skip=0, limit=999_999
+        session.get_nodes,
+        node_type="decision",
+        skip=0,
+        limit=999_999,
     )
 
     scored = []
-    for d in all_decisions:
-        if d.get("id") == decision_id:
+    for decision in all_decisions:
+        if decision.get("id") == decision_id:
             continue
-        d_meta = d.get("metadata", {})
+        other_props = decision.get("properties", {})
         score = 0.0
-        if d_meta.get("category", "").lower() == category.lower() and category:
+        if category and str(other_props.get("category", "")).lower() == category.lower():
             score += 0.5
-        d_words = set(d_meta.get("scenario", "").lower().split())
-        if scenario_words and d_words:
-            overlap = len(scenario_words & d_words) / max(len(scenario_words | d_words), 1)
+        other_words = set(str(other_props.get("scenario", "")).lower().split())
+        if scenario_words and other_words:
+            overlap = len(scenario_words & other_words) / max(len(scenario_words | other_words), 1)
             score += 0.5 * overlap
-        scored.append((score, d))
+        scored.append((score, decision))
 
-    scored.sort(key=lambda x: x[0], reverse=True)
-    return [_node_to_decision(d) for _, d in scored[:limit]]
+    scored.sort(key=lambda item: item[0], reverse=True)
+    return [_node_to_decision(decision) for _, decision in scored[:limit]]
+
+
+@router.get("/causal-distance", response_model=CausalDistanceReport)
+async def causal_distance(
+    source: str = Query(..., description="Source node/decision ID"),
+    target: str = Query(..., description="Target node/decision ID"),
+    session: GraphSession = Depends(get_session),
+):
+    """FR-8 — Compute causal distance between two decisions via causal-edge-only traversal."""
+    from ...context.causal_analyzer import CausalChainAnalyzer
+
+    analyzer = CausalChainAnalyzer(session.graph)
+    report = await asyncio.to_thread(analyzer.interpret_causal_distance, source, target)
+    return CausalDistanceReport(**report)
 
 
 @router.get("/{decision_id}/compliance", response_model=ComplianceResponse)
@@ -146,35 +144,20 @@ async def check_compliance(
     decision_id: str,
     session: GraphSession = Depends(get_session),
 ):
-    """
-    Check policy compliance for a decision.
-
-    Returns a stub result when no PolicyEngine is wired up.
-    Inspects edges of type ``violates``, ``non_compliant``, or ``breaches``
-    originating from the decision node.  Returns ``compliant=True`` when no
-    such edges are found, which is the correct result for graphs that have
-    no policy-violation edges defined.
-    """
     node = await asyncio.to_thread(session.get_node, decision_id)
     if node is None:
-        raise KeyError(decision_id)
-
+        raise HTTPException(status_code=404, detail=f"Decision '{decision_id}' not found")
 
     edges, _ = await asyncio.to_thread(session.get_edges, skip=0, limit=999_999)
-
-    _VIOLATION_TYPES = {"violates", "non_compliant", "breaches"}
-    violation_edges = [
-        e for e in edges
-        if e.get("source") == decision_id and e.get("type") in _VIOLATION_TYPES
-    ]
-
+    violation_types = {"violates", "non_compliant", "breaches"}
     violations = [
         {
-            "policy_id": e.get("target"),
-            "type": e.get("type"),
-            "metadata": e.get("metadata", {}),
+            "policy_id": edge.get("target"),
+            "type": edge.get("type"),
+            "metadata": edge.get("properties", {}),
         }
-        for e in violation_edges
+        for edge in edges
+        if edge.get("source") == decision_id and edge.get("type") in violation_types
     ]
 
     return ComplianceResponse(

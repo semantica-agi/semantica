@@ -1,0 +1,85 @@
+<svg viewBox="0 0 900 112" xmlns="http://www.w3.org/2000/svg">
+<title>Semantica Pipeline Flow</title>
+<defs>
+  <style>text{font-family:Inter,system-ui,-apple-system,sans-serif}</style>
+  <filter id="sh" x="-10%" y="-20%" width="120%" height="140%">
+    <feDropShadow dx="0" dy="2" stdDeviation="4" flood-color="#00000014"/>
+  </filter>
+  <marker id="arr" markerWidth="7" markerHeight="6" refX="6" refY="3" orient="auto">
+    <polygon points="0 0, 7 3, 0 6" fill="#94a3b8"/>
+  </marker>
+</defs>
+
+<rect width="900" height="112" fill="#f1f5f9" rx="12"/>
+
+<!-- Step 1: Ingest (#4f46e5) x=12 -->
+<rect x="12" y="18" width="96" height="76" rx="10" fill="#4f46e5" filter="url(#sh)"/>
+<rect x="12" y="18" width="96" height="28" rx="10" fill="#4338ca"/>
+<rect x="12" y="36" width="96" height="10" fill="#4338ca"/>
+<text x="60" y="33" text-anchor="middle" font-size="9" font-weight="700" fill="white" opacity="0.75" letter-spacing="0.5">01</text>
+<text x="60" y="58" text-anchor="middle" font-size="12" font-weight="700" fill="white">Ingest</text>
+<text x="60" y="74" text-anchor="middle" font-size="9.5" fill="white" opacity="0.7">FileIngestor</text>
+<line x1="108" y1="56" x2="122" y2="56" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arr)"/>
+
+<!-- Step 2: Parse (#7c3aed) x=124 -->
+<rect x="124" y="18" width="96" height="76" rx="10" fill="#7c3aed" filter="url(#sh)"/>
+<rect x="124" y="18" width="96" height="28" rx="10" fill="#6d28d9"/>
+<rect x="124" y="36" width="96" height="10" fill="#6d28d9"/>
+<text x="172" y="33" text-anchor="middle" font-size="9" font-weight="700" fill="white" opacity="0.75" letter-spacing="0.5">02</text>
+<text x="172" y="58" text-anchor="middle" font-size="12" font-weight="700" fill="white">Parse</text>
+<text x="172" y="74" text-anchor="middle" font-size="9.5" fill="white" opacity="0.7">DocumentParser</text>
+<line x1="220" y1="56" x2="234" y2="56" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arr)"/>
+
+<!-- Step 3: Normalize (#9333ea) x=236 -->
+<rect x="236" y="18" width="96" height="76" rx="10" fill="#9333ea" filter="url(#sh)"/>
+<rect x="236" y="18" width="96" height="28" rx="10" fill="#7e22ce"/>
+<rect x="236" y="36" width="96" height="10" fill="#7e22ce"/>
+<text x="284" y="33" text-anchor="middle" font-size="9" font-weight="700" fill="white" opacity="0.75" letter-spacing="0.5">03</text>
+<text x="284" y="58" text-anchor="middle" font-size="12" font-weight="700" fill="white">Normalize</text>
+<text x="284" y="74" text-anchor="middle" font-size="9.5" fill="white" opacity="0.7">TextNormalizer</text>
+<line x1="332" y1="56" x2="346" y2="56" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arr)"/>
+
+<!-- Step 4: Extract (#2563eb) x=348 -->
+<rect x="348" y="18" width="96" height="76" rx="10" fill="#2563eb" filter="url(#sh)"/>
+<rect x="348" y="18" width="96" height="28" rx="10" fill="#1d4ed8"/>
+<rect x="348" y="36" width="96" height="10" fill="#1d4ed8"/>
+<text x="396" y="33" text-anchor="middle" font-size="9" font-weight="700" fill="white" opacity="0.75" letter-spacing="0.5">04</text>
+<text x="396" y="58" text-anchor="middle" font-size="12" font-weight="700" fill="white">Extract</text>
+<text x="396" y="74" text-anchor="middle" font-size="9.5" fill="white" opacity="0.7">NERExtractor</text>
+<line x1="444" y1="56" x2="458" y2="56" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arr)"/>
+
+<!-- Step 5: Build KG (#0891b2) x=460 -->
+<rect x="460" y="18" width="96" height="76" rx="10" fill="#0891b2" filter="url(#sh)"/>
+<rect x="460" y="18" width="96" height="28" rx="10" fill="#0e7490"/>
+<rect x="460" y="36" width="96" height="10" fill="#0e7490"/>
+<text x="508" y="33" text-anchor="middle" font-size="9" font-weight="700" fill="white" opacity="0.75" letter-spacing="0.5">05</text>
+<text x="508" y="58" text-anchor="middle" font-size="12" font-weight="700" fill="white">Build KG</text>
+<text x="508" y="74" text-anchor="middle" font-size="9.5" fill="white" opacity="0.7">GraphBuilder</text>
+<line x1="556" y1="56" x2="570" y2="56" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arr)"/>
+
+<!-- Step 6: QA (#0f766e) x=572 -->
+<rect x="572" y="18" width="96" height="76" rx="10" fill="#0f766e" filter="url(#sh)"/>
+<rect x="572" y="18" width="96" height="28" rx="10" fill="#0d5e57"/>
+<rect x="572" y="36" width="96" height="10" fill="#0d5e57"/>
+<text x="620" y="33" text-anchor="middle" font-size="9" font-weight="700" fill="white" opacity="0.75" letter-spacing="0.5">06</text>
+<text x="620" y="58" text-anchor="middle" font-size="12" font-weight="700" fill="white">QA</text>
+<text x="620" y="74" text-anchor="middle" font-size="9.5" fill="white" opacity="0.7">ConflictDetector</text>
+<line x1="668" y1="56" x2="682" y2="56" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arr)"/>
+
+<!-- Step 7: Store (#059669) x=684 -->
+<rect x="684" y="18" width="96" height="76" rx="10" fill="#059669" filter="url(#sh)"/>
+<rect x="684" y="18" width="96" height="28" rx="10" fill="#047857"/>
+<rect x="684" y="36" width="96" height="10" fill="#047857"/>
+<text x="732" y="33" text-anchor="middle" font-size="9" font-weight="700" fill="white" opacity="0.75" letter-spacing="0.5">07</text>
+<text x="732" y="58" text-anchor="middle" font-size="12" font-weight="700" fill="white">Store</text>
+<text x="732" y="74" text-anchor="middle" font-size="9.5" fill="white" opacity="0.7">VectorStore</text>
+<line x1="780" y1="56" x2="794" y2="56" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arr)"/>
+
+<!-- Step 8: Deliver (#d97706) x=796 -->
+<rect x="796" y="18" width="96" height="76" rx="10" fill="#d97706" filter="url(#sh)"/>
+<rect x="796" y="18" width="96" height="28" rx="10" fill="#b45309"/>
+<rect x="796" y="36" width="96" height="10" fill="#b45309"/>
+<text x="844" y="33" text-anchor="middle" font-size="9" font-weight="700" fill="white" opacity="0.75" letter-spacing="0.5">08</text>
+<text x="844" y="58" text-anchor="middle" font-size="12" font-weight="700" fill="white">Deliver</text>
+<text x="844" y="74" text-anchor="middle" font-size="9.5" fill="white" opacity="0.7">AgentContext</text>
+</svg>

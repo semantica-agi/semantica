@@ -1,0 +1,100 @@
+<svg viewBox="0 0 860 240" xmlns="http://www.w3.org/2000/svg">
+<title>GraphRAG Retrieval Flow</title>
+<defs>
+  <style>text{font-family:Inter,system-ui,-apple-system,sans-serif}</style>
+  <filter id="sh" x="-12%" y="-12%" width="124%" height="124%">
+    <feDropShadow dx="0" dy="2" stdDeviation="5" flood-color="#00000012"/>
+  </filter>
+  <linearGradient id="g1" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0%" stop-color="#818cf8"/><stop offset="100%" stop-color="#4f46e5"/>
+  </linearGradient>
+  <linearGradient id="g2" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0%" stop-color="#38bdf8"/><stop offset="100%" stop-color="#0284c7"/>
+  </linearGradient>
+  <linearGradient id="g3" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0%" stop-color="#a78bfa"/><stop offset="100%" stop-color="#7c3aed"/>
+  </linearGradient>
+  <linearGradient id="g4" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0%" stop-color="#34d399"/><stop offset="100%" stop-color="#059669"/>
+  </linearGradient>
+  <clipPath id="cc1"><rect x="18" y="70" width="130" height="100" rx="12"/></clipPath>
+  <clipPath id="cc2a"><rect x="184" y="62" width="160" height="56" rx="10"/></clipPath>
+  <clipPath id="cc2b"><rect x="184" y="130" width="160" height="56" rx="10"/></clipPath>
+  <clipPath id="cc3"><rect x="384" y="62" width="148" height="124" rx="12"/></clipPath>
+  <clipPath id="cc4"><rect x="574" y="70" width="130" height="100" rx="12"/></clipPath>
+  <clipPath id="cc5"><rect x="750" y="70" width="94" height="100" rx="12"/></clipPath>
+  <marker id="arr" markerWidth="9" markerHeight="7" refX="8" refY="3.5" orient="auto">
+    <polygon points="0 0, 9 3.5, 0 7" fill="#94a3b8"/>
+  </marker>
+</defs>
+
+<rect width="860" height="240" fill="#f1f5f9" rx="16"/>
+<text x="430" y="32" text-anchor="middle" font-size="13" font-weight="700" fill="#334155">GraphRAG — Graph-Augmented Retrieval Flow</text>
+
+<!-- ── BOX 1: User Query ── -->
+<rect x="18" y="70" width="130" height="100" rx="12" fill="white" filter="url(#sh)"/>
+<rect x="18" y="70" width="130" height="38" fill="url(#g1)" clip-path="url(#cc1)"/>
+<text x="83" y="88" text-anchor="middle" font-size="9" font-weight="700" fill="white" opacity="0.8" letter-spacing="1">QUERY</text>
+<text x="83" y="104" text-anchor="middle" font-size="12" font-weight="700" fill="white">User Query</text>
+<text x="83" y="135" text-anchor="middle" font-size="11" fill="#475569">"Who founded</text>
+<text x="83" y="151" text-anchor="middle" font-size="11" fill="#475569">Apple Inc.?"</text>
+
+<!-- Arrow from Query → Retrieve (splits to 2) -->
+<line x1="148" y1="99" x2="176" y2="86" stroke="#cbd5e1" stroke-width="1.5" marker-end="url(#arr)"/>
+<line x1="148" y1="121" x2="176" y2="154" stroke="#cbd5e1" stroke-width="1.5" marker-end="url(#arr)"/>
+
+<!-- ── BOX 2a: Vector Search ── -->
+<rect x="184" y="62" width="160" height="56" rx="10" fill="white" filter="url(#sh)"/>
+<rect x="184" y="62" width="160" height="24" fill="url(#g2)" clip-path="url(#cc2a)"/>
+<text x="264" y="77" text-anchor="middle" font-size="9.5" font-weight="700" fill="white">Vector Search</text>
+<text x="264" y="100" text-anchor="middle" font-size="10.5" fill="#334155" font-weight="600">Embedding similarity</text>
+<text x="264" y="113" text-anchor="middle" font-size="9.5" fill="#64748b">top-k semantic matches</text>
+
+<!-- ── BOX 2b: Graph Traversal ── -->
+<rect x="184" y="130" width="160" height="56" rx="10" fill="white" filter="url(#sh)"/>
+<rect x="184" y="130" width="160" height="24" fill="url(#g3)" clip-path="url(#cc2b)"/>
+<text x="264" y="145" text-anchor="middle" font-size="9.5" font-weight="700" fill="white">Graph Traversal</text>
+<text x="264" y="168" text-anchor="middle" font-size="10.5" fill="#334155" font-weight="600">Relation paths + context</text>
+<text x="264" y="181" text-anchor="middle" font-size="9.5" fill="#64748b">entity neighborhood</text>
+
+<!-- Arrows from Retrieve → Context Builder -->
+<line x1="344" y1="90" x2="376" y2="112" stroke="#cbd5e1" stroke-width="1.5" marker-end="url(#arr)"/>
+<line x1="344" y1="158" x2="376" y2="136" stroke="#cbd5e1" stroke-width="1.5" marker-end="url(#arr)"/>
+
+<!-- ── BOX 3: Context Builder ── -->
+<rect x="384" y="62" width="148" height="124" rx="12" fill="white" filter="url(#sh)"/>
+<rect x="384" y="62" width="148" height="38" fill="url(#g3)" clip-path="url(#cc3)"/>
+<text x="458" y="80" text-anchor="middle" font-size="9" font-weight="700" fill="white" opacity="0.8" letter-spacing="1">CONTEXT</text>
+<text x="458" y="96" text-anchor="middle" font-size="12" font-weight="700" fill="white">Build Context</text>
+<text x="458" y="124" text-anchor="middle" font-size="10.5" fill="#334155" font-weight="600">Merge vectors + graph</text>
+<text x="458" y="140" text-anchor="middle" font-size="9.5" fill="#64748b">rank by relevance</text>
+<text x="458" y="156" text-anchor="middle" font-size="9.5" fill="#64748b">attach source links</text>
+<text x="458" y="172" text-anchor="middle" font-size="9.5" fill="#64748b">provenance metadata</text>
+
+<!-- Arrow Context → LLM -->
+<line x1="532" y1="124" x2="566" y2="120" stroke="#cbd5e1" stroke-width="1.5" marker-end="url(#arr)"/>
+
+<!-- ── BOX 4: LLM Generation ── -->
+<rect x="574" y="70" width="130" height="100" rx="12" fill="white" filter="url(#sh)"/>
+<rect x="574" y="70" width="130" height="38" fill="url(#g1)" clip-path="url(#cc4)"/>
+<text x="639" y="88" text-anchor="middle" font-size="9" font-weight="700" fill="white" opacity="0.8" letter-spacing="1">GENERATE</text>
+<text x="639" y="104" text-anchor="middle" font-size="12" font-weight="700" fill="white">LLM</text>
+<text x="639" y="131" text-anchor="middle" font-size="10.5" fill="#334155" font-weight="600">Grounded generation</text>
+<text x="639" y="147" text-anchor="middle" font-size="9.5" fill="#64748b">context-aware answer</text>
+<text x="639" y="161" text-anchor="middle" font-size="9.5" fill="#64748b">no hallucination</text>
+
+<!-- Arrow LLM → Answer -->
+<line x1="704" y1="120" x2="742" y2="120" stroke="#cbd5e1" stroke-width="1.5" marker-end="url(#arr)"/>
+
+<!-- ── BOX 5: Answer ── -->
+<rect x="750" y="70" width="94" height="100" rx="12" fill="white" filter="url(#sh)"/>
+<rect x="750" y="70" width="94" height="38" fill="url(#g4)" clip-path="url(#cc5)"/>
+<text x="797" y="88" text-anchor="middle" font-size="9" font-weight="700" fill="white" opacity="0.8" letter-spacing="1">ANSWER</text>
+<text x="797" y="104" text-anchor="middle" font-size="12" font-weight="700" fill="white">Output</text>
+<text x="797" y="132" text-anchor="middle" font-size="10" fill="#334155" font-weight="600">Traceable</text>
+<text x="797" y="147" text-anchor="middle" font-size="10" fill="#334155" font-weight="600">answer</text>
+<text x="797" y="162" text-anchor="middle" font-size="9.5" fill="#64748b">+ source nodes</text>
+
+<!-- Bottom label -->
+<text x="430" y="220" text-anchor="middle" font-size="10" fill="#94a3b8">Every claim links back to a source node — no black-box outputs</text>
+</svg>

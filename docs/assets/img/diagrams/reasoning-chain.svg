@@ -1,0 +1,90 @@
+<svg viewBox="0 0 800 280" xmlns="http://www.w3.org/2000/svg">
+<title>Reasoning and Inference Chain</title>
+<defs>
+  <style>text{font-family:Inter,system-ui,-apple-system,sans-serif}</style>
+  <filter id="sh" x="-12%" y="-12%" width="124%" height="130%">
+    <feDropShadow dx="0" dy="2" stdDeviation="5" flood-color="#00000012"/>
+  </filter>
+  <linearGradient id="g-fact" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0%" stop-color="#38bdf8"/><stop offset="100%" stop-color="#0284c7"/>
+  </linearGradient>
+  <linearGradient id="g-rule" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0%" stop-color="#a78bfa"/><stop offset="100%" stop-color="#7c3aed"/>
+  </linearGradient>
+  <linearGradient id="g-inf" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0%" stop-color="#34d399"/><stop offset="100%" stop-color="#059669"/>
+  </linearGradient>
+  <linearGradient id="g-exp" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0%" stop-color="#fb923c"/><stop offset="100%" stop-color="#ea580c"/>
+  </linearGradient>
+  <clipPath id="cf1"><rect x="20" y="60" width="176" height="68" rx="10"/></clipPath>
+  <clipPath id="cf2"><rect x="20" y="152" width="176" height="68" rx="10"/></clipPath>
+  <clipPath id="cr"><rect x="270" y="90" width="176" height="100" rx="12"/></clipPath>
+  <clipPath id="ci"><rect x="516" y="60" width="176" height="68" rx="10"/></clipPath>
+  <clipPath id="ce"><rect x="516" y="152" width="176" height="68" rx="10"/></clipPath>
+  <marker id="arr" markerWidth="9" markerHeight="7" refX="8" refY="3.5" orient="auto">
+    <polygon points="0 0, 9 3.5, 0 7" fill="#94a3b8"/>
+  </marker>
+</defs>
+
+<rect width="800" height="280" fill="#f1f5f9" rx="16"/>
+<text x="400" y="30" text-anchor="middle" font-size="13" font-weight="700" fill="#334155">Reasoning Engine — Forward Chaining Inference</text>
+
+<!-- ── FACT 1 ── -->
+<rect x="20" y="60" width="176" height="68" rx="10" fill="white" filter="url(#sh)"/>
+<rect x="20" y="60" width="176" height="26" fill="url(#g-fact)" clip-path="url(#cf1)"/>
+<text x="108" y="76" text-anchor="middle" font-size="9.5" font-weight="700" fill="white">KNOWN FACT</text>
+<text x="108" y="104" text-anchor="middle" font-size="11" fill="#334155" font-weight="600">Steve Jobs</text>
+<text x="108" y="120" text-anchor="middle" font-size="10.5" fill="#64748b">founded Apple Inc.</text>
+
+<!-- ── FACT 2 ── -->
+<rect x="20" y="152" width="176" height="68" rx="10" fill="white" filter="url(#sh)"/>
+<rect x="20" y="152" width="176" height="26" fill="url(#g-fact)" clip-path="url(#cf2)"/>
+<text x="108" y="168" text-anchor="middle" font-size="9.5" font-weight="700" fill="white">KNOWN FACT</text>
+<text x="108" y="196" text-anchor="middle" font-size="11" fill="#334155" font-weight="600">Apple Inc.</text>
+<text x="108" y="212" text-anchor="middle" font-size="10.5" fill="#64748b">headquartered in Cupertino</text>
+
+<!-- Arrows: Facts → Rule Engine -->
+<line x1="196" y1="100" x2="262" y2="128" stroke="#cbd5e1" stroke-width="1.5" marker-end="url(#arr)"/>
+<line x1="196" y1="186" x2="262" y2="158" stroke="#cbd5e1" stroke-width="1.5" marker-end="url(#arr)"/>
+
+<!-- "Facts" label -->
+<text x="108" y="50" text-anchor="middle" font-size="10" font-weight="600" fill="#0891b2">Base Facts</text>
+
+<!-- ── RULE ENGINE ── -->
+<rect x="270" y="90" width="176" height="100" rx="12" fill="white" filter="url(#sh)"/>
+<rect x="270" y="90" width="176" height="32" fill="url(#g-rule)" clip-path="url(#cr)"/>
+<text x="358" y="107" text-anchor="middle" font-size="9" font-weight="700" fill="white" opacity="0.8" letter-spacing="1">RULE ENGINE</text>
+<text x="358" y="120" text-anchor="middle" font-size="12" font-weight="700" fill="white">IF / THEN Rule</text>
+<text x="358" y="148" text-anchor="middle" font-size="10" fill="#334155">IF ?x founded ?y</text>
+<text x="358" y="163" text-anchor="middle" font-size="10" fill="#334155">AND ?y located_in ?z</text>
+<text x="358" y="178" text-anchor="middle" font-size="10" fill="#334155">THEN ?x connected_to ?z</text>
+
+<!-- Arrow Rule → Inference -->
+<line x1="446" y1="130" x2="508" y2="106" stroke="#cbd5e1" stroke-width="1.5" marker-end="url(#arr)"/>
+<!-- Arrow Rule → Explanation -->
+<line x1="446" y1="150" x2="508" y2="182" stroke="#cbd5e1" stroke-width="1.5" marker-end="url(#arr)"/>
+
+<!-- ── DERIVED FACT ── -->
+<rect x="516" y="60" width="260" height="68" rx="10" fill="white" filter="url(#sh)"/>
+<rect x="516" y="60" width="260" height="26" fill="url(#g-inf)" clip-path="url(#ci)"/>
+<text x="646" y="76" text-anchor="middle" font-size="9.5" font-weight="700" fill="white">DERIVED FACT</text>
+<text x="646" y="104" text-anchor="middle" font-size="11" fill="#334155" font-weight="600">Steve Jobs connected_to Cupertino</text>
+<text x="646" y="120" text-anchor="middle" font-size="10" fill="#059669">confidence: 0.91 · derived via rule #3</text>
+
+<!-- ── EXPLANATION PATH ── -->
+<rect x="516" y="152" width="260" height="68" rx="10" fill="white" filter="url(#sh)"/>
+<rect x="516" y="152" width="260" height="26" fill="url(#g-exp)" clip-path="url(#ce)"/>
+<text x="646" y="168" text-anchor="middle" font-size="9.5" font-weight="700" fill="white">EXPLANATION PATH</text>
+<text x="646" y="196" text-anchor="middle" font-size="10.5" fill="#334155">Jobs→founded→Apple→located_in→Cupertino</text>
+<text x="646" y="212" text-anchor="middle" font-size="10" fill="#64748b">traceable steps · not a black box</text>
+
+<!-- Output labels -->
+<text x="646" y="50" text-anchor="middle" font-size="10" font-weight="600" fill="#059669">Derived Knowledge</text>
+
+<!-- Engine label -->
+<text x="358" y="82" text-anchor="middle" font-size="10" font-weight="600" fill="#7c3aed">Rete · Forward Chain · Datalog</text>
+
+<!-- Bottom note -->
+<text x="400" y="264" text-anchor="middle" font-size="10" fill="#94a3b8">Every derived fact ships with a traceable explanation path — zero black-box conclusions</text>
+</svg>

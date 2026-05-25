@@ -1,6 +1,10 @@
-# Apache AGE Graph Store
+---
+title: "Apache AGE Graph Store"
+description: "PostgreSQL + Apache AGE backend for openCypher queries alongside standard SQL."
+icon: "database"
+---
 
-**Backend**: PostgreSQL + [Apache AGE](https://age.apache.org/)
+**Backend**: PostgreSQL + [Apache AGE](https://age.apache.org/)  
 **Driver**: `psycopg2`
 
 Apache AGE is a PostgreSQL extension that adds graph database functionality, enabling you to run openCypher queries alongside traditional SQL. This backend lets Semantica use AGE as a property graph store with the same interface as Neo4j and FalkorDB.
@@ -19,7 +23,7 @@ Apache AGE is a PostgreSQL extension that adds graph database functionality, ena
 pip install psycopg2-binary
 ```
 
-> **Note**: Apache AGE must be compiled and installed into your PostgreSQL instance. See the [AGE installation guide](https://age.apache.org/age-manual/master/intro/setup.html).
+<Note>Apache AGE must be compiled and installed into your PostgreSQL instance. See the [AGE installation guide](https://age.apache.org/age-manual/master/intro/setup.html).</Note>
 
 ---
 
@@ -121,7 +125,7 @@ node = store.create_node(
 # node["properties"]["semantica_id"] → "doc-abc-123"
 ```
 
-> **Important**: Never mix AGE internal IDs with semantic IDs. Use `node["id"]` for graph operations (delete, update, traverse) and `node["properties"]["semantica_id"]` for application-level lookups.
+<Warning>Never mix AGE internal IDs with semantic IDs. Use `node["id"]` for graph operations (delete, update, traverse) and `node["properties"]["semantica_id"]` for application-level lookups.</Warning>
 
 ---
 

@@ -70,25 +70,12 @@ License: MIT
 """
 
 import re
-from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 from ..utils.exceptions import ProcessingError
 from ..utils.logging import get_logger
 from ..utils.progress_tracker import get_progress_tracker
-from .ner_extractor import Entity
-
-
-@dataclass
-class Relation:
-    """Relation representation."""
-
-    subject: Entity
-    predicate: str
-    object: Entity
-    confidence: float = 1.0
-    context: str = ""
-    metadata: Dict[str, Any] = field(default_factory=dict)
+from .types import Entity, Relation
 
 
 class RelationExtractor:

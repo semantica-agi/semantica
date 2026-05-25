@@ -47,73 +47,97 @@ Author: Semantica Contributors
 License: MIT
 """
 
-from typing import Any, Dict, List, Optional, Union
+from __future__ import annotations
 
-from .config import Config, config
-from .coreference_resolver import (
-    CoreferenceChain,
-    CoreferenceChainBuilder,
-    CoreferenceResolver,
-    EntityCoreferenceDetector,
-    Mention,
-    PronounResolver,
-)
-from .event_detector import (
-    Event,
-    EventClassifier,
-    EventDetector,
-    EventRelationshipExtractor,
-    TemporalEventProcessor,
-)
-from .extraction_validator import ExtractionValidator, ValidationResult
-from .llm_extraction import LLMEnhancer, LLMExtraction, LLMResponse
-from .methods import get_entity_method, get_relation_method, get_triplet_method
-from .named_entity_recognizer import (
-    CustomEntityDetector,
-    EntityClassifier,
-    EntityConfidenceScorer,
-    NamedEntityRecognizer,
-)
-from .ner_extractor import Entity, NERExtractor
-from .providers import (
-    AnthropicProvider,
-    BaseProvider,
-    GeminiProvider,
-    GroqProvider,
-    HuggingFaceLLMProvider,
-    HuggingFaceModelLoader,
-    OllamaProvider,
-    OpenAIProvider,
-    create_provider,
-)
-from .registry import (
-    MethodRegistry,
-    ProviderRegistry,
-    method_registry,
-    provider_registry,
-)
-from .relation_extractor import Relation, RelationExtractor
-from .semantic_analyzer import (
-    RoleLabeler,
-    SemanticAnalyzer,
-    SemanticCluster,
-    SemanticClusterer,
-    SemanticRole,
-    SimilarityAnalyzer,
-)
-from .semantic_network_extractor import (
-    SemanticEdge,
-    SemanticNetwork,
-    SemanticNetworkExtractor,
-    SemanticNode,
-)
-from .triplet_extractor import (
-    RDFSerializer,
-    Triplet,
-    TripletExtractor,
-    TripletQualityChecker,
-    TripletValidator,
-)
+import importlib
+from typing import Any, Dict, Tuple
+
+
+_LAZY_EXPORTS: Dict[str, Tuple[str, str]] = {
+    # Named Entity Recognition
+    "NamedEntityRecognizer": (".named_entity_recognizer", "NamedEntityRecognizer"),
+    "EntityClassifier": (".named_entity_recognizer", "EntityClassifier"),
+    "EntityConfidenceScorer": (".named_entity_recognizer", "EntityConfidenceScorer"),
+    "CustomEntityDetector": (".named_entity_recognizer", "CustomEntityDetector"),
+    "NERExtractor": (".ner_extractor", "NERExtractor"),
+    "Entity": (".types", "Entity"),
+    # Relation Extraction
+    "RelationExtractor": (".relation_extractor", "RelationExtractor"),
+    "Relation": (".types", "Relation"),
+    # Event Detection
+    "EventDetector": (".event_detector", "EventDetector"),
+    "Event": (".event_detector", "Event"),
+    "EventClassifier": (".event_detector", "EventClassifier"),
+    "TemporalEventProcessor": (".event_detector", "TemporalEventProcessor"),
+    "EventRelationshipExtractor": (".event_detector", "EventRelationshipExtractor"),
+    # Coreference Resolution
+    "CoreferenceResolver": (".coreference_resolver", "CoreferenceResolver"),
+    "Mention": (".coreference_resolver", "Mention"),
+    "CoreferenceChain": (".coreference_resolver", "CoreferenceChain"),
+    "PronounResolver": (".coreference_resolver", "PronounResolver"),
+    "EntityCoreferenceDetector": (".coreference_resolver", "EntityCoreferenceDetector"),
+    "CoreferenceChainBuilder": (".coreference_resolver", "CoreferenceChainBuilder"),
+    # Triplet Extraction
+    "TripletExtractor": (".triplet_extractor", "TripletExtractor"),
+    "TripleExtractor": (".triplet_extractor", "TripletExtractor"),
+    "Triplet": (".types", "Triplet"),
+    "TripletValidator": (".triplet_extractor", "TripletValidator"),
+    "RDFSerializer": (".triplet_extractor", "RDFSerializer"),
+    "TripletQualityChecker": (".triplet_extractor", "TripletQualityChecker"),
+    # Semantic Analysis
+    "SemanticAnalyzer": (".semantic_analyzer", "SemanticAnalyzer"),
+    "SemanticRole": (".semantic_analyzer", "SemanticRole"),
+    "SemanticCluster": (".semantic_analyzer", "SemanticCluster"),
+    "SimilarityAnalyzer": (".semantic_analyzer", "SimilarityAnalyzer"),
+    "RoleLabeler": (".semantic_analyzer", "RoleLabeler"),
+    "SemanticClusterer": (".semantic_analyzer", "SemanticClusterer"),
+    # Semantic Network
+    "SemanticNetworkExtractor": (".semantic_network_extractor", "SemanticNetworkExtractor"),
+    "SemanticNode": (".semantic_network_extractor", "SemanticNode"),
+    "SemanticEdge": (".semantic_network_extractor", "SemanticEdge"),
+    "SemanticNetwork": (".semantic_network_extractor", "SemanticNetwork"),
+    # LLM Enhancement
+    "LLMExtraction": (".llm_extraction", "LLMExtraction"),
+    "LLMEnhancer": (".llm_extraction", "LLMEnhancer"),
+    "LLMResponse": (".llm_extraction", "LLMResponse"),
+    # Validation
+    "ExtractionValidator": (".extraction_validator", "ExtractionValidator"),
+    "ValidationResult": (".extraction_validator", "ValidationResult"),
+    # Providers
+    "BaseProvider": (".providers", "BaseProvider"),
+    "OpenAIProvider": (".providers", "OpenAIProvider"),
+    "GeminiProvider": (".providers", "GeminiProvider"),
+    "GroqProvider": (".providers", "GroqProvider"),
+    "AnthropicProvider": (".providers", "AnthropicProvider"),
+    "OllamaProvider": (".providers", "OllamaProvider"),
+    "HuggingFaceLLMProvider": (".providers", "HuggingFaceLLMProvider"),
+    "HuggingFaceModelLoader": (".providers", "HuggingFaceModelLoader"),
+    "create_provider": (".providers", "create_provider"),
+    # Registry
+    "ProviderRegistry": (".registry", "ProviderRegistry"),
+    "MethodRegistry": (".registry", "MethodRegistry"),
+    "provider_registry": (".registry", "provider_registry"),
+    "method_registry": (".registry", "method_registry"),
+    # Config
+    "Config": (".config", "Config"),
+    "config": (".config", "config"),
+    # Methods
+    "get_entity_method": (".methods", "get_entity_method"),
+    "get_relation_method": (".methods", "get_relation_method"),
+    "get_triplet_method": (".methods", "get_triplet_method"),
+}
+
+
+def __getattr__(name: str) -> Any:
+    """Lazily load semantic extraction exports to avoid import cycles and optional deps."""
+    if name not in _LAZY_EXPORTS:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+    module_name, attr_name = _LAZY_EXPORTS[name]
+    module = importlib.import_module(module_name, __name__)
+    value = getattr(module, attr_name)
+    globals()[name] = value
+    return value
 
 __all__ = [
     # Named Entity Recognition

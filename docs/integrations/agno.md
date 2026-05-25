@@ -1,27 +1,33 @@
-# Agno Integration
+---
+title: "Agno Integration"
+description: "Wire Semantica's semantic intelligence stack into Agno multi-agent teams via five focused components."
+icon: "robot"
+---
 
-Semantica's Agno integration (`semantica[agno]`) wires the full Semantica
-semantic intelligence stack into the [Agno](https://github.com/agno-agi/agno)
-agentic framework via five focused components.
+> Five drop-in components that bring Semantica's KG, vector memory, and decision intelligence into any Agno agent or team.
+
+---
 
 ## Installation
 
 ```bash
 # Core integration
-pip install semantica[agno]
+pip install "semantica[agno]"
 
 # With a graph store backend
-pip install semantica[agno,graph-neo4j]
-pip install semantica[agno,graph-falkordb]
+pip install "semantica[agno,graph-neo4j]"
+pip install "semantica[agno,graph-falkordb]"
 
 # Full stack
-pip install semantica[agno,graph-neo4j,vectorstore-pgvector]
+pip install "semantica[agno,graph-neo4j,vectorstore-pgvector]"
 ```
+
+---
 
 ## Components at a Glance
 
 | Class | Agno Primitive | Semantica Backing |
-|---|---|---|
+|-------|---------------|-------------------|
 | `AgnoContextStore` | `AgentMemory(db=…)` | `AgentContext` + `VectorStore` |
 | `AgnoKnowledgeGraph` | `Agent(knowledge=…)` | `ContextGraph` + KG pipeline |
 | `AgnoDecisionKit` | `Agent(tools=[…])` | `DecisionQuery`, `CausalChainAnalyzer`, `PolicyEngine` |
@@ -32,8 +38,7 @@ pip install semantica[agno,graph-neo4j,vectorstore-pgvector]
 
 ## 1. AgnoContextStore
 
-Replaces Agno's flat conversation storage with a hybrid **vector + context
-graph** memory store.  Implements `agno.memory.db.base.MemoryDb`.
+Replaces Agno's flat conversation storage with a hybrid **vector + context graph** memory store. Implements `agno.memory.db.base.MemoryDb`.
 
 ```python
 from agno.agent import Agent
@@ -61,19 +66,18 @@ agent = Agent(
 agent.print_response("Recommend a portfolio allocation for a risk-averse investor.")
 ```
 
-### Key behaviours
-
-- `upsert_memory()` — stores text in `AgentContext` (vector index + graph node)
-- `read_memories()` — hybrid retrieval: vector similarity + optional graph hop expansion
-- `record_decision()` — records a structured decision with reasoning & outcome
-- `find_precedents()` — returns semantically similar historical decisions
+| Method | Description |
+|--------|-------------|
+| `upsert_memory()` | Store text in `AgentContext` (vector index + graph node) |
+| `read_memories()` | Hybrid retrieval: vector similarity + graph hop expansion |
+| `record_decision()` | Record a structured decision with reasoning and outcome |
+| `find_precedents()` | Return semantically similar historical decisions |
 
 ---
 
 ## 2. AgnoKnowledgeGraph
 
-Gives Agno agents a queryable `ContextGraph` instead of a flat document store.
-Ingested documents pass through the full Semantica extraction pipeline.
+Gives Agno agents a queryable `ContextGraph` instead of a flat document store. Ingested documents pass through the full Semantica extraction pipeline.
 
 ```python
 from agno.agent import Agent
@@ -89,10 +93,7 @@ kg = AgnoKnowledgeGraph(
     relation_extractor=RelationExtractor(),
 )
 
-# Ingest local files
 kg.load("regulatory_docs/", recursive=True)
-
-# Ingest raw text
 kg.load(texts=["Basel IV capital requirements apply from January 2026."])
 
 agent = Agent(
@@ -102,23 +103,19 @@ agent = Agent(
 )
 ```
 
-### Ingestion pipeline
-
+**Ingestion pipeline:**
 ```
 parse → NER → relation extract → graph build → vector index
 ```
 
-### Search: multi-hop GraphRAG
-
+**Search (multi-hop GraphRAG):**
 ```
 vector retrieval → entity lookup → graph hop expansion → context injection
 ```
 
-### Get entity subgraph
-
 ```python
 ctx = kg.get_graph_context("Basel IV")
-# Returns a text summary of the entity's immediate neighbourhood in the graph
+# Returns a text summary of the entity's immediate neighbourhood
 ```
 
 ---
@@ -145,28 +142,14 @@ agent = Agent(
 agent.print_response("Should we approve this mortgage application?")
 ```
 
-### Tools
-
-| Tool | Description | Key Parameters |
-|---|---|---|
-| `record_decision` | Record decision with reasoning and outcome | `category`, `scenario`, `reasoning`, `outcome`, `confidence`, `entities` |
-| `find_precedents` | Search for similar past decisions | `scenario`, `category`, `limit` |
-| `trace_causal_chain` | Trace causal chain of a decision | `decision_id`, `depth` |
-| `analyze_impact` | Assess downstream influence of a decision | `decision_id` |
-| `check_policy` | Validate decision against policy rules | `decision_data`, `policy_rules` |
-| `get_decision_summary` | Summarise decision history by category | `category`, `since`, `limit` |
-
-### Example agent turn
-
-```
-User: Should we approve this mortgage application?
-
-Agent [tool: find_precedents]         → 12 similar mortgage approvals found
-Agent [tool: check_policy]            → complies with lending policy v2.3
-Agent [tool: record_decision]         → recorded: loan_approval / approved / confidence=0.94
-Agent: Based on 12 historical precedents and full policy compliance, I recommend
-       approval. Credit score 740, 22% down payment, DTI 31% — all within thresholds.
-```
+| Tool | Description |
+|------|-------------|
+| `record_decision` | Record a decision with reasoning, outcome, and confidence |
+| `find_precedents` | Search for similar past decisions |
+| `trace_causal_chain` | Trace causal chain of a decision |
+| `analyze_impact` | Assess downstream influence of a decision |
+| `check_policy` | Validate decision against policy rules |
+| `get_decision_summary` | Summarise decision history by category |
 
 ---
 
@@ -177,7 +160,6 @@ Lets agents actively build and query the context graph during reasoning.
 ```python
 from agno.agent import Agent
 from agno.models.openai import OpenAIChat
-
 from integrations.agno import AgnoKGToolkit
 
 agent = Agent(
@@ -185,16 +167,10 @@ agent = Agent(
     tools=[AgnoKGToolkit()],
     show_tool_calls=True,
 )
-
-agent.print_response(
-    "Extract entities and relationships from this article and store them in the knowledge graph."
-)
 ```
 
-### Tools
-
 | Tool | Description |
-|---|---|
+|------|-------------|
 | `extract_entities` | Extract named entities from text |
 | `extract_relations` | Extract relationships between entities |
 | `add_to_graph` | Add entities / relations to the context graph |
@@ -207,8 +183,7 @@ agent.print_response(
 
 ## 5. AgnoSharedContext
 
-A single `ContextGraph` shared across an Agno `Team`.  Each agent gets a
-**role-scoped view** via `bind_agent()`.
+A single `ContextGraph` shared across an Agno `Team`. Each agent gets a role-scoped view via `bind_agent()`.
 
 ```python
 from agno.agent import Agent
@@ -244,19 +219,7 @@ team = Team(
     agents=[research_agent, decision_agent],
     mode="coordinate",
 )
-
-team.print_response(
-    "Analyse the competitive landscape and recommend our product strategy."
-)
 ```
-
-### Shared memory pool
-
-Memories written by one agent are immediately visible to all other agents in the
-team.  Each agent's writes are tagged with their role so they can be filtered
-independently.
-
-### Shared decisions
 
 ```python
 # Record a team-level decision
@@ -269,51 +232,11 @@ decision_id = shared.record_decision(
     agent_role="cfo",
 )
 
-# Query precedents across all agents' history
 precedents = shared.find_precedents("market expansion")
-
-# Get cross-agent analytics
-insights = shared.get_shared_insights()
+insights   = shared.get_shared_insights()
 ```
 
----
-
-## Use Cases
-
-### Regulated Industry Agents (Finance, Healthcare, Legal)
-
-Agents that log every decision with full provenance, reasoning chain, and policy
-compliance check for audit trails.
-
-```python
-kit = AgnoDecisionKit(context=ctx)
-# Every agent turn: find_precedents → check_policy → record_decision
-```
-
-### Long-Running Research Agents
-
-Agents that accumulate a persistent `ContextGraph` over days or weeks, enabling
-multi-hop reasoning over a growing knowledge base.
-
-```python
-kg = AgnoKnowledgeGraph(graph_builder=GraphBuilder(), ...)
-# Agents load new documents continuously; search benefits from the growing graph
-```
-
-### Enterprise Multi-Agent Coordination
-
-Teams using `AgnoSharedContext` to prevent contradictory decisions and share
-structured knowledge across specialist agents.
-
-### GraphRAG Customer Support
-
-Support agents that retrieve answers via graph traversal, providing more
-contextually grounded responses than flat vector search.
-
-### Explainable AI Pipelines
-
-Every agent step, entity reference, and causal chain is traceable back to a
-source document or prior decision.
+Memories written by one agent are immediately visible to all other agents in the team. Each agent's writes are tagged with their role for independent filtering.
 
 ---
 
@@ -321,14 +244,32 @@ source document or prior decision.
 
 ```python
 from integrations.agno import (
-    AgnoContextStore,       # MemoryDb implementation
-    AgnoKnowledgeGraph,     # AgentKnowledge implementation
-    AgnoDecisionKit,        # Decision intelligence Toolkit
-    AgnoKGToolkit,          # Knowledge graph Toolkit
-    AgnoSharedContext,      # Team-level shared context
-    AGNO_AVAILABLE,         # bool — True if agno is installed
+    AgnoContextStore,    # MemoryDb implementation
+    AgnoKnowledgeGraph,  # AgentKnowledge implementation
+    AgnoDecisionKit,     # Decision intelligence Toolkit
+    AgnoKGToolkit,       # Knowledge graph Toolkit
+    AgnoSharedContext,   # Team-level shared context
+    AGNO_AVAILABLE,      # bool — True if agno is installed
 )
 ```
 
-All five classes are usable **without** `agno` installed — they carry the full
-Semantica API and degrade gracefully when passed to Agno constructors.
+All five classes are usable without `agno` installed — they carry the full Semantica API and degrade gracefully.
+
+---
+
+## See Also
+
+<CardGroup cols={2}>
+  <Card title="Context Module" icon="brain" href="../reference/context">
+    AgentContext and ContextGraph backing the integration.
+  </Card>
+  <Card title="Knowledge Graph" icon="diagram-project" href="../reference/kg">
+    KG construction used by AgnoKnowledgeGraph.
+  </Card>
+  <Card title="LLMs" icon="microchip" href="../reference/llms">
+    Configure LLM providers for Agno agents.
+  </Card>
+  <Card title="Vector Store" icon="vector-square" href="../reference/vector_store">
+    Vector backend for AgnoContextStore.
+  </Card>
+</CardGroup>

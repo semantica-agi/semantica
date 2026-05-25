@@ -1,10 +1,12 @@
-"""
-Enrichment & reasoning routes — extraction, link prediction, dedup, reasoning.
+﻿"""
+Enrichment and reasoning routes.
 """
 
 import asyncio
+import re
+from typing import Dict, List, Optional, Tuple
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 
 from ..dependencies import get_session
 from ..schemas import (
@@ -14,12 +16,141 @@ from ..schemas import (
     EnrichExtractResponse,
     LinkPredictionRequest,
     LinkPredictionResponse,
+    MergeRequest,
+    MergeResponse,
     ReasoningRequest,
     ReasoningResponse,
 )
 from ..session import GraphSession
 
 router = APIRouter(tags=["Enrichment"])
+_FACT_RE = re.compile(r"^(?P<predicate>[A-Za-z_][\w:-]*)\((?P<args>.*)\)$")
+
+
+def _safe_dict(obj) -> dict:
+    if isinstance(obj, dict):
+        return obj
+    if hasattr(obj, "__dict__"):
+        return {key: value for key, value in obj.__dict__.items() if not key.startswith("_")}
+    return {"value": str(obj)}
+
+
+def _parse_fact(fact: str) -> Optional[Tuple[str, List[str]]]:
+    match = _FACT_RE.match((fact or "").strip())
+    if not match:
+        return None
+    args = [arg.strip().strip('"').strip("'") for arg in match.group("args").split(",") if arg.strip()]
+    return match.group("predicate"), args
+
+
+def _parse_rule(rule: str) -> Optional[Tuple[List[Tuple[str, List[str]]], Tuple[str, List[str]]]]:
+    cleaned = (rule or "").strip()
+    if not cleaned.upper().startswith("IF ") or " THEN " not in cleaned.upper():
+        return None
+    upper = cleaned.upper()
+    then_index = upper.index(" THEN ")
+    antecedent_text = cleaned[3:then_index]
+    consequent_text = cleaned[then_index + 6 :]
+    antecedents = []
+    for segment in re.split(r" AND ", " ".join(antecedent_text.split()), flags=re.IGNORECASE):
+        parsed = _parse_fact(segment)
+        if parsed is None:
+            return None
+        antecedents.append(parsed)
+    consequent = _parse_fact(consequent_text)
+    if consequent is None:
+        return None
+    return antecedents, consequent
+
+
+def _token_is_variable(token: str) -> bool:
+    return token.startswith("?")
+
+
+def _match_pattern(pattern: Tuple[str, List[str]], fact: Tuple[str, List[str]], bindings: Dict[str, str]) -> Optional[Dict[str, str]]:
+    pattern_predicate, pattern_args = pattern
+    fact_predicate, fact_args = fact
+    if pattern_predicate != fact_predicate or len(pattern_args) != len(fact_args):
+        return None
+
+    next_bindings = dict(bindings)
+    for pattern_arg, fact_arg in zip(pattern_args, fact_args):
+        if _token_is_variable(pattern_arg):
+            bound_value = next_bindings.get(pattern_arg)
+            if bound_value is None:
+                next_bindings[pattern_arg] = fact_arg
+            elif bound_value != fact_arg:
+                return None
+        elif pattern_arg != fact_arg:
+            return None
+    return next_bindings
+
+
+def _instantiate(pattern: Tuple[str, List[str]], bindings: Dict[str, str]) -> str:
+    predicate, args = pattern
+    resolved = [bindings.get(arg, arg) for arg in args]
+    return f"{predicate}({', '.join(resolved)})"
+
+
+def _run_fallback_reasoner(facts: List[str], rules: List[str]) -> List[str]:
+    parsed_facts = [parsed for parsed in (_parse_fact(fact) for fact in facts) if parsed is not None]
+    inferred: List[str] = []
+    known = set(facts)
+
+    for rule in rules:
+        parsed_rule = _parse_rule(rule)
+        if parsed_rule is None:
+            continue
+        antecedents, consequent = parsed_rule
+        bindings_list: List[Dict[str, str]] = [{}]
+        for antecedent in antecedents:
+            next_bindings: List[Dict[str, str]] = []
+            for bindings in bindings_list:
+                for fact in parsed_facts:
+                    matched = _match_pattern(antecedent, fact, bindings)
+                    if matched is not None:
+                        next_bindings.append(matched)
+            bindings_list = next_bindings
+            if not bindings_list:
+                break
+        for bindings in bindings_list:
+            candidate = _instantiate(consequent, bindings)
+            if candidate not in known:
+                known.add(candidate)
+                inferred.append(candidate)
+    return inferred
+
+
+def _apply_inferred_edges(
+    session: GraphSession,
+    inferred_facts: List[str],
+    body: ReasoningRequest,
+) -> int:
+    added_edges = 0
+    for fact in inferred_facts:
+        parsed = _parse_fact(fact)
+        if parsed is None:
+            continue
+        predicate, args = parsed
+        if len(args) != 2:
+            continue
+        source, target = args
+        if session.get_node(source) is None:
+            session.add_node(source, "entity", content=source)
+        if session.get_node(target) is None:
+            session.add_node(target, "entity", content=target)
+        edge_type = body.inferred_edge_type or predicate
+        session.add_edge(
+            source,
+            target,
+            edge_type=edge_type,
+            inferred=True,
+            inferred_from=fact,
+            reasoning_mode=body.mode,
+            rules=list(body.rules),
+        )
+        added_edges += 1
+    return added_edges
 
 
 @router.post("/api/enrich/extract", response_model=EnrichExtractResponse)
@@ -27,7 +158,6 @@ async def extract_entities(
     body: EnrichExtractRequest,
     session: GraphSession = Depends(get_session),
 ):
-    """Extract entities and relations from free text."""
     try:
         from ...semantic_extract.methods import extract_entities as _extract_entities
         from ...semantic_extract.methods import extract_relations as _extract_relations
@@ -39,16 +169,16 @@ async def extract_entities(
         rel_list = relations if isinstance(relations, list) else getattr(relations, "relations", [])
 
         return EnrichExtractResponse(
-            entities=[_safe_dict(e) for e in ent_list],
-            relations=[_safe_dict(r) for r in rel_list],
+            entities=[_safe_dict(entity) for entity in ent_list],
+            relations=[_safe_dict(relation) for relation in rel_list],
         )
     except ImportError:
-        raise ValueError(
-            "semantic_extract module not available. "
-            "Ensure spacy and transformers are installed."
+        raise HTTPException(
+            status_code=503,
+            detail="semantic_extract module not available. Ensure spacy and transformers are installed.",
         )
     except Exception as exc:
-        raise ValueError(f"Extraction failed: {exc}")
+        raise HTTPException(status_code=422, detail=f"Extraction failed: {exc}")
 
 
 @router.post("/api/enrich/links", response_model=LinkPredictionResponse)
@@ -56,53 +186,49 @@ async def predict_links(
     body: LinkPredictionRequest,
     session: GraphSession = Depends(get_session),
 ):
-    """Predict likely new edges for a node."""
     predictor = session.link_predictor
     if predictor is None:
-        raise ValueError("LinkPredictor not available — KG extras may not be installed.")
+        raise HTTPException(status_code=503, detail="LinkPredictor not available; KG extras may not be installed.")
 
     node = await asyncio.to_thread(session.get_node, body.node_id)
     if node is None:
-        raise KeyError(body.node_id)
+        raise HTTPException(status_code=404, detail=f"Node '{body.node_id}' not found")
 
     nodes, _ = await asyncio.to_thread(session.get_nodes, skip=0, limit=999_999)
     edges, _ = await asyncio.to_thread(session.get_edges, skip=0, limit=999_999)
 
-    # Pre-compute already-connected node IDs so we skip them.
-    # (LinkPredictor._edge_exists returns False for ContextGraph since it has no
-    # has_edge/get_edge method, so we handle exclusion here instead.)
-    existing_neighbours = {
-        e.get("target") for e in edges if e.get("source") == body.node_id
+    existing_neighbors = {
+        edge.get("target") for edge in edges if edge.get("source") == body.node_id
     } | {
-        e.get("source") for e in edges if e.get("target") == body.node_id
+        edge.get("source") for edge in edges if edge.get("target") == body.node_id
     }
 
-    # Score each candidate via score_link (which works with ContextGraph because
-    # it falls back to has_node / get_neighbors).
-    # Run in a thread so the CPU-bound scoring loop never blocks the event loop.
     def _score_all() -> list:
         results = []
-        for n in nodes:
-            candidate = n.get("id")
-            if not candidate or candidate == body.node_id or candidate in existing_neighbours:
+        for candidate_node in nodes:
+            candidate_id = candidate_node.get("id")
+            if not candidate_id or candidate_id == body.node_id or candidate_id in existing_neighbors:
+                continue
+            if body.candidate_type and candidate_node.get("type") != body.candidate_type:
                 continue
             try:
-                score = predictor.score_link(session.graph, body.node_id, candidate)
-                if score > 0:
-                    results.append(
-                        {"target": candidate, "score": score, "type": n.get("type", "entity")}
-                    )
+                score = predictor.score_link(session.graph, body.node_id, candidate_id)
             except Exception:
                 continue
-        results.sort(key=lambda x: x["score"], reverse=True)
+            if score >= body.min_score:
+                results.append(
+                    {
+                        "target": candidate_id,
+                        "score": score,
+                        "type": candidate_node.get("type", "entity"),
+                        "label": candidate_node.get("content", candidate_id),
+                    }
+                )
+        results.sort(key=lambda item: item["score"], reverse=True)
         return results
 
     scored = await asyncio.to_thread(_score_all)
-
-    return LinkPredictionResponse(
-        node_id=body.node_id,
-        predictions=scored[: body.top_n],
-    )
+    return LinkPredictionResponse(node_id=body.node_id, predictions=scored[: body.top_n])
 
 
 @router.post("/api/enrich/dedup", response_model=DedupResponse)
@@ -110,36 +236,22 @@ async def detect_duplicates(
     body: DedupRequest,
     session: GraphSession = Depends(get_session),
 ):
-    """Run a deduplication scan over graph entities."""
     try:
         from ...deduplication import DuplicateDetector
 
         detector = DuplicateDetector()
-        # Use asyncio.to_thread — get_nodes acquires an RLock and must not block
-        # the event loop.
         nodes, _ = await asyncio.to_thread(session.get_nodes, skip=0, limit=999_999)
-
         entities = [
-            {
-                "id": n.get("id"),
-                "text": n.get("content", n.get("id", "")),
-                "type": n.get("type", "entity"),
-            }
-            for n in nodes
+            {"id": node.get("id"), "text": node.get("content", node.get("id", "")), "type": node.get("type", "entity")}
+            for node in nodes
         ]
-
-        dups = await asyncio.to_thread(
-            detector.detect_duplicates, entities, threshold=body.threshold
-        )
-        dup_list = dups if isinstance(dups, list) else getattr(dups, "duplicates", [])
-        return DedupResponse(
-            duplicates=[_safe_dict(d) for d in dup_list],
-            total_flagged=len(dup_list),
-        )
+        duplicates = await asyncio.to_thread(detector.detect_duplicates, entities, threshold=body.threshold)
+        duplicate_list = duplicates if isinstance(duplicates, list) else getattr(duplicates, "duplicates", [])
+        return DedupResponse(duplicates=[_safe_dict(item) for item in duplicate_list], total_flagged=len(duplicate_list))
     except ImportError:
-        raise ValueError("Deduplication module not available.")
+        raise HTTPException(status_code=503, detail="Deduplication module not available.")
     except Exception as exc:
-        raise ValueError(f"Dedup scan failed: {exc}")
+        raise HTTPException(status_code=422, detail=f"Dedup scan failed: {exc}")
 
 
 @router.post("/api/reason", response_model=ReasoningResponse)
@@ -147,29 +259,101 @@ async def run_reasoning(
     body: ReasoningRequest,
     session: GraphSession = Depends(get_session),
 ):
-    """Run inference rules over facts."""
+    inferred_facts: List[str] = []
     try:
         from ...reasoning.reasoner import Reasoner
 
         reasoner = Reasoner()
-        inferred = await asyncio.to_thread(
-            reasoner.infer_facts, body.facts, body.rules
-        )
-
-        return ReasoningResponse(
-            inferred_facts=inferred if isinstance(inferred, list) else [],
-            rules_fired=len(inferred) if isinstance(inferred, list) else 0,
-        )
+        inferred = await asyncio.to_thread(reasoner.infer_facts, body.facts, body.rules)
+        if isinstance(inferred, list):
+            inferred_facts = inferred
+        if not inferred_facts:
+            inferred_facts = _run_fallback_reasoner(body.facts, body.rules)
     except ImportError:
-        raise ValueError("Reasoning module not available.")
-    except Exception as exc:
-        raise ValueError(f"Reasoning failed: {exc}")
+        inferred_facts = _run_fallback_reasoner(body.facts, body.rules)
+    except Exception:
+        inferred_facts = _run_fallback_reasoner(body.facts, body.rules)
+
+    added_edges = 0
+    if body.apply_to_graph and inferred_facts:
+        added_edges = await asyncio.to_thread(_apply_inferred_edges, session, inferred_facts, body)
+
+    return ReasoningResponse(
+        inferred_facts=inferred_facts,
+        rules_fired=len(inferred_facts),
+        added_edges=added_edges,
+        mutated=added_edges > 0,
+    )
 
 
-def _safe_dict(obj) -> dict:
-    """Convert an object to a JSON-safe dict."""
-    if isinstance(obj, dict):
-        return obj
-    if hasattr(obj, "__dict__"):
-        return {k: v for k, v in obj.__dict__.items() if not k.startswith("_")}
-    return {"value": str(obj)}
+@router.post("/api/enrich/merge", response_model=MergeResponse)
+async def merge_nodes(
+    body: MergeRequest,
+    session: GraphSession = Depends(get_session),
+):
+    primary_id = body.primary_id
+    duplicate_ids = body.duplicate_ids
+
+    node = await asyncio.to_thread(session.get_node, primary_id)
+    if node is None:
+        raise HTTPException(status_code=404, detail=f"Primary node '{primary_id}' not found")
+
+    def _do_merge() -> tuple[list[str], int]:
+        removed: list[str] = []
+        edges_updated = 0
+        graph = session.graph
+
+        for duplicate_id in duplicate_ids:
+            if duplicate_id == primary_id or duplicate_id not in graph:
+                continue
+
+            duplicate_node = graph.nodes.get(duplicate_id)
+            primary_node = graph.nodes.get(primary_id)
+            if duplicate_node and primary_node:
+                for key, value in (duplicate_node.properties or {}).items():
+                    if key not in (primary_node.properties or {}):
+                        primary_node.properties[key] = value
+                        primary_node.metadata[key] = value
+
+            edges_to_add = []
+            retained_edges = []
+            for edge in list(graph.edges):
+                if edge.source_id == duplicate_id or edge.target_id == duplicate_id:
+                    new_source = primary_id if edge.source_id == duplicate_id else edge.source_id
+                    new_target = primary_id if edge.target_id == duplicate_id else edge.target_id
+                    if new_source != new_target:
+                        edges_to_add.append(
+                            {
+                                "source_id": new_source,
+                                "target_id": new_target,
+                                "type": edge.edge_type,
+                                "weight": edge.weight,
+                                "properties": edge.metadata,
+                            }
+                        )
+                        edges_updated += 1
+                else:
+                    retained_edges.append(edge)
+
+            graph.edges = retained_edges
+            graph._adjacency.pop(duplicate_id, None)
+            for adjacency in graph._adjacency.values():
+                adjacency[:] = [edge for edge in adjacency if edge.target_id != duplicate_id]
+            graph.edge_type_index.clear()
+            for edge in graph.edges:
+                graph.edge_type_index[edge.edge_type].append(edge)
+
+            old_type = graph.nodes[duplicate_id].node_type
+            graph.node_type_index.get(old_type, set()).discard(duplicate_id)
+            del graph.nodes[duplicate_id]
+            removed.append(duplicate_id)
+
+            if edges_to_add:
+                graph.add_edges(edges_to_add)
+
+        return removed, edges_updated
+
+    removed_ids, edges_updated = await asyncio.to_thread(_do_merge)
+    if removed_ids:
+        await asyncio.to_thread(session.rebuild_search_index)
+    return MergeResponse(merged_into=primary_id, removed_ids=removed_ids, edges_updated=edges_updated)

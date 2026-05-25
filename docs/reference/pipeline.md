@@ -1,482 +1,601 @@
-# Pipeline
-
-> **Robust orchestration engine for building, executing, and managing complex data processing workflows.**
-
+---
+title: "Pipeline Module"
+description: "Pipeline DSL with parallel workers, retry policies, failure handling, and progress tracking."
+icon: "gear"
 ---
 
-## 🎯 Overview
+`semantica.pipeline` lets you chain Semantica components into reproducible, fault-tolerant workflows with parallel execution and configurable error handling. Pipelines are serializable — save them to YAML and reload in any environment.
 
-The **Pipeline Module** provides a robust orchestration engine for building, executing, and managing complex data processing workflows. It enables you to create reusable, scalable pipelines with error handling, parallel execution, and resource management.
+## Exported Classes
 
-### What is Pipeline Orchestration?
+| Class | Role |
+| --- | --- |
+| `PipelineBuilder` | DSL for wiring steps: `add_step`, `connect_steps`, `set_parallel`, `build` |
+| `ExecutionEngine` | Runs a built pipeline: `execute_pipeline(pipeline, data)` → `ExecutionResult` |
+| `ExecutionResult` | `{success, output, metadata, metrics, errors}` — full run summary |
+| `FailureHandler` | Per-step strategy: `skip`, `retry`, `abort`, or `fallback` on failure |
+| `ParallelismManager` | Thread or process pool for concurrent step execution with configurable workers |
+| `PipelineValidator` | Catches dependency cycles, missing handlers, and config errors before running |
+| `PipelineTemplateManager` | Pre-built templates: `"full-qa"`, `"extract-only"`, `"kg-build"` |
 
-**Pipeline orchestration** is the process of coordinating multiple processing steps into a workflow. The Pipeline module enables:
-- **DAG Construction**: Build directed acyclic graphs (DAGs) of processing steps
-- **Parallel Execution**: Run independent steps simultaneously
-- **Error Handling**: Retry, fallback, and recovery strategies
-- **Resource Management**: CPU and memory allocation
-- **Progress Tracking**: Monitor pipeline execution
+## Why Use a Pipeline?
 
-### Why Use the Pipeline Module?
+You could wire Semantica modules together with plain Python code. Pipelines add:
 
-- **Complex Workflows**: Coordinate multi-step data processing
-- **Reusability**: Create reusable pipeline templates
-- **Reliability**: Built-in error handling and retry logic
-- **Performance**: Parallel execution for faster processing
-- **Monitoring**: Track progress and performance
-- **Scalability**: Handle large-scale data processing
+<CardGroup cols={2}>
+  <Card title="Retry and failure handling" icon="arrow-rotate-right">
+    A single bad document doesn't crash a 10,000-document run.
+  </Card>
+  <Card title="Parallelism" icon="bolt">
+    Run extraction across multiple workers with one parameter.
+  </Card>
+  <Card title="Progress tracking" icon="chart-line">
+    tqdm console bar or WebSocket streaming to Explorer.
+  </Card>
+  <Card title="Reproducibility" icon="floppy-disk">
+    Save the exact pipeline configuration to YAML and replay on any machine.
+  </Card>
+  <Card title="Delta mode" icon="code-compare">
+    On re-runs, only process documents that changed since the last run.
+  </Card>
+  <Card title="Validation" icon="shield-check">
+    Catch misconfigured steps and dependency cycles before they fail mid-run.
+  </Card>
+</CardGroup>
 
-### How It Works
+<Note>
+  Use plain module calls for quick scripts and notebooks. Use pipelines for anything you run repeatedly, at scale, or in production.
+</Note>
 
-1. **Pipeline Definition**: Define steps and their dependencies
-2. **Validation**: Validate pipeline structure (no cycles, valid dependencies)
-3. **Execution**: Execute steps in dependency order
-4. **Parallelization**: Run independent steps in parallel
-5. **Error Handling**: Retry failed steps, apply fallbacks
-6. **Monitoring**: Track progress and resource usage
+<img src="/assets/img/diagrams/pipeline-flow.svg" alt="Pipeline step sequence: Ingest → Parse → Normalize → Extract → Build KG → QA → Store → Deliver" style={{ width: '100%', borderRadius: '10px', margin: '0 0 24px' }} />
 
-<div class="grid cards" markdown>
+## Quick Start
 
--   :material-pipe:{ .lg .middle } **Pipeline Builder**
+<Steps>
+  <Step title="Build a pipeline">
+    ```python
+    from semantica.pipeline import PipelineBuilder
+    from semantica.ingest import FileIngestor
+    from semantica.parse import DocumentParser
+    from semantica.semantic_extract import NERExtractor
+    from semantica.kg import GraphBuilder
+    from semantica.llms import Groq
+    import os
 
-    ---
+    llm = Groq(model="llama-3.3-70b-versatile", api_key=os.getenv("GROQ_API_KEY"))
 
-    Fluent API for constructing complex DAG workflows
+    ingestor  = FileIngestor()
+    parser    = DocumentParser()
+    extractor = NERExtractor(method="llm", llm_provider=llm)
+    kg_builder = GraphBuilder(merge_entities=True)
 
--   :material-play-circle:{ .lg .middle } **Execution Engine**
+    builder = PipelineBuilder()
+    builder.add_step("ingest",   "file_ingest",    handler=ingestor.ingest_file)
+    builder.add_step("parse",    "document_parse", handler=parser.parse)
+    builder.add_step("extract",  "ner_extract",    handler=extractor.extract)
+    builder.add_step("build_kg", "graph_build",    handler=kg_builder.build)
+    builder.connect_steps("ingest", "parse")
+    builder.connect_steps("parse",  "extract")
+    builder.connect_steps("extract","build_kg")
 
-    ---
+    pipeline = builder.build("my_pipeline")
+    ```
+  </Step>
+  <Step title="Validate before running">
+    ```python
+    from semantica.pipeline import PipelineValidator
 
-    Robust execution with status tracking and progress monitoring
+    validator = PipelineValidator()
+    result = validator.validate_pipeline(pipeline)
 
--   :material-alert-circle-check:{ .lg .middle } **Error Handling**
+    if not result.valid:
+        for error in result.errors:   # errors is List[str]
+            print(f"Error: {error}")
+        for warning in result.warnings:
+            print(f"Warning: {warning}")
+    ```
+  </Step>
+  <Step title="Execute and inspect results">
+    ```python
+    from semantica.pipeline import ExecutionEngine
 
-    ---
+    engine = ExecutionEngine()
+    result = engine.execute_pipeline(pipeline, data="data/")
 
-    Configurable retry policies, fallbacks, and error recovery
+    kg = result.output
+    print(f"Success:        {result.success}")
+    print(f"Steps executed: {result.metrics['steps_executed']}")
+    print(f"Steps failed:   {result.metrics['steps_failed']}")
+    print(f"Duration:       {result.metrics['execution_time']:.1f}s")
+    ```
+  </Step>
+</Steps>
 
--   :material-fast-forward:{ .lg .middle } **Parallel Execution**
+## Parallel Processing
 
-    ---
-
-    Execute independent steps in parallel for maximum performance
-
--   :material-cpu-64-bit:{ .lg .middle } **Resource Scheduling**
-
-    ---
-
-    Manage CPU/Memory allocation for resource-intensive tasks
-
--   :material-file-document-edit:{ .lg .middle } **Templates**
-
-    ---
-
-    Pre-built templates for common workflows (ETL, GraphRAG)
-
-</div>
-
-!!! tip "When to Use"
-    - **ETL Workflows**: Ingest -> Parse -> Split -> Embed -> Store
-    - **Graph Construction**: Extract Entities -> Extract Relations -> Build Graph
-    - **Batch Processing**: Processing large volumes of documents reliably
-
----
-
-## ⚙️ Algorithms Used
-
-### Execution Management
-
-**Purpose**: Manage pipeline execution order and state tracking.
-
-**How it works**:
-
-- **DAG Topological Sort**: Determines execution order of steps based on dependencies
-- **State Management**: Tracks `` `PENDING` ``, `` `RUNNING` ``, `` `COMPLETED` ``, `` `FAILED` `` states
-- **Checkpointing**: Saves intermediate results to allow resuming failed pipelines
-
-### Parallelism
-
-**Purpose**: Execute independent steps concurrently for maximum performance.
-
-**How it works**:
-
-- **ThreadPoolExecutor**: For I/O-bound tasks (network requests, DB writes)
-- **ProcessPoolExecutor**: For CPU-bound tasks (parsing, embedding generation)
-- **Dependency Resolution**: Identifies steps that can run concurrently
-
-### Error Handling
-
-**Purpose**: Robust error recovery with configurable retry policies.
-
-**How it works**:
-
-- **Exponential Backoff**: `` `wait = base * (factor ^ attempt)` ``
-- **Jitter**: Randomization to prevent thundering herd problem
-- **Circuit Breaker**: Stops execution after threshold failures to prevent cascading issues
-
-### Resource Scheduling
-
-**Purpose**: Manage CPU/Memory allocation for resource-intensive tasks.
-
-**How it works**:
-
-- **Token Bucket**: Rate limiting for API calls
-- **Semaphore**: Concurrency limiting for resource constraints
-- **Priority Queue**: Scheduling critical tasks first
-
----
-
-## API Reference
-
-### Types
-
-- `Pipeline` — Pipeline definition dataclass
-- `PipelineStep` — Pipeline step definition dataclass, Supports `delta_mode` (bool), `base_version_id` (str), and            `target_version_id` (str) for incremental processing.
-- `StepStatus` — Enum: `pending`, `running`, `completed`, `failed`, `skipped`
-- `ExecutionResult` — Execution result dataclass
-- `PipelineStatus` — Enum: `pending`, `running`, `paused`, `completed`, `failed`, `stopped`
-- `ValidationResult` — Validation result dataclass
-- `RetryPolicy` — Retry policy dataclass
-- `RetryStrategy` — Enum: `linear`, `exponential`, `fixed`
-- `ErrorSeverity` — Enum: `low`, `medium`, `high`, `critical`
-- `FailureRecovery` — Failure recovery dataclass
-- `Task` — Parallel task dataclass
-- `ParallelExecutionResult` — Parallel execution result dataclass
-- `ResourceType` — Enum: `cpu`, `gpu`, `memory`, `disk`, `network`
-- `Resource` — Resource definition dataclass
-- `ResourceAllocation` — Resource allocation record dataclass
-
-### PipelineBuilder
-
-Fluent interface for constructing pipelines.
-
-**Methods:**
-
-- `add_step(step_name, step_type, **config)` — Add a step
-- `connect_steps(from_step, to_step, **options)` — Add dependency
-- `set_parallelism(level)` — Configure parallelism
-- `build(name="default_pipeline")` — Build pipeline
-- `build_pipeline(pipeline_config, **options)` — Build from dict
-- `register_step_handler(step_type, handler)` — Register handler
-- `get_step(step_name)` — Get step by name
-- `serialize(format="json")` — Serialize builder state
-- `validate_pipeline()` — Validate pipeline
-
-**Example:**
+Set parallelism on the builder and pass `max_workers` to `ExecutionEngine`:
 
 ```python
-from semantica.pipeline import PipelineBuilder
-
-builder = (
-    PipelineBuilder()
-    .add_step("ingest", "ingest", handler=ingest_handler)
-    .add_step("parse", "parse", dependencies=["ingest"], handler=parse_handler)
-    .add_step("embed", "embed", dependencies=["parse"], model="text-embedding-3-large")
-    .set_parallelism(2)
-)
-pipeline = builder.build(name="MyPipeline")
-
-step = builder.get_step("parse")
-serialized = builder.serialize(format="json")
-validation = builder.validate_pipeline()
-```
-
-### PipelineSerializer
-
-Serialization utilities for pipelines.
-
-**Methods:**
-
-- `serialize_pipeline(pipeline, format="json")`
-- `deserialize_pipeline(serialized_pipeline, **options)`
-- `version_pipeline(pipeline, version_info)`
-
-**Example:**
-
-```python
-from semantica.pipeline import PipelineBuilder, PipelineSerializer
+from semantica.pipeline import PipelineBuilder, ExecutionEngine
 
 builder = PipelineBuilder()
-pipeline = builder.add_step("step1", "type1").build()
+builder.add_step("ingest",  "file_ingest",    handler=ingestor.ingest_file)
+builder.add_step("parse",   "document_parse", handler=parser.parse)
+builder.add_step("extract", "ner_extract",    handler=extractor.extract)
+builder.add_step("build",   "graph_build",    handler=kg_builder.build)
+builder.set_parallelism(4)
 
-serializer = PipelineSerializer()
-serialized = serializer.serialize_pipeline(pipeline, format="json")
-restored = serializer.deserialize_pipeline(serialized)
-versioned = serializer.version_pipeline(restored, {"version": "1.1"})
+pipeline = builder.build("parallel_pipeline")
+engine   = ExecutionEngine(max_workers=4)
+result   = engine.execute_pipeline(pipeline, data="data/")
 ```
 
-### ExecutionEngine
+## Retry and Error Handling
 
-Executes pipelines and manages lifecycle.
+<Tabs>
+  <Tab title="Exponential backoff (recommended)">
+    ```python
+    from semantica.pipeline import RetryPolicy, RetryStrategy, FailureHandler, ExecutionEngine
 
-**Methods:**
+    policy = RetryPolicy(
+        max_retries=3,
+        strategy=RetryStrategy.EXPONENTIAL,
+        initial_delay=1.0,    # 1s → 2s → 4s
+        backoff_factor=2.0
+    )
 
-- `execute_pipeline(pipeline, data=None, **options)` — Run pipeline
-- `pause_pipeline(pipeline_id)` — Pause execution
-- `resume_pipeline(pipeline_id)` — Resume execution
-- `stop_pipeline(pipeline_id)` — Stop execution
-- `get_pipeline_status(pipeline_id)` — Get status
-- `get_progress(pipeline_id)` — Get progress
+    handler = FailureHandler()
+    handler.retry_policies["ner_extract"] = policy   # keyed by step_type
 
-**Example:**
+    engine = ExecutionEngine(default_max_retries=3, default_backoff_factor=2.0)
+    result = engine.execute_pipeline(pipeline, data="data/")
+    ```
+
+    Best for transient API errors and rate limits — waits longer with each retry, giving upstream services time to recover.
+  </Tab>
+  <Tab title="Linear backoff">
+    ```python
+    from semantica.pipeline import RetryPolicy, RetryStrategy
+
+    policy = RetryPolicy(
+        max_retries=3,
+        strategy=RetryStrategy.LINEAR,
+        initial_delay=2.0    # 2s → 4s → 6s
+    )
+    ```
+
+    Use when the delay between retries should grow predictably — e.g., waiting for a database lock to release.
+  </Tab>
+  <Tab title="Fixed backoff">
+    ```python
+    from semantica.pipeline import RetryPolicy, RetryStrategy
+
+    policy = RetryPolicy(
+        max_retries=5,
+        strategy=RetryStrategy.FIXED,
+        initial_delay=1.0    # 1s every attempt
+    )
+    ```
+
+    Use when retrying against a service with a fixed cooldown window.
+  </Tab>
+</Tabs>
+
+### Failure Strategies
+
+| Strategy | Behaviour | When to Use |
+| -------- | --------- | ----------- |
+| `"skip"` | Log failure, continue to next document | Production — one bad doc shouldn't stop 10k |
+| `"stop"` | Raise exception immediately | Development — surface errors fast |
+| `"retry"` | Retry via `RetryPolicy`, then skip | When failures are likely transient |
+
+<Warning>
+  Always use `strategy="skip"` in production. A single malformed document shouldn't stop a pipeline processing thousands of documents. Inspect `result.errors` after the run to find and reprocess failures.
+</Warning>
+
+## Progress Tracking
+
+<Tabs>
+  <Tab title="Console (tqdm)">
+    ```python
+    from semantica.pipeline import ExecutionEngine
+
+    engine = ExecutionEngine()
+    result = engine.execute_pipeline(pipeline, data="data/")
+    # The progress tracker outputs tqdm bars to the console during execution
+    ```
+
+    Displays a live progress bar in the terminal via Semantica's built-in progress tracker. Best for scripts and CLI tools.
+  </Tab>
+  <Tab title="Live status check">
+    ```python
+    from semantica.pipeline import ExecutionEngine
+    import threading, time
+
+    engine = ExecutionEngine()
+
+    # Run in a background thread, poll progress from main thread
+    def run():
+        engine.execute_pipeline(pipeline, data="data/")
+
+    t = threading.Thread(target=run, daemon=True)
+    t.start()
+
+    while t.is_alive():
+        progress = engine.get_progress(pipeline.name)
+        if progress:
+            print(f"  {progress['completed_steps']}/{progress['total_steps']} steps — {progress['status']}")
+        time.sleep(2)
+    ```
+
+    Poll `get_progress()` for live status during execution.
+  </Tab>
+</Tabs>
+
+## Pipeline DSL
+
+`PipelineBuilder` uses `add_step(name, type, **config)` and `connect_steps(from, to)` to define a DAG:
+
+```python
+from semantica.pipeline import PipelineBuilder, ExecutionEngine
+
+builder = PipelineBuilder()
+
+# Add steps — step_type is a string label, handler is the callable invoked at runtime
+builder.add_step("ingest",      "file_ingest",    handler=ingestor.ingest_file)
+builder.add_step("parse",       "document_parse", handler=parser.parse)
+builder.add_step("normalize",   "text_normalize", handler=normalizer.normalize)
+builder.add_step("extract",     "ner_extract",    handler=extractor.extract)
+builder.add_step("rel_extract", "rel_extract",    handler=rel_extractor.extract)
+builder.add_step("build_kg",    "graph_build",    handler=kg_builder.build)
+builder.add_step("deduplicate", "dedup",          handler=deduplicator.deduplicate)
+builder.add_step("export",      "rdf_export",     handler=exporter.export, format="turtle", path="output.ttl")
+
+# Wire the data flow
+builder.connect_steps("ingest",      "parse")
+builder.connect_steps("parse",       "normalize")
+builder.connect_steps("normalize",   "extract")
+builder.connect_steps("extract",     "rel_extract")
+builder.connect_steps("rel_extract", "build_kg")
+builder.connect_steps("build_kg",    "deduplicate")
+builder.connect_steps("deduplicate", "export")
+
+pipeline = builder.build("full_pipeline")
+result   = ExecutionEngine().execute_pipeline(pipeline, data="data/")
+```
+
+## Serialize and Restore Pipelines
+
+`PipelineSerializer` converts a pipeline to JSON or dict for storage and reloads it later:
+
+```python
+from semantica.pipeline import PipelineSerializer
+
+serializer = PipelineSerializer()
+
+# Serialize to JSON string
+json_str = serializer.serialize_pipeline(pipeline, format="json")
+
+# Save to file
+with open("pipeline_config.json", "w") as f:
+    f.write(json_str)
+
+# Restore on any machine and execute
+with open("pipeline_config.json") as f:
+    restored = serializer.deserialize_pipeline(f.read())
+
+result = ExecutionEngine().execute_pipeline(restored, data="data/")
+```
+
+<Tip>
+  Serialized pipelines capture step names, types, and config — but not handler functions (callables can't be serialized). Re-register handlers on the restored steps before executing.
+</Tip>
+
+## Pre-Built Templates
+
+`PipelineTemplateManager` wires common workflows with the correct step order — no manual wiring required:
+
+```python
+from semantica.pipeline import PipelineTemplateManager
+from semantica.llms import Groq
+import os
+
+llm     = Groq(model="llama-3.3-70b-versatile", api_key=os.getenv("GROQ_API_KEY"))
+manager = PipelineTemplateManager()
+```
+
+<CardGroup cols={2}>
+  <Card title="ingest-extract-build" icon="diagram-project">
+    **Ingest → Parse → Extract → Build KG**
+
+    Standard knowledge base construction from documents.
+
+    ```python
+    pipeline = manager.get_template(
+        "ingest-extract-build", llm_provider=llm
+    )
+    ```
+  </Card>
+  <Card title="graphrag" icon="magnifying-glass">
+    **Ingest → Parse → Embed → Index**
+
+    Retrieval-augmented generation — builds a vector-indexed knowledge graph.
+
+    ```python
+    pipeline = manager.get_template(
+        "graphrag", llm_provider=llm, vector_backend="faiss"
+    )
+    ```
+  </Card>
+  <Card title="analytics" icon="chart-bar">
+    **Build KG → Analytics → Export Report**
+
+    Graph analysis and reporting — centrality, community detection, HTML output.
+
+    ```python
+    pipeline = manager.get_template(
+        "analytics", export_format="html"
+    )
+    ```
+  </Card>
+  <Card title="full-qa" icon="shield-check">
+    **Ingest → Normalize → Extract → Dedup → Conflicts → Build**
+
+    Production-quality KG with full data quality pipeline.
+
+    ```python
+    pipeline = manager.get_template(
+        "full-qa", llm_provider=llm
+    )
+    ```
+  </Card>
+</CardGroup>
+
+## ExecutionEngine
+
+Fine-grained control over pipeline execution — pause, resume, cancel, and inspect live progress:
 
 ```python
 from semantica.pipeline import ExecutionEngine
 
 engine = ExecutionEngine(max_workers=4)
-result = engine.execute_pipeline(pipeline, data={"path": "document.pdf"})
 
-status = engine.get_pipeline_status(pipeline.name)
-progress = engine.get_progress(pipeline.name)
+# pipeline.name is the pipeline ID used for all control operations
+result = engine.execute_pipeline(pipeline, data="data/")
 
-engine.pause_pipeline(pipeline.name)
-engine.resume_pipeline(pipeline.name)
-engine.stop_pipeline(pipeline.name)
+pipeline_id = pipeline.name   # e.g. "my_pipeline"
+
+# Pause after the current step finishes
+engine.pause_pipeline(pipeline_id)
+
+progress = engine.get_progress(pipeline_id)
+print(f"Completed: {progress['completed_steps']}/{progress['total_steps']}")
+print(f"Status: {progress['status']}")
+
+engine.resume_pipeline(pipeline_id)
+engine.stop_pipeline(pipeline_id)
 ```
 
-### Failure Handling
+| Method | Returns | Description |
+| ------ | ------- | ----------- |
+| `execute_pipeline(pipeline, data)` | `ExecutionResult` | Execute pipeline from start to finish |
+| `get_pipeline_status(pipeline_id)` | `PipelineStatus` | Current state (RUNNING, PAUSED, STOPPED) |
+| `get_progress(pipeline_id)` | `Dict` | `completed_steps`, `total_steps`, `progress_percentage`, `status` |
+| `pause_pipeline(pipeline_id)` | `None` | Suspend after current step completes |
+| `resume_pipeline(pipeline_id)` | `None` | Resume from paused state |
+| `stop_pipeline(pipeline_id)` | `None` | Cancel and clean up immediately |
 
-**Classes:** `FailureHandler`, `RetryHandler`, `FallbackHandler`, `ErrorRecovery`
+## PipelineValidator
 
-**FailureHandler Methods:**
-
-- `handle_step_failure(step, error, **options)`
-- `classify_error(error)`
-- `set_retry_policy(step_type, policy)`
-- `get_retry_policy(step_type)`
-- `retry_failed_step(step, error, **options)`
-- `get_error_history(step_name=None)`
-- `clear_error_history()`
-
-**Example:**
+Catches problems before they surface as mid-run failures:
 
 ```python
-from semantica.pipeline import FailureHandler, RetryPolicy, RetryStrategy
-
-handler = FailureHandler(default_max_retries=3, default_backoff_factor=2.0)
-policy = RetryPolicy(max_retries=5, strategy=RetryStrategy.EXPONENTIAL, initial_delay=1.0)
-handler.set_retry_policy("network", policy)
-
-classification = handler.classify_error(RuntimeError("timeout"))
-history_before = handler.get_error_history()
-handler.clear_error_history()
-```
-
-### Parallelism
-
-**Classes:** `ParallelismManager`, `ParallelExecutor`
-
-**ParallelismManager Methods:**
-
-- `execute_parallel(tasks, **options)`
-- `execute_pipeline_steps_parallel(steps, data, **options)`
-- `identify_parallelizable_steps(pipeline)`
-- `optimize_parallel_execution(pipeline, available_workers)`
-
-**Example:**
-
-```python
-from semantica.pipeline import ParallelismManager, Task, ParallelExecutor
-
-def work(x):
-    return x * 2
-
-manager = ParallelismManager(max_workers=4)
-tasks = [Task(task_id=f"t{i}", handler=work, args=(i,)) for i in range(4)]
-results = manager.execute_parallel(tasks)
-
-executor = ParallelExecutor(max_workers=2)
-exec_results = executor.execute_parallel(tasks)
-```
-
-### Resources
-
-**Class:** `ResourceScheduler`
-
-**Methods:**
-
-- `allocate_resources(pipeline, **options)`
-- `allocate_cpu(cores, pipeline_id, step_name=None)`
-- `allocate_memory(memory_gb, pipeline_id, step_name=None)`
-- `allocate_gpu(device_id, pipeline_id, step_name=None)`
-- `release_resources(allocations)`
-- `get_resource_usage()`
-- `optimize_resource_allocation(pipeline, **options)`
-
-**Example:**
-
-```python
-from semantica.pipeline import ResourceScheduler, ResourceType
-
-scheduler = ResourceScheduler()
-cpu = scheduler.allocate_cpu(cores=2, pipeline_id="p1")
-mem = scheduler.allocate_memory(memory_gb=1.0, pipeline_id="p1")
-usage = scheduler.get_resource_usage()
-scheduler.release_resources({cpu.allocation_id: cpu, mem.allocation_id: mem})
-```
-
-### Validation
-
-**Class:** `PipelineValidator`
-
-**Methods:**
-
-- `validate_pipeline(pipeline_or_builder, **options)`
-- `validate_step(step, **constraints)`
-- `check_dependencies(pipeline_or_builder)`
-- `validate_performance(pipeline, **options)`
-
-**Example:**
-
-```python
-from semantica.pipeline import PipelineValidator, PipelineBuilder
-
-builder = PipelineBuilder()
-builder.add_step("a", "type")
-builder.add_step("b", "type", dependencies=["a"])
+from semantica.pipeline import PipelineValidator
 
 validator = PipelineValidator()
-result = validator.validate_pipeline(builder)
-deps = validator.check_dependencies(builder)
-perf = validator.validate_performance(builder.build())
+result    = validator.validate_pipeline(pipeline)
+
+if result.valid:
+    print("Pipeline is valid — safe to run")
+else:
+    for error in result.errors:     # errors is List[str]
+        print(f"Error: {error}")
+    for warning in result.warnings: # warnings is List[str]
+        print(f"Warning: {warning}")
 ```
 
-### Templates
+Checks performed:
+- **Dependency cycle detection** — A depends on B, B depends on A
+- **Step type validation** — each step type must be registered
+- **Connection integrity** — referenced step names must exist
+- **Configuration completeness** — required parameters must be present
 
-**Classes:** `PipelineTemplateManager`, `PipelineTemplate`
+## ParallelismManager
 
-**PipelineTemplateManager Methods:**
+<Tabs>
+  <Tab title="Thread pool (I/O-bound)">
+    ```python
+    from semantica.pipeline import ParallelismManager
 
-- `get_template(template_name)`
-- `create_pipeline_from_template(template_name, **overrides)`
-- `register_template(template)`
-- `list_templates(category=None)`
-- `get_template_info(template_name)`
+    # use_processes=False (default) → thread pool for I/O-bound tasks
+    manager = ParallelismManager(max_workers=8, use_processes=False)
 
-**Example:**
+    tasks   = [{"fn": ner.extract, "args": [text]} for text in texts]
+    results = manager.execute_parallel(tasks, timeout=60)
+    # returns List[ParallelExecutionResult]
+
+    successes = [r for r in results if r.success]
+    failures  = [r for r in results if not r.success]
+    ```
+
+    Use thread pools for **I/O-bound** steps: web fetching, database queries, API calls.
+  </Tab>
+  <Tab title="Process pool (CPU-bound)">
+    ```python
+    # use_processes=True → process pool, bypasses Python GIL
+    manager = ParallelismManager(max_workers=4, use_processes=True)
+
+    tasks   = [{"fn": embedder.generate_embeddings, "args": [chunk]} for chunk in chunks]
+    results = manager.execute_parallel(tasks, timeout=120)
+    ```
+
+    Use process pools for **CPU-bound** steps: embedding, OCR, large NER batches.
+  </Tab>
+</Tabs>
+
+## ResourceScheduler
+
+Prevents memory oversubscription on large runs:
 
 ```python
-from semantica.pipeline import PipelineTemplateManager
+from semantica.pipeline import ResourceScheduler, ExecutionEngine
 
-tm = PipelineTemplateManager()
-names = tm.list_templates()
-info = tm.get_template_info(names[0])
-builder = tm.create_pipeline_from_template(names[0])
-pipeline = builder.build()
+scheduler = ResourceScheduler()
+engine    = ExecutionEngine()
+
+resources = scheduler.allocate_resources(pipeline)
+
+try:
+    result = engine.execute_pipeline(pipeline, data="data/")
+finally:
+    scheduler.release_resources(resources)
 ```
 
----
+## Delta Mode
 
-## Configuration
-
-### Environment Variables
-
-```bash
-export PIPELINE_MAX_WORKERS=4
-export PIPELINE_DEFAULT_TIMEOUT=300
-export PIPELINE_CHECKPOINT_DIR=./checkpoints
-```
-
-### YAML Configuration
-
-This module does not include built-in YAML loaders. Use your own configuration system to populate arguments for `PipelineBuilder`, `ExecutionEngine`, and related classes.
-
----
-
-## Integration Examples
-
-### RAG-Style Pipeline
+Re-process only data that has changed since the last run:
 
 ```python
 from semantica.pipeline import PipelineBuilder, ExecutionEngine
 
-builder = (
-    PipelineBuilder()
-    .add_step("ingest", "ingest")
-    .add_step("chunk", "chunk", dependencies=["ingest"])
-    .add_step("embed", "embed", dependencies=["chunk"]) 
-    .add_step("store_vectors", "store_vectors", dependencies=["embed"]) 
+builder = PipelineBuilder()
+
+# delta_mode=True tells ExecutionEngine to compute the diff between two snapshots
+# and pass only changed triples to this step's handler
+builder.add_step(
+    "ingest",  "file_ingest",
+    handler=ingestor.ingest_file,
+    delta_mode=True, base_version_id="v1", target_version_id="v2"
 )
-
-pipeline = builder.build(name="RAGPipeline")
-engine = ExecutionEngine(max_workers=4)
-result = engine.execute_pipeline(pipeline, data={"path": "document.pdf"})
-```
-
----
-
-### Incremental / Delta-Aware Pipeline
-
-Use `delta_mode` to process only the differences between two graph versions, drastically reducing compute costs for large datasets.
-
-```python
-from semantica.pipeline import PipelineBuilder, ExecutionEngine
-
-builder = (
-    PipelineBuilder()
-    # Adding delta_mode=True tells the execution engine to intercept this step,
-    # compute the diff between v1 and v2, and pass ONLY the delta payload to the handler.
-    .add_step(
-        "validate_diff",
-        "validation",
-        delta_mode=True,
-        base_version_id="v1",
-        target_version_id="v2",
-        handler=diff_validator
-    )
-    .add_step(
-        "alert_on_removals",
-        "alerting",
-        dependencies=["validate_diff"],
-        handler=alert_handler
-    )
+builder.add_step(
+    "extract", "ner_extract",
+    handler=extractor.extract,
+    delta_mode=True, base_version_id="v1", target_version_id="v2"
 )
+builder.add_step(
+    "build", "graph_build",
+    handler=kg_builder.build,
+    delta_mode=False  # always rebuild the merged graph
+)
+builder.connect_steps("ingest", "extract")
+builder.connect_steps("extract", "build")
 
-pipeline = builder.build(name="IncrementalJob")
-engine = ExecutionEngine()
-
-# Execution requires version_manager and triplet_store injected via options
-# so the engine can resolve URIs and compute the graph differences natively.
-result = engine.execute_pipeline(
+pipeline = builder.build("delta_pipeline")
+engine   = ExecutionEngine()
+result   = engine.execute_pipeline(
     pipeline,
-    version_manager=my_version_manager,
-    triplet_store=my_triplet_store
+    data="data/",
+    version_manager=version_manager,   # required for delta mode
+    triplet_store=triplet_store        # required for delta mode
 )
 ```
 
----
+<Note>
+  Delta detection uses SHA-256 checksums on source content. Only sources whose checksum differs from `base_version_id` are passed to downstream steps. For pipelines that run hourly or daily against a growing corpus, delta mode eliminates redundant re-embedding and re-extraction.
+</Note>
 
-## Best Practices
+## Schemas
 
-1.  **Idempotency**: Ensure steps are idempotent (can be run multiple times without side effects) to support retries.
-2.  **Granularity**: Keep steps focused on a single task. Smaller steps are easier to debug and retry.
-3.  **Context Passing**: Use the execution context to pass metadata between steps, not just return values.
-4.  **Error Handling**: Always define specific exceptions for retries; don't retry on `ValueError` or `TypeError`.
+<AccordionGroup>
+  <Accordion title="ExecutionResult schema">
 
----
+```python
+@dataclass
+class ExecutionResult:
+    success:  bool            # True if all steps completed without failure
+    output:   Any             # output from the final pipeline step
+    metadata: Dict[str, Any]  # {"pipeline_id": "...", "execution_time": 1.23}
+    metrics:  Dict[str, Any]  # {"steps_executed": 4, "steps_failed": 0, "execution_time": 1.23}
+    errors:   List[str]       # error messages from failed steps (empty on full success)
 
-## Troubleshooting
+# Access pattern
+result.success                       # bool
+result.output                        # final step output
+result.metadata["pipeline_id"]       # pipeline name used as ID
+result.metadata["execution_time"]    # total wall-clock seconds
+result.metrics["steps_executed"]     # count of successfully completed steps
+result.metrics["steps_failed"]       # count of failed steps
+result.errors                        # List[str] of error messages
+```
 
-**Issue**: Pipeline stuck in `RUNNING` state.
-**Solution**: Check for deadlocks in dependency graph or infinite loops in steps. Use `timeout_seconds`.
+  </Accordion>
+  <Accordion title="PipelineStep schema">
 
-**Issue**: `PickleError` during parallel execution.
-**Solution**: Ensure all data passed between steps is serializable. Avoid passing open file handles or database connections.
+```python
+@dataclass
+class PipelineStep:
+    name:              str
+    step_type:         str
+    config:            Dict[str, Any]
+    dependencies:      List[str]          # names of steps this step waits for
+    handler:           Optional[Callable]
+    status:            StepStatus
+    result:            Any
+    error:             Optional[Exception]
+    delta_mode:        bool               # True = process only changed data
+    base_version_id:   Optional[str]     # snapshot ID to diff against
+    target_version_id: Optional[str]     # snapshot ID being produced
+```
 
----
+  </Accordion>
+  <Accordion title="StepStatus enum">
 
-## Cookbook
+```python
+from semantica.pipeline import StepStatus
 
-Interactive tutorials to learn pipeline orchestration:
+StepStatus.PENDING    # Not yet started
+StepStatus.RUNNING    # Currently executing
+StepStatus.COMPLETED  # Finished successfully
+StepStatus.FAILED     # Error occurred — check step.error
+StepStatus.SKIPPED    # Skipped due to FailureHandler "skip" strategy
+```
 
-- **[Pipeline Orchestration](https://github.com/Hawksight-AI/semantica/blob/main/cookbook/advanced/07_Pipeline_Orchestration.ipynb)**: Build robust, automated data processing pipelines
-  - **Topics**: Workflows, automation, error handling, pipeline orchestration, DAG construction
-  - **Difficulty**: Advanced
-  - **Use Cases**: Complex multi-step workflows, production pipelines, ETL processes
+  </Accordion>
+</AccordionGroup>
 
-## See Also
+## Tips and Common Pitfalls
 
-- [Ingest Module](ingest.md) - Common first step
-- [Split Module](split.md) - Common processing step
-- [Vector Store Module](vector_store.md) - Common sink step
+<Tip>
+  **Use `PipelineValidator` before running in production.** It catches dependency cycles, missing step names, and misconfigured connections that would only surface as errors mid-run. Validation is instant; catching them after a 30-minute extraction job is not.
+</Tip>
 
+<Tip>
+  **Set `workers=` based on workload type.** Thread workers for I/O-bound steps (web fetching, DB queries), process workers for CPU-bound steps (embedding, OCR, large NER batches). Mixing pool types on the wrong step type wastes resources without speed gains.
+</Tip>
+
+<Warning>
+  **Use `failure_handler=FailureHandler(strategy="skip")` in production.** A single malformed document shouldn't stop a pipeline processing 10,000 documents. `skip` logs the failure and continues; inspect `result.errors` after the run to find and reprocess failed documents.
+</Warning>
+
+<Tip>
+  **Use templates from `PipelineTemplateManager` for common patterns.** `get_template("full-qa")` wires up normalization, deduplication, conflict detection, and graph construction in the right order — saving you from common mistakes like deduplicating before normalizing.
+</Tip>
+
+<Tip>
+  **Inspect `result.metrics` to find bottlenecks.** `result.metrics['steps_executed']` and `result.metrics['execution_time']` give a quick read on overall pipeline health. For per-step timing, check `step.result` on each `PipelineStep` after the run.
+</Tip>
+
+<CardGroup cols={2}>
+  <Card title="Ingest" icon="database" href="ingest">
+    First step in most pipelines.
+  </Card>
+  <Card title="Semantic Extract" icon="magnifying-glass" href="semantic_extract">
+    Core extraction step.
+  </Card>
+  <Card title="Knowledge Graph" icon="diagram-project" href="kg">
+    Graph construction step.
+  </Card>
+  <Card title="Export" icon="file-export" href="export">
+    Final output step.
+  </Card>
+</CardGroup>

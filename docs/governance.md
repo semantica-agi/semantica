@@ -1,23 +1,24 @@
-# Governance
+---
+title: "Governance"
+description: "Project governance model — roles, decision process, release cadence, and code review guidelines."
+icon: "scale-balanced"
+---
 
-Project governance model for Semantica.
-
-!!! info "Open Source"
-    Semantica is maintained by Hawksight AI with community contributions.
+> Semantica is maintained by Hawksight AI with community contributions under an open governance model.
 
 ---
 
-## 👥 Roles
+## Roles
 
 **Maintainers** (Hawksight AI team)
 - Review and merge pull requests
 - Manage releases and code quality
-- Community management and project direction
+- Set project direction and community standards
 
 **Contributors**
 - Submit code, documentation, and bug reports
 - Help with issues and reviews
-- Recognized in [CONTRIBUTORS.md](https://github.com/Hawksight-AI/semantica/blob/main/CONTRIBUTORS.md)
+- Recognized in [CONTRIBUTORS.md](https://github.com/semantica-agi/semantica/blob/main/CONTRIBUTORS.md)
 
 **Community Members**
 - Use Semantica and provide feedback
@@ -25,71 +26,82 @@ Project governance model for Semantica.
 
 ---
 
-## 🔄 Decision Process
+## Decision Process
 
 ### Code Changes
-1. Proposal via GitHub Issues
-2. Community discussion
-3. Implementation (PR)
-4. Review by maintainers
-5. Approval (at least 1 maintainer)
-6. Merge after CI passes
+
+<Steps>
+  <Step title="Proposal">Open a GitHub Issue describing the change.</Step>
+  <Step title="Discussion">Community discussion on approach and scope.</Step>
+  <Step title="Implementation">Submit a pull request with the change.</Step>
+  <Step title="Review">At least one maintainer reviews the PR.</Step>
+  <Step title="Merge">Merged after CI passes and maintainer approval.</Step>
+</Steps>
 
 ### Major Decisions
-- RFC in GitHub Issues
-- 1 week minimum discussion
+
+- RFC posted in GitHub Issues
+- Minimum 1-week community discussion period
 - Maintainers decide based on community feedback and technical feasibility
 
 ---
 
-## 📦 Releases
+## Releases
 
-### Versioning (Semantic Versioning)
-- **MAJOR**: Breaking changes
-- **MINOR**: New features (backward compatible)
-- **PATCH**: Bug fixes (backward compatible)
+Semantica follows **Semantic Versioning** (`MAJOR.MINOR.PATCH`):
 
-### Schedule
-- **Major**: Quarterly or as needed
-- **Minor**: Monthly or when ready
-- **Patch**: As bugs are fixed
+| Level | Trigger | Cadence |
+|-------|---------|---------|
+| MAJOR | Breaking changes | Quarterly or as needed |
+| MINOR | New features (backward compatible) | Monthly or when ready |
+| PATCH | Bug fixes (backward compatible) | As bugs are fixed |
 
 ---
 
-## 🔍 Code Review
+## Code Review
 
-**Criteria**: Functionality, code quality, tests, documentation, performance, security
+**Review criteria:** functionality, code quality, tests, documentation, performance, security.
 
-**Timeline**: Initial review within 48 hours, follow-up within 7 days
+**Timeline:** initial review within 48 hours; follow-up within 7 days.
 
-**Guidelines**:
-- Reviewers: Be constructive, explain reasoning
-- Contributors: Address comments, ask questions, be open to feedback
+**Guidelines for reviewers:** be constructive, explain reasoning, suggest alternatives.
 
----
-
-## 💬 Communication
-
-- **GitHub Issues**: Bug reports, features, questions
-- **GitHub PRs**: Code contributions
-- **GitHub Security Advisories**: [Report security issues](https://github.com/Hawksight-AI/semantica/security/advisories/new)
+**Guidelines for contributors:** address comments promptly, ask questions when unclear, be open to feedback.
 
 ---
 
-## 🎯 Project Goals
+## Communication
 
-1. **Usability** - Easy to use and understand
-2. **Reliability** - Production-ready quality
-3. **Performance** - Efficient and scalable
-4. **Extensibility** - Easy to extend
-5. **Community** - Welcoming and inclusive
-
----
-
-## 📄 License
-
-MIT License - See [LICENSE](https://github.com/Hawksight-AI/semantica/blob/main/LICENSE)
+- **GitHub Issues** — bug reports, feature requests, questions
+- **GitHub PRs** — code contributions
+- **GitHub Discussions** — community conversation
+- **Security Advisories** — [report security issues privately](https://github.com/semantica-agi/semantica/security/advisories/new)
 
 ---
 
-**Contact**: [GitHub Issues](https://github.com/Hawksight-AI/semantica/issues)
+## Project Goals
+
+1. **Usability** — Easy to use and understand
+2. **Reliability** — Production-ready quality
+3. **Performance** — Efficient and scalable
+4. **Extensibility** — Easy to extend with plugins and custom modules
+5. **Community** — Welcoming and inclusive
+
+---
+
+## License
+
+MIT License — see [LICENSE](https://github.com/semantica-agi/semantica/blob/main/LICENSE) and the [License page](license).
+
+---
+
+## See Also
+
+<CardGroup cols={2}>
+  <Card title="Contributing" icon="code-pull-request" href="contributing-guide">
+    How to submit changes.
+  </Card>
+  <Card title="Community" icon="users" href="community">
+    Community guidelines and channels.
+  </Card>
+</CardGroup>

@@ -1,80 +1,65 @@
 name: Build and Deploy Documentation
 
-# This workflow builds the documentation site and deploys it to GitHub Pages
-# It runs when changes are pushed to the 'docs' folder on the main branch
-
 on:
   push:
     branches: [main]
     paths:
       - 'docs/**'
-      - 'mkdocs.yml'
-      - 'requirements-docs.txt'
+      - 'docs_check.py'
       - 'CHANGELOG.md'
       - 'RELEASE.md'
-  release:
-    types: [published]
+  pull_request:
+    branches: [main]
+    paths:
+      - 'docs/**'
+      - 'docs_check.py'
   workflow_dispatch:
 
-# Permissions needed to deploy to GitHub Pages
 permissions:
   contents: read
   pages: write
   id-token: write
 
-# Prevent concurrent deployments
 concurrency:
   group: "pages"
   cancel-in-progress: false
 
 jobs:
-  build:
-    name: Build Documentation
+  validate:
+    name: Validate Documentation
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+      - run: python docs_check.py
 
-      - name: Install documentation dependencies
+  deploy:
+    name: Build and Deploy to GitHub Pages
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    needs: validate
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Export static site
         run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements-docs.txt
+          cd docs
+          npx mintlify export --output ../export.zip
+          cd ..
+          unzip -q export.zip -d site
 
-      - name: Build documentation
-        # Builds the static site using MkDocs
-        run: mkdocs build --strict
+      - uses: actions/configure-pages@v6
 
-      - name: Check for broken links
-        # Optional: checks if any links in the docs are broken
-        run: |
-          pip install linkchecker || echo "Skipping link check"
-          if [ -d "site" ]; then
-            linkchecker site/ --check-extern || echo "Link check completed"
-          fi
-        continue-on-error: true
-
-      - name: Setup Pages
-        uses: actions/configure-pages@v6
-        continue-on-error: true
-
-      - name: Upload artifact
-        uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@v5
         with:
           path: ./site
 
-  deploy:
-    name: Deploy to GitHub Pages
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    runs-on: ubuntu-latest
-    needs: build
-    steps:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v5

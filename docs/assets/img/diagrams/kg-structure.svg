@@ -1,0 +1,90 @@
+<svg viewBox="0 0 700 360" xmlns="http://www.w3.org/2000/svg">
+<title>Knowledge Graph Structure</title>
+<defs>
+  <style>text{font-family:Inter,system-ui,-apple-system,sans-serif}</style>
+  <filter id="sh" x="-15%" y="-15%" width="130%" height="130%">
+    <feDropShadow dx="0" dy="3" stdDeviation="6" flood-color="#00000014"/>
+  </filter>
+  <marker id="arr" markerWidth="9" markerHeight="7" refX="8" refY="3.5" orient="auto">
+    <polygon points="0 0, 9 3.5, 0 7" fill="#94a3b8"/>
+  </marker>
+</defs>
+
+<rect width="700" height="360" fill="#f1f5f9" rx="16"/>
+
+<!-- Title -->
+<text x="350" y="30" text-anchor="middle" font-size="13" font-weight="700" fill="#334155">Knowledge Graph — Entity &amp; Relation Structure</text>
+
+<!-- ── EDGES (drawn first, under nodes) ── -->
+
+<!-- Steve Jobs → Apple Inc. "founded" -->
+<line x1="222" y1="158" x2="345" y2="100" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arr)"/>
+<rect x="240" y="114" width="64" height="20" rx="4" fill="white" stroke="#e2e8f0" stroke-width="1"/>
+<text x="272" y="128" text-anchor="middle" font-size="10" font-weight="600" fill="#4f46e5">founded</text>
+
+<!-- Steve Jobs → Cupertino "connected_to" -->
+<line x1="224" y1="178" x2="430" y2="238" stroke="#94a3b8" stroke-width="1.5" stroke-dasharray="5,3" marker-end="url(#arr)"/>
+<rect x="285" y="195" width="90" height="20" rx="4" fill="white" stroke="#e2e8f0" stroke-width="1"/>
+<text x="330" y="209" text-anchor="middle" font-size="10" font-weight="600" fill="#64748b">connected_to</text>
+
+<!-- Apple Inc. → Cupertino "located_in" -->
+<line x1="448" y1="118" x2="456" y2="220" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arr)"/>
+<rect x="420" y="162" width="72" height="20" rx="4" fill="white" stroke="#e2e8f0" stroke-width="1"/>
+<text x="456" y="176" text-anchor="middle" font-size="10" font-weight="600" fill="#059669">located_in</text>
+
+<!-- Steve Jobs → 1976 "born" -->
+<line x1="148" y1="202" x2="178" y2="280" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arr)"/>
+<rect x="106" y="234" width="52" height="20" rx="4" fill="white" stroke="#e2e8f0" stroke-width="1"/>
+<text x="132" y="248" text-anchor="middle" font-size="10" font-weight="600" fill="#d97706">born_in</text>
+
+<!-- Apple Inc. → 1976 "founded_in" -->
+<line x1="380" y1="120" x2="248" y2="284" stroke="#94a3b8" stroke-width="1.5" marker-end="url(#arr)"/>
+<rect x="282" y="195" width="76" height="20" rx="4" fill="white" stroke="#e2e8f0" stroke-width="1"/>
+
+<!-- ── NODES (drawn on top of edges) ── -->
+
+<!-- Node: Steve Jobs (PERSON) — center left (150, 170) -->
+<rect x="50" y="144" width="160" height="52" rx="26" fill="#4f46e5" filter="url(#sh)"/>
+<rect x="50" y="144" width="160" height="52" rx="26" fill="none" stroke="#6366f1" stroke-width="1.5"/>
+<text x="130" y="167" text-anchor="middle" font-size="12.5" font-weight="700" fill="white">Steve Jobs</text>
+<text x="130" y="184" text-anchor="middle" font-size="10" fill="white" opacity="0.75">PERSON</text>
+
+<!-- Node: Apple Inc. (ORGANIZATION) — top right (400, 90) -->
+<rect x="308" y="64" width="176" height="52" rx="26" fill="#7c3aed" filter="url(#sh)"/>
+<rect x="308" y="64" width="176" height="52" rx="26" fill="none" stroke="#8b5cf6" stroke-width="1.5"/>
+<text x="396" y="87" text-anchor="middle" font-size="12.5" font-weight="700" fill="white">Apple Inc.</text>
+<text x="396" y="104" text-anchor="middle" font-size="10" fill="white" opacity="0.75">ORGANIZATION</text>
+
+<!-- Node: Cupertino (LOCATION) — right (486, 246) -->
+<rect x="394" y="220" width="160" height="52" rx="26" fill="#059669" filter="url(#sh)"/>
+<rect x="394" y="220" width="160" height="52" rx="26" fill="none" stroke="#10b981" stroke-width="1.5"/>
+<text x="474" y="243" text-anchor="middle" font-size="12.5" font-weight="700" fill="white">Cupertino</text>
+<text x="474" y="260" text-anchor="middle" font-size="10" fill="white" opacity="0.75">LOCATION</text>
+
+<!-- Node: 1976 (DATE) — bottom left (200, 296) -->
+<rect x="118" y="270" width="130" height="52" rx="26" fill="#d97706" filter="url(#sh)"/>
+<rect x="118" y="270" width="130" height="52" rx="26" fill="none" stroke="#f59e0b" stroke-width="1.5"/>
+<text x="183" y="293" text-anchor="middle" font-size="12.5" font-weight="700" fill="white">1976</text>
+<text x="183" y="310" text-anchor="middle" font-size="10" fill="white" opacity="0.75">DATE</text>
+
+<!-- ── LEGEND ── -->
+<rect x="36" y="48" width="80" height="18" rx="9" fill="#eef2ff"/>
+<circle cx="50" cy="57" r="5" fill="#4f46e5"/>
+<text x="60" y="61" font-size="10" fill="#4f46e5" font-weight="600">PERSON</text>
+
+<rect x="126" y="48" width="110" height="18" rx="9" fill="#f5f3ff"/>
+<circle cx="140" cy="57" r="5" fill="#7c3aed"/>
+<text x="150" y="61" font-size="10" fill="#7c3aed" font-weight="600">ORGANIZATION</text>
+
+<rect x="246" y="48" width="90" height="18" rx="9" fill="#ecfdf5"/>
+<circle cx="260" cy="57" r="5" fill="#059669"/>
+<text x="270" y="61" font-size="10" fill="#059669" font-weight="600">LOCATION</text>
+
+<rect x="346" y="48" width="60" height="18" rx="9" fill="#fffbeb"/>
+<circle cx="360" cy="57" r="5" fill="#d97706"/>
+<text x="370" y="61" font-size="10" fill="#d97706" font-weight="600">DATE</text>
+
+<rect x="416" y="48" width="148" height="18" rx="9" fill="#f8fafc"/>
+<line x1="430" y1="57" x2="450" y2="57" stroke="#94a3b8" stroke-width="1.5" stroke-dasharray="4,2"/>
+<text x="456" y="61" font-size="10" fill="#64748b" font-weight="600">inferred relation</text>
+</svg>

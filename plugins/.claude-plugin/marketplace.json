@@ -1,0 +1,20 @@
+{
+  "name": "semantica-local",
+  "owner": {
+    "name": "Hawksight AI",
+    "url": "https://github.com/Hawksight-AI/semantica"
+  },
+  "plugins": [
+    {
+      "name": "semantica",
+      "description": "Semantica plugin for Claude: knowledge graph skills, reasoning, extraction, and visualization.",
+      "source": "./",
+      "category": "Productivity",
+      "tags": [
+        "knowledge-graph",
+        "reasoning",
+        "semantica"
+      ]
+    }
+  ]
+}

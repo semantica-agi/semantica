@@ -1,3 +1,11 @@
+# Line endings — force LF so Mintlify/Linux CI parses frontmatter correctly
+* text=auto eol=lf
+*.md text eol=lf
+*.json text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.py text eol=lf
+
 # Linguist documentation and generated files
 # This ensures GitHub language statistics reflect the core Python code
 

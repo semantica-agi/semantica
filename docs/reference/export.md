@@ -1,951 +1,378 @@
-# Export
-
-> **Export knowledge graphs and data to multiple formats with W3C-compliant serialization.**
-
+---
+title: "Export Module"
+description: "Export knowledge graphs to RDF, Parquet, LPG, ArangoDB AQL, CSV, GraphML, OWL, JSON-LD, and vector formats."
+icon: "file-export"
 ---
 
-## 🎯 Overview
+`semantica.export` serializes knowledge graphs to every downstream format — semantic web standards, analytics pipelines, graph databases, and vector stores. All exporters share a consistent `export(graph, path, format)` interface.
 
-<div class="grid cards" markdown>
+## Exported Classes
 
--   :material-file-export:{ .lg .middle } **Multi-Format Export**
+| Class | Output formats | Notes |
+| --- | --- | --- |
+| `RDFExporter` | Turtle, JSON-LD, N-Triples, RDF/XML | Optional PROV-O provenance embedding |
+| `ParquetExporter` | `.parquet` | PyArrow-typed, Hive-partition support |
+| `LPGExporter` | Cypher `CREATE`/`MERGE` | Neo4j and Memgraph compatible |
+| `ArangoAQLExporter` | AQL `INSERT` | Vertex and edge collections |
+| `GraphExporter` | GraphML, GEXF, Graphviz DOT | Standard graph interchange formats |
+| `OWLExporter` | OWL 2.0 in Turtle/XML/JSON-LD | Full ontology serialization |
+| `CSVExporter` | `.csv` | Flat nodes + edges tables |
+| `VectorExporter` | JSON, NumPy `.npy`, FAISS index | Embedding vector export |
+| `ArrowExporter` | Apache Arrow IPC | Zero-copy transfer to Pandas/Polars/Spark |
+| `DistanceExporter` | JSON/CSV matrix | Semantic distance matrices and ego-graphs |
+| `ReportGenerator` | HTML, Markdown, JSON | Human-readable analytics reports |
+| `NamespaceManager` | — | Register and resolve RDF namespace prefixes |
 
-    ---
+## What You Get
 
-    Support for 10+ export formats including RDF, JSON, CSV, GraphML
+<CardGroup cols={2}>
+  <Card title="RDFExporter" icon="diagram-project">
+    Turtle, JSON-LD, N-Triples, RDF/XML with namespace management and optional PROV-O provenance embedding.
+  </Card>
+  <Card title="ParquetExporter" icon="layer-group">
+    Columnar storage for Spark, BigQuery, Databricks, and Snowflake with explicit PyArrow typing.
+  </Card>
+  <Card title="LPG & ArangoDB" icon="server">
+    Cypher CREATE/MERGE for Neo4j and Memgraph; AQL INSERT for ArangoDB vertex and edge collections.
+  </Card>
+  <Card title="Graph Formats" icon="chart-bar">
+    GraphML, GEXF, DOT for Gephi and Graphviz. OWL 2.0 ontology export in Turtle, XML, and JSON-LD.
+  </Card>
+  <Card title="Vector & Arrow" icon="vector-square">
+    JSON, NumPy `.npy`, and FAISS index export for embedding vectors. Apache Arrow IPC for zero-copy transfer.
+  </Card>
+  <Card title="Distance & Reports" icon="chart-line">
+    Distance matrix CSV/JSON from Distance Intelligence (v0.5.0). HTML, Markdown, and JSON analytics reports.
+  </Card>
+</CardGroup>
 
--   :material-database-export:{ .lg .middle } **Graph Databases**
+## Quick Start
 
-    ---
+<Steps>
+  <Step title="Choose your format and instantiate an exporter">
+    ```python
+    from semantica.export import RDFExporter
 
-    Direct export to Neo4j, ArangoDB, Memgraph with Cypher generation
+    exporter = RDFExporter()
+    ```
+  </Step>
+  <Step title="Export the graph">
+    ```python
+    # Export to RDF string, then write to file
+    rdf_str = exporter.export_to_rdf(graph, format="turtle")
+    with open("output.ttl", "w") as f:
+        f.write(rdf_str)
+    ```
+  </Step>
+  <Step title="Use convenience functions for one-liners">
+    ```python
+    from semantica.export import export_rdf, export_parquet, export_csv
 
--   :material-code-json:{ .lg .middle } **RDF Serialization**
+    export_rdf(graph,     "output.ttl",   format="turtle")
+    export_parquet(graph, "output/",      compression="snappy")
+    export_csv(graph,     "nodes.csv",    target="nodes")
+    ```
+  </Step>
+  <Step title="Stream large graphs to avoid OOM">
+    ```python
+    from semantica.export import ParquetExporter
 
-    ---
+    exporter = ParquetExporter(compression="snappy")
+    exporter.export_stream(graph, output_dir="output/", batch_size=10_000)
+    ```
+  </Step>
+</Steps>
 
-    W3C-compliant formats: Turtle, RDF/XML, JSON-LD, N-Triples
+## RDFExporter Constructor Parameters
 
--   :material-cog:{ .lg .middle } **Custom Serializers**
+| Parameter | Type | Default | Description |
+| --------- | ---- | ------- | ----------- |
+| `namespace_manager` | `NamespaceManager` | `None` | Custom namespace prefix manager |
+| `include_provenance` | `bool` | `False` | Embed W3C PROV-O lineage triples |
+| `provenance_manager` | `ProvenanceManager` | `None` | Provenance source when `include_provenance=True` |
 
-    ---
+## Exporters
 
-    Extensible serialization framework for custom formats
+<Tabs>
+  <Tab title="RDF">
+    Export to W3C RDF formats — Turtle, JSON-LD, N-Triples, and RDF/XML:
 
--   :material-flash:{ .lg .middle } **Batch Export**
+    ```python
+    from semantica.export import RDFExporter
 
-    ---
+    exporter = RDFExporter()
 
-    Efficient large-scale data export with streaming support
+    # Export to RDF string — write to file manually
+    rdf_str = exporter.export_to_rdf(graph, format="turtle")   # Turtle (most readable)
+    rdf_str = exporter.export_to_rdf(graph, format="json-ld")  # JSON-LD (APIs, Linked Data)
+    rdf_str = exporter.export_to_rdf(graph, format="nt")       # N-Triples (streaming-friendly)
+    rdf_str = exporter.export_to_rdf(graph, format="xml")      # RDF/XML (W3C standard)
 
--   :material-file-multiple:{ .lg .middle } **Multiple Outputs**
+    with open("output.ttl", "w") as f:
+        f.write(exporter.export_to_rdf(graph, format="turtle"))
+    ```
 
-    ---
+    **Custom namespace management:**
 
-    Export to Cytoscape.js, D3.js, Gephi, Graphviz formats
+    ```python
+    from semantica.export import NamespaceManager, RDFExporter
 
-</div>
+    ns_manager = NamespaceManager()
+    ns_manager.register("ex",     "http://example.org/")
+    ns_manager.register("schema", "https://schema.org/")
 
-!!! tip "Choosing Export Format"
-    - **Development**: Use Turtle for human-readable RDF
-    - **APIs**: Use JSON-LD for web services
-    - **Visualization**: Use GraphML or Cytoscape.js
-    - **Databases**: Use Neo4j Cypher or CSV for bulk import
+    exporter = RDFExporter(namespace_manager=ns_manager)
+    ```
 
----
+    **Export with PROV-O provenance:**
 
-## ⚙️ Algorithms Used
+    ```python
+    from semantica.export import RDFExporter
+    from semantica.provenance import ProvenanceManager
 
-### Serialization Algorithms
+    provenance = ProvenanceManager()
+    # ... track entities during extraction ...
 
-**RDF/XML Serialization**:
-- **Standard**: W3C RDF/XML specification
-- **Format**: XML-based RDF representation
-- **Use case**: Interoperability with XML-based systems
+    exporter = RDFExporter(include_provenance=True, provenance_manager=provenance)
+    exporter.export_to_file(graph, "output_with_prov.ttl", format="turtle")
+    # → Each entity's prov:wasGeneratedBy, prov:wasDerivedFrom, prov:hadPrimarySource
+    #   triples are included alongside the entity data triples
+    ```
+  </Tab>
+  <Tab title="Columnar & Analytics">
+    Columnar formats for analytics pipelines and human-readable export:
 
-**Turtle Serialization**:
-- **Standard**: W3C Turtle specification
-- **Format**: Compact RDF format with prefix compression
-- **Use case**: Human-readable RDF representation
+    ```python
+    from semantica.export import ParquetExporter
 
-**JSON-LD Serialization**:
-- **Standard**: W3C JSON-LD specification
-- **Format**: JSON-based linked data with context
-- **Use case**: Web APIs and JavaScript applications
+    exporter = ParquetExporter(compression="snappy")
+    # compression options: snappy | gzip | brotli | zstd | lz4
 
-**GraphML Generation**:
-- **Format**: XML-based graph format
-- **Use case**: Graph visualization tools (Gephi, Cytoscape)
+    # Export nodes and edges as separate Parquet files
+    exporter.export_nodes(graph, "nodes.parquet")
+    exporter.export_edges(graph, "edges.parquet")
 
-**Cypher Query Generation**:
-- **Format**: Neo4j query language
-- **Use case**: Direct import into Neo4j graph database
+    # Export full graph partitioned by node type
+    exporter.export(graph, output_dir="graph_parquet/", partition_by="node_type")
+    ```
 
-### Export Optimization
+    Schema is explicitly typed with PyArrow for clean Spark/BigQuery ingestion.
 
-**Streaming Export**:
-- **Purpose**: Memory-efficient export for large graphs
-- **How it works**: Processes data in chunks without loading entire graph into memory
-- **Use case**: Exporting graphs with millions of nodes/edges
+    ```python
+    from semantica.export import CSVExporter
 
-**Batch Processing**:
-- **Purpose**: Efficient large-scale data export
-- **How it works**: Chunked export with configurable batch sizes
-- **Use case**: Exporting multiple graphs or large datasets
+    exporter = CSVExporter(delimiter=",")
+    exporter.export_nodes(graph, "nodes.csv")
+    exporter.export_edges(graph, "edges.csv")
+    ```
 
-**Compression**:
-- **Purpose**: Reduce file size for large exports
-- **How it works**: GZIP compression for large exports
-- **Use case**: Network transfer and storage optimization
+    ```python
+    from semantica.export import SemanticNetworkYAMLExporter
 
-**Incremental Export**:
-- **Purpose**: Export only changed data
-- **How it works**: Tracks changes and exports only modified entities/relationships
-- **Use case**: Regular updates and synchronization
+    exporter = SemanticNetworkYAMLExporter()
+    exporter.export(graph, "graph.yaml")
 
----
+    yaml_str = exporter.to_string(graph)
+    ```
+  </Tab>
+  <Tab title="Graph DB Import">
+    Export Cypher or AQL statements for direct graph database import:
 
-## Main Classes
+    ```python
+    from semantica.export import LPGExporter
 
-### RDFExporter
+    exporter = LPGExporter()
 
-Export knowledge graphs to RDF formats (Turtle, RDF/XML, JSON-LD, N-Triples).
+    # CREATE statements
+    cypher = exporter.to_cypher(graph)
+    exporter.export(graph, "import.cypher", format="cypher")
 
-**Methods:**
+    # MERGE statements (idempotent — safe to re-run)
+    cypher_merge = exporter.to_cypher(graph, use_merge=True)
+    ```
 
-| Method | Description | Algorithm |
-|--------|-------------|-----------|
-| `` `export(graph, filename, format)` `` | Export to RDF format | RDF serialization with format-specific encoding |
-| `` `export_knowledge_graph(kg, filename, format)` `` | Export knowledge graph | Knowledge graph to RDF conversion |
-| `` `serialize(graph, format)` `` | Serialize to string | In-memory RDF generation |
-| `` `validate_rdf(rdf_data)` `` | Validate RDF syntax | RDF schema validation |
+    ```python
+    from semantica.export import ArangoAQLExporter
 
-### RDFSerializer
+    exporter = ArangoAQLExporter(
+        vertex_collection="entities",
+        edge_collection="relationships"
+    )
 
-RDF serialization engine for format conversion.
+    aql = exporter.export(graph)                # returns AQL string
+    exporter.export_to_file(graph, "import.aql")
+    ```
+  </Tab>
+  <Tab title="Visualization">
+    Export for graph visualization tools and OWL ontology distribution:
 
-**Methods:**
+    ```python
+    from semantica.export import GraphExporter
 
-| Method | Description | Algorithm |
-|--------|-------------|-----------|
-| `` `serialize_to_turtle(rdf_data)` `` | Serialize to Turtle | Compact RDF format with prefix compression |
-| `` `serialize_to_rdfxml(rdf_data)` `` | Serialize to RDF/XML | XML-based RDF format |
-| `` `serialize_to_jsonld(rdf_data)` `` | Serialize to JSON-LD | JSON-based linked data format |
+    exporter = GraphExporter()
 
-### RDFValidator
+    exporter.export(graph, "graph.graphml", format="graphml")  # Gephi, yEd
+    exporter.export(graph, "graph.gexf",    format="gexf")     # Gephi streaming
+    exporter.export(graph, "graph.dot",     format="dot")      # Graphviz
+    ```
 
-RDF validation engine for syntax and consistency checking.
+    ```python
+    from semantica.export import OWLExporter
 
-**Methods:**
+    exporter = OWLExporter()
+    exporter.export(ontology, path="ontology.ttl",  format="turtle")
+    exporter.export(ontology, path="ontology.owl",  format="xml")
+    exporter.export(ontology, path="ontology.json", format="json-ld")
+    ```
+  </Tab>
+  <Tab title="Specialized">
+    Vector embeddings, Arrow IPC, distance matrices, and analytics reports:
 
-| Method | Description | Algorithm |
-|--------|-------------|-----------|
-| `` `validate_rdf_syntax(rdf_data, format)` `` | Validate RDF syntax | Format-specific syntax validation |
-| `` `check_rdf_consistency(rdf_data)` `` | Check consistency | Entity reference and structure validation |
+    ```python
+    from semantica.export import VectorExporter
 
-### NamespaceManager
+    exporter = VectorExporter()
+    exporter.export(embeddings, metadata, "vectors.json",  format="json")
+    exporter.export(embeddings, metadata, "vectors.npy",   format="numpy")
+    exporter.export(embeddings, metadata, "vectors.faiss", format="faiss")
+    ```
 
-RDF namespace management and conflict resolution.
+    ```python
+    from semantica.export import ArrowExporter
 
-**Methods:**
+    exporter = ArrowExporter()
+    exporter.export(graph, "graph.arrow")   # requires pyarrow
+    ```
 
-| Method | Description | Algorithm |
-|--------|-------------|-----------|
-| `` `extract_namespaces(rdf_data)` `` | Extract namespaces | Namespace discovery from RDF data |
-| `` `generate_namespace_declarations(namespaces, format)` `` | Generate declarations | Format-specific namespace declaration |
-| `` `resolve_conflicts(namespaces)` `` | Resolve conflicts | Prefix conflict resolution |
+    ```python
+    from semantica.export import DistanceExporter
 
-**Supported RDF Formats:**
+    exporter = DistanceExporter()
+    exporter.export_matrix(distance_matrix, node_labels, "distances.csv")
+    exporter.export_ego(ego_neighborhood, center_node="Apple Inc.", path="ego.json")
+    ```
 
-| Format | Extension | Description | Use Case |
-|--------|-----------|-------------|----------|
-| **Turtle** | .ttl | Compact, human-readable | Development, debugging |
-| **N-Triples** | .nt | Line-based, simple | Streaming, processing |
-| **RDF/XML** | .rdf | XML-based, verbose | Legacy systems |
-| **JSON-LD** | .jsonld | JSON with linked data | Web APIs, JavaScript |
-| **N-Quads** | .nq | N-Triples with graphs | Named graphs |
+    ```python
+    from semantica.export import ReportGenerator
 
-**Example:**
+    generator = ReportGenerator()
+    generator.generate(graph, analytics_result, "report.html",  format="html")
+    generator.generate(graph, analytics_result, "report.md",    format="markdown")
+    generator.generate(graph, analytics_result, "report.json",  format="json")
+    ```
+  </Tab>
+</Tabs>
+
+## Streaming Export
+
+For graphs too large to hold in memory, use streaming export — writes incrementally without buffering the full graph:
 
 ```python
-from semantica.export import RDFExporter
+from semantica.export import RDFExporter, ParquetExporter
 
-exporter = RDFExporter(
-    base_uri="http://example.org/",
-    namespaces={
-        "ex": "http://example.org/",
-        "foaf": "http://xmlns.com/foaf/0.1/"
-    }
-)
+# Stream RDF — yields triples one at a time, no full-graph buffer
+exporter = RDFExporter()
+with exporter.stream(graph, format="turtle") as stream:
+    for triple_line in stream:
+        output_file.write(triple_line)
 
-# Export to Turtle
-exporter.export(
-    graph=kg,
-    filename="output.ttl",
-    format="turtle"
-)
-
-# Export to JSON-LD
-exporter.export(
-    graph=kg,
-    filename="output.jsonld",
-    format="json-ld"
-)
+# Stream Parquet — writes row groups incrementally
+exporter = ParquetExporter(compression="snappy")
+exporter.export_stream(graph, output_dir="output/", batch_size=10_000)
 ```
 
----
+Streaming is recommended for graphs with > 500k nodes.
 
-### JSONExporter
-
-Export knowledge graphs to JSON formats including JSON-LD, Cytoscape.js, and D3.js.
-
-**Methods:**
-
-| Method | Description | Algorithm |
-|--------|-------------|-----------|
-| `` `export(graph, filename, format)` `` | Export to JSON | JSON serialization with schema |
-| `` `export_nodes(graph)` `` | Export nodes only | Node extraction and serialization |
-| `` `export_edges(graph)` `` | Export edges only | Edge extraction and serialization |
-| `` `export_cytoscape(graph)` `` | Export Cytoscape.js format | Cytoscape JSON generation |
-| `export_d3(graph)` | Export D3.js format | D3 force-directed graph format |
-
-**JSON Formats:**
-
-- **Standard JSON**: Simple node/edge lists
-- **JSON-LD**: Linked data with @context
-- **Cytoscape.js**: For Cytoscape visualization
-- **D3.js**: For D3 force-directed graphs
-- **Neo4j JSON**: Neo4j-compatible format
-
-**Example:**
+## Selective Export
 
 ```python
-from semantica.export import JSONExporter
+# Export a subgraph
+subgraph = graph.subgraph(node_ids=["apple_inc", "steve_jobs"])
+export_rdf(subgraph, "subgraph.ttl", format="turtle")
 
-exporter = JSONExporter()
-
-# Standard JSON export
-exporter.export(kg, "output.json", format="standard")
-
-# JSON-LD export
-exporter.export(kg, "output.jsonld", format="json-ld")
-
-# Cytoscape format
-exporter.export_cytoscape(kg, "cytoscape.json")
+# Export nodes by type
+org_nodes = graph.filter(node_type="Organization")
+export_parquet(org_nodes, "organizations.parquet")
 ```
-
----
-
-### GraphExporter
-
-Export to graph visualization formats (GraphML, GEXF, DOT, Pajek).
-
-**Methods:**
-
-| Method | Description | Algorithm |
-|--------|-------------|-----------|
-| `` `export(graph, filename, format)` `` | Export to graph format | Format-specific serialization |
-| `` `to_graphml(graph, filename)` `` | Export to GraphML | XML-based graph format |
-| `` `to_gexf(graph, filename)` `` | Export to GEXF | Gephi exchange format |
-| `` `to_dot(graph, filename)` `` | Export to DOT | Graphviz format |
-| `` `to_pajek(graph, filename)` `` | Export to Pajek | Pajek network format |
-
-**Graph Formats:**
-
-| Format | Tool | Use Case |
-|--------|------|----------|
-| **GraphML** | yEd, Gephi | General graph visualization |
-| **GEXF** | Gephi | Network analysis |
-| **DOT** | Graphviz | Diagram generation |
-| **Pajek** | Pajek | Large network analysis |
-| **GML** | Various | Graph Modeling Language |
-
-**Example:**
-
-```python
-from semantica.export import GraphExporter
-
-exporter = GraphExporter()
-
-# Export to GraphML
-exporter.to_graphml(kg, "graph.graphml")
-
-# Export to DOT for Graphviz
-exporter.to_dot(kg, "graph.dot")
-```
-
----
-
-### LPGExporter
-
-Export to LPG (Labeled Property Graph) format for Neo4j, Memgraph, and similar databases.
-
-**Methods:**
-
-| Method | Description | Algorithm |
-|--------|-------------|-----------|
-| `` `export(knowledge_graph, file_path)` `` | Export to LPG format | Cypher query generation |
-| `` `export_knowledge_graph(kg, file_path)` `` | Export knowledge graph | Knowledge graph to Cypher conversion |
-| `` `generate_cypher(kg)` `` | Generate Cypher queries | CREATE/MERGE statement generation |
-
-**Cypher Generation:**
-```cypher
-// Node creation
-CREATE (n:Person {name: "Steve Jobs", born: 1955})
-
-// Relationship creation
-MATCH (a:Person {name: "Steve Jobs"}), (b:Organization {name: "Apple Inc."})
-CREATE (a)-[:FOUNDED]->(b)
-```
-
-**Example:**
-
-```python
-from semantica.export import LPGExporter
-
-exporter = LPGExporter(batch_size=1000, include_indexes=True)
-
-# Export to Cypher file
-exporter.export_knowledge_graph(kg, "graph.cypher")
-
-# Generate Cypher queries
-cypher_queries = exporter.generate_cypher(kg)
-print(cypher_queries)
-```
-
----
-
-### CSVExporter
-
-Export to CSV format for spreadsheets and database imports.
-
-**Methods:**
-
-| Method | Description | Algorithm |
-|--------|-------------|-----------|
-| `` `export_nodes(graph, filename)` `` | Export nodes to CSV | Node flattening and CSV writing |
-| `` `export_edges(graph, filename)` `` | Export edges to CSV | Edge list CSV generation |
-| `` `export_combined(graph, prefix)` `` | Export nodes + edges | Separate CSV files |
-| `` `flatten_properties(properties)` `` | Flatten nested properties | Recursive property flattening |
-
-**CSV Formats:**
-- **Nodes CSV**: id, label, properties (flattened)
-- **Edges CSV**: source, target, type, properties
-- **Neo4j Import Format**: Neo4j-compatible CSV
-
-**Example:**
-
-```python
-from semantica.export import CSVExporter
-
-exporter = CSVExporter()
-
-# Export nodes and edges separately
-exporter.export_nodes(kg, "nodes.csv")
-exporter.export_edges(kg, "edges.csv")
-
-# Or combined export
-exporter.export_combined(kg, prefix="graph")
-# Creates: graph_nodes.csv, graph_edges.csv
-```
-
----
-
-### VectorExporter
-
-Export vector embeddings to various formats.
-
-**Methods:**
-
-| Method | Description | Algorithm |
-|--------|-------------|-----------|
-| `` `export(vectors, filename, format)` `` | Export vectors | Format-specific vector serialization |
-| `` `export_numpy(vectors, filename)` `` | Export to NumPy | .npy format |
-| `` `export_hdf5(vectors, filename)` `` | Export to HDF5 | Hierarchical data format |
-| `` `export_parquet(vectors, filename)` `` | Export to Parquet | Columnar storage format |
-
-**Example:**
-
-```python
-from semantica.export import VectorExporter
-
-exporter = VectorExporter(format="json", include_metadata=True)
-exporter.export(vectors, "vectors.json")
-```
-
----
-
-### OWLExporter
-
-Export ontologies to OWL format (OWL/XML, Turtle).
-
-**Methods:**
-
-| Method | Description | Algorithm |
-|--------|-------------|-----------|
-| `` `export(ontology, filename, format)` `` | Export ontology | OWL serialization |
-| `` `export_classes(classes, filename)` `` | Export classes | Class definition export |
-| `` `export_properties(properties, filename)` `` | Export properties | Property definition export |
-
-**Example:**
-
-```python
-from semantica.export import OWLExporter
-
-exporter = OWLExporter(ontology_uri="http://example.org/ontology#")
-exporter.export(ontology, "ontology.owl", format="owl-xml")
-```
-
----
-
-### SemanticNetworkYAMLExporter
-
-Export semantic networks to YAML format.
-
-**Methods:**
-
-| Method | Description | Algorithm |
-|--------|-------------|-----------|
-| `` `export(semantic_network, filename)` `` | Export semantic network | YAML serialization |
-| `` `export_semantic_network(semantic_network)` `` | Export to string | In-memory YAML generation |
-
-**Example:**
-
-```python
-from semantica.export import SemanticNetworkYAMLExporter
-
-exporter = SemanticNetworkYAMLExporter()
-exporter.export(semantic_network, "network.yaml")
-```
-
----
-
-### YAMLSchemaExporter
-
-Export ontology schemas to YAML format.
-
-**Methods:**
-
-| Method | Description | Algorithm |
-|--------|-------------|-----------|
-| `` `export_ontology_schema(ontology, filename)` `` | Export ontology schema | YAML schema serialization |
-
-**Example:**
-
-```python
-from semantica.export import YAMLSchemaExporter
-
-exporter = YAMLSchemaExporter()
-exporter.export_ontology_schema(schema, "schema.yaml")
-```
-
----
-
-### ReportGenerator
-
-Generate reports in multiple formats (HTML, Markdown, JSON, Text).
-
-**Methods:**
-
-| Method | Description | Algorithm |
-|--------|-------------|-----------|
-| `` `generate_report(data, filename, format)` `` | Generate report | Template-based report generation |
-| `` `generate_quality_report(metrics, filename, format)` `` | Generate quality report | Quality metrics aggregation |
-
-**Example:**
-
-```python
-from semantica.export import ReportGenerator
-
-generator = ReportGenerator(format="html", include_charts=True)
-generator.generate_report(data, "report.html")
-```
-
----
-
-### MethodRegistry
-
-Registry for custom export methods.
-
-**Methods:**
-
-| Method | Description | Algorithm |
-|--------|-------------|-----------|
-| `` `register(task, name, method_func)` `` | Register method | Dictionary-based registration |
-| `` `get(task, name)` `` | Get method | Hash-based lookup |
-| `` `list_all(task)` `` | List methods | Method discovery |
-| `` `unregister(task, name)` `` | Unregister method | Method removal |
-| `` `clear(task)` `` | Clear methods | Registry cleanup |
-
-**Global Instance:**
-- `method_registry`: Global method registry instance
-
-**Example:**
-
-```python
-from semantica.export import method_registry
-
-method_registry.register("json", "custom_method", custom_json_export)
-method = method_registry.get("json", "custom_method")
-all_methods = method_registry.list_all()
-```
-
----
-
-### ExportConfig
-
-Configuration manager for export module.
-
-**Methods:**
-
-| Method | Description | Algorithm |
-|--------|-------------|-----------|
-| `` `set(key, value)` `` | Set configuration | Configuration storage |
-| `` `get(key, default)` `` | Get configuration | Configuration retrieval |
-| `` `set_method_config(task, **config)` `` | Set method config | Method-specific configuration |
-| `` `get_method_config(task)` `` | Get method config | Method configuration retrieval |
-
-**Global Instance:**
-- `export_config`: Global export configuration instance
-
-**Example:**
-
-```python
-from semantica.export.config import export_config, ExportConfig
-
-# Using global instance
-export_config.set("default_format", "json")
-format = export_config.get("default_format", default="json")
-
-# Create custom instance
-config = ExportConfig(config_file="config.yaml")
-```
-
----
 
 ## Convenience Functions
 
-### Export Functions
-
-| Function | Description | Format |
-|----------|-------------|--------|
-| `` `export_rdf(data, file_path, format)` `` | Export to RDF | turtle, rdfxml, jsonld, ntriples, n3 |
-| `` `export_json(data, file_path, format)` `` | Export to JSON | json, json-ld |
-| `` `export_csv(data, file_path)` `` | Export to CSV | csv |
-| `` `export_graph(graph_data, file_path, format)` `` | Export to graph format | graphml, gexf, dot |
-| `` `export_yaml(data, file_path, method)` `` | Export to YAML | semantic_network, schema |
-| `` `export_owl(ontology, file_path, format)` `` | Export to OWL | owl-xml, turtle |
-| `` `export_vector(vectors, file_path, format)` `` | Export vectors | json, numpy, binary, faiss |
-| `` `export_lpg(kg, file_path, method)` `` | Export to LPG | cypher, lpg |
-| `` `generate_report(data, file_path, format)` `` | Generate report | html, markdown, json, text |
-
-### Registry Functions
-
-| Function | Description |
-|----------|-------------|
-| `` `get_export_method(task, name)` `` | Get registered export method |
-| `` `list_available_methods(task)` `` | List all available methods |
-
-**Example:**
-
 ```python
-from semantica.export.methods import (
-    export_rdf, export_json, export_csv, export_graph,
-    export_yaml, export_owl, export_vector, export_lpg,
-    generate_report, get_export_method, list_available_methods
+from semantica.export import (
+    export_rdf, export_parquet, export_csv, export_lpg,
+    export_arango, export_graph, export_owl, export_vector,
+    export_arrow, generate_report
 )
 
-# Export functions
-export_rdf(kg, "output.ttl", format="turtle")
-export_json(kg, "output.json", format="json")
-export_lpg(kg, "graph.cypher", method="cypher")
-
-# Registry functions
-method = get_export_method("json", "custom_method")
-all_methods = list_available_methods()
+export_rdf(graph,     "output.ttl",    format="turtle")
+export_parquet(graph, "output/",       compression="snappy")
+export_csv(graph,     "nodes.csv",     target="nodes")
+export_lpg(graph,     "import.cypher", method="cypher")
+export_arango(graph,  "import.aql")
+export_graph(graph,   "graph.graphml", format="graphml")
 ```
 
----
-
-## Configuration
-
-```yaml
-# config.yaml - Export Configuration
-
-export:
-  rdf:
-    default_format: turtle
-    base_uri: "http://example.org/"
-    include_provenance: true
-    validate_output: true
-    
-  json:
-    pretty_print: true
-    indent: 2
-    ensure_ascii: false
-    
-  graph:
-    include_metadata: true
-    export_properties: true
-    
-  neo4j:
-    batch_size: 1000
-    create_indexes: true
-    create_constraints: true
-    
-  csv:
-    delimiter: ","
-    quote_char: "\""
-    encoding: "utf-8"
-    include_header: true
-```
-
----
-
-## Performance Characteristics
-
-### Export Speed
-
-| Format | Small Graph | Large Graph | Compression |
-|--------|-------------|-------------|-------------|
-| JSON | Fast | Medium | Good with gzip |
-| RDF/XML | Medium | Slow | Poor |
-| Turtle | Fast | Fast | Good |
-| CSV | Very Fast | Very Fast | Excellent |
-| Neo4j | Medium | Medium | N/A |
-
-### Memory Usage
-
-- **Streaming Export**: Constant memory usage
-- **Batch Export**: Memory proportional to batch size
-- **Full Export**: Memory proportional to graph size
-
----
-
-## See Also
-
-- [Knowledge Graph Module](kg.md) - Build graphs
-- [Visualization Module](visualization.md) - Visualize exported graphs
-- [Core Module](core.md) - Framework orchestration
-
-## Cookbook
-
-Interactive tutorials to learn export capabilities:
-
-- **[Export](https://github.com/Hawksight-AI/semantica/blob/main/cookbook/introduction/15_Export.ipynb)**: Export knowledge graphs to various formats
-  - **Topics**: RDF, JSON, CSV, OWL export, format conversion
-  - **Difficulty**: Intermediate
-  - **Use Cases**: Data export, format conversion, interoperability
-
-- **[Multi-Format Export](https://github.com/Hawksight-AI/semantica/blob/main/cookbook/advanced/05_Multi_Format_Export.ipynb)**: Exporting to RDF, OWL, JSON-LD, and NetworkX formats
-  - **Topics**: Serialization, interoperability, multiple formats, batch export
-  - **Difficulty**: Intermediate
-  - **Use Cases**: Multi-format export, data interoperability
-
----
-
-## Algorithms Used
-
-### Serialization Algorithms
-- **RDF/XML Serialization**: W3C RDF/XML specification
-- **Turtle Serialization**: Compact RDF format with prefix compression
-- **JSON-LD Serialization**: JSON-based linked data with context
-- **GraphML Generation**: XML-based graph format
-- **Cypher Query Generation**: Neo4j query language generation
-
-### Export Optimization
-- **Streaming Export**: Memory-efficient export for large graphs
-- **Batch Processing**: Chunked export with configurable batch sizes
-- **Compression**: GZIP compression for large exports
-- **Incremental Export**: Export only changed data
-
----
-
-## Main Classes
-
-### RDFExporter
-
-
-**Methods:**
-
-| Method | Description | Algorithm |
-|--------|-------------|-----------|
-| `` `export(graph, filename, format)` `` | Export to RDF format | RDF serialization with format-specific encoding |
-| `` `serialize(graph, format)` `` | Serialize to string | In-memory RDF generation |
-| `` `validate(rdf_data)` `` | Validate RDF syntax | RDF schema validation |
-| `` `add_namespace(prefix, uri)` `` | Add namespace | Prefix registration |
-| `` `set_base_uri(uri)` `` | Set base URI | Base URI configuration |
-
-**Supported RDF Formats:**
-
-| Format | Extension | Description | Use Case |
-|--------|-----------|-------------|----------|
-| **Turtle** | .ttl | Compact, human-readable | Development, debugging |
-| **N-Triples** | .nt | Line-based, simple | Streaming, processing |
-| **RDF/XML** | .rdf | XML-based, verbose | Legacy systems |
-| **JSON-LD** | .jsonld | JSON with linked data | Web APIs, JavaScript |
-| **N-Quads** | .nq | N-Triples with graphs | Named graphs |
-
-**Example:**
-
-```python
-from semantica.export import RDFExporter
-
-exporter = RDFExporter(
-    base_uri="http://example.org/",
-    namespaces={
-        "ex": "http://example.org/",
-        "foaf": "http://xmlns.com/foaf/0.1/"
-    }
-)
-
-# Export to Turtle
-exporter.export(
-    graph=kg,
-    filename="output.ttl",
-    format="turtle"
-)
-
-# Export to JSON-LD
-exporter.export(
-    graph=kg,
-    filename="output.jsonld",
-    format="json-ld"
-)
-```
-
----
-
-### JSONExporter
-
-
-**Methods:**
-
-| Method | Description | Algorithm |
-|--------|-------------|-----------|
-| `` `export(graph, filename, format)` `` | Export to JSON | JSON serialization with schema |
-| `` `export_nodes(graph)` `` | Export nodes only | Node extraction and serialization |
-| `` `export_edges(graph)` `` | Export edges only | Edge extraction and serialization |
-| `` `export_cytoscape(graph)` `` | Export Cytoscape.js format | Cytoscape JSON generation |
-| `export_d3(graph)` | Export D3.js format | D3 force-directed graph format |
-
-**JSON Formats:**
-
-- **Standard JSON**: Simple node/edge lists
-- **JSON-LD**: Linked data with @context
-- **Cytoscape.js**: For Cytoscape visualization
-- **D3.js**: For D3 force-directed graphs
-- **Neo4j JSON**: Neo4j-compatible format
-
-**Example:**
-
-```python
-from semantica.export import JSONExporter
-
-exporter = JSONExporter()
-
-# Standard JSON export
-exporter.export(kg, "output.json", format="standard")
-
-# JSON-LD export
-exporter.export(kg, "output.jsonld", format="json-ld")
-
-# Cytoscape format
-exporter.export_cytoscape(kg, "cytoscape.json")
-```
-
----
-
-### GraphExporter
-
-
-**Methods:**
-
-| Method | Description | Algorithm |
-|--------|-------------|-----------|
-| `` `export(graph, filename, format)` `` | Export to graph format | Format-specific serialization |
-| `` `to_graphml(graph, filename)` `` | Export to GraphML | XML-based graph format |
-| `` `to_gexf(graph, filename)` `` | Export to GEXF | Gephi exchange format |
-| `` `to_dot(graph, filename)` `` | Export to DOT | Graphviz format |
-| `` `to_pajek(graph, filename)` `` | Export to Pajek | Pajek network format |
-
-**Graph Formats:**
-
-| Format | Tool | Use Case |
-|--------|------|----------|
-| **GraphML** | yEd, Gephi | General graph visualization |
-| **GEXF** | Gephi | Network analysis |
-| **DOT** | Graphviz | Diagram generation |
-| **Pajek** | Pajek | Large network analysis |
-| **GML** | Various | Graph Modeling Language |
-
-**Example:**
-
-```python
-from semantica.export import GraphExporter
-
-exporter = GraphExporter()
-
-# Export to GraphML
-exporter.to_graphml(kg, "graph.graphml")
-
-# Export to DOT for Graphviz
-exporter.to_dot(kg, "graph.dot")
-```
-
----
-
-### Neo4jExporter
-
-
-**Methods:**
-
-| Method | Description | Algorithm |
-|--------|-------------|-----------|
-| `` `export(graph, uri, username, password)` `` | Export to Neo4j | Cypher query execution |
-| `` `generate_cypher(graph)` `` | Generate Cypher queries | CREATE/MERGE statement generation |
-| `` `batch_import(graph, batch_size)` `` | Batch import | Chunked Cypher execution |
-| `` `create_indexes(properties)` `` | Create indexes | Index creation for performance |
-| `` `create_constraints(constraints)` `` | Create constraints | Uniqueness constraint creation |
-
-**Cypher Generation:**
-```cypher
-// Node creation
-CREATE (n:Person {name: "Steve Jobs", born: 1955})
-
-// Relationship creation
-MATCH (a:Person {name: "Steve Jobs"}), (b:Organization {name: "Apple Inc."})
-CREATE (a)-[:FOUNDED]->(b)
-```
-
-**Example:**
-
-```python
-from semantica.export import Neo4jExporter
-
-exporter = Neo4jExporter()
-
-# Direct export to Neo4j
-exporter.export(
-    graph=kg,
-    uri="bolt://localhost:7687",
-    username="neo4j",
-    password="password"
-)
-
-# Generate Cypher queries
-cypher_queries = exporter.generate_cypher(kg)
-print(cypher_queries)
-```
-
----
-
-### CSVExporter
-
-
-**Methods:**
-
-| Method | Description | Algorithm |
-|--------|-------------|-----------|
-| `` `export_nodes(graph, filename)` `` | Export nodes to CSV | Node flattening and CSV writing |
-| `` `export_edges(graph, filename)` `` | Export edges to CSV | Edge list CSV generation |
-| `` `export_combined(graph, prefix)` `` | Export nodes + edges | Separate CSV files |
-| `` `flatten_properties(properties)` `` | Flatten nested properties | Recursive property flattening |
-
-**CSV Formats:**
-- **Nodes CSV**: id, label, properties (flattened)
-- **Edges CSV**: source, target, type, properties
-- **Neo4j Import Format**: Neo4j-compatible CSV
-
-**Example:**
-
-```python
-from semantica.export import CSVExporter
-
-exporter = CSVExporter()
-
-# Export nodes and edges separately
-exporter.export_nodes(kg, "nodes.csv")
-exporter.export_edges(kg, "edges.csv")
-
-# Or combined export
-exporter.export_combined(kg, prefix="graph")
-# Creates: graph_nodes.csv, graph_edges.csv
-```
-
----
-
-### VectorExporter
-
-
-**Methods:**
-
-| Method | Description | Algorithm |
-|--------|-------------|-----------|
-| `` `export(embeddings, filename, format)` `` | Export vectors | Format-specific vector serialization |
-| `` `export_numpy(embeddings, filename)` `` | Export to NumPy | .npy format |
-| `` `export_hdf5(embeddings, filename)` `` | Export to HDF5 | Hierarchical data format |
-| `` `export_parquet(embeddings, filename)` `` | Export to Parquet | Columnar storage format |
-
----
-
-## Configuration
-
-```yaml
-# config.yaml - Export Configuration
-
-export:
-  rdf:
-    default_format: turtle
-    base_uri: "http://example.org/"
-    include_provenance: true
-    validate_output: true
-    
-  json:
-    pretty_print: true
-    indent: 2
-    ensure_ascii: false
-    
-  graph:
-    include_metadata: true
-    export_properties: true
-    
-  neo4j:
-    batch_size: 1000
-    create_indexes: true
-    create_constraints: true
-    
-  csv:
-    delimiter: ","
-    quote_char: "\""
-    encoding: "utf-8"
-    include_header: true
-```
-
----
-
-## Performance Characteristics
-
-### Export Speed
-
-| Format | Small Graph | Large Graph | Compression |
-|--------|-------------|-------------|-------------|
-| JSON | Fast | Medium | Good with gzip |
-| RDF/XML | Medium | Slow | Poor |
-| Turtle | Fast | Fast | Good |
-| CSV | Very Fast | Very Fast | Excellent |
-| Neo4j | Medium | Medium | N/A |
-
-### Memory Usage
-
-- **Streaming Export**: Constant memory usage
-- **Batch Export**: Memory proportional to batch size
-- **Full Export**: Memory proportional to graph size
-
----
-
-## See Also
-
-- [Knowledge Graph Module](kg.md) - Build graphs
-- [Visualization Module](visualization.md) - Visualize exported graphs
-- [Core Module](core.md) - Framework orchestration
+## Format Reference
+
+| Format | Exporter | Output | Best For |
+| ------ | -------- | ------ | -------- |
+| `turtle` | `RDFExporter` | `.ttl` | Readable RDF, ontology sharing |
+| `json-ld` | `RDFExporter` | `.jsonld` | APIs, Linked Data, JSON pipelines |
+| `nt` | `RDFExporter` | `.nt` | Streaming RDF, line-by-line processing |
+| `xml` | `RDFExporter` | `.xml` | W3C RDF/XML, broadest compatibility |
+| `parquet` | `ParquetExporter` | `.parquet` | Spark, BigQuery, Databricks, Snowflake |
+| `cypher` | `LPGExporter` | `.cypher` | Neo4j, Memgraph import |
+| `aql` | `ArangoAQLExporter` | `.aql` | ArangoDB vertex + edge collections |
+| `graphml` | `GraphExporter` | `.graphml` | Gephi, yEd visualization |
+| `gexf` | `GraphExporter` | `.gexf` | Gephi streaming format |
+| `dot` | `GraphExporter` | `.dot` | Graphviz rendering |
+| `owl` | `OWLExporter` | `.owl` / `.ttl` | OWL 2.0 ontology distribution |
+| `csv` | `CSVExporter` | `.csv` | Spreadsheets, simple pipelines |
+| `yaml` | `SemanticNetworkYAMLExporter` | `.yaml` | Human-readable, config-driven use |
+| `arrow` | `ArrowExporter` | `.arrow` | Zero-copy inter-process transfer |
+| `numpy` | `VectorExporter` | `.npy` | NumPy arrays from embeddings |
+| `faiss` | `VectorExporter` | `.faiss` | Direct FAISS index files |
+| `distance-matrix` | `DistanceExporter` | `.csv` / `.json` | Distance Intelligence matrices |
+| `html` | `ReportGenerator` | `.html` | Human-readable analytics reports |
+| `markdown` | `ReportGenerator` | `.md` | Documentation, GitHub |
+
+## Tips and Common Pitfalls
+
+<Tip>
+  **Use `turtle` for human readability, `nt` for streaming.** Turtle is compact and readable for debugging and sharing ontologies. N-Triples (`.nt`) is line-oriented — one triple per line — making it safe to stream, concatenate, and process with standard Unix tools without loading the full file.
+</Tip>
+
+<Tip>
+  **Use `ParquetExporter` for downstream analytics.** Parquet preserves column types (int, float, datetime) that CSV loses and is natively supported by Spark, BigQuery, Databricks, and Snowflake. Use `compression="snappy"` for a good balance of speed and compression ratio.
+</Tip>
+
+<Warning>
+  **Stream large graphs with `export_stream()`.** For graphs with more than 500k nodes, use `exporter.export_stream(graph, ...)` instead of building the full RDF string in memory. Streaming writes incrementally — without it, a million-node export will likely OOM.
+</Warning>
+
+<Tip>
+  **Include provenance for compliance exports.** For HIPAA, SOX, or FDA 21 CFR Part 11 exports, pass `include_provenance=True` to `RDFExporter`. This embeds W3C PROV-O lineage triples inline — auditors can verify every fact's source from a single file rather than cross-referencing separate systems.
+</Tip>
+
+<Tip>
+  **Use selective export to reduce file size.** `graph.subgraph(node_ids=[...])` and `graph.filter(node_type="Organization")` let you export only the relevant subset. Full graph exports for compliance reports include noise; scoped exports are faster to produce, review, and transfer.
+</Tip>
+
+<Warning>
+  **Match your export format to your consumer.** Neo4j → `cypher`; ArangoDB → `aql`; Gephi/yEd → `graphml` or `gexf`; semantic web tools → `turtle` or `json-ld`; analytics pipelines → `parquet`; zero-copy IPC → `arrow`. Using the wrong format forces the consumer to convert it, adding latency and potential data loss.
+</Warning>
+
+<CardGroup cols={2}>
+  <Card title="Triplet Store" icon="table" href="triplet_store">
+    Store RDF exports in a SPARQL-queryable backend.
+  </Card>
+  <Card title="Ontology" icon="sitemap" href="ontology">
+    Export OWL ontologies.
+  </Card>
+  <Card title="Provenance" icon="link" href="provenance">
+    Include provenance metadata in RDF exports.
+  </Card>
+  <Card title="Pipeline" icon="gear" href="pipeline">
+    Add export as a final pipeline step.
+  </Card>
+</CardGroup>

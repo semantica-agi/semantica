@@ -1,650 +1,676 @@
-# Context Module Reference
-
-> **The intelligent brain for AI agents, providing memory, decision tracking, and knowledge organization with easy-to-use interfaces that make building smart agents simple and effective.**
-
+---
+title: "Context Module"
+description: "Agent context graphs, decision tracking, causal chains, precedent search, policy enforcement, and multi-hop GraphRAG."
+icon: "brain"
 ---
 
-## 🎯 Overview
+`semantica.context` is the memory and decision layer for AI agents. It stores facts with provenance, records decisions as first-class objects with full causal chains, lets agents search their own history to stay consistent across runs, and answers complex queries by traversing the knowledge graph.
 
-The **Context Module** gives your AI agents the ability to **remember**, **learn**, and **make smarter decisions** through intelligent memory management and knowledge organization. It's designed to be both powerful for production use and simple enough for rapid development.
+## Exported Classes
 
-### Key Capabilities
+| Class | Role |
+| --- | --- |
+| `AgentContext` | Primary entry point — memory, retrieval, decisions, graph traversal, checkpoints |
+| `ContextGraph` | In-memory knowledge graph with centrality, community detection, and decision tracking |
+| `AgentMemory` | RAG-backed persistent memory: `store(text)`, `retrieve(query, max_results)` |
+| `EntityLinker` | Link entity mentions to canonical URIs across multiple sources |
+| `ContextRetriever` | Hybrid vector + graph retrieval with min-score and temporal decay options |
+| `DecisionRecorder` | Record decisions with embeddings, causal chains, and metadata |
+| `PolicyEngine` | Compliance checking: `check_compliance()`, `get_applicable_policies()` |
+| `CausalChainAnalyzer` | Trace how decisions influenced each other: `get_causal_chain(decision_id)` |
 
-<div class="grid cards" markdown>
+## What You Get
 
--   :material-brain:{ .lg .middle } **Smart Memory**
+<CardGroup cols={2}>
+  <Card title="AgentContext" icon="brain">
+    Unified interface for memory, decision tracking, graph-backed retrieval, conversation history, checkpoints, and persistence.
+  </Card>
+  <Card title="ContextGraph" icon="diagram-project">
+    Thread-safe in-memory knowledge graph with centrality analysis, community detection, temporal validity, cross-graph links, and decision management.
+  </Card>
+  <Card title="AgentMemory" icon="database">
+    Embedding-backed memory with TTL, tagging, importance scoring, and LRU eviction.
+  </Card>
+  <Card title="DecisionRecorder" icon="list-check">
+    Records decisions with causal chains, confidence scores, temporal validity windows, and cross-system context capture.
+  </Card>
+  <Card title="PolicyEngine" icon="shield-check">
+    Validates decisions against configurable lambda rules before they're recorded; creates approval chains for human-in-the-loop gating.
+  </Card>
+  <Card title="EntityLinker" icon="link">
+    Maps entity mentions to canonical URIs — prevents "Apple", "Apple Inc.", and "AAPL" from becoming three separate nodes.
+  </Card>
+  <Card title="ContextRetriever" icon="magnifying-glass">
+    Hybrid retrieval fusing vector similarity, graph traversal, and agent memory for richer context than pure vector search.
+  </Card>
+  <Card title="CausalChainAnalyzer" icon="arrow-trend-up">
+    Traces upstream causes and downstream effects of any decision through the knowledge graph.
+  </Card>
+</CardGroup>
 
-    ---
+<img src="/assets/img/diagrams/agent-context-flow.svg" alt="AgentContext hub: AI Agent calls store/retrieve against VectorStore and record_decision against ContextGraph" style={{ width: '100%', borderRadius: '12px', margin: '0 0 24px' }} />
 
-    Human-like memory that stores conversations, learns from experience, and retrieves relevant information when needed.
+## Quick Start
 
--   :material-graph-outline:{ .lg .middle } **Decision Intelligence**
+<Steps>
+  <Step title="Initialize the agent context">
+    ```python
+    from semantica.context import AgentContext, ContextGraph
+    from semantica.vector_store import VectorStore
 
-    ---
+    context = AgentContext(
+        vector_store=VectorStore(backend="faiss", dimension=768, index_path="context.faiss"),
+        knowledge_graph=ContextGraph(advanced_analytics=True),
+        decision_tracking=True,
+        retention_days=90,      # auto-expire memories older than 90 days
+        max_memories=50_000,
+    )
+    ```
+  </Step>
+  <Step title="Store facts and retrieve by semantic similarity">
+    ```python
+    memory_id = context.store(
+        "GPT-4 outperforms GPT-3.5 on reasoning benchmarks by 40%",
+        metadata={"source": "openai_blog", "date": "2024-01"}
+    )
 
-    Track decisions, learn from past choices, and make consistent, improving decisions over time.
+    results = context.retrieve("LLM benchmark comparisons", max_results=5)
+    for r in results:
+        print(f"{r['content']}  (score: {r['score']:.3f})")
+    ```
+  </Step>
+  <Step title="Record decisions with full provenance">
+    ```python
+    decision_id = context.record_decision(
+        category="model_selection",
+        scenario="Choose LLM for production reasoning pipeline",
+        reasoning="GPT-4 benchmark advantage justifies 3x cost increase",
+        outcome="selected_gpt4",
+        confidence=0.91,
+        entities=["gpt-4", "gpt-3.5"],
+        decision_maker="pipeline_agent",
+    )
+    ```
+  </Step>
+  <Step title="Find precedents and trace causal chains">
+    ```python
+    # Search past decisions — prevents contradictory choices across runs
+    precedents = context.find_precedents("model selection reasoning", limit=5)
+    for p in precedents:
+        print(f"[{p.category}] {p.outcome}  (confidence: {p.confidence:.2f})")
+        print(f"  Reasoning: {p.reasoning}")
 
--   :material-lightbulb:{ .lg .middle } **Easy-to-Use API**
+    # Trace what downstream decisions were influenced by this one
+    chain = context.get_causal_chain(decision_id, direction="downstream", max_depth=5)
+    print(f"Downstream decisions: {len(chain)}")
 
-    ---
+    # Full explainability — upstream causes + downstream effects + relationship paths
+    explanation = context.trace_decision_explainability(decision_id)
+    print(f"Total connections: {explanation['total_connections']}")
+    ```
+  </Step>
+</Steps>
 
-    Simple methods that make complex features accessible without overwhelming complexity.
+## AgentContext
 
--   :material-search:{ .lg .middle } **Smart Retrieval**
+The main entry point. Wraps memory, graph, and decision tracking behind a single API.
 
-    ---
+### Constructor Parameters
 
-    Find relevant information quickly using hybrid search that understands context and relationships.
+| Parameter | Type | Default | Description |
+| --------- | ---- | ------- | ----------- |
+| `vector_store` | `VectorStore` | **required** | Backend for embedding-based memory retrieval |
+| `knowledge_graph` | `ContextGraph` | `None` | Enables graph-backed relationships and GraphRAG |
+| `decision_tracking` | `bool` | `False` | Activates `DecisionRecorder` for every decision |
+| `retention_days` | `Optional[int]` | `30` | Auto-expire memories older than N days; `None` = keep forever |
+| `max_memories` | `int` | `10000` | Hard cap before LRU eviction |
+| `graph_expansion` | `bool` | `True` | Auto-expands graph from stored memories |
+| `max_expansion_hops` | `int` | `2` | Max hops for graph expansion during retrieval |
+| `hybrid_alpha` | `float` | `0.5` | Balance between vector (`0.0`) and graph (`1.0`) retrieval |
+| `advanced_analytics` | `bool` | `True` | Enables PageRank, centrality, and community analysis |
+| `kg_algorithms` | `bool` | `True` | Adds path-finding and link prediction |
 
--   :material-account-tree:{ .lg .middle } **Knowledge Organization**
+### Memory Methods
 
-    ---
+| Method | Returns | Description |
+| ------ | ------- | ----------- |
+| `store(content, metadata, conversation_id, user_id)` | `str` | Embed and store a fact or list of facts |
+| `batch_store(items)` | `List[str]` | Store multiple items at once — returns list of memory IDs |
+| `retrieve(query, max_results, min_score, use_graph, conversation_id)` | `List[Dict]` | Semantic retrieval; auto-selects GraphRAG if `knowledge_graph` is set |
+| `forget(memory_id, conversation_id, days_old)` | `int` | Delete memories by ID, conversation, or age |
+| `update(memory_id, content, metadata)` | `bool` | Update content or metadata of a stored memory |
+| `get_memory(memory_id)` | `Optional[Dict]` | Fetch a specific memory by ID |
+| `stats()` | `Dict` | Memory counts, vector store status, graph stats |
+| `health()` | `Dict` | System health — all backends, status flags |
+| `save(path)` | `None` | Persist full context state (memory + graph) to disk |
+| `load(path)` | `None` | Restore context state from disk |
+| `export(conversation_id, format)` | `str \| Dict` | Export memories as JSON or dict |
+| `import_data(data, format)` | `int` | Import memories from JSON or dict |
 
-    Build intelligent knowledge graphs that understand relationships and context.
+### Conversation Methods
 
--   :material-trending-up:{ .lg .middle } **Learning & Analytics**
-
-    ---
-
-    Get insights about agent performance, decision patterns, and knowledge growth.
-
--   :material-security:{ .lg .middle } **Production Ready**
-
-    ---
-
-    Scalable, reliable, and tested for real-world applications.
-
-</div>
-
-!!! tip "Perfect For"
-    - **AI Agents** that need to remember conversations and learn from decisions
-    - **Chatbots** that become smarter with every interaction
-    - **Decision Systems** that need to track choices and learn from patterns
-    - **Knowledge Management** that organizes information intelligently
-    - **Production Applications** that require reliable, scalable solutions
-
----
-
-## 🤖 AgentContext - Your Agent's Brain
-
-The main interface that makes your agent intelligent. It handles memory, decisions, and knowledge organization automatically.
-
-### Quick Start
 ```python
-from semantica.context import AgentContext
-from semantica.vector_store import VectorStore
+# Store turns in a conversation thread
+context.store("User asked about deployment options", conversation_id="conv_001")
+context.store("Agent recommended Docker + Kubernetes", conversation_id="conv_001")
 
-# Create your intelligent agent
-agent = AgentContext(vector_store=VectorStore(backend="inmemory", dimension=384))
+# Retrieve full conversation history
+history = context.conversation("conv_001", max_items=50)
+for turn in history:
+    print(f"[{turn['timestamp']}] {turn['content']}")
 
-# Your agent can now remember things
-memory_id = agent.store("User asked about Python programming")
-print(f"Agent remembered: {memory_id}")
-
-# And find information when needed
-results = agent.retrieve("Python tutorials")
-print(f"Agent found {len(results)} relevant memories")
+# Retrieve across all conversations with a query
+results = context.retrieve("deployment recommendations", conversation_id="conv_001", max_results=10)
 ```
 
-### Easy Decision Learning
+### Multi-Hop GraphRAG
+
+Requires `knowledge_graph` to be set at construction:
+
 ```python
-# Your agent learns from its decisions
-decision_id = agent.record_decision(
-    category="content_recommendation",
-    scenario="User wants Python tutorial",
-    reasoning="User mentioned being a beginner",
-    outcome="recommended_basics",
-    confidence=0.85
-)
-
-# Your agent can now find similar past decisions
-similar_decisions = agent.find_precedents("Python tutorial", limit=3)
-print(f"Agent found {len(similar_decisions)} similar past decisions")
-```
-
-### Getting Smarter Over Time
-```python
-# Enable all learning features
-smart_agent = AgentContext(
-    vector_store=vector_store,
-    decision_tracking=True,    # Learn from decisions
-    graph_expansion=True,      # Find related information
-    advanced_analytics=True,   # Understand patterns
-    kg_algorithms=True,        # Advanced analysis
-    vector_store_features=True
-)
-
-# Get insights about your agent's learning
-insights = smart_agent.get_context_insights()
-print(f"Total decisions learned: {insights.get('total_decisions', 0)}")
-print(f"Decision categories: {list(insights.get('categories', {}).keys())}")
-```
-
-### Core Methods
-
-| Method | What It Does | When to Use |
-|--------|-------------|------------|
-| `store(content, ...)` | Remember information | Store conversations, facts, user preferences |
-| `retrieve(query, ...)` | Find relevant memories | Search for information when needed |
-| `record_decision(category, scenario, reasoning, outcome, confidence, ...)` | Learn from decisions | Track choices and improve over time |
-| `find_precedents(scenario, category, ...)` | Find similar decisions | Make consistent choices based on experience |
-| `get_context_insights()` | Understand performance | Get analytics about your agent |
-
-### Advanced Features
-```python
-# Enable all features for maximum intelligence
-agent = AgentContext(
-    vector_store=vector_store,
-    knowledge_graph=ContextGraph(advanced_analytics=True),
-    decision_tracking=True,
-    graph_expansion=True,
-    advanced_analytics=True,
-    kg_algorithms=True,
-    vector_store_features=True
-)
-
-# Query with multi-hop reasoning (GraphRAG)
 from semantica.llms import Groq
-import os
 
-llm = Groq(model="llama-3.1-8b-instant", api_key=os.getenv("GROQ_API_KEY"))
-
-result = agent.query_with_reasoning(
-    query="What technologies work well together?",
+llm    = Groq(model="llama-3.3-70b-versatile", api_key=os.getenv("GROQ_API_KEY"))
+result = context.query_with_reasoning(
+    query="What technologies have we chosen and why?",
     llm_provider=llm,
-    max_hops=2
+    max_hops=2,
+    max_results=10,
 )
 
-print(f"Response: {result['response']}")
-print(f"Reasoning: {result['reasoning_path']}")
+print(result["response"])
+print(f"Confidence: {result['confidence']:.2f}")
+print(f"Sources used: {result['num_sources']}")
 ```
 
----
+### Decision Methods
 
-## 🏗️ ContextGraph - Knowledge Organization
+| Method | Returns | Description |
+| ------ | ------- | ----------- |
+| `record_decision(category, scenario, reasoning, outcome, confidence, entities, decision_maker, valid_from, valid_until)` | `str` | Record a decision; raises `RuntimeError` if `decision_tracking=False` |
+| `find_precedents(scenario, category, limit, use_hybrid_search, max_hops, as_of)` | `List[Decision]` | Find similar past decisions by semantic + structural similarity |
+| `query_decisions(query, max_hops, use_hybrid_search)` | `List[Decision]` | Broad context-aware decision search |
+| `get_causal_chain(decision_id, direction, max_depth)` | `List[Decision]` | Trace `"upstream"` causes or `"downstream"` effects |
+| `trace_decision_explainability(decision_id)` | `Dict` | Full explainability — causes, effects, relationship paths |
+| `get_policy_engine()` | `PolicyEngine` | Access the active `PolicyEngine` instance |
 
-When you need to organize complex information and understand relationships, ContextGraph helps you build intelligent knowledge networks.
+### Checkpoint Methods
 
-### Easy Knowledge Graph Building
+Useful for detecting what changed across reasoning runs:
+
+```python
+# Take a named snapshot of the current graph state
+context.checkpoint("before_inference")
+
+# ... run reasoning, record decisions ...
+
+context.checkpoint("after_inference")
+
+# See exactly what was added/removed
+diff = context.diff_checkpoints("before_inference", "after_inference")
+print(f"Decisions added: {len(diff['decisions_added'])}")
+print(f"Relationships added: {len(diff['relationships_added'])}")
+
+# Persist a checkpoint to disk via TemporalVersionManager
+context.flush_checkpoint("after_inference")
+```
+
+## ContextGraph
+
+The knowledge graph backing `AgentContext`. Can also be used standalone for relationship modelling.
+
 ```python
 from semantica.context import ContextGraph
 
-# Create a knowledge graph
-knowledge = ContextGraph(advanced_analytics=True)
+graph = ContextGraph(advanced_analytics=True)
 
-# Add things you want to remember (nodes)
-knowledge.add_node("Python", "language", properties={"popularity": "high"})
-knowledge.add_node("Programming", "concept", properties={"type": "skill"})
-knowledge.add_node("FastAPI", "framework", properties={"language": "Python"})
+# Build the graph
+graph.add_node("Python",  "language",  properties={"paradigm": "multi-paradigm"})
+graph.add_node("FastAPI", "framework", properties={"language": "Python"})
+graph.add_edge("Python", "FastAPI", "enables")
 
-# Connect related things (edges)
-knowledge.add_edge("Python", "Programming", "related_to")
-knowledge.add_edge("Python", "FastAPI", "supports")
-knowledge.add_edge("FastAPI", "Programming", "used_for")
-```
-
-### Easy Decision Management
-```python
-# Record decisions in your knowledge graph
-from semantica.context.decision_models import Decision
-from datetime import datetime
-
-decision = Decision(
-    decision_id="tech_choice_001",
+# Record and query decisions directly on the graph
+decision_id = graph.record_decision(
     category="technology_choice",
-    scenario="Framework selection for web API",
-    reasoning="FastAPI provides better performance for Python APIs",
+    scenario="Web API framework selection",
+    reasoning="FastAPI's async support and auto-docs match our requirements",
     outcome="selected_fastapi",
     confidence=0.92,
-    timestamp=datetime.now(),
-    decision_maker="system",
-    metadata={"entities": ["Python", "FastAPI", "web_project"]}
-)
-knowledge.add_decision(decision)
-
-# Or use the convenience method for quick decisions
-decision_id = knowledge.add_decision_simple(
-    category="technology_choice",
-    scenario="Framework selection for web API",
-    reasoning="FastAPI provides better performance for Python APIs",
-    outcome="selected_fastapi",
-    confidence=0.92,
-    entities=["Python", "FastAPI", "web_project"]
+    entities=["Python", "FastAPI"],
 )
 
-# Find similar decisions easily
-similar = knowledge.find_precedents_by_scenario(
-    scenario="web framework",
-    category="technology_choice",
-    limit=3
+similar = graph.find_precedents_by_scenario("web framework", limit=3)
+stats   = graph.stats()
+print(f"Nodes: {stats['node_count']}, Edges: {stats['edge_count']}")
+```
+
+### Constructor Options
+
+| Parameter | Type | Default | Description |
+| --------- | ---- | ------- | ----------- |
+| `advanced_analytics` | `bool` | `False` | PageRank, betweenness centrality |
+| `centrality_analysis` | `bool` | `False` | Full centrality suite |
+| `community_detection` | `bool` | `False` | Louvain community clustering |
+| `node_embeddings` | `bool` | `False` | Node2Vec embeddings for structural similarity |
+| `enable_causality` | `bool` | `False` | Causal chain tracking between decision nodes |
+
+### ContextGraph — Full Method Reference
+
+| Method | Returns | Description |
+| ------ | ------- | ----------- |
+| `add_node(node_id, node_type, properties, valid_from, valid_until)` | `None` | Add a node; supports temporal validity windows |
+| `add_edge(source_id, target_id, edge_type, weight, properties)` | `None` | Add a directed edge with optional weight |
+| `add_nodes(nodes)` | `int` | Bulk-add from a list of dicts; returns count added |
+| `add_edges(edges)` | `int` | Bulk-add edges; returns count added |
+| `get_neighbors(node_id, hops)` | `List[Dict]` | BFS neighbors up to given depth |
+| `get_neighbor_distances(node_id, hops)` | `List[Dict]` | Neighbors with confidence-decay scoring |
+| `find_node(node_id)` | `Optional[Dict]` | Look up a single node by ID |
+| `find_nodes(node_type, skip, limit)` | `List[Dict]` | Filter nodes by type with pagination |
+| `find_active_nodes(node_type, at_time)` | `List[Dict]` | Nodes that are valid at a given timestamp |
+| `find_edges(edge_type, skip, limit)` | `List[Dict]` | Filter edges by type with pagination |
+| `record_decision(category, scenario, reasoning, outcome, confidence, entities, decision_maker)` | `str` | Add decision node with causal edges |
+| `find_precedents_by_scenario(scenario, category, limit, use_semantic_search, as_of)` | `List[Dict]` | Semantically similar past scenarios |
+| `query(query, skip, limit)` | `List[Dict]` | Full-text search over node content |
+| `stats()` | `Dict` | Node/edge counts, type breakdowns, graph density |
+| `density()` | `float` | Graph density score |
+| `save_to_file(path)` | `None` | Persist graph to JSON |
+| `load_from_file(path)` | `None` | Load graph from JSON |
+| `build_from_conversations(conversations, link_entities)` | `Dict` | Build graph from conversation data |
+| `link_graph(other_graph, source_node_id, target_node_id, link_type)` | `str` | Create cross-graph navigation link; returns `link_id` |
+| `navigate_to(link_id)` | `Tuple[ContextGraph, str]` | Follow a cross-graph link to `(target_graph, target_node_id)` |
+| `cross_graph_path(source_node_id, target_graph, target_node_id, max_hops)` | `Dict` | Shortest path across linked graphs |
+| `resolve_links(graphs)` | `int` | Reconnect cross-graph links after `load_from_file` |
+| `clear()` | `None` | Reset graph state and all indexes |
+
+### Cross-Graph Navigation
+
+Link multiple independent `ContextGraph` instances so agents can traverse across problem spaces:
+
+```python
+domain_graph    = ContextGraph()
+decision_graph  = ContextGraph()
+
+domain_graph.add_node("microservices", "architecture", properties={"style": "distributed"})
+decision_graph.add_node("deploy_k8s",  "decision",     properties={"outcome": "approved"})
+
+link_id = domain_graph.link_graph(
+    other_graph=decision_graph,
+    source_node_id="microservices",
+    target_node_id="deploy_k8s",
+    link_type="INFORMED_BY",
 )
 
-print(f"Found {len(similar)} similar decisions")
+# Follow the link at traversal time
+target_graph, entry_node = domain_graph.navigate_to(link_id)
+
+# Cross-graph pathfinding
+path = domain_graph.cross_graph_path(
+    source_node_id="microservices",
+    target_graph=decision_graph,
+    target_node_id="deploy_k8s",
+    max_hops=5,
+)
+print(f"Reachable: {path['reachable']}, hops: {path['hop_count']}")
 ```
 
-### Smart Analytics
+## AgentMemory (Low-Level)
+
+For fine-grained control over memory storage, TTL, and importance scoring:
+
 ```python
-# Understand decision impact
-impact = knowledge.analyze_decision_impact(decision_id)
-print(f"This decision influenced {impact.get('total_influenced', 0)} other decisions")
-
-# Get decision summary
-summary = knowledge.get_decision_summary()
-print(f"Total decisions: {summary.get('total_decisions', 0)}")
-print(f"Categories: {list(summary.get('categories', {}).keys())}")
-
-# Trace decision chains
-chains = knowledge.trace_decision_chain(decision_id)
-print(f"Decision chain has {len(chains)} connections")
-
-# Check if decisions follow rules
-compliance = knowledge.check_decision_rules({
-    "category": "loan_approval",
-    "scenario": "Mortgage application",
-    "reasoning": "Good credit score, stable income",
-    "outcome": "approved",
-    "confidence": 0.95
-})
-
-if compliance.get("compliant", False):
-    print("✅ Decision follows all rules")
-else:
-    print(f"❌ Rule violations: {compliance.get('violations', [])}")
-```
-
-### Graph Analytics Made Simple
-```python
-# Get overview of your knowledge graph
-summary = knowledge.get_graph_summary()
-print(f"Knowledge graph has {summary.get('nodes', 0)} concepts")
-print(f"And {summary.get('edges', 0)} relationships")
-
-# Find related concepts
-related = knowledge.find_related_nodes("Python", how_many=5)
-for concept_id, similarity in related:
-    print(f"Related to {concept_id}: {similarity:.2f}")
-
-# Understand which concepts are most important
-importance = knowledge.get_node_importance("Python")
-print(f"Python importance score: {importance.get('degree', 0)}")
-```
-
-### Core Methods
-
-| Method | What It Does | When to Use |
-|--------|-------------|------------|
-| `add_node(node_id, node_type, properties)` | Add concepts to remember | Build knowledge base |
-| `add_edge(source, target, relation)` | Connect related concepts | Show relationships |
-| `add_decision(decision)` or `add_decision(category, scenario, reasoning, outcome, ...)` | Record decisions | Track choices and learn |
-| `add_decision_simple(category, scenario, reasoning, outcome, confidence, ...)` | Easy decision recording | Quick decision tracking |
-| `find_precedents(decision_id, limit)` | Find precedents by ID | Get connected decisions |
-| `find_precedents_by_scenario(scenario, category, ...)` | Find similar decisions | Make consistent choices |
-| `analyze_decision_impact(decision_id)` | Understand decision influence | See how decisions affect others |
-| `get_decision_summary()` | Get decision statistics | Understand decision patterns |
-| `trace_decision_chain(decision_id)` | Trace decision connections | Understand decision relationships |
-| `check_decision_rules(decision_data)` | Validate decisions | Ensure compliance |
-| `get_graph_summary()` | Get graph overview | Understand knowledge structure |
-| `find_related_nodes(node_id, how_many)` | Find related concepts | Discover connections |
-| `get_node_importance(node_id)` | Measure concept importance | Identify key concepts |
-
----
-
-## 🔄 Using Both Together - Complete Intelligence
-
-### Your Smart Agent System
-```python
-from semantica.context import AgentContext, ContextGraph
+from semantica.context import AgentMemory
 from semantica.vector_store import VectorStore
 
-# Create the components
-vector_store = VectorStore(backend="inmemory", dimension=384)
-knowledge = ContextGraph(advanced_analytics=True)
+memory = AgentMemory(
+    vector_store=VectorStore(backend="faiss", dimension=768),
+    capacity=10_000,
+    ttl_days=90,
+)
 
-# Create your intelligent agent
-agent = AgentContext(
+memory_id = memory.store(
+    "Critical compliance rule: all trades must be pre-approved",
+    importance=0.95,
+    tags=["compliance", "trading"],
+)
+
+results = memory.retrieve(
+    query="trade approval requirements",
+    max_results=5,
+    min_importance=0.5,
+    tags=["compliance"],
+)
+
+memory.update(memory_id, importance=1.0)
+memory.forget(memory_id)
+all_memories = memory.get_all()
+```
+
+| Parameter | Type | Default | Description |
+| --------- | ---- | ------- | ----------- |
+| `vector_store` | `VectorStore` | **required** | Embedding backend for semantic retrieval |
+| `capacity` | `int` | `1000` | Max items before LRU eviction |
+| `ttl_days` | `Optional[int]` | `None` | Days before automatic expiry; `None` = keep forever |
+
+## PolicyEngine
+
+Validate decisions against configurable rules before they're committed:
+
+```python
+from semantica.context import PolicyEngine
+
+policy = PolicyEngine()
+policy.add_rule("confidence_threshold", lambda d: d.confidence >= 0.7)
+policy.add_rule("requires_reasoning",   lambda d: len(d.reasoning) >= 20)
+
+is_valid, violations = policy.validate(decision_data)
+
+if is_valid:
+    context.record_decision(**decision_data)
+else:
+    # Create approval chain for human-in-the-loop review
+    chain = policy.create_approval_chain(
+        decision_data,
+        approvers=["manager@company.com", "compliance@company.com"],
+    )
+    print(f"Approval chain created: {chain.chain_id}")
+```
+
+## EntityLinker
+
+Maps extracted entity mentions to canonical URIs — essential for cross-document entity resolution:
+
+```python
+from semantica.context import EntityLinker
+
+linker = EntityLinker()
+
+entities = [
+    {"text": "Apple Inc.", "type": "ORGANIZATION"},
+    {"text": "Apple",      "type": "ORGANIZATION"},
+    {"text": "AAPL",       "type": "ORGANIZATION"},
+]
+linked = linker.link_entities(entities, sources=["reuters", "sec_filings"])
+
+for e in linked:
+    print(f"{e.text} → {e.canonical_form}  ({e.uri})")
+    print(f"  confidence: {e.confidence:.2f}, sources: {e.sources}")
+```
+
+## ContextRetriever
+
+Hybrid retrieval combining vector similarity, graph traversal, and memory — surfaces results that pure vector search misses:
+
+```python
+from semantica.context import ContextRetriever
+
+retriever = ContextRetriever(
     vector_store=vector_store,
-    knowledge_graph=knowledge,  # Add knowledge graph
-    decision_tracking=True,
-    graph_expansion=True,
-    advanced_analytics=True
+    context_graph=context_graph,
+    agent_memory=memory,
 )
 
-# Your agent works like this:
-# 1. Store information in memory
-agent.store("User wants to learn web development with Python")
-agent.store("User is a beginner programmer")
-agent.store("User prefers hands-on tutorials")
-
-# 2. Find relevant information
-results = agent.retrieve("Python web development tutorials")
-print(f"Found {len(results)} relevant memories")
-
-# 3. Make smart decisions
-decision_id = agent.record_decision(
-    category="content_recommendation",
-    scenario="Python web development learning path",
-    reasoning="Beginner needs hands-on Python web tutorial",
-    outcome="recommended_flask_tutorial",
-    confidence=0.89
+results = retriever.retrieve(
+    query="What decisions were made about cloud infrastructure?",
+    max_results=10,
+    use_graph_expansion=True,
+    min_relevance_score=0.3,
 )
 
-# 4. Learn and improve over time
-insights = agent.get_context_insights()
-print(f"Agent insights: {insights}")
-
-# 5. Access advanced features when needed
-graph_summary = agent.graph_builder.get_graph_summary()
-node_importance = agent.graph_builder.get_node_importance("Python")
+for r in results:
+    print(f"[{r['source']}] score={r['score']:.3f}: {r['content'][:80]}")
 ```
 
----
+## Data Structures
 
-## 🎯 Real-World Applications
+<AccordionGroup>
+  <Accordion title="Decision">
 
-### 🏦 Banking - Smart Loan Decisions
-```python
-# Track loan decisions and learn from patterns
-bank_agent = AgentContext(vector_store=bank_vector_store, decision_tracking=True)
-
-# Store customer information
-bank_agent.store("Customer has credit score 750, stable employment")
-bank_agent.store("Customer is first-time homebuyer")
-
-# Make loan decision
-loan_decision = bank_agent.record_decision(
-    category="loan_approval",
-    scenario="First-time homebuyer mortgage",
-    reasoning="Good credit score, stable income, 20% down payment",
-    outcome="approved",
-    confidence=0.94
-)
-
-# Find similar loan decisions for consistency
-similar_loans = bank_agent.find_precedents("homebuyer", category="loan_approval")
-print(f"Found {len(similar_loans)} similar loan decisions")
-```
-
-### 🏥 Healthcare - Patient Care Decisions
-```python
-# Track patient care decisions
-health_agent = AgentContext(vector_store=medical_vector_store, decision_tracking=True)
-
-# Store patient information
-health_agent.store("Patient has hypertension, type 2 diabetes")
-health_agent.store("Patient allergic to penicillin")
-
-# Make treatment decision
-treatment_decision = health_agent.record_decision(
-    category="treatment_plan",
-    scenario="Hypertension with diabetes",
-    reasoning="ACE inhibitors safe for diabetic patients",
-    outcome="prescribed_ace_inhibitor",
-    confidence=0.91
-)
-
-# Find similar treatment cases
-similar_cases = health_agent.find_precedents("hypertension", category="treatment_plan")
-```
-
-### 🛒 E-commerce - Smart Recommendations
-```python
-# Track recommendation decisions
-ecommerce_graph = ContextGraph()
-
-# Build user-product knowledge
-ecommerce_graph.add_node("user_123", "user", {"segment": "premium"})
-ecommerce_graph.add_node("laptop_xyz", "product", {"category": "electronics"})
-ecommerce_graph.add_edge("user_123", "laptop_xyz", "viewed")
-
-# Make recommendation decision
-from semantica.context.decision_models import Decision
-from datetime import datetime
-
-rec_decision = Decision(
-    decision_id="rec_001",
-    category="product_recommendation",
-    scenario="Laptop recommendation for premium user",
-    reasoning="User prefers high-performance electronics",
-    outcome="recommended_gaming_laptop",
-    confidence=0.87,
-    timestamp=datetime.now(),
-    decision_maker="recommendation_system",
-    metadata={"entities": ["user_123", "laptop_xyz"]}
-)
-ecommerce_graph.add_decision(rec_decision)
-
-# Or use the convenience method
-rec_decision_id = ecommerce_graph.add_decision_simple(
-    category="product_recommendation",
-    scenario="Laptop recommendation for premium user",
-    reasoning="User prefers high-performance electronics",
-    outcome="recommended_gaming_laptop",
-    confidence=0.87,
-    entities=["user_123", "laptop_xyz"]
-)
-
-# Find similar recommendations
-similar_recs = ecommerce_graph.find_precedents_by_scenario(
-    scenario="laptop recommendation",
-    limit=5
-)
-```
-
----
-
-## ⚙️ Configuration Options
-
-### Simple Setup (Most Common)
-```python
-# Just memory and basic learning
-agent = AgentContext(vector_store=vector_store)
-```
-
-### Smart Setup (Recommended)
-```python
-# Memory + decision learning
-agent = AgentContext(
-    vector_store=vector_store,
-    decision_tracking=True,
-    graph_expansion=True
-)
-```
-
-### Complete Setup (Maximum Power)
-```python
-# Everything enabled
-agent = AgentContext(
-    vector_store=vector_store,
-    knowledge_graph=ContextGraph(advanced_analytics=True),
-    decision_tracking=True,
-    graph_expansion=True,
-    advanced_analytics=True,
-    kg_algorithms=True,
-    vector_store_features=True
-)
-```
-
-### ContextGraph Options
-```python
-# Basic knowledge graph
-graph = ContextGraph()
-
-# Advanced knowledge graph
-graph = ContextGraph(
-    advanced_analytics=True,      # Enable smart algorithms
-    centrality_analysis=True,     # Find important concepts
-    community_detection=True,     # Find groups of related concepts
-    node_embeddings=True          # Understand concept similarity
-)
-```
-
----
-
-## 📊 Data Structures
-
-### MemoryItem - The Basic Memory Unit
-```python
-@dataclass
-class MemoryItem:
-    content: str              # The actual text content
-    timestamp: datetime       # When it was created
-    metadata: Dict            # Tags like user_id, conversation_id
-    embedding: List[float]    # Vector representation
-    entities: List[Dict]      # Entities found in content
-```
-
-### Decision - The Decision Unit
 ```python
 @dataclass
 class Decision:
-    decision_id: str         # Unique decision identifier
-    category: str            # Decision category (approval, rejection, etc.)
-    scenario: str            # Decision scenario description
-    reasoning: str           # Decision reasoning and explanation
-    outcome: str             # Decision outcome
-    confidence: float        # Confidence score (0-1)
-    decision_maker: str      # Decision maker identifier
-    timestamp: datetime      # When decision was made
-    entities: List[str]      # Related entities
-    metadata: Dict           # Additional decision metadata
+    decision_id:    str
+    category:       str
+    scenario:       str
+    reasoning:      str
+    outcome:        str
+    confidence:     float               # 0.0 – 1.0
+    decision_maker: str                 # default: "ai_agent"
+    timestamp:      datetime
+    valid_from:     Optional[str]       # ISO datetime — temporal validity start
+    valid_until:    Optional[str]       # ISO datetime — temporal validity end
+    metadata:       Dict[str, Any]      # arbitrary key/value store
 ```
 
-### Graph Node - Knowledge Concept
+  </Accordion>
+  <Accordion title="Precedent">
+
 ```python
-{
-    "id": "node_unique_id",
-    "type": "concept",
-    "properties": {
-        "content": "Description of the node",
-        "weight": 1.0,
-        "importance": 0.85
-    }
-}
+@dataclass
+class Precedent:
+    decision_id:    str
+    similarity:     float               # 0–1 match score against queried scenario
+    category:       str
+    scenario:       str
+    outcome:        str
+    reasoning:      str
+    confidence:     float
+    timestamp:      datetime
 ```
 
-### Graph Edge - Knowledge Relationship
+  </Accordion>
+  <Accordion title="Policy">
+
 ```python
-{
-    "source_id": "origin_node",
-    "target_id": "destination_node",
-    "type": "related_to",
-    "weight": 0.8,
-    "properties": {
-        "similarity": 0.75,
-        "confidence": 0.9
-    }
-}
+@dataclass
+class Policy:
+    policy_id:      str
+    name:           str
+    description:    str
+    rules:          List[Dict]          # list of rule definitions
+    active:         bool
+    created_at:     datetime
+    version:        int
 ```
 
----
+  </Accordion>
+  <Accordion title="PolicyException">
 
-## 🚀 Advanced Features
-
-### GraphRAG with Multi-Hop Reasoning
 ```python
-# Query with reasoning and LLM integration
-result = agent.query_with_reasoning(
-    query="What technologies work well together?",
-    llm_provider=llm_provider,
-    max_hops=2,
-    max_results=10
-)
-
-print(f"Response: {result['response']}")
-print(f"Reasoning Path: {result['reasoning_path']}")
-print(f"Confidence: {result['confidence']:.3f}")
+@dataclass
+class PolicyException:
+    exception_id:   str
+    policy_rule:    str                 # name of the violated rule
+    decision_id:    str                 # decision that triggered the exception
+    justification:  str                 # why the exception was granted
+    approved_by:    str                 # approver identity
+    timestamp:      datetime
+    expiry:         Optional[datetime]
 ```
 
-### Production Integration
+  </Accordion>
+  <Accordion title="ApprovalChain">
+
 ```python
-# Use with persistent graph stores
-from semantica.graph_store import GraphStore
+@dataclass
+class ApprovalChain:
+    chain_id:       str
+    decision_id:    str
+    steps:          List[ApprovalStep]
+    status:         str                 # "pending" | "approved" | "rejected"
+    created_at:     datetime
 
-# Neo4j integration
-neo4j_store = GraphStore(
-    backend="neo4j",
-    uri="bolt://localhost:7687",
-    user="neo4j",
-    password="password"
-)
-
-# Production agent with persistent storage
-production_agent = AgentContext(
-    vector_store=vector_store,
-    knowledge_graph=neo4j_store,
-    decision_tracking=True,
-    advanced_analytics=True
-)
+@dataclass
+class ApprovalStep:
+    step_id:        str
+    approver:       str
+    required:       bool
+    status:         str                 # "pending" | "approved" | "rejected"
+    comment:        Optional[str]
+    timestamp:      Optional[datetime]
 ```
 
-### Analytics and Insights
+  </Accordion>
+  <Accordion title="LinkedEntity">
+
 ```python
-# Get comprehensive insights
-insights = agent.get_context_insights()
-print(f"Total decisions: {insights.get('total_decisions', 0)}")
-print(f"Decision categories: {list(insights.get('categories', {}).keys())}")
-print(f"Most common outcome: {insights.get('most_common_outcome', 'N/A')}")
-
-# Graph analytics
-graph_insights = agent.graph_builder.get_graph_summary()
-node_importance = agent.graph_builder.get_node_importance("key_concept")
+@dataclass
+class LinkedEntity:
+    text:           str
+    canonical_form: str                 # normalized primary name
+    uri:            str                 # e.g. "http://dbpedia.org/resource/Apple_Inc."
+    confidence:     float
+    sources:        List[str]           # source documents that mention this entity
+    aliases:        List[str]           # all observed surface forms
 ```
 
----
+  </Accordion>
+</AccordionGroup>
 
-## 📚 Need More Help?
+## Real-World Patterns
 
-### For Beginners
-- Start with **AgentContext** for most applications
-- Use basic **store/retrieve** for memory management
-- Add **decision tracking** to enable learning
-- Enable features gradually as needed
+<Tabs>
+  <Tab title="Healthcare — Treatment Decisions">
+    ```python
+    from semantica.context import AgentContext
+    from semantica.vector_store import VectorStore
 
-### For Advanced Users
-- Add **ContextGraph** for knowledge organization
-- Use **analytics** to understand patterns
-- Implement **policies** for consistent decisions
-- Use **persistence** for state management
+    health_agent = AgentContext(
+        vector_store=VectorStore(backend="faiss", dimension=768),
+        decision_tracking=True,
+    )
 
-### For Production
-- Enable **all features** for maximum intelligence
-- Use **save/load** for state persistence
-- **Monitor performance** with insights and health checks
-- **Test thoroughly** before deployment
+    health_agent.store("Patient has hypertension, type 2 diabetes")
+    health_agent.store("Patient allergic to penicillin — verified 2024-01")
 
-### Examples and Tutorials
-- Look at the **real-world examples** above for your specific use case
-- Check **configuration options** to customize your agent
-- Start simple and add power as needed
+    decision_id = health_agent.record_decision(
+        category="treatment_plan",
+        scenario="Hypertension with comorbid diabetes",
+        reasoning="ACE inhibitors are renoprotective in diabetic patients — preferred over beta blockers",
+        outcome="prescribed_lisinopril",
+        confidence=0.91,
+    )
 
----
+    precedents = health_agent.find_precedents("hypertension diabetes", limit=5)
+    for p in precedents:
+        print(f"Past decision: {p.outcome}  (confidence: {p.confidence:.2f})")
 
-**Happy building intelligent agents!** 🎯
+    chain = health_agent.get_causal_chain(decision_id, direction="downstream")
+    print(f"Follow-up decisions triggered: {len(chain)}")
+    ```
+  </Tab>
+  <Tab title="Finance — Loan Decisions">
+    ```python
+    from semantica.context import AgentContext, PolicyEngine
+    from semantica.vector_store import VectorStore
 
----
+    policy = PolicyEngine()
+    policy.add_rule("min_confidence",  lambda d: d["confidence"] >= 0.8)
+    policy.add_rule("has_reasoning",   lambda d: len(d["reasoning"]) >= 30)
 
-## 📚 See Also
+    loan_agent = AgentContext(
+        vector_store=VectorStore(backend="faiss", dimension=768),
+        decision_tracking=True,
+    )
 
-- [Vector Store](vector_store.md) - The long-term storage backend
-- [Graph Store](graph_store.md) - The knowledge graph backend
-- [KG Algorithms](kg.md) - Knowledge graph algorithms and analytics
-- [Reasoning](reasoning.md) - Uses context for logic
+    loan_agent.store("Applicant: credit score 750, DTI 28%, stable employment 4yr")
 
-## Cookbook
+    decision_data = dict(
+        category="loan_approval",
+        scenario="First-time homebuyer — 30yr fixed, 20% down",
+        reasoning="Credit score above threshold, DTI within limits, stable income verified",
+        outcome="approved_300k",
+        confidence=0.94,
+    )
 
-Interactive tutorials to learn context management, GraphRAG, and decision tracking:
+    is_valid, violations = policy.validate(decision_data)
+    if is_valid:
+        decision_id = loan_agent.record_decision(**decision_data)
+    else:
+        chain = policy.create_approval_chain(decision_data, approvers=["underwriter@bank.com"])
+        print(f"Sent for review: {chain.chain_id}")
+    ```
+  </Tab>
+  <Tab title="Persist & Restore">
+    ```python
+    context = AgentContext(
+        vector_store=VectorStore(backend="faiss", dimension=768, index_path="ctx.faiss"),
+        knowledge_graph=ContextGraph(),
+        decision_tracking=True,
+    )
 
-- **[Context Module](https://github.com/Hawksight-AI/semantica/blob/main/cookbook/introduction/19_Context_Module.ipynb)**: Practical guide to the context module for AI agents
-  - **Topics**: Agent memory, context graph, hybrid retrieval, entity linking, decision tracking
-  - **Difficulty**: Intermediate
-  - **Use Cases**: Building stateful AI agents, persistent memory systems, decision management
+    context.store("Important fact learned during session")
+    context.record_decision(
+        category="ops", scenario="Scale up", reasoning="Load > 80%",
+        outcome="scaled_to_10_replicas", confidence=0.97,
+    )
 
-- **[Advanced Context Engineering](https://github.com/Hawksight-AI/semantica/blob/main/cookbook/advanced/11_Advanced_Context_Engineering.ipynb)**: Build a production-grade memory system for AI agents
-  - **Topics**: Agent memory, GraphRAG, entity injection, lifecycle management, persistent stores, decision analytics
-  - **Difficulty**: Advanced
-  - **Use Cases**: Production agent systems, advanced memory management, decision analysis
+    # Persist everything
+    context.save("agent_state/")
 
-- **[Decision Tracking with KG Algorithms](https://github.com/Hawksight-AI/semantica/blob/main/cookbook/advanced/12_Decision_Tracking_KG.ipynb)**: Advanced decision tracking and analytics
-  - **Topics**: Decision lifecycle, precedent search, causal analysis, KG algorithms, policy compliance
-  - **Difficulty**: Advanced
-  - **Use Cases**: Banking decisions, healthcare decisions, legal precedent analysis
+    # Later — restore and continue
+    restored = AgentContext(
+        vector_store=VectorStore(backend="faiss", dimension=768, index_path="ctx.faiss"),
+        knowledge_graph=ContextGraph(),
+        decision_tracking=True,
+    )
+    restored.load("agent_state/")
+
+    results = restored.retrieve("load scaling decisions", max_results=3)
+    ```
+  </Tab>
+</Tabs>
+
+## Tips and Common Pitfalls
+
+<Warning>
+  **Persist your vector store between runs.** Pass `index_path="context.faiss"` to `VectorStore` — without it the FAISS index lives only in memory and is lost on shutdown. An agent that forgets everything on restart isn't an agent.
+</Warning>
+
+<Warning>
+  **Enable `decision_tracking=True` from the start.** Adding it retroactively means historical decisions are not linked to the causal chain — you lose the ability to trace how one decision influenced later ones. Enable it at initialization, even if you're not using it immediately.
+</Warning>
+
+<Tip>
+  **Use `find_precedents()` before every significant decision.** This is how the context module prevents agents from making contradictory choices across runs. Surface precedents to the LLM as context: "we chose X for similar reasons before."
+</Tip>
+
+<Tip>
+  **`retrieve()` uses `max_results=`, not `top_k=`.** The parameter is `max_results` (default `5`). Pass `use_graph=True` to force GraphRAG or `use_graph=False` to force vector-only retrieval regardless of whether a `knowledge_graph` is configured.
+</Tip>
+
+<Tip>
+  **Set `retention_days` to avoid memory bloat.** Without it `AgentMemory` accumulates indefinitely (the default `AgentContext.retention_days=30` prunes automatically). Compliance-critical agents may need `retention_days=None` with explicit archival via `export()`.
+</Tip>
+
+<Warning>
+  **Gate irreversible decisions with `PolicyEngine`.** Decisions recorded with `record_decision()` become part of the causal chain immediately. Validate first with `policy.validate()` and create an `ApprovalChain` for human review — don't record until approved.
+</Warning>
+
+<Tip>
+  **Use `checkpoint()` + `diff_checkpoints()` to audit reasoning loops.** Take a snapshot before and after a reasoning pass to see exactly which decisions and relationships were added. This is the cleanest way to detect divergent agent behaviour across runs.
+</Tip>
+
+<Tip>
+  **`EntityLinker` prevents graph proliferation.** Without it, "Apple", "Apple Inc.", and "AAPL" land as three separate nodes. Run `EntityLinker.link_entities()` on mentions before storing them to maintain a canonical graph.
+</Tip>
+
+<CardGroup cols={2}>
+  <Card title="Vector Store" icon="database" href="vector_store">
+    Embedding storage backend for memory retrieval.
+  </Card>
+  <Card title="Knowledge Graph" icon="diagram-project" href="kg">
+    Graph algorithms and analytics used inside ContextGraph.
+  </Card>
+  <Card title="Reasoning" icon="microchip" href="reasoning">
+    Logical inference layered on top of context.
+  </Card>
+  <Card title="Provenance" icon="link" href="provenance">
+    W3C PROV-O lineage for every stored fact.
+  </Card>
+</CardGroup>
+
+### Cookbooks
+
+- [Context Module](https://github.com/semantica-agi/semantica/blob/main/cookbook/introduction/19_Context_Module.ipynb) — memory and decision tracking · Intermediate
+- [Advanced Context Engineering](https://github.com/semantica-agi/semantica/blob/main/cookbook/advanced/11_Advanced_Context_Engineering.ipynb) — production FAISS + Neo4j setup · Advanced
+- [Decision Tracking with KG Algorithms](https://github.com/semantica-agi/semantica/blob/main/cookbook/advanced/12_Decision_Tracking_KG.ipynb) — precedent search, policy enforcement · Advanced

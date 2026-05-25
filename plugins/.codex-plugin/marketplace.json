@@ -1,0 +1,21 @@
+{
+  "name": "semantica-local",
+  "interface": {
+    "displayName": "Semantica Local Plugins"
+  },
+  "plugins": [
+    {
+      "name": "semantica-codex",
+      "description": "Semantica plugin for Codex: knowledge graph commands and analytics.",
+      "source": {
+        "source": "local",
+        "path": "./"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}

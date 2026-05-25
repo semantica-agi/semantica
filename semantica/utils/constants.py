@@ -33,10 +33,10 @@ Example Usage:
     >>> from semantica.utils import SUPPORTED_DOCUMENT_FORMATS, DEFAULT_CONFIG
     >>> if file_extension in SUPPORTED_DOCUMENT_FORMATS:
     ...     process_document(file_path)
-    >>> 
+    >>>
     >>> config = DEFAULT_CONFIG.copy()
     >>> config["processing"]["batch_size"] = 200
-    >>> 
+    >>>
     >>> from semantica.utils import ERROR_CODES, PERFORMANCE_THRESHOLDS
     >>> error_code = ERROR_CODES["VALIDATION_ERROR"]
     >>> max_time = PERFORMANCE_THRESHOLDS["max_processing_time"]
@@ -57,6 +57,8 @@ SUPPORTED_DOCUMENT_FORMATS = [
     "csv",
     "xlsx",
     "pptx",
+    "parquet",
+    "pq",
 ]
 
 SUPPORTED_IMAGE_FORMATS = ["jpg", "jpeg", "png", "gif", "bmp", "tiff", "webp", "svg"]

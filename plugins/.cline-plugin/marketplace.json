@@ -1,0 +1,17 @@
+{
+  "name": "semantica-cline",
+  "plugins": [
+    {
+      "name": "semantica",
+      "description": "Semantica plugin for Cline: knowledge graph skills, reasoning, extraction, and visualization.",
+      "source": "./",
+      "category": "Productivity",
+      "tags": [
+        "knowledge-graph",
+        "reasoning",
+        "semantica",
+        "cline"
+      ]
+    }
+  ]
+}

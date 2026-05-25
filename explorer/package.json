@@ -1,0 +1,53 @@
+{
+  "name": "semantica-knowledge-explorer",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "lint": "eslint .",
+    "preview": "vite preview",
+    "test:graph-store": "node --test tests/graphStore.multi-edge.test.mjs",
+    "test:graph-workspace": "node --import tsx --test tests/graphSceneState.display.test.ts"
+  },
+  "dependencies": {
+    "@monaco-editor/react": "^4.7.0",
+    "@sigma/edge-curve": "^3.1.0",
+    "@sigma/node-border": "^3.0.0",
+    "@tanstack/react-query": "^5.95.2",
+    "@xyflow/react": "^12.10.2",
+    "graphology": "^0.26.0",
+    "graphology-communities-louvain": "^2.0.2",
+    "graphology-layout-forceatlas2": "^0.10.1",
+    "graphology-metrics": "^2.4.0",
+    "graphology-shortest-path": "^2.1.0",
+    "lucide-react": "^1.7.0",
+    "playwright": "^1.59.1",
+    "react": "^19.2.4",
+    "react-arborist": "^3.4.3",
+    "react-dom": "^19.2.4",
+    "react-dropzone": "^15.0.0",
+    "sigma": "^3.0.2",
+    "vis-data": "^8.0.3",
+    "vis-timeline": "^8.5.0"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.29.0",
+    "@eslint/js": "^9.39.4",
+    "@types/babel__core": "^7.20.5",
+    "@types/node": "^24.12.0",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^4.3.0",
+    "babel-plugin-react-compiler": "^1.0.0",
+    "eslint": "^9.39.4",
+    "eslint-plugin-react-hooks": "^7.0.1",
+    "eslint-plugin-react-refresh": "^0.5.2",
+    "globals": "^17.4.0",
+    "tsx": "^4.21.0",
+    "typescript": "~5.9.3",
+    "typescript-eslint": "^8.57.0",
+    "vite": "^5.4.0"
+  }
+}

@@ -1,77 +1,197 @@
-"""
-Export & import routes.
+﻿"""
+Import and export routes for graph datasets.
 """
 
-import asyncio
+import csv
 import io
 import json
 import logging
-import os
-import tempfile
-from typing import Optional
 
-from fastapi import APIRouter, Depends, File, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.responses import Response
 
-logger = logging.getLogger(__name__)
-
-from ..dependencies import get_session, get_ws_manager
-from ..schemas import ExportRequest
+from ..dependencies import get_session
+from ..schemas import DistanceExportRequest, ExportRequest, ImportResponse
 from ..session import GraphSession
-from ..ws import ConnectionManager
 
+logger = logging.getLogger(__name__)
 router = APIRouter(tags=["Export / Import"])
 
-
-_FORMAT_MAP = {
-    "json": ("export_json", "application/json", ".json"),
-    "json-ld": ("export_json", "application/ld+json", ".jsonld"),
-    "turtle": ("export_rdf", "text/turtle", ".ttl"),
-    "rdf-xml": ("export_rdf", "application/rdf+xml", ".rdf"),
-    "n-triples": ("export_rdf", "application/n-triples", ".nt"),
-    "csv": ("export_csv", "text/csv", ".csv"),
-    "graphml": ("export_graph", "application/xml", ".graphml"),
-    "gexf": ("export_graph", "application/xml", ".gexf"),
-    "owl": ("export_owl", "application/rdf+xml", ".owl"),
-    "cypher": ("export_lpg", "text/plain", ".cypher"),
-    "aql": ("export_arango", "text/plain", ".aql"),
-    "yaml": ("export_yaml", "text/yaml", ".yaml"),
-}
+_IMPORT_MAX_BYTES = 50 * 1024 * 1024  # 50 MB
+# Only formats that the import handler actually parses.
+# Do not add extensions here unless a corresponding parsing branch exists below.
+_ALLOWED_IMPORT_EXTENSIONS = frozenset({".json", ".csv"})
 
 
-def _build_kg_dict(session: GraphSession, node_ids: Optional[list] = None) -> dict:
-    """Build the knowledge-graph dict that exporters expect."""
-    nodes, _ = session.get_nodes(skip=0, limit=999_999)
-    edges, _ = session.get_edges(skip=0, limit=999_999)
+def _import_response(nodes_added: int, edges_added: int, message: str = "Import successful") -> ImportResponse:
+    return ImportResponse(
+        status="success",
+        message=message,
+        nodes_added=nodes_added,
+        edges_added=edges_added,
+        nodes_imported=nodes_added,
+        edges_imported=edges_added,
+    )
 
-    if node_ids:
-        id_set = set(node_ids)
-        nodes = [n for n in nodes if n.get("id") in id_set]
-        edges = [
-            e for e in edges
-            if e.get("source") in id_set and e.get("target") in id_set
-        ]
 
-    return {
-        "entities": [
-            {
-                "id": n.get("id"),
-                "type": n.get("type", "entity"),
-                "text": n.get("content", n.get("id", "")),
-                "metadata": n.get("metadata", {}),
-            }
-            for n in nodes
-        ],
-        "relationships": [
-            {
-                "source": e.get("source"),
-                "target": e.get("target"),
-                "type": e.get("type", "related_to"),
-                "metadata": e.get("metadata", {}),
-            }
-            for e in edges
-        ],
-    }
+@router.post("/api/import", response_model=ImportResponse)
+async def import_file(
+    file: UploadFile = File(...),
+    session: GraphSession = Depends(get_session),
+):
+    import os as _os
+    filename = (file.filename or "").lower()
+    ext = _os.path.splitext(filename)[1]
+    if ext not in _ALLOWED_IMPORT_EXTENSIONS:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Unsupported file type '{ext}'. Allowed: {sorted(_ALLOWED_IMPORT_EXTENSIONS)}",
+        )
+
+    content = await file.read()
+    if len(content) > _IMPORT_MAX_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"Upload exceeds the {_IMPORT_MAX_BYTES // (1024 * 1024)} MB limit.",
+        )
+
+    if filename.endswith(".json"):
+        try:
+            data = json.loads(content)
+        except json.JSONDecodeError as exc:
+            raise HTTPException(status_code=422, detail=f"Invalid JSON file: {exc}") from exc
+
+        if isinstance(data, list):
+            if data and any(key in data[0] for key in {"source", "source_id", "target", "target_id", "START_ID", "END_ID"}):
+                raw_nodes = []
+                raw_edges = data
+            else:
+                raw_nodes = data
+                raw_edges = []
+        elif isinstance(data, dict):
+            raw_nodes = data.get("nodes", data.get("entities", []))
+            raw_edges = data.get("edges", data.get("relationships", []))
+        else:
+            raise HTTPException(status_code=422, detail="JSON import expects an object or array payload")
+
+        nodes = []
+        for raw_node in raw_nodes:
+            if "properties" in raw_node:
+                nodes.append(raw_node)
+                continue
+            metadata = raw_node.get("metadata", {}) or {}
+            nodes.append(
+                {
+                    "id": str(raw_node.get("id", raw_node.get("_id", raw_node.get("node_id", "")))),
+                    "type": raw_node.get("type", "entity"),
+                    "properties": {
+                        "content": raw_node.get("text", raw_node.get("content", raw_node.get("id", ""))),
+                        **metadata,
+                    },
+                }
+            )
+
+        edges = []
+        for raw_edge in raw_edges:
+            source = raw_edge.get("source") or raw_edge.get("source_id") or raw_edge.get("start") or raw_edge.get("start_id") or raw_edge.get("START_ID")
+            target = raw_edge.get("target") or raw_edge.get("target_id") or raw_edge.get("end") or raw_edge.get("end_id") or raw_edge.get("END_ID")
+            if not source or not target:
+                continue
+            edge_properties = raw_edge.get("metadata", raw_edge.get("properties", {})) or {}
+            edges.append(
+                {
+                    "id": raw_edge.get("id", raw_edge.get("edge_id")),
+                    "familyId": raw_edge.get("familyId", raw_edge.get("family_id")),
+                    "source_id": str(source),
+                    "target_id": str(target),
+                    "type": raw_edge.get("type", raw_edge.get("relationship", "related_to")),
+                    "weight": float(raw_edge.get("weight", 1.0)),
+                    "properties": edge_properties,
+                    "valid_from": raw_edge.get("valid_from", edge_properties.get("valid_from")),
+                    "valid_until": raw_edge.get("valid_until", edge_properties.get("valid_until")),
+                }
+            )
+
+        nodes_added = session.add_nodes(nodes)
+        edges_added = session.add_edges(edges)
+        return _import_response(nodes_added, edges_added)
+
+    if filename.endswith(".csv"):
+        try:
+            decoded = content.decode("utf-8-sig")
+        except UnicodeDecodeError as exc:
+            raise HTTPException(status_code=422, detail="CSV file must be UTF-8 encoded") from exc
+
+        reader = csv.DictReader(io.StringIO(decoded))
+        nodes = []
+        edges = []
+        for row in reader:
+            source = row.get("source") or row.get("source_id") or row.get(":START_ID") or row.get("START_ID")
+            target = row.get("target") or row.get("target_id") or row.get(":END_ID") or row.get("END_ID")
+            node_id = row.get("id") or row.get("node_id") or row.get(":ID") or row.get("_id") or row.get("ID")
+
+            if source and target:
+                edge_props = {
+                    key: value
+                    for key, value in row.items()
+                    if key not in {
+                        "id",
+                        "edge_id",
+                        "familyId",
+                        "family_id",
+                        "source",
+                        "source_id",
+                        "target",
+                        "target_id",
+                        "type",
+                        "relationship",
+                        "weight",
+                        ":START_ID",
+                        "START_ID",
+                        ":END_ID",
+                        "END_ID",
+                        ":TYPE",
+                    }
+                }
+                edges.append(
+                    {
+                        "id": row.get("id") or row.get("edge_id"),
+                        "familyId": row.get("familyId") or row.get("family_id"),
+                        "source_id": str(source),
+                        "target_id": str(target),
+                        "type": row.get("type") or row.get("relationship") or row.get(":TYPE") or "related_to",
+                        "weight": float(row.get("weight", 1.0) or 1.0),
+                        "properties": edge_props,
+                    }
+                )
+            elif node_id:
+                node_props = {
+                    key: value
+                    for key, value in row.items()
+                    if key not in {"id", "node_id", "type", "label", ":ID", "_id", "ID", ":LABEL"}
+                }
+                nodes.append(
+                    {
+                        "id": str(node_id),
+                        "type": row.get("type") or row.get("label") or row.get(":LABEL") or "entity",
+                        "properties": node_props,
+                    }
+                )
+
+        if not nodes and not edges:
+            raise HTTPException(
+                status_code=422,
+                detail="No valid nodes or edges could be parsed from the CSV payload.",
+            )
+
+        nodes_added = session.add_nodes(nodes)
+        edges_added = session.add_edges(edges)
+        return _import_response(nodes_added, edges_added)
+
+    raise HTTPException(
+        status_code=422,
+        detail=f"Unsupported file type '{_os.path.splitext(filename)[1]}'. Allowed: {sorted(_ALLOWED_IMPORT_EXTENSIONS)}",
+    )
 
 
 @router.post("/api/export")
@@ -79,160 +199,95 @@ async def export_graph(
     body: ExportRequest,
     session: GraphSession = Depends(get_session),
 ):
-    """Export the current graph in the requested format."""
     fmt = body.format.lower()
-    if fmt not in _FORMAT_MAP:
-        raise ValueError(
-            f"Unsupported format '{fmt}'. Supported: {', '.join(sorted(_FORMAT_MAP))}"
-        )
+    graph_dict = session.build_graph_dict(body.node_ids)
 
-    func_name, content_type, ext = _FORMAT_MAP[fmt]
+    if fmt == "json":
+        content = json.dumps(graph_dict, indent=2, default=str)
+        media_type = "application/json"
+        extension = "json"
+    elif fmt == "csv":
+        output = io.StringIO()
+        writer = csv.writer(output)
 
-    kg = await asyncio.to_thread(_build_kg_dict, session, body.node_ids)
+        writer.writerow(["kind", "id", "familyId", "type", "content", "source", "target", "weight"])
+        for node in graph_dict.get("entities", []):
+            writer.writerow(["node", node.get("id"), "", node.get("type"), node.get("text"), "", "", ""])
+        for edge in graph_dict.get("relationships", []):
+            writer.writerow([
+                "edge",
+                edge.get("id"),
+                edge.get("familyId"),
+                edge.get("type"),
+                "",
+                edge.get("source"),
+                edge.get("target"),
+                edge.get("metadata", {}).get("weight", edge.get("weight", "")),
+            ])
 
-    kg = await asyncio.to_thread(session.build_graph_dict, body.node_ids)
+        content = output.getvalue()
+        media_type = "text/csv"
+        extension = "csv"
+    else:
+        raise HTTPException(status_code=422, detail=f"Unsupported export format '{fmt}'")
 
-    try:
-        from ...export.methods import (
-            export_json, export_rdf, export_csv, export_graph as export_graph_fn,
-            export_owl, export_lpg, export_arango, export_yaml,
-        )
-        fn_map = {
-            "export_json": export_json,
-            "export_rdf": export_rdf,
-            "export_csv": export_csv,
-            "export_graph": export_graph_fn,
-            "export_owl": export_owl,
-            "export_lpg": export_lpg,
-            "export_arango": export_arango,
-            "export_yaml": export_yaml,
-        }
-        export_fn = fn_map.get(func_name)
-        if export_fn is None:
-            raise ValueError(f"Export function {func_name} not found.")
-
-        # Write to a temp file, read back content.
-        with tempfile.NamedTemporaryFile(suffix=ext, delete=False, mode="w") as tmp:
-            tmp_path = tmp.name
-
-        await asyncio.to_thread(export_fn, kg, tmp_path)
-
-        with open(tmp_path, "r", encoding="utf-8", errors="replace") as fh:
-            content = fh.read()
-
-        import os
-        os.unlink(tmp_path)
-
-    except ImportError:
-  
-        # Write to a temp file; always clean up even if export or read fails.
-        tmp_path = None
-        try:
-            with tempfile.NamedTemporaryFile(suffix=ext, delete=False, mode="w") as tmp:
-                tmp_path = tmp.name
-
-            await asyncio.to_thread(export_fn, kg, tmp_path)
-
-            with open(tmp_path, "r", encoding="utf-8", errors="replace") as fh:
-                content = fh.read()
-        finally:
-            if tmp_path and os.path.exists(tmp_path):
-                os.unlink(tmp_path)
-
-    except ImportError:
-        content = json.dumps(kg, indent=2, default=str)
-        content_type = "application/json"
-        ext = ".json"
-
-    filename = f"semantica_export{ext}"
     return Response(
         content=content,
-        media_type=content_type,
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        media_type=media_type,
+        headers={"Content-Disposition": f'attachment; filename="semantica_export.{extension}"'},
     )
 
 
-@router.post("/api/import")
-async def import_file(
-    file: UploadFile = File(...),
+_DISTANCE_EXPORT_MAX_NODES = 200
+
+
+@router.post("/api/export/distance-enriched")
+async def export_distance_enriched(
+    body: DistanceExportRequest,
     session: GraphSession = Depends(get_session),
-    ws: ConnectionManager = Depends(get_ws_manager),
 ):
-    """
-    Import entities from an uploaded file (JSON or CSV).
+    """FR-10 — Export pairwise distance metrics as CSV or JSONL for ML pipelines."""
+    if not body.node_subset:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"node_subset is required; provide up to {_DISTANCE_EXPORT_MAX_NODES} node IDs to export."
+            ),
+        )
+    if len(body.node_subset) > _DISTANCE_EXPORT_MAX_NODES:
+        raise HTTPException(
+            status_code=413,
+            detail=(
+                f"node_subset exceeds limit: {len(body.node_subset)} nodes requested; "
+                f"maximum is {_DISTANCE_EXPORT_MAX_NODES}."
+            ),
+        )
 
-    For JSON files the expected shape is ``{"nodes": [...], "edges": [...]}``.
-    """
-    content = await file.read()
-    filename = file.filename or "upload"
+    import asyncio
 
-    await ws.broadcast("import_started", {"filename": filename})
+    from ...export.distance_exporter import DistanceExporter
 
-    try:
-        if filename.endswith(".json") or filename.endswith(".jsonld"):
-            data = json.loads(content)
+    exporter = DistanceExporter(session.graph)
 
-
-            raw_nodes = data.get("nodes", data.get("entities", []))
-            raw_edges = data.get("edges", data.get("relationships", []))
-
-    
-            # KG export uses {id, type, text, metadata}
-            # ContextGraph.add_nodes expects {id, type, properties: {content, ...}}
-            nodes = []
-            for n in raw_nodes:
-                if "properties" in n:
-                    nodes.append(n)
-                else:
-                    nodes.append({
-                        "id": n.get("id"),
-                        "type": n.get("type", "entity"),
-                        "properties": {
-                            "content": n.get("text", n.get("content", n.get("id", ""))),
-                            **(n.get("metadata") or {}),
-                        },
-                    })
-
-            # KG export uses {source, target, type, metadata}
-            # ContextGraph.add_edges expects {source_id, target_id, type, weight, properties}
-            edges = []
-            for r in raw_edges:
-                src = r.get("source_id", r.get("source"))
-                tgt = r.get("target_id", r.get("target"))
-                if not src or not tgt:
-                    continue  
-                edges.append({
-                    "source_id": src,
-                    "target_id": tgt,
-                    "type": r.get("type", "related_to"),
-                    "weight": r.get("weight", 1.0),
-                    "properties": r.get("metadata") or r.get("properties") or {},
-                })
-            nodes = data.get("nodes", data.get("entities", []))
-            edges = data.get("edges", data.get("relationships", []))
-
-            for edge in edges:
-                if "source" in edge and "source_id" not in edge:
-                    edge["source_id"] = edge["source"]
-                if "target" in edge and "target_id" not in edge:
-                    edge["target_id"] = edge["target"]
-
-            added_nodes = await asyncio.to_thread(session.add_nodes, nodes)
-            added_edges = await asyncio.to_thread(session.add_edges, edges)
-
-            result = {
-                "status": "success",
-                "nodes_added": added_nodes,
-                "edges_added": added_edges,
-            }
-        else:
-            result = {
-                "status": "unsupported",
-                "detail": f"File type not supported yet: {filename}",
-            }
-    except Exception as exc:
-        logger.exception("Import failed")
-        result = {"status": "error", "detail": "An internal error occurred during import"}
-
-    await ws.broadcast("import_completed", result)
-    return result
+    if body.format == "csv":
+        content = await asyncio.to_thread(
+            exporter.to_csv_string,
+            include=body.include,
+            node_subset=body.node_subset,
+        )
+        return Response(
+            content=content,
+            media_type="text/csv",
+            headers={"Content-Disposition": 'attachment; filename="distances.csv"'},
+        )
+    else:
+        content = await asyncio.to_thread(
+            exporter.to_jsonl_string,
+            include=body.include,
+            node_subset=body.node_subset,
+        )
+        return Response(
+            content=content,
+            media_type="application/x-ndjson",
+            headers={"Content-Disposition": 'attachment; filename="distances.jsonl"'},
+        )

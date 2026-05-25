@@ -113,13 +113,11 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 
 from ..utils.exceptions import ProcessingError
 from ..utils.logging import get_logger
-from .ner_extractor import Entity
 from .providers import HuggingFaceModelLoader, create_provider
 from .registry import method_registry
-from .relation_extractor import Relation
-from .triplet_extractor import Triplet
 from .cache import ExtractionCache
 from .config import config
+from .types import Entity, Relation, Triplet
 
 try:
     from .schemas import (

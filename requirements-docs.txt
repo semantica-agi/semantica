@@ -1,9 +1,0 @@
-mkdocs>=1.5.0
-mkdocs-material>=9.4.0
-mkdocs-minify-plugin>=0.7.0
-mkdocs-mermaid2-plugin>=1.0.0
-pymdown-extensions>=10.0
-
-mkdocstrings[python]>=0.24.0
-mkdocs-jupyter>=0.24.0
-

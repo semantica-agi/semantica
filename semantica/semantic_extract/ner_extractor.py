@@ -70,27 +70,15 @@ Author: Semantica Contributors
 License: MIT
 """
 
-from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 from ..utils.exceptions import ProcessingError
 from ..utils.helpers import safe_import
 from ..utils.logging import get_logger
 from ..utils.progress_tracker import get_progress_tracker
+from .types import Entity
 
 spacy, SPACY_AVAILABLE = safe_import("spacy")
-
-
-@dataclass
-class Entity:
-    """Entity representation."""
-
-    text: str
-    label: str
-    start_char: int
-    end_char: int
-    confidence: float = 1.0
-    metadata: Dict[str, Any] = field(default_factory=dict)
 
 
 class NERExtractor:
@@ -121,6 +109,12 @@ class NERExtractor:
                 - huggingface_model: HuggingFace model name
                 - provider: LLM provider (for LLM method)
                 - llm_model: LLM model name
+                - base_url: Custom base URL for OpenAI-compatible endpoints
+                    (e.g. ``"https://my-gateway/v1"``).  When set, the
+                    provider automatically switches to ``Mode.JSON`` so that
+                    third-party servers (Qwen, LLaMA gateways, etc.) that do
+                    not implement the full function-calling protocol still
+                    return correctly structured results.
                 - device: Device for HuggingFace models ("cuda" or "cpu")
                 - min_confidence: Minimum confidence threshold
                 - ensemble_voting: Enable ensemble voting (default: False)
@@ -435,7 +429,9 @@ class NERExtractor:
                             return filtered
 
                 except Exception as e:
-                    self.logger.warning(f"Method {method_name} failed: {e}")
+                    self.logger.warning(
+                        "Method %s failed: %s", method_name, e, exc_info=True
+                    )
                     continue
 
             # Ensemble voting if enabled

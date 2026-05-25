@@ -104,7 +104,8 @@ class PathFinder:
         source: str,
         target: str,
         weight_attribute: str = "weight",
-        default_weight: float = 1.0
+        default_weight: float = 1.0,
+        directed: bool = True
     ) -> List[str]:
         """
         Find shortest path using Dijkstra's algorithm.
@@ -125,32 +126,34 @@ class PathFinder:
         """
         try:
             self.logger.info(f"Finding Dijkstra shortest path from {source} to {target}")
-            
+
             # Validate nodes exist
             if not self._node_exists(graph, source):
                 raise ValueError(f"Source node {source} not found")
             if not self._node_exists(graph, target):
                 raise ValueError(f"Target node {target} not found")
-            
+
+            traversal_graph = graph if directed else self._make_undirected_view(graph)
+
             # Dijkstra's algorithm
             distances = {source: 0.0}
             previous = {}
             priority_queue = [(0.0, source)]
             visited = set()
-            
+
             while priority_queue:
                 current_distance, current_node = heapq.heappop(priority_queue)
-                
+
                 if current_node in visited:
                     continue
-                
+
                 visited.add(current_node)
-                
+
                 if current_node == target:
                     break
-                
+
                 # Explore neighbors
-                for neighbor, edge_data in self._get_neighbors(graph, current_node):
+                for neighbor, edge_data in self._get_neighbors(traversal_graph, current_node):
                     if neighbor in visited:
                         continue
                     
@@ -350,44 +353,48 @@ class PathFinder:
         self,
         graph: Any,
         source: str,
-        target: str
+        target: str,
+        directed: bool = True
     ) -> List[str]:
         """
         Find shortest path using BFS (unweighted).
-        
+
         Args:
             graph: Graph object (NetworkX or similar)
             source: Source node ID
             target: Target node ID
-            
+            directed: If False, treat the graph as undirected for traversal
+
         Returns:
             List of node IDs representing the shortest path
-            
+
         Raises:
             ValueError: If source or target not found
         """
         try:
             self.logger.info(f"Finding BFS shortest path from {source} to {target}")
-            
+
             # Validate nodes exist
             if not self._node_exists(graph, source):
                 raise ValueError(f"Source node {source} not found")
             if not self._node_exists(graph, target):
                 raise ValueError(f"Target node {target} not found")
-            
+
+            traversal_graph = graph if directed else self._make_undirected_view(graph)
+
             # BFS algorithm
             queue = deque([(source, [source])])
             visited = {source}
-            
+
             while queue:
                 current, path = queue.popleft()
-                
+
                 if current == target:
                     self.logger.info(f"Found BFS path of length {len(path)}")
                     return path
-                
+
                 # Explore neighbors
-                for neighbor, _ in self._get_neighbors(graph, current):
+                for neighbor, _ in self._get_neighbors(traversal_graph, current):
                     if neighbor not in visited:
                         visited.add(neighbor)
                         queue.append((neighbor, path + [neighbor]))
@@ -564,6 +571,18 @@ class PathFinder:
                 return False
         return False
     
+    def _make_undirected_view(self, graph: Any) -> Any:
+        """Return an undirected view of the graph for bidirectional traversal.
+
+        For NetworkX directed graphs this calls ``to_undirected()``, which
+        preserves all edge attributes.  For graph types that have no such
+        method the original object is returned as a fallback — callers that
+        already expose undirected neighbors will still work correctly.
+        """
+        if hasattr(graph, "to_undirected"):
+            return graph.to_undirected()
+        return graph
+
     def _get_neighbors(self, graph: Any, node: str) -> List[Tuple[str, Any]]:
         """Get neighbors of a node with edge data."""
         neighbors = []

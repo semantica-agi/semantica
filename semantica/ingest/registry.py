@@ -13,6 +13,7 @@ Supported Registration Types:
         * "repo": Repository ingestion methods
         * "email": Email ingestion methods
         * "db": Database ingestion methods
+        * "parquet": Parquet file and dataset ingestion methods
         * "ingest": General ingestion methods
 
 Algorithms Used:
@@ -24,7 +25,7 @@ Algorithms Used:
 
 Key Features:
     - Method registry for custom ingestion methods
-    - Task-based method organization (file, web, feed, stream, repo, email, db, ingest)
+    - Task-based method organization by source category
     - Dynamic registration and unregistration
     - Easy discovery of available methods
     - Support for community-contributed extensions
@@ -37,11 +38,13 @@ Global Instances:
 
 Example Usage:
     >>> from semantica.ingest.registry import method_registry
-    >>> method_registry.register("file", "custom_method", custom_file_ingestion_function)
+    >>> method_registry.register(
+    ...     "file", "custom_method", custom_file_ingestion_function
+    ... )
     >>> available = method_registry.list_all("file")
 """
 
-from typing import Any, Callable, Dict, List, Optional
+from typing import Callable, Dict, List, Optional
 
 
 class MethodRegistry:
@@ -56,6 +59,8 @@ class MethodRegistry:
         "email": {},
         "db": {},
         "mcp": {},
+        "parquet": {},
+        "xml": {},
         "ingest": {},
     }
 
@@ -65,7 +70,8 @@ class MethodRegistry:
         Register a custom ingestion method.
 
         Args:
-            task: Task type ("file", "web", "feed", "stream", "repo", "email", "db", "mcp", "ingest")
+            task: Task type such as "file", "web", "feed", "stream",
+                "repo", "email", "db", "mcp", "parquet", "xml", or "ingest"
             name: Method name
             method_func: Method function
         """
@@ -79,7 +85,8 @@ class MethodRegistry:
         Get method by task and name.
 
         Args:
-            task: Task type ("file", "web", "feed", "stream", "repo", "email", "db", "mcp", "ingest")
+            task: Task type such as "file", "web", "feed", "stream",
+                "repo", "email", "db", "mcp", "parquet", "xml", or "ingest"
             name: Method name
 
         Returns:
@@ -108,7 +115,8 @@ class MethodRegistry:
         Unregister a method.
 
         Args:
-            task: Task type ("file", "web", "feed", "stream", "repo", "email", "db", "mcp", "ingest")
+            task: Task type such as "file", "web", "feed", "stream",
+                "repo", "email", "db", "mcp", "parquet", or "ingest"
             name: Method name
         """
         if task in cls._methods and name in cls._methods[task]:

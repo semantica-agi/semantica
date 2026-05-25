@@ -821,3 +821,87 @@ class TestPathFinderEdgeCases:
         
         paths = self.finder.all_shortest_paths(single_node_graph, "A")
         assert len(paths) == 0  # No paths to other nodes
+
+
+class TestBidirectionalPathFinding:
+    """Tests for the directed=False undirected-traversal mode (issue #469)."""
+
+    def setup_method(self):
+        self.finder = PathFinder()
+        # Single directed edge A → B.  Reverse query B → A has no directed path.
+        self.digraph = nx.DiGraph()
+        self.digraph.add_edge("A", "B")
+
+    # --- directed=True (default) preserves existing behaviour ---
+
+    def test_bfs_directed_true_reverse_returns_empty(self):
+        """B→A should find nothing when directed=True (default)."""
+        path = self.finder.bfs_shortest_path(self.digraph, "B", "A", directed=True)
+        assert path == []
+
+    def test_dijkstra_directed_true_reverse_returns_empty(self):
+        """B→A should find nothing when directed=True (default)."""
+        path = self.finder.dijkstra_shortest_path(self.digraph, "B", "A", directed=True)
+        assert path == []
+
+    def test_bfs_directed_true_default_arg(self):
+        """Omitting directed= should behave the same as directed=True."""
+        path = self.finder.bfs_shortest_path(self.digraph, "B", "A")
+        assert path == []
+
+    def test_dijkstra_directed_true_default_arg(self):
+        path = self.finder.dijkstra_shortest_path(self.digraph, "B", "A")
+        assert path == []
+
+    # --- directed=False finds path against edge orientation ---
+
+    def test_bfs_directed_false_reverse_single_edge(self):
+        """directed=False must find B→A even though only A→B exists."""
+        path = self.finder.bfs_shortest_path(self.digraph, "B", "A", directed=False)
+        assert path == ["B", "A"]
+
+    def test_dijkstra_directed_false_reverse_single_edge(self):
+        path = self.finder.dijkstra_shortest_path(self.digraph, "B", "A", directed=False)
+        assert path == ["B", "A"]
+
+    def test_bfs_directed_false_forward_still_works(self):
+        """directed=False should not break the forward direction."""
+        path = self.finder.bfs_shortest_path(self.digraph, "A", "B", directed=False)
+        assert path == ["A", "B"]
+
+    def test_dijkstra_directed_false_forward_still_works(self):
+        path = self.finder.dijkstra_shortest_path(self.digraph, "A", "B", directed=False)
+        assert path == ["A", "B"]
+
+    # --- multi-hop path where one edge is against the query direction ---
+
+    def test_bfs_directed_false_multihop(self):
+        """A→B, C→B graph: directed=False lets us find A→B→C (i.e. A→C via B)."""
+        g = nx.DiGraph()
+        g.add_edge("A", "B")
+        g.add_edge("C", "B")  # oriented towards B, not away from it
+        # undirected view: A-B-C, so A→C path exists
+        path = self.finder.bfs_shortest_path(g, "A", "C", directed=False)
+        assert path[0] == "A" and path[-1] == "C"
+        assert "B" in path
+
+    def test_dijkstra_directed_false_multihop(self):
+        g = nx.DiGraph()
+        g.add_edge("A", "B")
+        g.add_edge("C", "B")
+        path = self.finder.dijkstra_shortest_path(g, "A", "C", directed=False)
+        assert path[0] == "A" and path[-1] == "C"
+        assert "B" in path
+
+    # --- PathResponse.directed field ---
+
+    def test_path_response_directed_field_exists(self):
+        """PathResponse must carry a directed field."""
+        from semantica.explorer.schemas import PathResponse
+        r = PathResponse(source="A", target="B", algorithm="bfs", path=["A", "B"], directed=False)
+        assert r.directed is False
+
+    def test_path_response_directed_field_defaults_true(self):
+        from semantica.explorer.schemas import PathResponse
+        r = PathResponse(source="A", target="B", algorithm="bfs", path=["A", "B"])
+        assert r.directed is True

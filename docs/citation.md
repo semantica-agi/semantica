@@ -1,6 +1,10 @@
-# Citation
+---
+title: "Citation"
+description: "How to cite Semantica in academic papers and research."
+icon: "quote-left"
+---
 
-How to cite Semantica in academic papers and research.
+> Use Semantica in your research? Here's how to cite it.
 
 ---
 
@@ -8,32 +12,42 @@ How to cite Semantica in academic papers and research.
 
 ```bibtex
 @software{semantica2026,
-  title = {Semantica: An Open Source Framework for Semantic Layers and Knowledge Engineering},
-  author = {Hawksight AI},
-  year = {2026},
-  url = {https://github.com/Hawksight-AI/semantica},
-  version = {0.2.7},
-  doi = {10.5281/zenodo.XXXXXXX}
+  title   = {Semantica: An Open Source Framework for Semantic Layers and Knowledge Engineering},
+  author  = {Hawksight AI},
+  year    = {2026},
+  url     = {https://github.com/semantica-agi/semantica},
+  version = {0.5.0},
+  doi     = {10.5281/zenodo.XXXXXXX}
 }
 ```
 
-### APA
-Hawksight AI. (2026). *Semantica: An Open Source Framework for Semantic Layers and Knowledge Engineering* (Version 0.2.7) [Computer software]. https://github.com/Hawksight-AI/semantica
+---
 
-### MLA
-Hawksight AI. *Semantica: An Open Source Framework for Semantic Layers and Knowledge Engineering*. Version 0.2.7, GitHub, 2026, https://github.com/Hawksight-AI/semantica.
+## APA
 
-### Chicago
-Hawksight AI. *Semantica: An Open Source Framework for Semantic Layers and Knowledge Engineering*. Version 0.2.7. GitHub, 2026. https://github.com/Hawksight-AI/semantica.
-
-### IEEE
-Hawksight AI, "Semantica: An Open Source Framework for Semantic Layers and Knowledge Engineering," Version 0.2.7, GitHub, 2026. [Online]. Available: https://github.com/Hawksight-AI/semantica
+Hawksight AI. (2026). *Semantica: An Open Source Framework for Semantic Layers and Knowledge Engineering* (Version 0.5.0) \[Computer software\]. https://github.com/semantica-agi/semantica
 
 ---
 
-## Acknowledgment
+## MLA
 
-If you use Semantica in your work:
+Hawksight AI. *Semantica: An Open Source Framework for Semantic Layers and Knowledge Engineering*. Version 0.5.0, GitHub, 2026, https://github.com/semantica-agi/semantica.
+
+---
+
+## Chicago
+
+Hawksight AI. *Semantica: An Open Source Framework for Semantic Layers and Knowledge Engineering*. Version 0.5.0. GitHub, 2026. https://github.com/semantica-agi/semantica.
+
+---
+
+## IEEE
+
+Hawksight AI, "Semantica: An Open Source Framework for Semantic Layers and Knowledge Engineering," Version 0.5.0, GitHub, 2026. \[Online\]. Available: https://github.com/semantica-agi/semantica
+
+---
+
+## Acknowledgment Text
 
 > "This work uses Semantica (Hawksight AI, 2026), an open-source framework for semantic layer construction and knowledge engineering."
 
@@ -41,8 +55,17 @@ If you use Semantica in your work:
 
 ## Share Your Research
 
-Published research using Semantica? [Let us know](https://github.com/Hawksight-AI/semantica/issues) - we may feature your work!
+Published research using Semantica? [Let us know](https://github.com/semantica-agi/semantica/issues) — we may feature your work.
 
 ---
 
-**License**: MIT - See [License](license.md) for details
+## See Also
+
+<CardGroup cols={2}>
+  <Card title="License" icon="file-contract" href="project-license">
+    MIT License details.
+  </Card>
+  <Card title="Community" icon="users" href="community">
+    Connect with the Semantica community.
+  </Card>
+</CardGroup>

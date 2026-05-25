@@ -53,6 +53,15 @@ except (ImportError, OSError):
 
 from ..utils.exceptions import ProcessingError
 from ..utils.logging import get_logger
+
+# Optional import — keeps the visualizer usable even if the kg sub-package
+# is not installed, and avoids circular-import risk at module level.
+try:
+    from ..kg.knowledge_graph import KnowledgeGraph as _KnowledgeGraph
+except Exception:  # pragma: no cover
+    _KnowledgeGraph = None  # type: ignore[assignment,misc]
+
+from ..utils.helpers import classify_path_distance
 from ..utils.progress_tracker import get_progress_tracker
 from .utils.color_schemes import ColorPalette, ColorScheme
 from .utils.export_formats import (
@@ -118,14 +127,72 @@ class KGVisualizer:
                 "Install with: pip install plotly"
             )
 
+    def _convert_knowledge_graph(self, kg: Any) -> Dict[str, Any]:
+        """
+        Convert a KnowledgeGraph instance to the internal dict format.
+
+        Non-mutating. Preserves node types, labels, properties, edge types,
+        weights, and direction.
+
+        Args:
+            kg: A ``KnowledgeGraph`` instance.
+
+        Returns:
+            Dict with "entities", "relationships", and "metadata" keys.
+        """
+        entities = getattr(kg, "entities", None) or []
+        relationships = getattr(kg, "relationships", None) or []
+        metadata = getattr(kg, "metadata", None) or {}
+        return {
+            "entities": list(entities),
+            "relationships": list(relationships),
+            "metadata": dict(metadata),
+        }
+
+    def _normalize_graph(self, graph: Any) -> Dict[str, Any]:
+        """
+        Normalize graph input to the expected dict format.
+
+        Accepts:
+        - A ``KnowledgeGraph`` instance (routed through ``_convert_knowledge_graph``)
+        - A dict with "entities" and "relationships" keys (canonical format)
+        - Any object that exposes .entities and .relationships attributes
+          (duck-typed, e.g. custom dataclasses)
+
+        Returns:
+            Dict with "entities", "relationships", and "metadata" keys.
+        """
+        # Explicit fast-path for the formal KnowledgeGraph type
+        if _KnowledgeGraph is not None and isinstance(graph, _KnowledgeGraph):
+            return self._convert_knowledge_graph(graph)
+
+        if isinstance(graph, dict):
+            return graph
+
+        # Duck-type: accept any object with .entities / .relationships
+        entities = getattr(graph, "entities", None)
+        relationships = getattr(graph, "relationships", None)
+        if entities is None and relationships is None:
+            raise ProcessingError(
+                f"Cannot visualize object of type '{type(graph).__name__}': "
+                "expected a dict with 'entities'/'relationships' keys, or an object "
+                "with .entities and .relationships attributes."
+            )
+        return {
+            "entities": list(entities) if entities is not None else [],
+            "relationships": list(relationships) if relationships is not None else [],
+            "metadata": dict(getattr(graph, "metadata", None) or {}),
+        }
+
     def visualize_network(
         self,
-        graph: Dict[str, Any],
+        graph: Union[Dict[str, Any], Any],
         output: str = "interactive",
         file_path: Optional[Union[str, Path]] = None,
         node_color_by: str = "type",
         node_size_by: Optional[str] = None,
         hover_data: Optional[List[str]] = None,
+        highlight_path: Optional[List[str]] = None,
         **options,
     ) -> Optional[Any]:
         """
@@ -139,18 +206,24 @@ class KGVisualizer:
         5. Interaction: rich hover data and zoom capabilities
 
         Args:
-            graph: Knowledge graph dictionary with entities and relationships
+            graph: Knowledge graph — either a dict with "entities"/"relationships"
+                keys, or any object exposing .entities and .relationships attributes
+                (e.g. the result of GraphBuilder.build())
             output: Output type ("interactive", "html", "png", "svg")
             file_path: Output file path (required for non-interactive)
             node_color_by: Property to map to node color (default: "type")
             node_size_by: Property to map to node size (default: fixed)
             hover_data: List of properties to show in hover tooltip
+            highlight_path: Optional ordered list of node IDs forming a path to
+                highlight with distance-aware edge styling (opacity and stroke
+                weight reflect hop count along the path).
             **options: Additional visualization options
 
         Returns:
             Plotly figure (if interactive) or None
         """
         self._check_dependencies()
+        graph = self._normalize_graph(graph)
         tracking_id = self.progress_tracker.start_tracking(
             module="visualization",
             submodule="KGVisualizer",
@@ -193,13 +266,14 @@ class KGVisualizer:
                 tracking_id, message="Generating visualization..."
             )
             result = self._visualize_network_plotly(
-                nodes, 
-                edges, 
-                output, 
-                file_path, 
+                nodes,
+                edges,
+                output,
+                file_path,
                 node_color_by=node_color_by,
                 node_size_by=node_size_by,
                 hover_data=hover_data,
+                highlight_path=highlight_path,
                 **options
             )
 
@@ -237,6 +311,7 @@ class KGVisualizer:
             Visualization figure or None
         """
         self._check_dependencies()
+        graph = self._normalize_graph(graph)
         self.logger.info("Visualizing knowledge graph communities")
 
         entities = graph.get("entities", [])
@@ -296,6 +371,7 @@ class KGVisualizer:
             Visualization figure or None
         """
         self._check_dependencies()
+        graph = self._normalize_graph(graph)
         self.logger.info(
             f"Visualizing knowledge graph with {centrality_type} centrality"
         )
@@ -350,6 +426,7 @@ class KGVisualizer:
             Visualization figure or None
         """
         self._check_dependencies()
+        graph = self._normalize_graph(graph)
         self.logger.info("Visualizing entity type distribution")
 
         entities = graph.get("entities", [])
@@ -395,6 +472,7 @@ class KGVisualizer:
             Visualization figure or None
         """
         self._check_dependencies()
+        graph = self._normalize_graph(graph)
         self.logger.info("Visualizing relationship matrix")
 
         entities = graph.get("entities", [])
@@ -492,6 +570,21 @@ class KGVisualizer:
 
         return edges
 
+    @staticmethod
+    def _path_edge_style(distance_band: str) -> Tuple[float, float]:
+        """Return (opacity, width) for a path edge based on its distance band.
+
+        Bands come from ``classify_path_distance`` in ``utils.helpers`` — the
+        single source of truth for hop-count thresholds.
+        """
+        if distance_band == "direct":
+            return (1.0, 4.0)
+        if distance_band == "near":
+            return (0.85, 3.0)
+        if distance_band == "mid-range":
+            return (0.6, 2.0)
+        return (0.35, 1.5)  # "distant"
+
     def _visualize_network_plotly(
         self,
         nodes: List[Dict[str, Any]],
@@ -501,6 +594,7 @@ class KGVisualizer:
         node_color_by: str = "type",
         node_size_by: Optional[str] = None,
         hover_data: Optional[List[str]] = None,
+        highlight_path: Optional[List[str]] = None,
         **options,
     ) -> Optional[Any]:
         """Create Plotly network visualization."""
@@ -603,47 +697,73 @@ class KGVisualizer:
                 
             node_text.append(text)
 
-        # Prepare edge traces
-        edge_x = []
-        edge_y = []
-        
+        # Build path edge lookup for highlight_path support
+        path_edge_set: set = set()
+        path_distance_band = "direct"
+        if highlight_path and len(highlight_path) >= 2:
+            path_hop_count = len(highlight_path) - 1
+            path_distance_band = classify_path_distance(path_hop_count)
+            # Only add the directed edges that actually form the path (A→B, not B→A).
+            # Adding the reverse would incorrectly highlight unrelated back-edges.
+            for i in range(path_hop_count):
+                path_edge_set.add((highlight_path[i], highlight_path[i + 1]))
+            # Warn if any path node has no layout position (silent highlight failure).
+            missing = [n for n in highlight_path if n not in pos]
+            if missing:
+                self.logger.warning(
+                    "highlight_path contains node IDs not found in the graph: %s",
+                    missing,
+                )
+
+        path_opacity, path_width = self._path_edge_style(path_distance_band)
+
+        # Prepare edge traces — split into background (non-path) and path edges
+        edge_x: List = []
+        edge_y: List = []
+        path_edge_x: List = []
+        path_edge_y: List = []
+
         # Prepare edge label traces and annotations (for arrows)
         edge_label_x = []
         edge_label_y = []
         edge_label_text = []
         annotations = []
-        
+
         # Limit detailed edge rendering for performance if graph is too large
         show_detailed_edges = len(edges) < 500
-        
+
         for edge in edges:
             source_pos = pos.get(edge["source"])
             target_pos = pos.get(edge["target"])
             if source_pos and target_pos:
                 x0, y0 = source_pos
                 x1, y1 = target_pos
-                edge_x.extend([x0, x1, None])
-                edge_y.extend([y0, y1, None])
-                
+
+                is_path_edge = (edge["source"], edge["target"]) in path_edge_set
+                if is_path_edge:
+                    path_edge_x.extend([x0, x1, None])
+                    path_edge_y.extend([y0, y1, None])
+                else:
+                    edge_x.extend([x0, x1, None])
+                    edge_y.extend([y0, y1, None])
+
                 if show_detailed_edges:
                     # Calculate midpoint for label
                     mx, my = (x0 + x1) / 2, (y0 + y1) / 2
-                    
+
                     if edge.get("label"):
                         edge_label_x.append(mx)
                         edge_label_y.append(my)
                         edge_label_text.append(edge["label"])
-                    
+
                     # Add arrow annotation
-                    # Adjust arrow to point slightly before the node to avoid overlap with node marker
-                    # This is approximate; precise calculation requires node size
                     annotations.append(
                         dict(
                             ax=x0, ay=y0, axref='x', ayref='y',
                             x=x1, y=y1, xref='x', yref='y',
                             arrowhead=2, arrowsize=1, arrowwidth=1,
                             arrowcolor="#888", opacity=0.6,
-                            standoff=15 # Distance from target node
+                            standoff=15
                         )
                     )
 
@@ -656,9 +776,22 @@ class KGVisualizer:
             showlegend=False,
             opacity=0.5
         )
-        
+
         traces = [edge_trace]
-        
+
+        # Overlay highlighted path edges with distance-aware styling
+        if path_edge_x:
+            path_trace = go.Scatter(
+                x=path_edge_x,
+                y=path_edge_y,
+                line=dict(width=path_width, color="#e05c00"),
+                hoverinfo="none",
+                mode="lines",
+                showlegend=False,
+                opacity=path_opacity,
+            )
+            traces.append(path_trace)
+
         if show_detailed_edges and edge_label_text:
             edge_label_trace = go.Scatter(
                 x=edge_label_x,

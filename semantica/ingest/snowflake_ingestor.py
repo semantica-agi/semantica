@@ -37,6 +37,7 @@ License: MIT
 """
 
 import os
+import re
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Dict, List, Optional
@@ -501,18 +502,34 @@ class SnowflakeIngestor:
                 table_ref = self._escape_identifier(table_name)
             
             query = f"SELECT * FROM {table_ref}"
+            params: list = []
 
             if where:
+                # where is appended verbatim — callers MUST only pass
+                # trusted, application-controlled predicates here.
+                # Reject obvious injection attempts: multiple statements.
+                if ";" in where:
+                    raise ValueError("Invalid WHERE clause: semicolons not permitted.")
                 query += f" WHERE {where}"
 
             if order_by:
+                # Validate order_by to column names + optional ASC/DESC only.
+                _SAFE_ORDER_RE = re.compile(
+                    r'^[A-Za-z_][A-Za-z0-9_]*(\s+(ASC|DESC))?'
+                    r'(\s*,\s*[A-Za-z_][A-Za-z0-9_]*(\s+(ASC|DESC))?)*$',
+                    re.IGNORECASE,
+                )
+                if not _SAFE_ORDER_RE.match(order_by.strip()):
+                    raise ValueError(f"Invalid ORDER BY clause: '{order_by}'")
                 query += f" ORDER BY {order_by}"
 
-            if limit:
-                query += f" LIMIT {limit}"
+            if limit is not None:
+                query += " LIMIT %s"
+                params.append(int(limit))
 
-            if offset:
-                query += f" OFFSET {offset}"
+            if offset is not None:
+                query += " OFFSET %s"
+                params.append(int(offset))
 
             self.logger.debug(f"Executing query: {query}")
 
@@ -522,7 +539,7 @@ class SnowflakeIngestor:
             )
 
             cursor = conn.cursor(DictCursor)
-            cursor.execute(query)
+            cursor.execute(query, params if params else None)
 
             # Fetch results
             self.progress_tracker.update_tracking(

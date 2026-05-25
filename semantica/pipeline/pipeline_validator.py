@@ -26,7 +26,7 @@ Author: Semantica Contributors
 License: MIT
 """
 
-from collections import defaultdict, deque
+from collections import Counter, defaultdict, deque
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Union, TYPE_CHECKING
 
@@ -184,7 +184,7 @@ class PipelineValidator:
         step_names = [step.name for step in pipeline.steps]
         duplicates = [
             name
-            for name, count in __import__("collections").Counter(step_names).items()
+            for name, count in Counter(step_names).items()
             if count > 1
         ]
         if duplicates:

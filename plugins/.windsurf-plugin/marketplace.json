@@ -1,0 +1,17 @@
+{
+  "name": "semantica-windsurf",
+  "plugins": [
+    {
+      "name": "semantica",
+      "description": "Semantica plugin for Windsurf: knowledge graph skills, reasoning, extraction, and visualization.",
+      "source": "./",
+      "category": "Productivity",
+      "tags": [
+        "knowledge-graph",
+        "reasoning",
+        "semantica",
+        "windsurf"
+      ]
+    }
+  ]
+}

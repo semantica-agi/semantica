@@ -1,284 +1,349 @@
-# Triplet Store
-
-> **Store and query RDF triplets with SPARQL support and semantic reasoning using industry-standard triplet stores.**
-
+---
+title: "Triplet Store Module"
+description: "RDF triple storage with SPARQL queries and bulk loading — Blazegraph, Apache Jena, and RDF4J."
+icon: "table"
 ---
 
-## 🎯 Overview
+`semantica.triplet_store` provides W3C-standard RDF storage with full SPARQL query support. Use it when you need semantic web compatibility, OWL reasoning, SPARQL-based queries, or standards-compliant RDF serialization.
 
-The **Triplet Store Module** provides storage and querying for RDF (Resource Description Framework) triplets. It supports industry-standard triplet stores with SPARQL querying and semantic reasoning capabilities.
+## Exported Classes
 
-### What is a Triplet Store?
+| Class | Role |
+| --- | --- |
+| `TripletStore` | Unified interface: `add_triplet`, `get_triplets`, `delete_triplet`, `execute_query`, `bulk_load` |
+| `QueryEngine` | SPARQL 1.1 execution with query optimization and result streaming |
+| `BulkLoader` | High-volume RDF loading with progress tracking and transaction batching |
+| `BlazegraphStore` | Blazegraph REST API — Named Graphs, SPARQL 1.1 Update, GeoSPARQL |
+| `JenaStore` | Apache Jena Fuseki — TDB2 backend, GeoSPARQL, SPARQL 1.1 |
+| `RDF4JStore` | Eclipse RDF4J — SailRepository, in-memory or native store |
 
-A **triplet store** (also called an RDF store) is a database designed to store and query RDF triplets. RDF triplets are statements in the form:
+## What You Get
 
-- **Subject**: The entity being described
-- **Predicate**: The relationship or property
-- **Object**: The value or related entity
+<CardGroup cols={2}>
+  <Card title="TripletStore" icon="server">
+    Unified interface across Blazegraph, Apache Jena (Fuseki), and RDF4J — swap backends with one parameter.
+  </Card>
+  <Card title="TripletStore (in-memory)" icon="bolt">
+    Zero-setup in-memory mode via `backend="memory"` for unit tests and small datasets — no server required.
+  </Card>
+  <Card title="SPARQL" icon="magnifying-glass">
+    Full SELECT, CONSTRUCT, ASK, and UPDATE query support with pagination for large result sets.
+  </Card>
+  <Card title="OWL Reasoning" icon="microchip">
+    Apache Jena supports OWL and RDFS inference natively — subclass and property chain queries automatically resolved.
+  </Card>
+  <Card title="Named Graphs" icon="diagram-project">
+    Isolate triples by source, dataset, or time period using named graph management.
+  </Card>
+  <Card title="Import / Export" icon="file-export">
+    Load and serialize to Turtle, JSON-LD, N-Triples, and RDF/XML with a single method call.
+  </Card>
+</CardGroup>
 
-**Example**: `` `(Apple Inc., foundedBy, Steve Jobs)` ``
+## Quick Start
 
-### Why Use the Triplet Store Module?
+<Steps>
+  <Step title="Connect to a backend">
+    ```python
+    from semantica.triplet_store import TripletStore
 
-- **W3C Standards**: Full support for RDF and SPARQL standards
-- **Semantic Reasoning**: RDFS and OWL reasoning for inference
-- **Multiple Backends**: Support for Blazegraph, Apache Jena, RDF4J
-- **SPARQL Queries**: Powerful SPARQL 1.1 query language
-- **Federation**: Query across multiple stores
-- **Bulk Loading**: High-performance data loading
+    store = TripletStore(
+        backend="blazegraph",
+        endpoint="http://localhost:9999/blazegraph/sparql"
+    )
+    ```
+  </Step>
+  <Step title="Add triplets">
+    ```python
+    # Add a single triplet
+    store.add_triplet(
+        subject="http://example.org/apple_inc",
+        predicate="http://example.org/founded_by",
+        obj="http://example.org/steve_jobs"
+    )
 
-### How It Works
+    # Bulk load a list of triplets
+    store.add_triplets_bulk(triplets)
+    ```
+  </Step>
+  <Step title="Query with SPARQL">
+    ```python
+    results = store.sparql("""
+        PREFIX ex: <http://example.org/>
+        SELECT ?person ?company WHERE {
+            ?person ex:founded ?company .
+            ?company ex:located_in ex:SiliconValley .
+        }
+    """)
 
-1. **Store Selection**: Choose a backend (Blazegraph, Jena, RDF4J)
-2. **Triplet Storage**: Store subject-predicate-object triplets
-3. **SPARQL Queries**: Query using SPARQL 1.1
-4. **Reasoning**: Apply RDFS/OWL reasoning for inference
-5. **Federation**: Query across multiple stores if needed
+    for row in results:
+        print(row["person"], row["company"])
+    ```
+  </Step>
+  <Step title="Export to file">
+    ```python
+    store.export("output.ttl", format="turtle")
+    store.export("output.nt",  format="nt")
+    store.export("output.xml", format="xml")
+    ```
+  </Step>
+</Steps>
 
-<div class="grid cards" markdown>
+## Backends
 
--   :material-graph-outline:{ .lg .middle } **RDF Storage**
+<Tabs>
+  <Tab title="Blazegraph">
+    ```python
+    from semantica.triplet_store import TripletStore
 
-    ---
+    store = TripletStore(
+        backend="blazegraph",
+        endpoint="http://localhost:9999/blazegraph/sparql",
+        namespace="semantica"
+    )
+    ```
 
-    Store subject-predicate-object triplets in W3C-compliant RDF format
+    Best for: Wikidata-style workloads, high triple counts, SPARQL 1.1 full support.
+  </Tab>
+  <Tab title="Apache Jena">
+    ```python
+    store = TripletStore(
+        backend="jena",
+        endpoint="http://localhost:3030/dataset/sparql",
+        update_endpoint="http://localhost:3030/dataset/update"
+    )
+    ```
 
--   :material-code-braces:{ .lg .middle } **SPARQL Queries**
+    Best for: General RDF, standard SPARQL, production deployments needing OWL inference.
 
-    ---
+    **Enable OWL reasoning:**
 
-    Full W3C SPARQL 1.1 query language support for powerful semantic queries
+    ```python
+    store = TripletStore(
+        backend="jena",
+        endpoint="http://localhost:3030/dataset/sparql",
+        update_endpoint="http://localhost:3030/dataset/update",
+        reasoner="OWL",        # "OWL" | "RDFS" | "OWL_MINI" | None
+    )
 
--   :material-brain:{ .lg .middle } **Reasoning**
+    # Load an OWL ontology — subclass/property chain inferences are automatic
+    store.import_file("ontology.ttl", format="turtle")
+    store.add_triplets_bulk(data_triplets)
 
-    ---
+    # Query using inferred relationships
+    results = store.sparql("""
+        SELECT ?person WHERE {
+            ?person a ex:Employee .       # inferred via subClassOf chain
+        }
+    """)
+    ```
+  </Tab>
+  <Tab title="RDF4J">
+    ```python
+    store = TripletStore(
+        backend="rdf4j",
+        server_url="http://localhost:8080/rdf4j-server",
+        repository_id="semantica"
+    )
+    ```
 
-    RDFS and OWL reasoning for inference and knowledge discovery
+    Best for: Enterprise Java ecosystems, Eclipse Foundation deployments, plugin-based reasoning.
+  </Tab>
+  <Tab title="Backend Comparison">
 
--   :material-database-sync:{ .lg .middle } **Multiple Backends**
+    | Backend | License | OWL Reasoning | Hosted Option | Best For |
+    | ------- | ------- | ------------- | ------------- | -------- |
+    | Blazegraph | Open source | No | Self-hosted | Wikidata-style workloads, high triple count |
+    | Apache Jena | Apache 2.0 | Yes (OWL/RDFS) | Self-hosted | General RDF, OWL reasoning, standard SPARQL |
+    | RDF4J | Eclipse 1.0 | Via plugin | Self-hosted or cloud | Enterprise Java ecosystems |
+    | InMemory | Built-in | No | N/A | Unit tests, small graphs, no server required |
 
-    ---
+  </Tab>
+</Tabs>
 
-    Blazegraph, Apache Jena, and RDF4J support
+## Namespace Prefix Management
 
--   :material-link-variant:{ .lg .middle } **Federation**
-
-    ---
-
-    Query across multiple triplet stores with SPARQL federation
-
--   :material-upload-multiple:{ .lg .middle } **Bulk Loading**
-
-    ---
-
-    High-performance bulk data loading with progress tracking
-
-</div>
-
-!!! tip "Choosing the Right Backend"
-    - **Blazegraph**: High-performance, excellent for large datasets, GPU acceleration
-    - **Apache Jena**: Full-featured, TDB2 storage, SHACL validation
-    - **RDF4J**: Java-based, excellent tooling, multiple storage backends
-
----
-
-## ⚙️ Algorithms Used
-
-### Query Algorithms
-- **SPARQL Query Optimization**: Join reordering with selectivity estimation
-- **Triplet Pattern Matching**: Index-based lookup with B+ trees
-- **Graph Pattern Matching**: Subgraph isomorphism with backtracking
-- **Query Planning**: Cost-based optimization with statistics
-- **Join Algorithms**: Hash join, merge join, nested loop join
-- **Filter Pushdown**: Early filter application for performance
-
-### Indexing
-- **SPO Index**: Subject-Predicate-Object index for subject lookups
-- **POS Index**: Predicate-Object-Subject index for predicate lookups
-- **OSP Index**: Object-Subject-Predicate index for object lookups
-- **Six-Index Scheme**: All permutations (SPO, SOP, PSO, POS, OSP, OPS) for optimal query performance
-- **B+ Tree Indexing**: Efficient range queries and sorted access
-- **Hash Indexing**: O(1) exact match lookups
-
-### Reasoning Algorithms
-- **RDFS Reasoning**: Subclass/subproperty inference, domain/range inference
-- **OWL Reasoning**: Class hierarchy, property characteristics, cardinality constraints
-- **Forward Chaining**: Materialization of inferred triplets
-- **Backward Chaining**: On-demand inference during query execution
-- **Rule-Based Inference**: Custom SWRL rules
-
-### Bulk Loading
-- **Batch Processing**: Chunked triplet insertion with configurable batch size
-- **Parallel Loading**: Multi-threaded data loading
-- **Index Building**: Deferred index construction for faster loading
-- **Transaction Management**: Atomic batch commits with rollback support
-
----
-
-## Main Classes
-
-### TripletStore
-
-Main interface for triplet store operations.
-
-**Methods:**
-
-| Method | Description | Algorithm |
-|--------|-------------|-----------|
-| `__init__(backend, endpoint)` | Initialize triplet store | Factory pattern |
-| `add_triplet(triplet)` | Add single triplet | Single insert |
-| `add_triplets(triplets, batch_size)` | Add multiple triplets | Bulk load with batching |
-| `get_triplets(s, p, o)` | Retrieve triplets | Pattern matching |
-| `delete_triplet(triplet)` | Delete triplet | Pattern matching deletion |
-| `execute_query(query)` | Execute SPARQL | Query engine delegation |
-
-### BulkLoader
-
-High-volume data loading utility.
-
-**Methods:**
-
-| Method | Description | Algorithm |
-|--------|-------------|-----------|
-| `load_triplets(triplets, store)` | Bulk load triplets | Batch processing with retries |
-
-### QueryEngine
-
-SPARQL query execution and optimization engine.
-
-**Methods:**
-
-| Method | Description | Algorithm |
-|--------|-------------|-----------|
-| `execute(query)` | Execute SPARQL query | Query execution |
-| `optimize(query)` | Optimize SPARQL query | Query rewriting |
-| `expand_entity_uri(uri, store, ...)` | Expand aligned entity URIs | Bidirectional SPARQL lookup |
-| `build_values_clause(var, uris)` | Generate VALUES clause | String formatting |
-
----
-
-## Cookbook
-
-Interactive tutorials that use triplet stores:
-
-- **[Reasoning and Inference](https://github.com/Hawksight-AI/semantica/blob/main/cookbook/advanced/08_Reasoning_and_Inference.ipynb)**: Use logical reasoning with SPARQL and triplet stores
-  - **Topics**: SPARQL reasoning, RDF stores, inference engines
-  - **Difficulty**: Advanced
-  - **Use Cases**: Semantic reasoning, SPARQL queries, RDF-based knowledge graphs
-
-## 🚀 Usage
-
-### Initialization
+Register custom prefixes to keep SPARQL queries readable:
 
 ```python
 from semantica.triplet_store import TripletStore
+from semantica.ontology import NamespaceManager
 
-# Initialize Blazegraph store
-store = TripletStore(
-    backend="blazegraph",
-    endpoint="http://localhost:9999/blazegraph"
-)
-```
+ns = NamespaceManager(base_uri="http://example.org/")
+ns.register("ex",     "http://example.org/")
+ns.register("schema", "https://schema.org/")
+ns.register("owl",    "http://www.w3.org/2002/07/owl#")
 
-### Adding Data
+store = TripletStore(backend="jena", endpoint="...")
 
-```python
-from semantica.semantic_extract.triplet_extractor import Triplet
-
-# Single triplet
-triplet = Triplet("http://s", "http://p", "http://o")
-store.add_triplet(triplet)
-
-# Bulk load
-triplets = [Triplet(f"http://s{i}", "http://p", "http://o") for i in range(1000)]
-store.add_triplets(triplets)
-```
-
-### Querying
-
-```python
-query = """
-SELECT ?s ?p ?o
-WHERE {
-  ?s ?p ?o
-}
-LIMIT 10
-"""
-results = store.execute_query(query)
-```
-
-### Named Graph Partitions
-
-Use named graphs to partition RDF data inside one store while keeping backward compatibility.
-
-```python
-from semantica.semantic_extract.triplet_extractor import Triplet
-
-# Write into a specific graph partition
-store.add_triplet(
-    Triplet("http://entity/1", "http://relation/type", "http://TypeA"),
-    graph="http://example.org/graphs/partition-a",
-)
-
-# Query only one graph as default dataset
-result_a = store.execute_query(
-    "SELECT ?s ?p ?o WHERE { ?s ?p ?o }",
-    graph="http://example.org/graphs/partition-a",
-)
-
-# Query multiple named graphs (use GRAPH pattern in WHERE)
-result_multi = store.execute_query(
-    """
-    SELECT ?g ?s ?p ?o WHERE {
-      GRAPH ?g { ?s ?p ?o }
+# Registered prefixes are automatically prepended to every SPARQL query
+results = store.sparql("""
+    SELECT ?company WHERE {
+        ?person ex:works_for ?company ;
+                schema:name  "Alice" .
     }
-    """,
-    graphs=[
-        "http://example.org/graphs/partition-a",
-        "http://example.org/graphs/partition-b",
-    ],
-)
+""")
 ```
 
-Notes:
-- `graph` injects `FROM <...>` before `WHERE`.
-- `graphs` injects `FROM NAMED <...>` before `WHERE`.
-- If not provided, existing behavior is unchanged.
+## TripletStore Methods
 
-### Alignment-Aware Queries
+| Method | Returns | Description |
+| ------ | ------- | ----------- |
+| `add_triplet(s, p, o, graph=None)` | `str` | Add a single triplet, returns triplet ID |
+| `add_triplets_bulk(triplets)` | `List[str]` | Batch add triplets with transaction support |
+| `get_triplets(graph=None)` | `List[dict]` | Retrieve all triplets or from a named graph |
+| `delete_triplet(triplet_id)` | `bool` | Delete a triplet by ID |
+| `sparql(query)` | `List[dict]` | Execute SPARQL SELECT query |
+| `sparql_construct(query)` | `Graph` | Execute SPARQL CONSTRUCT query |
+| `sparql_ask(query)` | `bool` | Execute SPARQL ASK query |
+| `sparql_update(query)` | `None` | Execute SPARQL UPDATE (INSERT/DELETE) |
+| `bulk_load(file, format)` | `None` | Load RDF file (turtle, nt, xml) |
+| `export(path, format)` | `None` | Export to turtle, nt, xml |
+| `list_graphs()` | `List[str]` | List all named graphs |
+| `clear_graph(graph_uri)` | `None` | Delete all triples from a named graph |
 
-In complex enterprise environments with multiple data sources, you may want queries to seamlessly retrieve instances across aligned classes. For example, retrieving all http://schema.org/Person instances when querying for your internal http://internal.org/ontology/Employee class.
-
-The QueryEngine provides helper methods to expand entity URIs based on stored alignments (e.g., owl:equivalentClass, owl:sameAs, skos:exactMatch) and safely inject them into your queries using SPARQL VALUES clauses.
-
-Expanding URIs in Queries
-You can expand a URI and build an alignment-aware query dynamically:
+## SPARQL Queries
 
 ```python
-from semantica.triplet_store.query_engine import QueryEngine
+# SELECT — returns tabular results
+results = store.sparql("""
+    PREFIX ex: <http://example.org/>
+    SELECT ?person ?company WHERE {
+        ?person ex:founded ?company .
+        ?company ex:located_in ex:SiliconValley .
+    }
+""")
 
-engine = QueryEngine()
+# CONSTRUCT — returns a graph of matched triples
+graph = store.sparql_construct("""
+    PREFIX ex: <http://example.org/>
+    CONSTRUCT {
+        ?s ex:connected_to ?o
+    } WHERE {
+        ?s ex:founded ?company .
+        ?company ex:has_investor ?o .
+    }
+""")
 
-# i) Expand the base URI to include all aligned equivalents
-expanded_uris = engine.expand_entity_uri(
-    entity_uri="[http://internal.org/ontology/Employee](http://internal.org/ontology/Employee)",
-    store_backend=store_backend,
-    use_alignments=True
+# ASK — returns True/False
+exists = store.sparql_ask("""
+    PREFIX ex: <http://example.org/>
+    ASK { ex:apple_inc ex:founded_by ex:steve_jobs . }
+""")
+
+# UPDATE — insert or delete triples
+store.sparql_update("""
+    PREFIX ex: <http://example.org/>
+    INSERT DATA {
+        ex:apple_inc ex:listed_on ex:NASDAQ .
+    }
+""")
+```
+
+## SPARQL Result Pagination
+
+For large result sets, paginate with LIMIT and OFFSET:
+
+```python
+page_size = 1000
+offset    = 0
+
+while True:
+    results = store.sparql(f"""
+        SELECT ?s ?p ?o WHERE {{
+            ?s ?p ?o .
+        }}
+        ORDER BY ?s
+        LIMIT {page_size} OFFSET {offset}
+    """)
+    if not results:
+        break
+    process_batch(results)
+    offset += page_size
+```
+
+## Named Graph Management
+
+```python
+# Named graphs — store triples in isolated contexts
+store.add_triplet(
+    subject="http://example.org/a",
+    predicate="http://example.org/p",
+    obj="http://example.org/b",
+    graph="http://example.org/graph1"
 )
 
-# ii) Build a SPARQL VALUES clause
-values_clause = engine.build_values_clause("entity_class", expanded_uris)
-# Result: VALUES ?entity_class { [http://internal.org/ontology/Employee](http://internal.org/ontology/Employee) [http://schema.org/Person](http://schema.org/Person) }
+# Query a specific named graph
+results = store.sparql("""
+    SELECT ?s ?p ?o FROM <http://example.org/graph1> WHERE {
+        ?s ?p ?o .
+    }
+""")
 
-# iii) Inject the clause into your query template
-query = f"""
-SELECT ?instance ?name WHERE {{
-    {values_clause}
-    ?instance a ?entity_class .
-    ?instance [http://schema.org/name](http://schema.org/name) ?name .
-}}
-"""
+# List all named graphs
+graphs = store.list_graphs()
 
-# Execute the query to retrieve results across all aligned ontologies
-results = engine.execute_query(query, store_backend)
+# Clear a named graph
+store.clear_graph("http://example.org/graph1")
 ```
+
+## Integration with Export Module
+
+The Export module can write RDF that the triplet store then imports:
+
+```python
+from semantica.export import RDFExporter
+from semantica.triplet_store import TripletStore
+
+# Export KG to Turtle
+exporter = RDFExporter()
+exporter.export_to_file(kg, "output.ttl", format="turtle")
+
+# Load into triplet store
+store = TripletStore(backend="jena", endpoint="http://localhost:3030/dataset/sparql")
+store.import_file("output.ttl", format="turtle")
+
+# Now query with SPARQL
+results = store.sparql("SELECT * WHERE { ?s ?p ?o } LIMIT 10")
+```
+
+## Tips and Common Pitfalls
+
+<Tip>
+  **Use Apache Jena (Fuseki) for development and Blazegraph for production.** Jena runs with a single Docker command, supports OWL reasoning natively, and requires no licence. Switch to Blazegraph for high-throughput workloads by changing the `backend=` parameter — no other code changes needed.
+</Tip>
+
+<Warning>
+  **Paginate large SPARQL result sets.** A `SELECT * WHERE { ?s ?p ?o }` against a million-triple store can return gigabytes of data. Always include `LIMIT` and `OFFSET` in exploratory queries, and iterate with `page_size` when you need full coverage. Unbounded queries against large stores will OOM or timeout.
+</Warning>
+
+<Tip>
+  **Use named graphs to isolate sources.** `store.add_triplet(..., graph="http://example.org/source_A")` puts triples into a named graph. You can then query just that source, merge selectively, or clear it without touching other data — far safer than mixing all triples into the default graph.
+</Tip>
+
+<Tip>
+  **Register namespace prefixes before querying.** `NamespacePrefixManager` lets you write `?s ex:name ?o` instead of `?s <http://example.org/name> ?o`. Without prefixes, SPARQL queries against domain ontologies become unreadable and error-prone.
+</Tip>
+
+<Warning>
+  **Enable OWL reasoning only when you need it.** `reasoner="OWL"` significantly increases query planning overhead. For simple triple lookups or SPARQL SELECT queries, leave reasoning off (`reasoner=None`) and enable it only for queries that depend on class hierarchies or property chains.
+</Warning>
+
+<Tip>
+  **Export to Turtle before migrating backends.** If you need to move from Jena to Blazegraph (or any other store), `store.export("dump.ttl", format="turtle")` produces a portable file that any SPARQL store can import. Don't rely on backend-specific dump formats.
+</Tip>
+
+<CardGroup cols={2}>
+  <Card title="Export" icon="file-export" href="export">
+    Export knowledge graphs to RDF formats.
+  </Card>
+  <Card title="Ontology" icon="sitemap" href="ontology">
+    Load OWL ontologies into a triplet store.
+  </Card>
+  <Card title="Reasoning" icon="microchip" href="reasoning">
+    SPARQL-based property chain inference.
+  </Card>
+  <Card title="Graph Store" icon="server" href="graph_store">
+    Property graph alternative for Cypher queries.
+  </Card>
+</CardGroup>

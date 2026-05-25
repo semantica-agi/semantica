@@ -328,6 +328,18 @@ class OWLExporter:
         lines.append("</rdf:RDF>")
         return "\n".join(lines)
 
+    @staticmethod
+    def _escape_ttl_str(value: str) -> str:
+        """Escape a string value for safe embedding in a Turtle string literal."""
+        return value.replace("\\", "\\\\").replace('"', '\\"').replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t")
+
+    def _ttl_block(self, subject_uri: str, rdf_type: str, predicates: List[str]) -> str:
+        """Build a valid Turtle subject block from accumulated predicate strings."""
+        stmt = f"<{subject_uri}> a {rdf_type}"
+        for pred in predicates:
+            stmt += f" ;\n    {pred}"
+        return stmt + " ."
+
     def _export_owl_turtle(self, ontology: Dict[str, Any], **options) -> str:
         """
         Export ontology to OWL Turtle format.
@@ -342,6 +354,7 @@ class OWLExporter:
         Returns:
             String containing OWL Turtle serialization
         """
+        esc = self._escape_ttl_str
         ontology_uri = ontology.get("uri") or self.ontology_uri
         ontology_name = ontology.get("name", "SemanticaOntology")
         version = ontology.get("version") or self.version
@@ -357,63 +370,73 @@ class OWLExporter:
         lines.append("")
 
         # Ontology declaration
-        lines.append(f"<{ontology_uri}> a owl:Ontology ;")
-        lines.append(f'    rdfs:label "{ontology_name}" ;')
-        lines.append(f'    owl:versionInfo "{version}" .')
-        if ontology.get("description"):
-            lines.append(f'    rdfs:comment "{ontology.get("description")}" ;')
+        onto_predicates = [
+            f'rdfs:label "{esc(ontology_name)}"',
+            f'owl:versionInfo "{esc(version)}"',
+        ]
+        description = ontology.get("description")
+        if description:
+            onto_predicates.append(f'rdfs:comment "{esc(description)}"')
+        lines.append(self._ttl_block(ontology_uri, "owl:Ontology", onto_predicates))
         lines.append("")
 
         # Classes
-        classes = ontology.get("classes", [])
-        for cls in classes:
+        for cls in ontology.get("classes", []):
             class_uri = cls.get("uri") or cls.get("id", "")
             class_name = cls.get("name") or cls.get("label", "")
-
-            lines.append(f"<{class_uri}> a owl:Class ;")
-            lines.append(f'    rdfs:label "{class_name}" .')
-
-            if cls.get("comment"):
-                lines.append(f'    rdfs:comment "{cls.get("comment")}" ;')
-
-            if cls.get("subClassOf"):
-                parent = cls.get("subClassOf")
-                lines.append(f"    rdfs:subClassOf <{parent}> ;")
-
-            # Remove trailing semicolon and add period
-            if lines[-1].endswith(" ;"):
-                lines[-1] = lines[-1].rstrip(" ;") + " ."
-            else:
-                lines.append(" .")
+            predicates = [f'rdfs:label "{esc(class_name)}"']
+            comment = cls.get("comment")
+            if comment:
+                predicates.append(f'rdfs:comment "{esc(comment)}"')
+            sub_class = cls.get("subClassOf")
+            if sub_class:
+                predicates.append(f"rdfs:subClassOf <{sub_class}>")
+            equiv = cls.get("equivalentClass")
+            if equiv:
+                predicates.append(f"owl:equivalentClass <{equiv}>")
+            lines.append(self._ttl_block(class_uri, "owl:Class", predicates))
             lines.append("")
 
         # Object properties
-        object_properties = ontology.get("object_properties", [])
-        for prop in object_properties:
+        for prop in ontology.get("object_properties", []):
             prop_uri = prop.get("uri") or prop.get("id", "")
             prop_name = prop.get("name") or prop.get("label", "")
-
-            lines.append(f"<{prop_uri}> a owl:ObjectProperty ;")
-            lines.append(f'    rdfs:label "{prop_name}" .')
-
-            if prop.get("domain"):
-                domain = prop.get("domain")
+            predicates = [f'rdfs:label "{esc(prop_name)}"']
+            comment = prop.get("comment")
+            if comment:
+                predicates.append(f'rdfs:comment "{esc(comment)}"')
+            domain = prop.get("domain")
+            if domain:
                 if isinstance(domain, list):
                     for d in domain:
-                        lines.append(f"    rdfs:domain <{d}> ;")
+                        predicates.append(f"rdfs:domain <{d}>")
                 else:
-                    lines.append(f"    rdfs:domain <{domain}> ;")
-
-            if prop.get("range"):
-                range_val = prop.get("range")
+                    predicates.append(f"rdfs:domain <{domain}>")
+            range_val = prop.get("range")
+            if range_val:
                 if isinstance(range_val, list):
                     for r in range_val:
-                        lines.append(f"    rdfs:range <{r}> ;")
+                        predicates.append(f"rdfs:range <{r}>")
                 else:
-                    lines.append(f"    rdfs:range <{range_val}> ;")
+                    predicates.append(f"rdfs:range <{range_val}>")
+            lines.append(self._ttl_block(prop_uri, "owl:ObjectProperty", predicates))
+            lines.append("")
 
-            if lines[-1].endswith(" ;"):
-                lines[-1] = lines[-1].rstrip(" ;") + " ."
+        # Data properties
+        for prop in ontology.get("data_properties", []):
+            prop_uri = prop.get("uri") or prop.get("id", "")
+            prop_name = prop.get("name") or prop.get("label", "")
+            predicates = [f'rdfs:label "{esc(prop_name)}"']
+            comment = prop.get("comment")
+            if comment:
+                predicates.append(f'rdfs:comment "{esc(comment)}"')
+            domain = prop.get("domain")
+            if domain:
+                predicates.append(f"rdfs:domain <{domain}>")
+            range_type = prop.get("range")
+            if range_type:
+                predicates.append(f"rdfs:range xsd:{range_type}")
+            lines.append(self._ttl_block(prop_uri, "owl:DatatypeProperty", predicates))
             lines.append("")
 
         return "\n".join(lines)

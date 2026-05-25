@@ -1,0 +1,71 @@
+/* ── Semantica Explorer — Global CSS Reset ── */
+
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&family=Space+Grotesk:wght@500;600;700;800&display=swap');
+
+*, *::before, *::after {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body, #root {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  font-family: 'IBM Plex Sans', 'Space Grotesk', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background: #0d1117;
+  color: #c9d1d9;
+}
+
+/* Focus ring for accessibility */
+:focus-visible {
+  outline: 2px solid rgba(88, 166, 255, 0.6);
+  outline-offset: 2px;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(88, 166, 255, 0.25);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(88, 166, 255, 0.45);
+}
+
+/* Monospace font for code elements */
+code, pre, .mono {
+  font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
+}
+
+/* Selection highlight */
+::selection {
+  background: rgba(88, 166, 255, 0.3);
+  color: #fff;
+}
+
+/* Spin animation for loaders */
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+.animate-spin {
+  animation: spin 1s linear infinite;
+}
+
+/* Skeleton pulse animation for loading placeholders */
+@keyframes skeleton-pulse {
+  0%, 100% { opacity: 0.45; }
+  50%       { opacity: 0.85; }
+}

@@ -1,473 +1,223 @@
-# Ontology
-
-> **Automated ontology generation, validation, and management system.**
-
+---
+title: "Ontology Module"
+description: "Automated ontology generation, SHACL validation, OWL/RDF export, namespace management, and LLM-powered ontology generation."
+icon: "sitemap"
 ---
 
-## 🎯 Overview
+`semantica.ontology` provides the full lifecycle for knowledge graph schemas — from auto-generation and SHACL validation to OWL/RDF export. Use it for schema design, data modeling, semantic web interoperability, and SHACL-based data quality validation.
 
-<div class="grid cards" markdown>
+## Exported Classes
 
--   :material-factory:{ .lg .middle } **Automated Generation**
+| Class | Role |
+| --- | --- |
+| `OntologyEngine` | Unified facade orchestrating the full ontology lifecycle |
+| `OntologyGenerator` | Auto-generate ontologies from KG data (6-stage pipeline) |
+| `LLMOntologyGenerator` | LLM-powered ontology generation for complex domains |
+| `SHACLGenerator` | Generate SHACL shapes from an ontology or KG schema |
+| `OntologyValidator` | Validate any graph against SHACL shapes — returns `SHACLValidationReport` |
+| `OWLGenerator` | Serialize ontologies to Turtle, RDF/XML, JSON-LD |
+| `NamespaceManager` | IRI generation, prefix management, and namespace binding |
+| `OntologyEvaluator` | Coverage, completeness, and granularity quality metrics |
+| `OntologyAligner` | Align and merge ontologies across schemas |
+| `AssociativeClassBuilder` | Model N-ary relationships as intermediate OWL classes |
 
-    ---
+## OntologyEngine (Unified Facade)
 
-    6-stage pipeline to generate OWL ontologies from raw data
-
--   :material-sitemap:{ .lg .middle } **Inference Engine**
-
-    ---
-
-    Infer classes, properties, and hierarchies from entity patterns
-
--   :material-chart-bar:{ .lg .middle } **Evaluation**
-
-    ---
-
-    Assess ontology quality using coverage, completeness, and granularity metrics
-
--   :material-file-code:{ .lg .middle } **OWL/RDF Export**
-
-    ---
-
-    Export to Turtle, RDF/XML, and JSON-LD formats
-
-</div>
-
-!!! tip "When to Use"
-    - **Schema Design**: When defining the structure of your Knowledge Graph
-    - **Data Modeling**: To formalize domain concepts and relationships
-    - **Interoperability**: To ensure your data follows standard semantic web practices
-
----
-
-## ⚙️ Algorithms Used
-
-### 6-Stage Generation Pipeline
-
-The ontology generation process follows these stages:
-
-1. **Semantic Network Parsing**: Extract concepts and patterns from raw entity/relationship data
-2. **YAML-to-Definition**: Transform patterns into intermediate class definitions
-3. **Definition-to-Types**: Map definitions to OWL types (`` `owl:Class` ``, `` `owl:ObjectProperty` ``)
-4. **Hierarchy Generation**: Build taxonomy trees using transitive closure and cycle detection
-5. **TTL Generation**: Serialize to Turtle format using `` `rdflib` ``
-
-### Inference Algorithms
-
-The module uses several inference algorithms:
-
-- **Class Inference**: Clustering entities by type and attribute similarity
-- **Property Inference**: Determining domain/range based on connected entity types
-- **Hierarchy Inference**: `` `A is_a B` `` detection based on subset relationships
-
----
-
-## Ontology Ingestion
-
-Ingest existing ontology files directly into usable data structures using `OntologyIngestor`.
-
-**Function:** `ingest_ontology(source, method="file")`
-
-| Argument | Description |
-|----------|-------------|
-| `source` | File path, directory path, or list of paths |
-| `method` | Ingestion method (default: "file") |
-
-**Example:**
-
-```python
-from semantica.ontology import ingest_ontology
-
-# Ingest file
-data = ingest_ontology("ontology.ttl")
-
-# Ingest directory
-dataset = ingest_ontology("ontologies/")
-```
-
-## Main Classes
-
-### OntologyEngine
-
-Unified orchestration for generation, inference, validation, OWL export, and evaluation.
-
-**Methods:**
-
-| Method | Description |
-|--------|-------------|
-| `from_data(data, **options)` | Generate ontology from structured data |
-| `from_text(text, provider=None, model=None, **options)` | LLM-based generation from text |
-| `validate(ontology, **options)` | Validate ontology consistency |
-| `infer_classes(entities, **options)` | Infer classes from entities |
-| `infer_properties(entities, relationships, classes, **options)` | Infer properties |
-| `evaluate(ontology, **options)` | Evaluate ontology quality |
-| `to_owl(ontology, format="turtle")` | Export OWL/RDF serialization |
-| `export_owl(ontology, path, format="turtle")` | Save OWL to file |
-
-**Quick Start:**
+The `OntologyEngine` orchestrates the full ontology lifecycle — generation, validation, export, and versioning:
 
 ```python
 from semantica.ontology import OntologyEngine
 
 engine = OntologyEngine(base_uri="https://example.org/ontology/")
 
-data = {"entities": entities, "relationships": relationships}
-ontology = engine.from_data(data, name="MyOntology")
+# Generate ontology from KG data
+ontology = engine.generate_ontology({"entities": entities, "relationships": relationships})
 
-turtle = engine.to_owl(ontology, format="turtle")
+# Validate a graph against the generated SHACL shapes
+report = engine.validate(kg)
+if not report.conforms:
+    for v in report.violations:
+        print(f"{v.severity}: {v.message} on {v.node}")
+
+# Export to OWL Turtle
+engine.export(ontology, "ontology.ttl", format="turtle")
 ```
 
-### LLMOntologyGenerator
-
-LLM-based ontology generation with multi-provider support (`openai`, `groq`, `deepseek`, `huggingface_llm`).
-
-**Example:**
-
-```python
-from semantica.ontology import OntologyEngine
-
-text = "Acme Corp. hired Alice in 2024. Alice works for Acme."
-engine = OntologyEngine()
-
-ontology = engine.from_text(
-    text,
-    provider="deepseek",
-    model="deepseek-chat",
-    name="EmploymentOntology",
-    base_uri="https://example.org/employment/",
-)
-```
-
-Environment variables:
-
-```bash
-export OPENAI_API_KEY=...
-export GROQ_API_KEY=...
-export DEEPSEEK_API_KEY=...
-```
-
-### OntologyGenerator
-
-Main entry point for the generation pipeline.
-
-**Methods:**
+### OntologyEngine Methods
 
 | Method | Description |
-|--------|-------------|
-| `generate_ontology(data)` | Run full pipeline |
-| `generate_from_schema(schema)` | Generate from explicit schema |
+| ------ | ----------- |
+| `generate_ontology(data)` | Run the 6-stage pipeline on entity/relationship data |
+| `validate(kg)` | Check a knowledge graph against generated SHACL shapes |
+| `export(ontology, path, format)` | Serialize to `"turtle"`, `"xml"`, or `"json-ld"` |
+| `align(other_ontology)` | Align and merge with another ontology |
+| `evaluate(ontology, kg)` | Compute coverage, completeness, and granularity metrics |
 
-**Example:**
+## OntologyGenerator (6-Stage Pipeline)
+
+Generate a formal ontology automatically from your knowledge graph entities and relationships:
 
 ```python
 from semantica.ontology import OntologyGenerator
 
-generator = OntologyGenerator(base_uri="http://example.org/onto/")
-ontology = generator.generate_ontology({
-    "entities": entities,
-    "relationships": relationships
-})
-print(ontology.serialize(format="turtle"))
-```
-
-### OntologyEvaluator
-
-Scores ontology quality.
-
-**Methods:**
-
-| Method | Description |
-|--------|-------------|
-| `evaluate_ontology(ontology)` | Calculate evaluation metrics |
-| `calculate_coverage(ontology, questions)` | Verify coverage |
-
-### ReuseManager
-
-Manages external dependencies.
-
-**Methods:**
-
-| Method | Description |
-|--------|-------------|
-| `import_external_ontology(uri, ontology)` | Load and merge external ontology |
-| `evaluate_alignment(uri, ontology)` | Assess alignment and compatibility |
-
-### OntologyIngestor
-
-Handles ingestion of existing ontologies from files and directories.
-
-**Methods:**
-
-| Method | Description |
-|--------|-------------|
-| `ingest_ontology(file_path)` | Ingest a single ontology file |
-| `ingest_directory(directory_path)` | Recursively ingest ontology files from a directory |
-
----
-
-## Unified Engine Examples
-
-```python
-from semantica.ontology import OntologyEngine
-
-engine = OntologyEngine(base_uri="https://example.org/ontology/")
-
-# Generate
-ontology = engine.from_data({
-    "entities": entities,
+generator = OntologyGenerator(base_uri="https://example.org/ontology/")
+ontology  = generator.generate_ontology({
+    "entities":      entities,
     "relationships": relationships,
 })
-
-# Validate
-result = engine.validate(ontology, reasoner="hermit")
-print("valid=", result.valid, "consistent=", result.consistent)
-
-# Export
-turtle = engine.to_owl(ontology, format="turtle")
 ```
 
----
+The pipeline runs through these stages in order:
 
-## Configuration
+1. **Semantic Network Parsing** — extract concepts and patterns from entity/relationship data
+2. **YAML-to-Definition** — transform patterns into intermediate class definitions
+3. **Definition-to-Types** — map definitions to OWL types (`owl:Class`, `owl:ObjectProperty`)
+4. **Hierarchy Generation** — build taxonomy trees using transitive closure and cycle detection
+5. **TTL Generation** — serialize to Turtle format using `rdflib`
+6. **Quality Evaluation** — assess coverage, completeness, and granularity metrics
 
-### Environment Variables
+## SHACL Validation
 
-```bash
-export ONTOLOGY_BASE_URI="http://my-org.com/ontology/"
-export ONTOLOGY_STRICT_MODE=true
-```
-
-### YAML Configuration
-
-```yaml
-ontology:
-  base_uri: "http://example.org/"
-  generation:
-    min_class_size: 5
-    infer_hierarchy: true
-```
-
----
-
-## Ontology Alignment
-
-Semantica supports mapping and connecting different ontologies to unify data across systems, standards, and domains. This enables cross-system interoperability, allowing a single semantic layer to span multiple standards (e.g., internal models and industry standards).
-
-Alignments are represented using standard RDF predicates such as `owl:equivalentClass`, `owl:equivalentProperty`, and `skos:exactMatch`.
-
-### Creating and Managing Alignments
-
-You can create and query alignments programmatically using the `OntologyEngine`:
+Generate SHACL shapes from an ontology and validate any graph against them:
 
 ```python
-from semantica.ontology.engine import OntologyEngine
-from semantica.triplet_store.triplet_store import TripletStore
+from semantica.ontology import SHACLGenerator, OntologyValidator, SHACLValidationReport, SHACLViolation
 
-# Setup the store and engine (using Blazegraph as an example)
-my_triplet_store = TripletStore(backend="blazegraph")
-engine = OntologyEngine(store=my_triplet_store)
+# Generate shapes from ontology
+generator  = SHACLGenerator()
+shapes     = generator.generate(ontology)
+shapes_ttl = shapes.serialize(format="turtle")
 
-# Create an alignment between an internal class and a standard schema
-engine.create_alignment(
-    source_uri="http://internal.org/ontology/Employee",
-    target_uri="http://schema.org/Person",
-    predicate="http://www.w3.org/2002/07/owl#equivalentClass"
-)
+# Validate a graph against the shapes
+validator = OntologyValidator()
+report: SHACLValidationReport = validator.validate(kg, shapes=shapes)
 
-# Retrieve all bidirectional alignments for a specific entity
-alignments = engine.get_alignments("http://internal.org/ontology/Employee")
-```
-### Automated Alignment Suggestions
-
-When importing or merging external ontologies, the ReuseManager can automatically suggest alignments based on heuristic matching (such as identical labels with differing URIs).
-
-```python
-from semantica.ontology.reuse_manager import ReuseManager
-
-manager = ReuseManager()
-
-# Merge ontologies and auto-compute alignment suggestions
-merged_ontology = manager.merge_ontology_data(
-    target=internal_ontology,
-    source=industry_ontology,
-    compute_alignments=True
-)
-
-# Suggestions are stored in merged_ontology["suggested_alignments"]
+if not report.conforms:
+    violation: SHACLViolation
+    for violation in report.violations:
+        print(f"{violation.severity}: {violation.message}")
+        print(f"  Node: {violation.node}")
+        print(f"  Path: {violation.path}")
 ```
 
-For executing SPARQL queries that utilize these alignments to retrieve cross-ontology results, see the [Triplet Store Alignment-Aware Queries](triplet_store.md#alignment-aware-queries)
+### Validation Report Fields
 
+| Field | Type | Description |
+| ----- | ---- | ----------- |
+| `conforms` | `bool` | `True` if the graph passes all SHACL constraints |
+| `violations` | `List[SHACLViolation]` | Detailed failure records |
+| `severity` | `str` | `"violation"`, `"warning"`, or `"info"` |
+| `message` | `str` | Human-readable constraint failure description |
+| `node` | `str` | IRI of the violating graph node |
+| `path` | `str` | IRI of the violating property path |
 
-## Integration Examples
+## LLM-Powered Ontology Generation
 
-### Schema-First Knowledge Graph
-
-```python
-from semantica.ontology import OntologyEngine
-from semantica.kg import GraphBuilder, GraphValidator
-
-# 1. Generate Ontology from Sample Data
-engine = OntologyEngine()
-ontology = engine.from_data(sample_data)
-
-# 2. Extract schema for validation
-schema = {
-    "entity_types": [c["name"] for c in ontology["classes"]],
-    "relationship_types": [p["name"] for p in ontology["properties"]]
-}
-
-# 3. Initialize Validator and Builder
-validator = GraphValidator(schema=schema, strict=True)
-builder = GraphBuilder()
-
-# 4. Build Knowledge Graph
-kg = builder.build(full_dataset)
-
-# 5. Validate against Ontology Schema
-validation_result = validator.validate(kg)
-if validation_result.is_valid:
-    print("Knowledge Graph matches the ontology schema!")
-else:
-    print(f"Validation issues found: {validation_result.issues}")
-```
-
----
-
-## SKOS Vocabulary Management
-
-Semantica supports [SKOS (Simple Knowledge Organization System)](https://www.w3.org/TR/skos-reference/) vocabularies as first-class semantic assets.  SKOS triples are stored in the existing RDF triplet store and queried through the `OntologyEngine` — no additional packages are required.
-
-### Concepts and data model
-
-| SKOS element | RDF type / predicate |
-|---|---|
-| ConceptScheme | `skos:ConceptScheme` |
-| Concept | `skos:Concept` |
-| Preferred label | `skos:prefLabel` |
-| Alternative label | `skos:altLabel` |
-| Broader concept | `skos:broader` |
-| Narrower concept | `skos:narrower` |
-| Related concept | `skos:related` |
-| Human definition | `skos:definition` |
-| Notation / code | `skos:notation` |
-
-### Importing a SKOS vocabulary
-
-Use `TripletStore.add_skos_concept()` to load individual concepts.  The method automatically asserts the parent `skos:ConceptScheme` triple the first time any concept for that scheme is added.
+For complex or novel domains where schema patterns are hard to infer statistically:
 
 ```python
-from semantica.triplet_store import TripletStore
+from semantica.ontology import LLMOntologyGenerator
+from semantica.llms import Groq
+import os
 
-store = TripletStore(backend="blazegraph", endpoint="http://localhost:9999/blazegraph")
+llm = Groq(model="llama-3.3-70b-versatile", api_key=os.getenv("GROQ_API_KEY"))
 
-SCHEME = "https://vocab.example.org/colours"
-
-store.add_skos_concept(
-    concept_uri="https://vocab.example.org/colours/red",
-    scheme_uri=SCHEME,
-    pref_label="Red",
-    alt_labels=["Crimson", "Rouge"],
-    broader=["https://vocab.example.org/colours/warm"],
-    definition="The colour at the long-wavelength end of the visible spectrum.",
-    notation="RED",
-)
-
-store.add_skos_concept(
-    concept_uri="https://vocab.example.org/colours/blue",
-    scheme_uri=SCHEME,
-    pref_label="Blue",
-    alt_labels=["Azure", "Cerulean"],
+generator = LLMOntologyGenerator(llm_provider=llm)
+ontology  = generator.generate(
+    domain_description="A biomedical ontology for clinical trial protocols",
+    examples=["Patient", "Trial", "Intervention", "Outcome"],
 )
 ```
 
-For bulk ingestion of an existing SKOS/Turtle file use `TripletStore.add_triplets()` after parsing the file with [rdflib](https://rdflib.readthedocs.io/):
+## OWL / RDF Export
 
 ```python
-import rdflib
-from semantica.semantic_extract.triplet_extractor import Triplet
+from semantica.ontology import OWLGenerator
 
-g = rdflib.Graph()
-g.parse("my_vocabulary.ttl", format="turtle")
-
-triplets = [
-    Triplet(subject=str(s), predicate=str(p), object=str(o))
-    for s, p, o in g
-]
-store.add_triplets(triplets)
+generator = OWLGenerator()
+generator.generate(ontology, path="ontology.ttl",  format="turtle")
+generator.generate(ontology, path="ontology.owl",  format="xml")
+generator.generate(ontology, path="ontology.json", format="json-ld")
 ```
 
-### Listing and searching concepts
-
-Once a vocabulary is loaded, use `OntologyEngine` to browse and search it:
-
-```python
-from semantica.ontology import OntologyEngine
-
-engine = OntologyEngine(store=store)
-
-# 1. List all ConceptSchemes in the store
-vocabularies = engine.list_vocabularies()
-# [{"uri": "https://vocab.example.org/colours", "label": "Colours"}, ...]
-
-# 2. List every concept in a specific scheme
-concepts = engine.list_concepts("https://vocab.example.org/colours")
-# [{"uri": "...", "pref_label": "Red", "alt_labels": ["Crimson", "Rouge"]}, ...]
-
-# 3. Case-insensitive substring search across prefLabel and altLabel
-results = engine.search_concepts("crimson")
-# [{"uri": "https://vocab.example.org/colours/red", "label": "Crimson"}]
-
-# 4. Restrict search to one scheme
-results = engine.search_concepts("azure", scheme_uri="https://vocab.example.org/colours")
-```
-
-### Building SKOS URIs with NamespaceManager
-
-`NamespaceManager` provides helpers for constructing well-formed SKOS IRIs:
+## Namespace Management
 
 ```python
 from semantica.ontology import NamespaceManager
 
-nm = NamespaceManager(base_uri="https://vocab.example.org/")
+ns = NamespaceManager(base_uri="https://example.org/")
+ns.register("ex",     "https://example.org/")
+ns.register("schema", "https://schema.org/")
+ns.register("owl",    "http://www.w3.org/2002/07/owl#")
 
-# Full SKOS predicate URI
-nm.get_skos_uri("prefLabel")
-# "http://www.w3.org/2004/02/skos/core#prefLabel"
-
-# Slug-based ConceptScheme URI anchored at the base
-nm.build_concept_scheme_uri("ISO 3166 Countries")
-# "https://vocab.example.org/vocab/iso-3166-countries"
+# Generate IRIs for classes and properties
+class_iri    = ns.generate_class_iri("Person")
+property_iri = ns.generate_property_iri("worksFor")
 ```
 
----
+## Ontology Evaluation
 
-## Best Practices
+Measure coverage, completeness, and granularity of a generated ontology:
 
-1.  **Reuse Standard Ontologies**: Don't reinvent `Person` or `Organization`; import FOAF or Schema.org using `ReuseManager`.
-2.  **Validate Early**: Run validation during generation to catch logical errors before populating the graph.
-3.  **Use Competency Questions**: Define what questions your ontology should answer and use `OntologyEvaluator` to verify.
-4.  **Version Control**: Treat ontologies like code. Use `VersionManager` to track changes.
+```python
+from semantica.ontology import OntologyEvaluator
 
----
+evaluator = OntologyEvaluator()
+result    = evaluator.evaluate(ontology, kg)
 
-## See Also
+print(f"Class coverage:    {result.class_coverage:.2f}")
+print(f"Property coverage: {result.property_coverage:.2f}")
+print(f"Completeness:      {result.completeness:.2f}")
+print(f"Granularity:       {result.granularity:.2f}")
 
-- [Knowledge Graph Module](kg.md) - The instance data following the ontology
-- [Reasoning Module](reasoning.md) - Uses the ontology for inference
-- [Visualization Module](visualization.md) - Visualizing the class hierarchy
+for gap in result.gaps:
+    print(f"Gap: {gap.description}")
+```
 
-## Cookbook
+## Ingest an Existing Ontology
 
-Interactive tutorials to learn ontology generation and management:
+Load and parse an ontology file for downstream use:
 
-- **[Ontology](https://github.com/Hawksight-AI/semantica/blob/main/cookbook/introduction/14_Ontology.ipynb)**: Define domain schemas and ontologies to structure your data
-  - **Topics**: OWL, RDF, schema design, ontology generation
-  - **Difficulty**: Intermediate
-  - **Use Cases**: Structuring domain knowledge, schema definition
+```python
+from semantica.ontology import ingest_ontology
 
-- **[Unstructured to Ontology](https://github.com/Hawksight-AI/semantica/blob/main/cookbook/advanced/12_Unstructured_to_Ontology.ipynb)**: Generate ontologies automatically from unstructured data
-  - **Topics**: Automatic ontology generation, 6-stage pipeline, OWL validation
-  - **Difficulty**: Advanced
-  - **Use Cases**: Domain modeling, automatic schema generation
+ontology_data = ingest_ontology("schema.ttl")     # Turtle
+ontology_data = ingest_ontology("schema.owl")     # OWL/XML
+ontology_data = ingest_ontology("schema.jsonld")  # JSON-LD
+```
+
+## Ontology Hub (v0.5.0)
+
+A visual browser UI for the full ontology lifecycle. Launch via CLI:
+
+```bash
+pip install "semantica[explorer]"
+semantica-explorer --port 8080
+# Navigate to http://localhost:8080 → Ontology Hub tab
+```
+
+Features:
+
+- **Visual editor** — create and edit classes, properties, and relationships in the browser
+- **SHACL Studio** — author and validate SHACL shapes with live feedback
+- **Health dashboard** — coverage, completeness, and constraint violation metrics
+- **Version control** — snapshot, diff, and restore ontology versions
+
+<Note>
+  Ontology versioning (`VersionManager`, `OntologyVersion`) has moved to `semantica.change_management`. Import from there: `from semantica.change_management import VersionManager`.
+</Note>
+
+<CardGroup cols={2}>
+  <Card title="Reasoning" icon="microchip" href="reasoning">
+    Apply inference rules over ontology axioms.
+  </Card>
+  <Card title="Knowledge Graph" icon="diagram-project" href="kg">
+    The graph being modeled by the ontology.
+  </Card>
+  <Card title="Export" icon="file-export" href="export">
+    Export ontologies as RDF, OWL, or JSON-LD.
+  </Card>
+  <Card title="Conflicts" icon="triangle-exclamation" href="conflicts">
+    Detect ontology constraint violations.
+  </Card>
+</CardGroup>

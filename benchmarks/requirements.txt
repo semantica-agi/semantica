@@ -1,7 +1,7 @@
 # Benchmark Tools
 
 pytest>=7.0.0
-pytest-benchmark>=4.0.0
+pytest-benchmark>=5.2.3
 
 # Core Utils
 

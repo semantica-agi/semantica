@@ -82,6 +82,35 @@ class MemoryItem:
     embedding: Optional[Any] = None
     memory_id: Optional[str] = None
 
+    def to_dict(self) -> Dict[str, Any]:
+        """Serialise to a JSON-safe dict. Embeddings are dropped (not JSON-safe)."""
+        return {
+            "content": self.content,
+            "timestamp": self.timestamp.isoformat(),
+            "metadata": self.metadata,
+            "entities": self.entities,
+            "relationships": self.relationships,
+            "memory_id": self.memory_id,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "MemoryItem":
+        """Reconstruct a MemoryItem from a serialised dict."""
+        raw_ts = data.get("timestamp")
+        try:
+            ts = datetime.fromisoformat(raw_ts) if raw_ts else datetime.utcnow()
+        except (ValueError, TypeError):
+            ts = datetime.utcnow()
+        return cls(
+            content=data.get("content", ""),
+            timestamp=ts,
+            metadata=data.get("metadata", {}),
+            entities=data.get("entities", []),
+            relationships=data.get("relationships", []),
+            embedding=None,  # embeddings are not persisted; regenerate on demand
+            memory_id=data.get("memory_id"),
+        )
+
 
 class AgentMemory:
     """
@@ -141,20 +170,20 @@ class AgentMemory:
         Args:
             path: Directory path to save to
         """
+        import json
         import os
-        import pickle
 
         os.makedirs(path, exist_ok=True)
 
         data = {
-            "memory_items": self.memory_items,
-            "memory_index": self.memory_index,
-            "short_term_memory": self.short_term_memory,
+            "memory_items": {k: v.to_dict() for k, v in self.memory_items.items()},
+            "memory_index": list(self.memory_index),
+            "short_term_memory": [item.to_dict() for item in self.short_term_memory],
             "stats": self.stats,
         }
 
-        with open(os.path.join(path, "agent_memory.pkl"), "wb") as f:
-            pickle.dump(data, f)
+        with open(os.path.join(path, "agent_memory.json"), "w", encoding="utf-8") as f:
+            json.dump(data, f)
 
         self.logger.info(f"Saved agent memory to {path}")
 
@@ -165,20 +194,38 @@ class AgentMemory:
         Args:
             path: Directory path to load from
         """
+        import json
         import os
-        import pickle
 
-        file_path = os.path.join(path, "agent_memory.pkl")
-        if not os.path.exists(file_path):
-            self.logger.warning(f"Memory file not found: {file_path}")
+        # Support new JSON format; fall back to legacy filename only if it exists
+        json_path = os.path.join(path, "agent_memory.json")
+        legacy_path = os.path.join(path, "agent_memory.pkl")
+
+        if os.path.exists(json_path):
+            file_path = json_path
+            with open(file_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+        elif os.path.exists(legacy_path):
+            # Legacy pickle files: refuse to load them to prevent deserialization attacks.
+            # Users must re-save memory in the new JSON format.
+            self.logger.warning(
+                f"Legacy pickle file found at {legacy_path}. "
+                "Pickle loading is disabled for security. Re-save memory to migrate."
+            )
+            return
+        else:
+            self.logger.warning(f"Memory file not found in: {path}")
             return
 
-        with open(file_path, "rb") as f:
-            data = pickle.load(f)
-
-        self.memory_items = data.get("memory_items", {})
-        self.memory_index = data.get("memory_index", deque(maxlen=self.max_memory_size))
-        self.short_term_memory = data.get("short_term_memory", [])
+        raw_items = data.get("memory_items", {})
+        self.memory_items = {
+            k: MemoryItem.from_dict(v) for k, v in raw_items.items()
+        }
+        raw_index = data.get("memory_index", [])
+        self.memory_index = deque(raw_index, maxlen=self.max_memory_size)
+        self.short_term_memory = [
+            MemoryItem.from_dict(item) for item in data.get("short_term_memory", [])
+        ]
         self.stats = data.get(
             "stats",
             {"total_items": 0, "items_by_type": {}, "last_accessed": None},

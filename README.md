@@ -2,24 +2,28 @@
 
 <img src="Semantica Logo.png" alt="Semantica Logo" width="420"/>
 
-# 🧠 Semantica
+**The Accountability and Context Layer for AI · Context Graphs · Decision Intelligence · Full Provenance**
 
-**A Framework for Building Context Graphs and Decision Intelligence Layers for AI**
-
+[![Website](https://img.shields.io/badge/Website-getsemantica.ai-0066CC?logo=googlechrome&logoColor=white)](https://getsemantica.ai/)
+[![Docs](https://img.shields.io/badge/Docs-docs.getsemantica.ai-0099FF?logo=readthedocs&logoColor=white)](https://docs.getsemantica.ai/)
+[![PyPI](https://img.shields.io/pypi/v/semantica.svg)](https://pypi.org/project/semantica/)
+[![Version](https://img.shields.io/badge/version-0.5.0-brightgreen.svg)](https://github.com/Hawksight-AI/semantica/releases/tag/v0.5.0)
+[![Total Downloads](https://static.pepy.tech/badge/semantica)](https://pepy.tech/project/semantica)
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![PyPI](https://img.shields.io/pypi/v/semantica.svg)](https://pypi.org/project/semantica/)
-[![Version](https://img.shields.io/badge/version-0.3.0-brightgreen.svg)](https://github.com/Hawksight-AI/semantica/releases/tag/v0.3.0)
-[![Total Downloads](https://static.pepy.tech/badge/semantica)](https://pepy.tech/project/semantica)
 [![CI](https://github.com/Hawksight-AI/semantica/workflows/CI/badge.svg)](https://github.com/Hawksight-AI/semantica/actions)
-[![Discord](https://img.shields.io/badge/Discord-Join-5865F2?logo=discord&logoColor=white)](https://discord.gg/sV34vps5hH)
-[![X](https://img.shields.io/badge/X-Follow-black?logo=x&logoColor=white)](https://x.com/BuildSemantica)
 [![Discord](https://img.shields.io/badge/Discord-Join%20Community-5865F2?logo=discord&logoColor=white)](https://discord.gg/sV34vps5hH)
 [![X](https://img.shields.io/badge/X-Follow%20Semantica-black?logo=x&logoColor=white)](https://x.com/BuildSemantica)
+[![OpenClaw](https://img.shields.io/badge/OpenClaw-Plugin-FF3B30?logo=github&logoColor=white)](https://openclaw.ai)
 
-### ⭐ Give us a Star • 🍴 Fork us • 💬 Join our Discord • 🐦 Follow on X
+**[Website](https://getsemantica.ai/)** · **[Docs](https://docs.getsemantica.ai/)** · **[Discord](https://discord.gg/sV34vps5hH)** · **[Changelog](CHANGELOG.md)**
 
-> **Transform Chaos into Intelligence. Build AI systems with context graphs, decision tracking, and advanced knowledge engineering that are explainable, traceable, and trustworthy — not black boxes.**
+
+⭐ **Star us if this solves your problem** · 🍴 Fork us · 💬 [Join our Discord](https://discord.gg/sV34vps5hH) 
+
+> **Most AI agents act without a trail. Semantica adds the layer your stack is missing: structured context graphs, auditable decision records, and full provenance from every output back to its source — so your AI isn't just powerful, it's accountable.**
+
+🌍 [🇺🇸 English](https://readme-i18n.com/Hawksight-AI/semantica?lang=en) · [🇩🇪 Deutsch](https://readme-i18n.com/Hawksight-AI/semantica?lang=de) · [🇫🇷 Français](https://readme-i18n.com/Hawksight-AI/semantica?lang=fr) · [🇪🇸 Español](https://readme-i18n.com/Hawksight-AI/semantica?lang=es) · [🇮🇹 Italiano](https://readme-i18n.com/Hawksight-AI/semantica?lang=it) · [🇵🇹 Português](https://readme-i18n.com/Hawksight-AI/semantica?lang=pt) · [🇸🇦 العربية](https://readme-i18n.com/Hawksight-AI/semantica?lang=ar) · [🇵🇰 اردو](https://readme-i18n.com/Hawksight-AI/semantica?lang=ur) · [🇮🇳 हिन्दी](https://readme-i18n.com/Hawksight-AI/semantica?lang=hi) · [🇨🇳 中文](https://readme-i18n.com/Hawksight-AI/semantica?lang=zh) · [🇯🇵 日本語](https://readme-i18n.com/Hawksight-AI/semantica?lang=ja) · [🇰🇷 한국어](https://readme-i18n.com/Hawksight-AI/semantica?lang=ko)
 
 </div>
 
@@ -27,29 +31,25 @@
 
 ## The Problem
 
-AI agents today are capable but not trustworthy:
+AI agents today are powerful but not trustworthy:
 
-- **No memory structure** — agents store embeddings, not meaning. Retrieval is fuzzy; there's no way to ask *why* something was recalled.
-- **No decision trail** — agents make decisions continuously but record nothing. When something goes wrong, there's no history to debug or audit.
-- **No provenance** — outputs cannot be traced back to source facts. In regulated industries, this is a compliance blocker.
-- **No reasoning transparency** — black-box answers with no explanation of how a conclusion was reached.
-- **No conflict detection** — contradictory facts silently coexist in vector stores, producing unpredictable answers.
-
-These aren't edge cases. They are the reason AI cannot be deployed in healthcare, finance, legal, and government without custom guardrails built from scratch.
+- ❌ **No memory structure** — agents store embeddings, not meaning. There's no way to ask *why* something was recalled.
+- ❌ **No decision trail** — agents act continuously but record nothing. When something breaks, there's no history to audit.
+- ❌ **No provenance** — outputs can't be traced back to source facts. In regulated industries, this is a hard compliance blocker.
+- ❌ **No reasoning transparency** — black-box answers with zero explanation of how a conclusion was reached.
+- ❌ **No conflict detection** — contradictory facts silently coexist in vector stores, producing unpredictable outputs.
 
 ## The Solution
 
-Semantica is the **context and intelligence layer** you add to your AI stack:
+Semantica is the **context and intelligence layer** you add on top of your existing AI stack:
 
-- **Context Graphs** — structured graph of entities, relationships, and decisions your agent builds as it works. Queryable, traceable, persistent.
-- **Decision Intelligence** — every decision is a first-class object: recorded, linked causally, searchable by precedent, and analyzable for downstream impact.
-- **Provenance** — every fact links to its source. W3C PROV-O compliant. Full lineage from ingestion to inference.
-- **Reasoning engines** — forward chaining, Rete networks, deductive, abductive, and SPARQL reasoning. Explainable inference paths, not black-box answers.
-- **Deduplication & QA** — conflict detection, entity resolution, and validation built into the pipeline.
+- ✅ **Context Graphs** — structured, queryable graph of everything your agent knows, decides, and reasons about
+- ✅ **Decision Intelligence** — every decision tracked as a first-class object with causal links, precedent search, and impact analysis
+- ✅ **Full Provenance** — every fact links back to its source. W3C PROV-O compliant.
+- ✅ **Reasoning Engines** — forward chaining, Rete, deductive, abductive, SPARQL. Explainable paths, not black boxes.
+- ✅ **Quality & Deduplication** — conflict detection, entity resolution, and pipeline validation built in
 
-Works alongside LangChain, LlamaIndex, AutoGen, CrewAI, and any LLM provider — Semantica is not a replacement, it's the accountability layer on top.
-
-### ⚡ Quick Installation
+> Works alongside **Agno** and any LLM. LangChain, LangGraph, CrewAI, and more coming soon.
 
 ```bash
 pip install semantica
@@ -57,824 +57,538 @@ pip install semantica
 
 ---
 
-## What's New in v0.3.0
-
-> First stable release — `Production/Stable` on PyPI. Ships across three stages: 0.3.0-alpha, 0.3.0-beta, and 0.3.0 stable.
-
-| Area | Highlights |
-|------|-----------|
-| **Context Graphs** | Temporal validity windows (`valid_from`/`valid_until`), weighted BFS (`min_weight`), cross-graph navigation (`link_graph`, `navigate_to`, `resolve_links`) with full save/load persistence |
-| **Decision Intelligence** | Complete lifecycle: `record_decision` → `trace_decision_chain` → `analyze_decision_impact` → `find_similar_decisions`; hybrid precedent search; `PolicyEngine` with versioned rules |
-| **KG Algorithms** | PageRank, betweenness, community detection (Louvain), Node2Vec embeddings, link prediction, path finding — all returning structured dicts |
-| **Semantic Extraction** | LLM relation extraction fixed (no silent drops); `_match_pattern` rewritten; duplicate relation bug removed; `"llm_typed"` metadata corrected |
-| **Deduplication v2** | `blocking_v2`/`hybrid_v2` candidate generation (**63.6% faster**); two-stage prefilter (**18–25% faster**); semantic dedup v2 (**6.98x faster**) |
-| **Delta Processing** | SPARQL-based incremental diff; `delta_mode` pipelines; snapshot versioning with `prune_versions()` |
-| **Export** | RDF format aliases (`"ttl"`, `"json-ld"`, etc.); ArangoDB AQL export; Apache Parquet export (Spark/BigQuery/Databricks ready) |
-| **Pipeline** | `FailureHandler` with LINEAR/EXPONENTIAL/FIXED backoff; `PipelineValidator` returning `ValidationResult`; retry loop fixed |
-| **Graph Backends** | Apache AGE (SQL injection fixed), AWS Neptune, FalkorDB, PgVector (HNSW/IVFFlat indexing) |
-| **Tests** | **886+ passing, 0 failures** — 335 context, ~430 KG, 70 semantic extraction, 85 real-world E2E |
-
-See [RELEASE_NOTES.md](RELEASE_NOTES.md) for the full per-contributor breakdown and [CHANGELOG](CHANGELOG.md) for the complete diff.
-
----
-
-## Unreleased / Coming Next
-
-| Area | Highlights |
-|------|-----------|
-| **SHACL Constraints** | `OntologyEngine.to_shacl()` auto-derives SHACL shapes from any OWL ontology; `validate_graph()` returns structured `SHACLValidationReport` with plain-English violation explanations; three quality tiers (`"basic"`, `"standard"`, `"strict"`); three output formats (Turtle, JSON-LD, N-Triples); 3-level inheritance propagation |
-
----
-
-## Features
-
-### Context & Decision Intelligence
-- **Context Graphs** — structured graph of entities, relationships, and decisions; queryable, causal, persistent
-- **Decision tracking** — record, link, and analyze every agent decision with `add_decision()`, `record_decision()`
-- **Causal chains** — link decisions with `add_causal_relationship()`, trace lineage with `trace_decision_chain()`
-- **Precedent search** — hybrid similarity search over past decisions with `find_similar_decisions()`
-- **Influence analysis** — `analyze_decision_impact()`, `analyze_decision_influence()` — understand downstream effects
-- **Policy engine** — enforce business rules with `check_decision_rules()`; automated compliance validation
-- **Agent memory** — `AgentMemory` with short/long-term storage, conversation history, and statistics
-- **Cross-system context capture** — `capture_cross_system_inputs()` for multi-agent pipelines
-
-### Knowledge Graphs
-- **Knowledge graph construction** — entities, relationships, properties, typed edges
-- **Graph algorithms** — PageRank, betweenness centrality, clustering coefficient, community detection
-- **Node embeddings** — Node2Vec embeddings via `NodeEmbedder`
-- **Similarity** — cosine similarity via `SimilarityCalculator`
-- **Link prediction** — score potential new edges via `LinkPredictor`
-- **Temporal graphs** — time-aware nodes and edges
-- **Incremental / delta processing** — update graphs without full recompute
-
-### Semantic Extraction
-- **Entity extraction** — named entity recognition, normalization, classification
-- **Relation extraction** — triplet generation from raw text using LLMs or rule-based methods
-- **LLM-typed extraction** — extraction with typed relation metadata
-- **Deduplication v1** — Jaro-Winkler similarity, basic blocking
-- **Deduplication v2** — `blocking_v2`, `hybrid_v2`, `semantic_v2` strategies with `max_candidates_per_entity`
-- **Triplet deduplication** — `dedup_triplets()` for removing duplicate (subject, predicate, object) triples
-
-### Reasoning Engines
-- **Forward chaining** — `Reasoner` with IF/THEN string rules and dict facts
-- **Rete network** — `ReteEngine` for high-throughput production rule matching
-- **Deductive reasoning** — `DeductiveReasoner` for classical inference
-- **Abductive reasoning** — `AbductiveReasoner` for hypothesis generation from observations
-- **SPARQL reasoning** — `SPARQLReasoner` for query-based inference over RDF graphs
-
-### Provenance & Auditability
-- **Entity provenance** — `ProvenanceTracker.track_entity(id, source_url, metadata)`
-- **Algorithm provenance** — `AlgorithmTrackerWithProvenance` tracks computation lineage
-- **Graph builder provenance** — `GraphBuilderWithProvenance` records entity source lineage from URLs
-- **W3C PROV-O compliant** — lineage tracking across all modules
-- **Change management** — version control with checksums, audit trails, compliance support
-
-### Vector Store
-- **Backends** — FAISS, Pinecone, Weaviate, Qdrant, Milvus, PgVector, in-memory
-- **Semantic search** — top-k retrieval by embedding similarity
-- **Hybrid search** — vector + keyword with configurable weights
-- **Filtered search** — metadata-based filtering on any field
-- **Custom similarity weights** — tune retrieval per use case
-
-### 🌐 Graph Database Support
-- **AWS Neptune** — Amazon Neptune graph database with IAM authentication
-- **Apache AGE** — PostgreSQL graph extension with openCypher via SQL
-- **FalkorDB** — native support; `DecisionQuery` and `CausalChainAnalyzer` work directly with FalkorDB row/header shapes
-
-### Data Ingestion
-- **File formats** — PDF, DOCX, HTML, JSON, CSV, Excel, PPTX, archives
-- **Web crawl** — `WebIngestor` with configurable depth
-- **Databases** — `DBIngestor` with SQL query support
-- **Snowflake** — `SnowflakeIngestor` with table/query ingestion, pagination, and key-pair/OAuth auth
-- **Docling** — advanced document parsing with table and layout extraction (PDF, DOCX, PPTX, XLSX)
-- **Media** — image OCR, audio/video metadata extraction
-
-### Export Formats
-- **RDF** — Turtle (`.ttl`), JSON-LD, N-Triples (`.nt`), XML via `RDFExporter`
-- **Parquet** — `ParquetExporter` for entities, relationships, and full KG export
-- **ArangoDB AQL** — ready-to-run INSERT statements via `ArangoAQLExporter`
-- **OWL ontologies** — export generated ontologies in Turtle or RDF/XML
-- **SHACL shapes** — export auto-derived constraint shapes via `RDFExporter.export_shacl()` (`.ttl`, `.jsonld`, `.nt`, `.shacl`)
-
-### Pipeline & Production
-- **Pipeline builder** — `PipelineBuilder` with stage chaining and parallel workers
-- **Validation** — `PipelineValidator` returns `ValidationResult(valid, errors, warnings)` before execution
-- **Failure handling** — `FailureHandler` with `RetryPolicy` and `RetryStrategy` (exponential backoff, fixed, etc.)
-- **Parallel processing** — configurable worker count per pipeline stage
-- **LLM providers** — 100+ models via LiteLLM (OpenAI, Anthropic, Cohere, Mistral, Ollama, and more)
-
-### Ontology
-- **Auto-generation** — derive OWL ontologies from knowledge graphs via `OntologyGenerator`
-- **Import** — load existing OWL, RDF, Turtle, JSON-LD ontologies via `OntologyImporter`
-- **Validation** — HermiT/Pellet compatible consistency checking
-- **SHACL shape generation** — `OntologyEngine.to_shacl()` auto-derives SHACL node and property shapes from any Semantica ontology dict; zero hand-authoring; deterministic (same ontology → same shapes)
-- **SHACL validation** — `OntologyEngine.validate_graph()` runs shapes against a data graph and returns a `SHACLValidationReport` with machine-readable violations and plain-English explanations
-- **Quality tiers** — `"basic"` (structure + cardinality), `"standard"` (+ enumerations, inheritance), `"strict"` (+ `sh:closed` rejects undeclared properties)
-- **Inheritance propagation** — child shapes automatically include all ancestor property shapes (up to 3+ levels), cycle-safe
-- **Three output formats** — Turtle (`.ttl`), JSON-LD, N-Triples; file export via `export_shacl()`
-
----
-
-## Modules
-
-| Module | What it provides |
-|---|---|
-| `semantica.context` | Context graphs, agent memory, decision tracking, causal analysis, precedent search, policy engine |
-| `semantica.kg` | Knowledge graph construction, graph algorithms, centrality, community detection, embeddings, link prediction, provenance |
-| `semantica.semantic_extract` | NER, relation extraction, event extraction, coreference, triplet generation, LLM-enhanced extraction |
-| `semantica.reasoning` | Forward chaining, Rete network, deductive, abductive, SPARQL reasoning, explanation generation |
-| `semantica.vector_store` | FAISS, Pinecone, Weaviate, Qdrant, Milvus, PgVector, in-memory; hybrid & filtered search |
-| `semantica.export` | RDF (Turtle/JSON-LD/N-Triples/XML), Parquet, ArangoDB AQL, CSV, YAML, OWL, graph formats |
-| `semantica.ingest` | Files (PDF, DOCX, CSV, HTML), web crawl, feeds, databases, Snowflake, MCP, email, repositories |
-| `semantica.ontology` | Auto-generation (6-stage pipeline), OWL/RDF export, import (OWL/RDF/Turtle/JSON-LD), validation, versioning, **SHACL shape generation & validation** |
-| `semantica.pipeline` | Pipeline DSL, parallel workers, validation, retry policies, failure handling, resource scheduling |
-| `semantica.graph_store` | Graph database backends — Neo4j, FalkorDB, Apache AGE, Amazon Neptune; Cypher queries |
-| `semantica.embeddings` | Text embedding generation — Sentence-Transformers, FastEmbed, OpenAI, BGE; similarity calculation |
-| `semantica.deduplication` | Entity deduplication, similarity scoring, merging, clustering; blocking and semantic strategies |
-| `semantica.provenance` | W3C PROV-O compliant end-to-end lineage tracking, source attribution, audit trails |
-| `semantica.parse` | Document parsing — PDF, DOCX, PPTX, HTML, code, email, structured data, media with OCR |
-| `semantica.split` | Document chunking — recursive, semantic, entity-aware, relation-aware, graph-based, ontology-aware |
-| `semantica.normalize` | Data normalization for text, entities, dates, numbers, quantities, languages, encodings |
-| `semantica.conflicts` | Multi-source conflict detection (value, type, relationship, temporal, logical) with resolution strategies |
-| `semantica.change_management` | Version storage, change tracking, checksums, audit trails, compliance support for KGs and ontologies |
-| `semantica.triplet_store` | RDF triplet store integration — Blazegraph, Jena, RDF4J; SPARQL queries and bulk loading |
-| `semantica.visualization` | Interactive and static visualization of KGs, ontologies, embeddings, analytics, and temporal graphs |
-| `semantica.seed` | Seed data management for initial KG construction from CSV, JSON, databases, and APIs |
-| `semantica.core` | Framework orchestration, configuration management, knowledge base construction, plugin system |
-| `semantica.llms` | LLM provider integrations — Groq, OpenAI, Novita AI, HuggingFace, LiteLLM |
-| `semantica.utils` | Shared utilities — logging, validation, exception handling, constants, types, progress tracking |
-
----
-
-## ⚡ Quick Start
-
-```python
-import semantica
-from semantica.context import AgentContext, ContextGraph
-from semantica.vector_store import VectorStore
-
-# Build an agent with structured context
-context = AgentContext(
-    vector_store=VectorStore(backend="faiss", dimension=768),
-    knowledge_graph=ContextGraph(advanced_analytics=True),
-    decision_tracking=True,
-    kg_algorithms=True,
-)
-
-# Store memory
-memory_id = context.store(
-    "GPT-4 outperforms GPT-3.5 on reasoning benchmarks by 40%",
-    conversation_id="research_session_1",
-)
-
-# Record a decision with full context
-decision_id = context.record_decision(
-    category="model_selection",
-    scenario="Choose LLM for production reasoning pipeline",
-    reasoning="GPT-4 benchmark advantage justifies 3x cost increase",
-    outcome="selected_gpt4",
-    confidence=0.91,
-    entities=["gpt4", "gpt35", "reasoning_pipeline"],
-)
-
-# Find similar decisions from history
-precedents = context.find_precedents("model selection reasoning", limit=5)
-
-# Analyze downstream influence of this decision
-influence = context.analyze_decision_influence(decision_id)
-```
-
-**[📖 Full Quick Start](#-quick-start)** • **[🍳 Cookbook Examples](#-semantica-cookbook)** • **[💬 Join Discord](https://discord.gg/sV34vps5hH)** • **[⭐ Star Us](https://github.com/Hawksight-AI/semantica)**
-
----
-
-## Core Value Proposition
-
-| **Trustworthy** | **Explainable** | **Auditable** |
-|:------------------:|:------------------:|:-----------------:|
-| Conflict detection & validation | Transparent reasoning paths | Complete provenance tracking |
-| Rule-based governance | Entity relationships & ontologies | W3C PROV-O compliant lineage |
-| Production-grade QA | Multi-hop graph reasoning | Source tracking & integrity verification |
-
----
-
-## Key Features & Benefits
-
-### Not Just Another Agentic Framework
-
-**Semantica complements** LangChain, LlamaIndex, AutoGen, CrewAI, Google ADK, Agno, and other frameworks to enhance your agents with:
-
-| Feature | Benefit |
-|:--------|:--------|
-| **Context Graphs** | Structured knowledge representation with entity relationships and semantic context |
-| **Decision Tracking** | Complete decision lifecycle management with precedent search and causal analysis |
-| **KG Algorithms** | Advanced graph analytics including centrality, community detection, and embeddings |
-| **Vector Store Integration** | Hybrid search with custom similarity weights and advanced filtering |
-| **Auditable** | Complete provenance tracking with W3C PROV-O compliance |
-| **Explainable** | Transparent reasoning paths with entity relationships |
-| **Provenance-Aware** | End-to-end lineage from documents to responses |
-| **Validated** | Built-in conflict detection, deduplication, QA |
-| **Governed** | Rule-based validation and semantic consistency |
-| **Version Control** | Enterprise-grade change management with integrity verification |
-
-### Perfect For High-Stakes Use Cases
-
-| 🏥 **Healthcare** | 💰 **Finance** | ⚖️ **Legal** |
-|:-----------------:|:--------------:|:------------:|
-| Clinical decisions | Fraud detection | Evidence-backed research |
-| Drug interactions | Regulatory support | Contract analysis |
-| Patient safety | Risk assessment | Case law reasoning |
-
-| 🔒 **Cybersecurity** | 🏛️ **Government** | 🏭 **Infrastructure** | 🚗 **Autonomous** |
-|:-------------------:|:----------------:|:-------------------:|:-----------------:|
-| Threat attribution | Policy decisions | Power grids | Decision logs |
-| Incident response | Classified info | Transportation | Safety validation |
-
-### Powers Your AI Stack
-
-- **Context Graphs** — Structured knowledge representation with entity relationships and semantic context
-- **Decision Tracking Systems** — Complete decision lifecycle management with precedent search and causal analysis
-- **GraphRAG Systems** — Retrieval with graph reasoning and hybrid search using KG algorithms
-- **AI Agents** — Trustworthy, accountable multi-agent systems with semantic memory and decision history
-- **Reasoning Models** — Explainable AI decisions with reasoning paths and influence analysis
-- **Enterprise AI** — Governed, auditable platforms that support compliance and policy enforcement
-
-### Integrations
-
-- **Docling Support** — Document parsing with table extraction (PDF, DOCX, PPTX, XLSX)
-- **AWS Neptune** — Amazon Neptune graph database support with IAM authentication
-- **Apache AGE** — PostgreSQL graph extension backend (openCypher via SQL)
-- **Snowflake** — Native ingestion with `SnowflakeIngestor`; table/query ingestion, pagination, key-pair & OAuth auth
-- **Custom Ontology Import** — Import existing ontologies (OWL, RDF, Turtle, JSON-LD)
-
-> **Built for environments where every answer must be explainable and governed.**
-
----
-
-## Context Graphs & Decision Tracking
-
-Semantica's flagship module. Tracks every decision your agent makes as a structured graph node — with causal links, precedent search, impact analysis, and policy enforcement.
+## 🚀 Quick Start
 
 ```python
 from semantica.context import ContextGraph
 
 graph = ContextGraph(advanced_analytics=True)
 
-# Record a loan approval decision
-loan_id = graph.add_decision(
+# Every decision is a first-class, queryable object
+loan_id = graph.record_decision(
     category="loan_approval",
-    scenario="Mortgage application — 780 credit score, 28% DTI",
-    reasoning="Strong credit history, stable income for 8 years, low DTI",
+    scenario="Mortgage — 780 credit score, 28% DTI",
+    reasoning="Strong credit history, stable 8-year income, low DTI",
     outcome="approved",
     confidence=0.95,
 )
-
-# Record a downstream dependent decision
-rate_id = graph.add_decision(
+rate_id = graph.record_decision(
     category="interest_rate",
     scenario="Set rate for approved mortgage",
-    reasoning="Prime applicant qualifies for lowest tier rate",
     outcome="rate_set_6.2pct",
     confidence=0.98,
 )
 
-# Link the decisions causally
+# Build an auditable causal chain
 graph.add_causal_relationship(loan_id, rate_id, relationship_type="enables")
 
-# Find similar past decisions using hybrid similarity
-similar    = graph.find_similar_decisions("mortgage approval", max_results=5)
+# Answer "why did this happen?" instantly
 chain      = graph.trace_decision_chain(loan_id)
+similar    = graph.find_similar_decisions("mortgage approval", max_results=5)
 impact     = graph.analyze_decision_impact(loan_id)
 compliance = graph.check_decision_rules({"category": "loan_approval", "confidence": 0.95})
-insights   = graph.get_decision_insights()
 ```
 
-```python
-from semantica.context import AgentContext, AgentMemory
-from semantica.vector_store import VectorStore
+---
 
-context = AgentContext(
-    vector_store=VectorStore(backend="inmemory"),
-    knowledge_graph=ContextGraph(advanced_analytics=True),
-    decision_tracking=True,
-    graph_expansion=True,
-    kg_algorithms=True,
+## 🆕 What's New in v0.5.0
+
+**Released May 11, 2026** · [Full Release Notes](RELEASE_NOTES.md) · [Changelog](CHANGELOG.md)
+
+### 📐 Distance Intelligence
+
+- **10x+ embedding cache** — per-session revision-based caching with thread-safe invalidation
+- **Distance Matrix API** — N×N semantic distance calculations (upper-triangle mirrored, capped at 200 nodes)
+- **Semantic Neighborhood Search** — `get_neighbors()` blends graph proximity with semantic score
+- **5 new API endpoints** — `/distance-matrix`, `/semantic-neighborhood`, `/causal-distance`, `/temporal/distance-history`, `/export/distance-enriched`
+- **Explorer UI** — Ego Mode with BFS depth-of-field fading (depth slider 1–8), Structural/Semantic overlays, Heatmap (green→red by hop), Path inspector with distance band chips
+- **Bidirectional path finding** — `directed=false` on BFS and Dijkstra; `PathResponse` gains `hop_count` and `distance_band` (direct/near/mid-range/distant)
+
+### 🔷 Complete Ontology Hub Suite
+
+- **Alignments Tab** — cross-ontology alignment authoring; ML confidence scoring (0.4×label + 0.6×TF-IDF); one-click accept
+- **Health Dashboard** — 5-dimension quality scoring (Completeness, Consistency, SHACL, Alignment, Documentation); downloadable JSON report
+- **SHACL Studio** — interactive shape authoring with Monaco editor and custom Turtle syntax highlighting
+- **Visual Ontology Editor** — drag-and-drop canvas; context menus for rename, add super/subclass, SKOS metadata; edits staged as diffs — nothing commits until published
+- **Versions & Proposals Tab** — version timeline, proposal review, SHACL pre-validation, side-by-side diff
+- **Ontology Registry** — full CRUD with status/format badges, live search, filter pills (All/OWL/SKOS/Internal/External)
+- **Ontology Loader** — URL import with preview, file upload (`.ttl/.rdf/.owl/.nt/.jsonld/.n3`), create from scratch/data/text
+- **Entity Search Panel** — 320 ms debounced search across all loaded ontologies with type filters
+- **SKOS Vocabulary Manager** — hierarchical concept browser with recursive tree and full SKOS annotation detail
+- **16 new backend endpoints** under `/api/ontology`
+
+### 📦 More in This Release
+
+- **Parquet Ingestion** — `ParquetIngestor` with PyArrow; partitioned directory, selective columns, Hive-style partition discovery · `pip install semantica[ingest-parquet]`
+- **O(log n) Indexed Search** — inverted index with exact/token/prefix tiers; 118k nodes: 24ms → 0.004ms
+- **DuplicateDetector result limiting** — prevents a single entity from flooding output and gives callers precise control over ranking and thresholds. Four new params: `max_results` (global cap), `top_k_per_entity` (per-entity quota, OR semantics so high-quality pairs aren't silently dropped), `min_similarity` (extra floor `[0.0, 1.0]`), `sort_by` (`"confidence"` or `"similarity_score"`). All validated at construction; invalid values raise `ValueError`.
+- **ConflictDetector unified API** — fixes `AttributeError` when calling `detect_conflicts()` with `method=` or `property_name=` kwargs and gives full control over conflict scope. Single consistent signature with `method=` choosing strategy: `"all"` · `"value"` · `"property"` · `"type"` · `"relationship"` · `"temporal"` · `"logical"` · `"entity"` — unknown values raise `ValueError`.
+- **DeepSeek via OpenAI SDK** — `OpenAIProvider` rewritten via `openai.OpenAI(base_url=...)` replacing the defunct `deepseek` package
+
+### 🔒 Security & Fixes
+
+- **12 vulnerabilities fixed** — eval injection (CWE-95), pickle deserialization (CWE-502), SQL injection (CWE-89), XXE (CWE-611), SSRF, prompt injection (CWE-1336), ReDoS (CWE-1333), path traversal (CWE-22)
+- **Windows** — `semantica[all]` no longer pulls `faiss-gpu`; `UnicodeEncodeError` on cp1252 consoles fixed
+- **Circular import** in `semantic_extract` fixed; `TripleExtractor` alias added for backward compatibility
+- **Lazy-load ingest backends** — core imports no longer fail when optional packages are absent
+
+---
+
+## 📅 Previous Releases
+
+### v0.4.0 — Temporal Intelligence & Ontology
+
+- **Temporal GraphRAG** — retrieve knowledge as it existed at any past point; zero LLM calls
+- **Allen Interval Algebra** — 13 deterministic interval relations; gap detection, coverage, cycle analysis
+- **Point-in-time Query Engine** — consistent graph snapshots at any timestamp with a built-in consistency validator
+- **TemporalNormalizer** — converts ISO 8601, relative phrases ("Q1 2024"), and 13 domain maps to UTC; zero LLM calls
+- **Bi-temporal Provenance** — every record stamped with transaction time; OWL-Time RDF export
+- **SKOS Vocabulary Management** — add concepts with labels, hierarchy, definitions; SPARQL-backed search; REST API
+- **SHACL Constraints** — auto-derive data contract shapes from any ontology; three strictness tiers; CI-ready validation
+- **ContextGraph pagination** — O(N) → O(limit); Ollama remote support; API key logging removed
+
+### v0.3.0 — First Stable Release
+
+First `Production/Stable` release on PyPI — the foundation everything builds on.
+
+- **Context Graphs** · **Decision Intelligence** · **KG Algorithms** (PageRank, Louvain, Node2Vec, link prediction)
+- **Deduplication v2** — 63.6% faster candidate generation; semantic dedup 6.98x faster
+- **Delta Processing** — SPARQL-based incremental diff, `delta_mode` pipelines, snapshot versioning
+- **Export** — Parquet (Spark/BigQuery/Databricks ready), ArangoDB AQL, RDF format aliases
+- **Graph Backends** — Apache AGE, AWS Neptune, FalkorDB, PgVector
+
+→ [Full changelog](CHANGELOG.md) · [Release notes](RELEASE_NOTES.md)
+
+---
+
+## 🔌 Works With Every AI Tool
+
+Semantica ships **native plugin bundles** for Claude Code, Cursor, and Codex, an **MCP server** for Windsurf, Cline, Continue, VS Code, Claude Desktop, and OpenClaw, and a **REST API** (109 endpoints, FastAPI, port 8000) for any other tool.
+
+<table>
+
+<tr>
+<th colspan="3" align="left">🔌 Native Plugin Bundle</th>
+<th colspan="5" align="left">⚡ MCP Server + Plugin</th>
+</tr>
+<tr>
+<td align="center" width="12.5%">
+<a href="https://claude.com/product/claude-code"><img src="https://github.com/anthropics.png?size=120" alt="Claude Code" width="48" height="48" /></a><br/>
+<strong>Claude Code</strong><br/>
+<sub>17 skills · 3 agents · hooks</sub>
+</td>
+<td align="center" width="12.5%">
+<a href="https://cursor.com"><img src="https://www.freelogovectors.net/wp-content/uploads/2025/06/cursor-logo-freelogovectors.net_.png" alt="Cursor" width="48" height="48" /></a><br/>
+<strong>Cursor</strong><br/>
+<sub>17 skills · 3 agents</sub>
+</td>
+<td align="center" width="12.5%">
+<a href="https://github.com/openai/codex"><img src="https://github.com/openai.png?size=120" alt="Codex CLI" width="48" height="48" /></a><br/>
+<strong>Codex CLI</strong><br/>
+<sub>17 skills · 3 agents</sub>
+</td>
+<td align="center" width="12.5%">
+<a href="https://windsurf.com"><img src="https://exafunction.github.io/public/brand/windsurf-black-symbol.svg" alt="Windsurf" width="48" height="48" /></a><br/>
+<strong>Windsurf</strong><br/>
+<sub><a href="plugins/.windsurf-plugin/">plugin</a></sub>
+</td>
+<td align="center" width="12.5%">
+<a href="https://github.com/cline/cline"><img src="https://github.com/cline.png?size=120" alt="Cline" width="48" height="48" /></a><br/>
+<strong>Cline</strong><br/>
+<sub><a href="plugins/.cline-plugin/">plugin</a></sub>
+</td>
+<td align="center" width="12.5%">
+<a href="https://github.com/continuedev/continue"><img src="https://github.com/continuedev.png?size=120" alt="Continue" width="48" height="48" /></a><br/>
+<strong>Continue</strong><br/>
+<sub><a href="plugins/.continue-plugin/">plugin</a></sub>
+</td>
+<td align="center" width="12.5%">
+<a href="https://github.com/microsoft/vscode"><img src="https://github.com/microsoft.png?size=120" alt="VS Code" width="48" height="48" /></a><br/>
+<strong>VS Code</strong><br/>
+<sub><a href="plugins/.vscode-plugin/">plugin</a></sub>
+</td>
+<td align="center" width="12.5%">
+<a href="integrations/openclaw/"><img src="https://github.com/openclaw.png?size=120" alt="OpenClaw" width="48" height="48" /></a><br/>
+<strong>OpenClaw</strong><br/>
+<sub>MCP + <a href="integrations/openclaw/">plugin</a></sub>
+</td>
+</tr>
+
+<tr>
+<th colspan="1" align="left">☁️ MCP Server</th>
+<th colspan="7" align="left">🌐 REST API</th>
+</tr>
+<tr>
+<td align="center" width="12.5%">
+<a href="https://claude.ai/download"><img src="https://github.com/anthropics.png?size=120" alt="Claude Desktop" width="48" height="48" /></a><br/>
+<strong>Claude Desktop</strong><br/>
+<sub>MCP server</sub>
+</td>
+<td align="center" width="12.5%">
+<a href="https://github.com/features/copilot"><img src="https://github.com/github.png?size=120" alt="GitHub Copilot" width="48" height="48" /></a><br/>
+<strong>GitHub Copilot</strong><br/>
+<sub>REST API</sub>
+</td>
+<td align="center" width="12.5%">
+<a href="https://github.com/RooCodeInc/Roo-Code"><img src="https://github.com/RooCodeInc.png?size=120" alt="Roo Code" width="48" height="48" /></a><br/>
+<strong>Roo Code</strong><br/>
+<sub>REST API</sub>
+</td>
+<td align="center" width="12.5%">
+<a href="https://github.com/block/goose"><img src="https://github.com/block.png?size=120" alt="Goose" width="48" height="48" /></a><br/>
+<strong>Goose</strong><br/>
+<sub>REST API</sub>
+</td>
+<td align="center" width="12.5%">
+<a href="https://github.com/Kilo-Org/kilocode"><img src="https://github.com/Kilo-Org.png?size=120" alt="Kilo Code" width="48" height="48" /></a><br/>
+<strong>Kilo Code</strong><br/>
+<sub>REST API</sub>
+</td>
+<td align="center" width="12.5%">
+<a href="https://github.com/Aider-AI/aider"><img src="https://github.com/Aider-AI.png?size=120" alt="Aider" width="48" height="48" /></a><br/>
+<strong>Aider</strong><br/>
+<sub>REST API</sub>
+</td>
+<td align="center" width="12.5%">
+<a href="https://github.com/aws/amazon-q-developer-cli"><img src="https://github.com/aws.png?size=120" alt="Amazon Q" width="48" height="48" /></a><br/>
+<strong>Amazon Q</strong><br/>
+<sub>REST API</sub>
+</td>
+<td align="center" width="12.5%">
+<a href="https://zed.dev"><img src="https://github.com/zed-industries.png?size=120" alt="Zed" width="48" height="48" /></a><br/>
+<strong>Zed</strong><br/>
+<sub>REST API</sub>
+</td>
+</tr>
+
+<tr>
+<th colspan="8" align="left">🔧 Any Tool</th>
+</tr>
+<tr>
+<td align="center" colspan="8">
+<img src="https://img.shields.io/badge/109-endpoints-1f6feb?style=flat-square" alt="REST API" /><br/>
+<strong>Any agent</strong><br/>
+<sub>109 REST endpoints · FastAPI · port 8000</sub>
+</td>
+</tr>
+
+</table>
+
+### Agentic Frameworks
+
+<table>
+<tr>
+<th colspan="8" align="left">✅ Supported</th>
+</tr>
+<tr>
+<td align="center" width="12.5%">
+<a href="https://github.com/agno-agi/agno"><img src="https://github.com/agno-agi.png?size=120" alt="Agno" width="48" height="48" /></a><br/>
+<strong>Agno</strong><br/>
+<sub>First-class · <code>pip install semantica[agno]</code></sub>
+</td>
+</tr>
+<tr>
+<th colspan="8" align="left">🔜 Coming Soon</th>
+</tr>
+<tr>
+<td align="center" width="12.5%">
+<a href="https://github.com/langchain-ai/langchain"><img src="https://github.com/langchain-ai.png?size=120" alt="LangChain" width="48" height="48" /></a><br/>
+<strong>LangChain</strong><br/>
+<sub>Coming soon</sub>
+</td>
+<td align="center" width="12.5%">
+<a href="https://github.com/langchain-ai/langgraph"><img src="https://github.com/langchain-ai.png?size=120" alt="LangGraph" width="48" height="48" /></a><br/>
+<strong>LangGraph</strong><br/>
+<sub>Coming soon</sub>
+</td>
+<td align="center" width="12.5%">
+<a href="https://github.com/crewAIInc/crewAI"><img src="https://github.com/crewAIInc.png?size=120" alt="CrewAI" width="48" height="48" /></a><br/>
+<strong>CrewAI</strong><br/>
+<sub>Coming soon</sub>
+</td>
+<td align="center" width="12.5%">
+<a href="https://github.com/run-llama/llama_index"><img src="https://github.com/run-llama.png?size=120" alt="LlamaIndex" width="48" height="48" /></a><br/>
+<strong>LlamaIndex</strong><br/>
+<sub>Coming soon</sub>
+</td>
+<td align="center" width="12.5%">
+<a href="https://github.com/microsoft/autogen"><img src="https://github.com/microsoft.png?size=120" alt="AutoGen" width="48" height="48" /></a><br/>
+<strong>AutoGen</strong><br/>
+<sub>Coming soon</sub>
+</td>
+<td align="center" width="12.5%">
+<a href="https://github.com/openai/openai-agents-python"><img src="https://github.com/openai.png?size=120" alt="OpenAI Agents SDK" width="48" height="48" /></a><br/>
+<strong>OpenAI Agents</strong><br/>
+<sub>Coming soon</sub>
+</td>
+<td align="center" width="12.5%">
+<a href="https://github.com/google/adk-python"><img src="https://github.com/google.png?size=120" alt="Google ADK" width="48" height="48" /></a><br/>
+<strong>Google ADK</strong><br/>
+<sub>Coming soon</sub>
+</td>
+</tr>
+</table>
+
+### Agno — First-Class Integration · `pip install semantica[agno]`
+
+Five integration modules in [`integrations/agno/`](integrations/agno/):
+
+| Class | What it does |
+|---|---|
+| `AgnoContextStore` | Graph-backed agent memory |
+| `AgnoKnowledgeGraph` | Implements Agno's `AgentKnowledge` protocol; full extraction pipeline |
+| `AgnoDecisionKit` | 6 decision-intelligence tools for Agno agents |
+| `AgnoKGToolkit` | 7 KG pipeline tools (build, query, enrich, export) |
+| `AgnoSharedContext` | Shared context graph for multi-agent team coordination |
+
+### Plugin Bundles
+
+| Bundle | Directory | Tools |
+|---|---|---|
+| Claude Code | [`plugins/.claude-plugin/`](plugins/.claude-plugin/) | 17 skills · 3 agents · hooks |
+| Cursor | [`plugins/.cursor-plugin/`](plugins/.cursor-plugin/) | 17 skills · 3 agents · hooks |
+| Codex CLI | [`plugins/.codex-plugin/`](plugins/.codex-plugin/) | 17 skills · 3 agents |
+| Windsurf | [`plugins/.windsurf-plugin/`](plugins/.windsurf-plugin/) | 17 skills · 3 agents · MCP config |
+| Cline | [`plugins/.cline-plugin/`](plugins/.cline-plugin/) | 17 skills · 3 agents · MCP config |
+| Continue | [`plugins/.continue-plugin/`](plugins/.continue-plugin/) | 17 skills · 3 agents · MCP config |
+| VS Code | [`plugins/.vscode-plugin/`](plugins/.vscode-plugin/) | 17 skills · 3 agents · MCP config |
+| OpenClaw | [`plugins/.openclaw-plugin/`](plugins/.openclaw-plugin/) | 17 skills · 3 agents · MCP config |
+
+**17 domain skills:** `extract` · `ingest` · `query` · `ontology` · `validate` · `deduplicate` · `embed` · `reason` · `decision` · `causal` · `temporal` · `provenance` · `policy` · `explain` · `export` · `change` · `visualize`
+
+**3 specialized agents:** `kg-assistant` · `decision-advisor` · `explainability`
+
+**Hooks** (`plugins/hooks/hooks.json`) — `PreToolUse` / `PostToolUse` matchers for syntax validation and automated warnings. → [`plugins/.claude-plugin/README.md`](plugins/.claude-plugin/README.md)
+
+### MCP Server
+
+```bash
+python -m semantica.mcp_server
+```
+
+```json
+{
+  "mcpServers": {
+    "semantica": { "command": "python", "args": ["-m", "semantica.mcp_server"] }
+  }
+}
+```
+
+**12 tools:** `extract_entities` · `extract_relations` · `record_decision` · `query_decisions` · `find_precedents` · `get_causal_chain` · `add_entity` · `add_relationship` · `run_reasoning` · `get_graph_analytics` · `export_graph` · `get_graph_summary`
+
+**3 resources:** `semantica://graph/summary` · `semantica://decisions/list` · `semantica://schema/info`
+
+### MCP Client (Ingest from any MCP server)
+
+```python
+from semantica.ingest import MCPClient
+
+client    = MCPClient("http://your-mcp-server:8080")
+resources = client.list_resources()
+data      = client.read_resource("resource://your-data")
+```
+
+Supported schemes: `http://` · `https://` · `mcp://` · `sse://` · JSON-RPC · auth · dynamic capability discovery
+
+---
+
+## 🖥️ Knowledge Explorer
+
+A real-time visual interface under [`explorer/`](explorer/) — React 19 + Sigma.js.
+
+| Workspace | What you can do |
+|---|---|
+| **Knowledge Graph** | Pan, zoom, and inspect a live graph canvas with ForceAtlas2 layout |
+| **Timeline** | Scrub through temporal events and watch the graph evolve |
+| **Decisions** | Browse the causal chain behind every recorded decision |
+| **Registry** | Live audit log of every graph mutation — add-node, add-edge, merge, delete |
+| **Entity Resolution** | Review and merge duplicates detected by the deduplication engine |
+| **KG Overview** | Aggregate stats, community breakdown, centrality heatmap |
+| **Ontology** | SKOS/OWL vocabulary hierarchy and auto-generated schema summary |
+
+```bash
+python -m semantica.server        # Terminal 1 — backend (port 8000)
+cd explorer && npm install && npm run dev  # Terminal 2 — UI
+```
+
+Open **http://localhost:5173** — all `/api` and `/ws` traffic proxied by Vite, no CORS config needed. → [`explorer/README.md`](explorer/README.md)
+
+---
+
+## ✨ Features
+
+| Capability | Highlights |
+|---|---|
+| **Context Graphs** | Structured, queryable graph of entities, decisions, and relationships; causal links; cross-graph navigation |
+| **Decision Intelligence** | `record_decision()`, `trace_decision_chain()`, `find_similar_decisions()`, `analyze_decision_impact()`, `check_decision_rules()` |
+| **Temporal Intelligence** | Point-in-time snapshots, Allen interval algebra, `TemporalNormalizer`, bi-temporal provenance, decision validity windows |
+| **Semantic Extraction** | NER, relation extraction, triplet generation, temporal bounds; deduplication v2 up to **6.98x faster** |
+| **Reasoning Engines** | Forward chaining, Rete network, deductive, abductive, SPARQL, Datalog — explainable output |
+| **Provenance** | W3C PROV-O compliant; every fact traced to source; audit log export in JSON/CSV; OWL-Time RDF export |
+| **Ontology & SHACL** | Auto-generate OWL ontologies; import OWL/RDF/Turtle/JSON-LD; auto-derive SHACL shapes; SKOS vocabularies |
+| **Vector Store** | FAISS, Pinecone, Weaviate, Qdrant, Milvus, PgVector, in-memory; hybrid + filtered search |
+| **Pipeline** | `PipelineBuilder` with stage chaining, parallel workers, validation, and retry policies |
+| **Graph Databases** | Neo4j, FalkorDB, Apache AGE, AWS Neptune |
+| **LLM Providers** | 100+ models via LiteLLM — OpenAI, Anthropic, Cohere, Mistral, Ollama, Groq, Azure, Bedrock, and more |
+
+---
+
+## 💻 Code Examples
+
+### Temporal GraphRAG
+
+```python
+from semantica.kg import TemporalQueryRewriter, TemporalNormalizer
+from semantica.context import TemporalGraphRetriever
+from datetime import datetime, timezone
+
+# Parse temporal intent from natural language — zero LLM calls
+rewriter = TemporalQueryRewriter()
+result   = rewriter.rewrite("What decisions were made before the 2024 merger?")
+# result.temporal_intent → "before"
+# result.at_time         → datetime(2024, ..., tzinfo=UTC)
+
+retriever = TemporalGraphRetriever(
+    base_retriever=your_retriever,
+    at_time=datetime(2024, 3, 1, tzinfo=timezone.utc),
 )
+ctx = retriever.retrieve("supplier approval decisions")
 
-context.store("Regulation EU 2024/1689 requires explainability for high-risk AI", conversation_id="compliance_review")
-context.store("Our fraud model flags 0.3% of transactions", conversation_id="compliance_review")
-
-results = context.retrieve("AI regulation explainability requirements", limit=3)
-history = context.get_conversation_history("compliance_review")
-stats   = context.get_statistics()
+# Normalize any date expression to UTC — zero LLM calls
+start, end = TemporalNormalizer().normalize("Q1 2024")
+# → (datetime(2024, 1, 1, UTC), datetime(2024, 3, 31, UTC))
 ```
 
----
-
-## Knowledge Graphs
+### Semantic Extraction
 
 ```python
-from semantica.kg import KnowledgeGraph, Entity, Relationship
-from semantica.kg import CentralityAnalyzer, NodeEmbedder, LinkPredictor
+from semantica.semantic_extract import NERExtractor, RelationExtractor, TripletExtractor
+from semantica.semantic_extract.methods import extract_relations_llm
 
-kg = KnowledgeGraph()
+text = "OpenAI released GPT-4 in March 2023. Microsoft integrated it into Azure."
 
-kg.add_entity(Entity(id="transformer", label="Transformer", type="Architecture",
-                     properties={"year": 2017, "paper": "Attention Is All You Need"}))
-kg.add_entity(Entity(id="bert", label="BERT", type="Model",
-                     properties={"year": 2018, "parameters": "340M"}))
-kg.add_entity(Entity(id="gpt4", label="GPT-4", type="Model", properties={"year": 2023}))
+entities  = NERExtractor().extract_entities(text)
+relations = RelationExtractor().extract_relations(text, entities=entities)
+triplets  = TripletExtractor().extract_triplets(text)
 
-kg.add_relationship(Relationship(source="bert", target="transformer", type="based_on"))
-kg.add_relationship(Relationship(source="gpt4", target="transformer", type="based_on"))
-
-# Graph algorithms
-analyzer    = CentralityAnalyzer(kg)
-centrality  = analyzer.compute_pagerank()
-betweenness = analyzer.compute_betweenness()
-
-# Node embeddings (Node2Vec)
-embedder   = NodeEmbedder()
-embeddings = embedder.compute_embeddings(kg, node_labels=["Model"], relationship_types=["based_on"])
-
-# Link prediction
-predictor = LinkPredictor()
-score     = predictor.score_link(kg, "gpt4", "bert", method="common_neighbors")
-
-models      = kg.find_nodes(type="Model")
-descendants = kg.get_neighbors("transformer", direction="incoming")
+# With temporal bounds — LLM annotates each relation with validity window
+relations_temporal = extract_relations_llm(
+    text, entities, provider="openai", extract_temporal_bounds=True
+)
 ```
 
----
-
-## Semantic Extraction
+### Reasoning
 
 ```python
-from semantica.semantic_extract import extract_entities, extract_relations, extract_triplets
+from semantica.reasoning import Reasoner, ReteEngine, Rule, Fact, RuleType
 
-text = """
-OpenAI released GPT-4 in March 2023. Microsoft integrated GPT-4 into Azure OpenAI Service.
-Anthropic, founded by former OpenAI researchers, released Claude as a competing model.
-"""
-
-entities = extract_entities(text)
-# → [Entity(label="OpenAI", type="Organization"), Entity(label="GPT-4", type="Model"), ...]
-
-relations = extract_relations(text)
-# → [Relation(source="OpenAI", type="released", target="GPT-4"), ...]
-
-triplets = extract_triplets(text)
-```
-
-```python
-from semantica.deduplication import DuplicateDetector
-
-entities = [
-    {"id": "e1", "name": "OpenAI Inc.", "type": "Organization"},
-    {"id": "e2", "name": "Open AI",    "type": "Organization"},
-    {"id": "e3", "name": "Anthropic",  "type": "Organization"},
-]
-
-detector   = DuplicateDetector()
-duplicates = detector.detect_duplicates(entities, threshold=0.85)
-# → [("e1", "e2")]
-
-duplicates_v2 = detector.detect_duplicates(entities, threshold=0.85, strategy="semantic_v2")
-```
-
----
-
-## Reasoning Engines
-
-```python
-from semantica.reasoning import Reasoner
-
+# Forward chaining
 reasoner = Reasoner()
 reasoner.add_rule("IF Person(?x) THEN Mortal(?x)")
-reasoner.add_rule("IF Employee(?x) AND WorksAt(?x, ?y) THEN HasEmployer(?x, ?y)")
+results  = reasoner.infer_facts(["Person(Socrates)"])  # → ["Mortal(Socrates)"]
 
-results = reasoner.infer_facts([
-    "Person(Socrates)",
-    "Employee(Alice)",
-    {"source_name": "Alice", "target_name": "OpenAI", "type": "WorksAt"},
-])
-# → ["Mortal(Socrates)", "HasEmployer(Alice, OpenAI)"]
-```
-
-```python
-from semantica.reasoning import ReteEngine
-
+# High-throughput Rete network
 rete = ReteEngine()
-rete.add_rule({
-    "name": "flag_high_risk_transaction",
-    "conditions": [
+rete.build_network([Rule(
+    rule_id="r1", name="flag_high_risk",
+    conditions=[
         {"field": "amount",  "operator": ">",  "value": 10000},
         {"field": "country", "operator": "in", "value": ["IR", "KP", "SY"]},
     ],
-    "action": "flag_for_compliance_review",
-})
-matches = rete.match({"amount": 15000, "country": "IR", "id": "txn_9921"})
-```
-
-```python
-from semantica.reasoning import DeductiveReasoner, AbductiveReasoner
-
-deductive = DeductiveReasoner()
-deductive.add_axiom("All transformers use attention mechanisms")
-deductive.add_fact("BERT is a transformer")
-conclusion = deductive.reason("Does BERT use attention?")
-
-abductive = AbductiveReasoner()
-abductive.add_observation("The model accuracy dropped 12% after deployment")
-hypotheses = abductive.generate_hypotheses()
-# → ["Distribution shift in production data", "Preprocessing pipeline mismatch", ...]
+    conclusion="flag_for_compliance_review",
+    rule_type=RuleType.IMPLICATION,
+)])
+rete.add_fact(Fact("f1", "transaction", [{"amount": 15000, "country": "IR"}]))
+matches = rete.match_patterns()
 ```
 
 ---
 
-## Provenance Tracking
+## 📦 Modules
 
-W3C PROV-O compliant lineage tracking. Every fact traces back to its origin.
-
-```python
-from semantica.kg import ProvenanceTracker, AlgorithmTrackerWithProvenance
-
-tracker = ProvenanceTracker()
-tracker.track_entity("gpt4_benchmark",
-    source_url="https://openai.com/research/gpt-4",
-    metadata={"metric": "MMLU", "score": 86.4})
-
-algo_tracker = AlgorithmTrackerWithProvenance(provenance=True)
-algo_tracker.track_graph_construction(
-    algorithm="node2vec",
-    input_data={"nodes": 1500, "edges": 4200},
-    parameters={"dimensions": 128, "walk_length": 80},
-)
-
-sources      = tracker.get_all_sources("gpt4_benchmark")
-all_entities = tracker.get_all_entities()
-```
-
----
-
-## Vector Store & Hybrid Search
-
-```python
-from semantica.vector_store import VectorStore
-
-vs = VectorStore(backend="faiss", dimension=768)
-
-vs.store("The Transformer architecture revolutionized NLP",
-         metadata={"source": "arxiv", "year": 2017}, id="doc_001")
-vs.store("BERT introduced bidirectional pre-training for language understanding",
-         metadata={"source": "arxiv", "year": 2018}, id="doc_002")
-
-results = vs.search("attention mechanisms in language models", top_k=5)
-
-results = vs.hybrid_search(
-    query="transformer pre-training",
-    top_k=10,
-    vector_weight=0.6,
-    keyword_weight=0.4,
-)
-
-results = vs.search("pre-training", top_k=5, filter={"year": 2018})
-```
+| Module | What it provides |
+|---|---|
+| `semantica.context` | Context graphs, agent memory, decision tracking, causal analysis, precedent search, policy engine |
+| `semantica.kg` | KG construction, graph algorithms, centrality, community detection, embeddings, link prediction, provenance |
+| `semantica.semantic_extract` | NER, relation extraction, event extraction, coreference, triplet generation, LLM-enhanced extraction |
+| `semantica.reasoning` | Forward chaining, Rete, deductive, abductive, SPARQL, Datalog reasoning |
+| `semantica.vector_store` | FAISS, Pinecone, Weaviate, Qdrant, Milvus, PgVector, in-memory; hybrid & filtered search |
+| `semantica.export` | RDF (Turtle/JSON-LD/N-Triples/XML), Parquet, ArangoDB AQL, OWL, SHACL, graph formats |
+| `semantica.ingest` | Files (PDF, DOCX, CSV, HTML), web crawl, databases, Snowflake, MCP, email, repositories, Parquet |
+| `semantica.ontology` | OWL auto-generation, import, validation, SHACL shape generation & validation, SKOS vocabulary management |
+| `semantica.pipeline` | Pipeline DSL, parallel workers, validation, retry policies, failure handling |
+| `semantica.graph_store` | Neo4j, FalkorDB, Apache AGE, Amazon Neptune; Cypher queries |
+| `semantica.embeddings` | Sentence-Transformers, FastEmbed, OpenAI, BGE; similarity calculation |
+| `semantica.deduplication` | Entity deduplication — blocking, hybrid, semantic strategies; result limiting |
+| `semantica.provenance` | W3C PROV-O lineage, revision history, audit log export |
+| `semantica.parse` | PDF, DOCX, PPTX, HTML, code, email, media with OCR (Docling integration) |
+| `semantica.split` | Recursive, semantic, entity-aware, graph-based, ontology-aware chunking |
+| `semantica.conflicts` | Multi-source conflict detection with resolution strategies |
+| `semantica.change_management` | Version storage, checksums, audit trails, compliance support |
+| `semantica.triplet_store` | Blazegraph, Jena, RDF4J; SPARQL queries and bulk loading |
+| `semantica.visualization` | KG, ontology, embedding, and temporal graph visualization |
+| [`explorer/`](explorer/) | React 19 + Sigma.js browser UI — graph canvas, decisions, entity resolution, ontology |
+| `semantica.llms` | Groq, OpenAI, Novita AI, HuggingFace, LiteLLM |
 
 ---
 
-## Data Ingestion
-
-```python
-from semantica.ingest import FileIngestor, WebIngestor, DBIngestor
-
-file_ingestor = FileIngestor(recursive=True)
-docs = file_ingestor.ingest("./research_papers/")
-
-web_ingestor = WebIngestor(max_depth=2)
-web_docs = web_ingestor.ingest("https://arxiv.org/abs/1706.03762")
-
-db_ingestor = DBIngestor(connection_string="postgresql://user:pass@localhost/kg_db")
-db_docs = db_ingestor.ingest(query="SELECT title, abstract FROM papers WHERE year >= 2020")
-
-all_sources = docs + web_docs + db_docs
-```
-
-```python
-from semantica.parse import DoclingParser
-
-# Advanced table and layout extraction
-docling = DoclingParser()
-parsed  = docling.parse("financial_report.pdf")
-```
-
-```python
-from semantica.ingest import SnowflakeIngestor
-
-# Connect to Snowflake and ingest a table
-ingestor = SnowflakeIngestor(
-    account="myorg-myaccount",
-    user="analyst",
-    password="...",
-    warehouse="COMPUTE_WH",
-    database="ANALYTICS",
-    schema="PUBLIC",
-)
-
-# Ingest a table with optional filtering and pagination
-data = ingestor.ingest_table(
-    table_name="customer_events",
-    where="event_date >= '2024-01-01'",
-    limit=10000,
-)
-
-# Or run a custom SQL query
-data = ingestor.ingest_query(
-    query="SELECT id, content, tags FROM knowledge_base WHERE active = TRUE",
-    batch_size=500,
-)
-
-# Convert to Semantica documents for downstream pipeline use
-docs = ingestor.export_as_documents(data, id_field="id", text_fields=["content"])
-
-# Key-pair and OAuth auth are also supported via env vars:
-# SNOWFLAKE_PRIVATE_KEY_PATH, SNOWFLAKE_TOKEN, SNOWFLAKE_AUTHENTICATOR
-```
-
----
-
-## Export
-
-```python
-from semantica.export import RDFExporter, ParquetExporter, ArangoAQLExporter
-
-rdf_exporter = RDFExporter()
-turtle   = rdf_exporter.export_to_rdf(kg, format="turtle")
-jsonld   = rdf_exporter.export_to_rdf(kg, format="json-ld")
-ntriples = rdf_exporter.export_to_rdf(kg, format="nt")
-
-parquet_exporter = ParquetExporter()
-parquet_exporter.export_entities(kg,        path="output/entities.parquet")
-parquet_exporter.export_relationships(kg,   path="output/relationships.parquet")
-parquet_exporter.export_knowledge_graph(kg, path="output/")
-
-aql_exporter = ArangoAQLExporter()
-aql_exporter.export(kg, path="output/insert.aql")
-```
-
----
-
-## Pipeline Orchestration
-
-```python
-from semantica.pipeline import PipelineBuilder, PipelineValidator, FailureHandler
-from semantica.pipeline import RetryPolicy, RetryStrategy
-
-builder = (
-    PipelineBuilder()
-    .add_stage("ingest",      FileIngestor(recursive=True))
-    .add_stage("extract",     extract_triplets)
-    .add_stage("deduplicate", DuplicateDetector())
-    .add_stage("build_kg",    KnowledgeGraph())
-    .add_stage("export",      RDFExporter())
-    .with_parallel_workers(4)
-)
-
-validator = PipelineValidator()
-result    = validator.validate(builder)
-if result.valid:
-    pipeline = builder.build()
-    pipeline.run(input_path="./documents/")
-
-retry_policy = RetryPolicy(strategy=RetryStrategy.EXPONENTIAL_BACKOFF, max_retries=3)
-handler = FailureHandler()
-handler.handle_failure(error=last_error, policy=retry_policy, retry_count=1)
-```
-
----
-
-## Ontology
-
-```python
-from semantica.ontology import OntologyGenerator, OntologyImporter
-
-generator = OntologyGenerator()
-ontology  = generator.generate(kg)
-generator.export(ontology, path="domain_ontology.owl", format="turtle")
-
-importer = OntologyImporter()
-ontology = importer.load("existing_ontology.owl")
-ontology = importer.load("schema.ttl", format="turtle")
-ontology = importer.load("context.jsonld")
-```
-
-### SHACL Shape Generation & Validation
-
-Semantica turns ontologies into executable data contracts. The constraints layer completes a hybrid reasoning system — symbolic constraints (SHACL) alongside semantic retrieval (embeddings).
-
-**Phase 1 — Generate shapes from any ontology dict:**
-
-```python
-from semantica.ontology import OntologyEngine
-
-engine   = OntologyEngine()
-ontology = engine.from_data(data)          # or engine.from_text(...) / engine.to_owl(...)
-
-# Generate SHACL shapes — zero hand-authoring
-shacl_ttl  = engine.to_shacl(ontology)                        # Turtle string (default)
-shacl_jld  = engine.to_shacl(ontology, format="json-ld")      # JSON-LD string
-shacl_nt   = engine.to_shacl(ontology, format="n-triples")    # N-Triples string
-
-# Write to file
-engine.export_shacl(ontology, path="shapes/domain.ttl")
-```
-
-**Quality tiers — control constraint strictness:**
-
-```python
-# "basic"    — node shapes, property paths, datatypes, cardinality
-# "standard" — + enumerations (sh:in), patterns, inheritance propagation  [DEFAULT]
-# "strict"   — + sh:closed true on all shapes (rejects undeclared properties)
-
-shacl = engine.to_shacl(ontology, quality_tier="strict")
-```
-
-**Phase 2 — Validate a graph against the shapes:**
-
-```python
-import pathlib
-
-report = engine.validate_graph(
-    data_graph=pathlib.Path("data/graph.ttl").read_text(),
-    ontology=ontology,   # auto-generates SHACL before validating
-    explain=True,        # populate plain-English explanations on each violation
-)
-
-print(report.summary())
-# → "Graph does NOT conform: 2 violation(s)."
-
-for v in report.violations:
-    print(v.explanation)
-# → "Node <https://example.com/john> is missing required property <ex:name>. At least 1 value(s) are required."
-# → "Node <https://example.com/acme> has value '999' for <ex:employeeCount> but the expected datatype is xsd:string."
-
-import json
-print(json.dumps(report.to_dict(), indent=2))  # machine-readable — feed to LLM or pipeline
-```
-
-**Or validate against a pre-built SHACL file:**
-
-```python
-report = engine.validate_graph(
-    data_graph=graph_turtle_string,
-    shacl="shapes/domain.ttl",   # path or SHACL string
-)
-```
-
-**Regenerate shapes in CI to detect breaking ontology changes:**
+## 🛠️ Installation
 
 ```bash
-python -c "
-from semantica.ontology import OntologyEngine
-import json, pathlib
-engine = OntologyEngine()
-onto = engine.from_data(json.loads(pathlib.Path('ontology.json').read_text()))
-engine.export_shacl(onto, 'shapes/shapes.ttl')
-"
-git diff shapes/shapes.ttl   # detects breaking ontology changes
-```
+pip install semantica           # core
+pip install semantica[all]      # everything
 
-> **Requires pyshacl for `validate_graph()`:** `pip install semantica[shacl]`
-> Shape generation (`to_shacl`, `export_shacl`) works without any optional dependencies.
-
----
-
-## Integrations
-
-**Graph Databases**
-- AWS Neptune — Amazon Neptune with IAM authentication
-- Apache AGE — PostgreSQL + openCypher via SQL
-- FalkorDB — native support for decision queries and causal analysis
-
-**Vector Databases**
-- FAISS — high-performance dense vector search
-- Pinecone — serverless and pod-based managed vector database (`pip install semantica[vectorstore-pinecone]`)
-- Weaviate — GraphQL-based vector store with rich schema management (`pip install semantica[vectorstore-weaviate]`)
-- Qdrant — collection-based store with payload filtering (`pip install semantica[vectorstore-qdrant]`)
-- Milvus — scalable store with partition support and multiple index types (`pip install semantica[vectorstore-milvus]`)
-- PgVector — PostgreSQL pgvector extension with JSONB metadata (`pip install semantica[vectorstore-pgvector]`)
-- In-memory — lightweight, zero-dependency store for development and testing
-
-**Data Sources**
-- Snowflake — `SnowflakeIngestor` for table/query ingestion, schema introspection, pagination, and multiple auth methods (password, key-pair, OAuth, SSO) (`pip install semantica[db-snowflake]`)
-
-**Document Parsing**
-- Docling — PDF, DOCX, PPTX, XLSX with table and layout extraction
-
-**LLM Providers**
-- 100+ models via LiteLLM — OpenAI, Anthropic, Cohere, Mistral, Ollama, Azure, AWS Bedrock, and more
-- Novita AI — OpenAI-compatible provider (`deepseek/deepseek-v3.2` and more); configure via `NOVITA_API_KEY`
-
-**Agentic Frameworks**
-- Complements LangChain, LlamaIndex, AutoGen, CrewAI, Google ADK, and more
-
-> **Agno — First-Class Integration** `pip install semantica[agno]`
->
-> Semantica ships a dedicated Agno integration with five ready-to-use components:
-> - **`AgnoContextStore`** — graph-backed agent memory
-> - **`AgnoKnowledgeGraph`** — multi-hop GraphRAG knowledge base
-> - **`AgnoDecisionKit`** — 6 decision-intelligence tools
-> - **`AgnoKGToolkit`** — 7 knowledge-graph pipeline tools
-> - **`AgnoSharedContext`** — shared context graph for multi-agent teams
-
-**Export**
-- RDF: Turtle, JSON-LD, N-Triples, XML · Parquet · ArangoDB AQL
-
----
-
-## Installation
-
-```bash
-# Core
-pip install semantica
-
-# With all optional dependencies
-pip install semantica[all]
-
-# Vector store backends (install only what you need)
+# pick what you need
+pip install semantica[agno]
 pip install semantica[vectorstore-pinecone]
 pip install semantica[vectorstore-weaviate]
 pip install semantica[vectorstore-qdrant]
 pip install semantica[vectorstore-milvus]
 pip install semantica[vectorstore-pgvector]
-
-# SHACL validation (validate_graph)
-pip install semantica[shacl]
-
-# Snowflake ingestion
 pip install semantica[db-snowflake]
+pip install semantica[ingest-parquet]
 
-# From source
+# from source
 git clone https://github.com/Hawksight-AI/semantica.git
-cd semantica
-pip install -e ".[dev]"
-
-# Run tests
-pytest tests/
+cd semantica && pip install -e ".[dev]" && pytest tests/
 ```
+
+---
+
+## 🏆 Built for High-Stakes Domains
+
+> Every answer explainable. Every decision auditable. Every fact traceable.
+
+- 🏥 **Healthcare** — clinical decision support, drug interaction graphs, patient safety audit trails
+- 💰 **Finance** — fraud detection, regulatory compliance, risk knowledge graphs
+- ⚖️ **Legal** — evidence-backed research, contract analysis, case law reasoning
+- 🔒 **Cybersecurity** — threat attribution, incident response timelines, provenance tracking
+- 🏛️ **Government** — policy decision records, classified information governance
+- 🏭 **Infrastructure** — power grids, transportation networks, operational decision logs
+- 🤖 **Autonomous Systems** — decision logs, safety validation, explainable AI
+
+---
+
+## 🏢 Enterprise Support
+
+**[Website](https://getsemantica.ai/)** — enterprise solutions, private cloud deployment, custom domain implementations, professional services.
 
 ---
 
 ## 🤝 Community & Support
 
-### Join Our Community
+| | |
+|---|---|
+| 💬 **Discord** | [discord.gg/sV34vps5hH](https://discord.gg/sV34vps5hH) — real-time help and showcases |
+| 💡 **GitHub Discussions** | [Q&A and feature requests](https://github.com/Hawksight-AI/semantica/discussions) |
+| 🐛 **GitHub Issues** | [Bug reports](https://github.com/Hawksight-AI/semantica/issues) |
+| 📄 **Documentation** | [docs.getsemantica.ai](https://docs.getsemantica.ai/) |
+| 🍳 **Cookbook** | [Runnable notebooks and recipes](https://github.com/Hawksight-AI/semantica/tree/main/cookbook) |
+| 📋 **Changelog** | [CHANGELOG.md](CHANGELOG.md) · [Release Notes](RELEASE_NOTES.md) |
 
-| **Channel** | **Purpose** |
-|:-----------:|:-----------|
-| [**Discord**](https://discord.gg/sV34vps5hH) | Real-time help, showcases |
-| [**GitHub Discussions**](https://github.com/Hawksight-AI/semantica/discussions) | Q&A, feature requests |
+## 🤝 Contributing
 
-### Learning Resources
-
-
-### Enterprise Support
-
-Enterprise support, professional services, and commercial licensing will be available in the future. For now, we offer community support through Discord and GitHub Discussions.
-
-**Current Support:**
-- **Community Support** - Free support via [Discord](https://discord.gg/sV34vps5hH) and [GitHub Discussions](https://github.com/Hawksight-AI/semantica/discussions)
-- **Bug Reports** - [GitHub Issues](https://github.com/Hawksight-AI/semantica/issues)
-
-**Future Enterprise Offerings:**
-- Professional support with SLA
-- Enterprise licensing
-- Custom development services
-- Priority feature requests
-- Dedicated support channels
-
-Stay tuned for updates!
-
-- **AI / ML engineers** — GraphRAG, explainable agents, decision tracing
-- **Data engineers** — governed semantic pipelines with full provenance
-- **Knowledge engineers** — ontology management and KG construction at scale
-- **High-stakes domains** — healthcare, finance, legal, cybersecurity, government
-
----
-
-## Resources
-
-- [Documentation](https://github.com/Hawksight-AI/semantica/tree/main/docs)
-- [Cookbook & Notebooks](https://github.com/Hawksight-AI/semantica/tree/main/cookbook)
-- [Contributing Guide](CONTRIBUTING.md)
-- [Changelog](https://github.com/Hawksight-AI/semantica/releases)
-- [💬 Discord Community](https://discord.gg/sV34vps5hH)
-- [Follow on X](https://x.com/BuildSemantica)
-
----
-
-## Contributing
-
-All contributions welcome — bug fixes, new features, tests, and docs.
+All contributions welcome — bug fixes, features, tests, and docs.
 
 1. Fork the repo and create a branch
 2. `pip install -e ".[dev]"`
@@ -889,4 +603,6 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for full guidelines.
 
 MIT License · Built by [Hawksight AI](https://github.com/Hawksight-AI) · [⭐ Star on GitHub](https://github.com/Hawksight-AI/semantica)
 
-[GitHub](https://github.com/Hawksight-AI/semantica) • [Discord](https://discord.gg/sV34vps5hH)
+[GitHub](https://github.com/Hawksight-AI/semantica) · [Discord](https://discord.gg/sV34vps5hH) · [X / Twitter](https://x.com/BuildSemantica) · [Website](https://getsemantica.ai/)
+
+</div>

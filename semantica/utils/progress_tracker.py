@@ -253,21 +253,21 @@ class ConsoleProgressDisplay(ProgressDisplay):
             # If we have pipeline items, show all of them
             if pipeline_items:
                 # Clear and show all pipeline items
-                sys.stdout.write("\r" + " " * 150 + "\r")
-                
+                self._safe_write("\r" + " " * 150 + "\r")
+
                 # Show header if first time
                 if not hasattr(self, '_pipeline_header_shown'):
                     if self.use_emoji:
-                        sys.stdout.write("🧠 Semantica - 📊 Current Progress\n")
+                        self._safe_write("🧠 Semantica - 📊 Current Progress\n")
                     else:
-                        sys.stdout.write("Semantica - Current Progress\n")
-                    sys.stdout.write("=" * 150 + "\n")
+                        self._safe_write("Semantica - Current Progress\n")
+                    self._safe_write("=" * 150 + "\n")
                     self._pipeline_header_shown = True
-                
+
                 # Display all pipeline items
                 for pipeline_item in pipeline_items:
                     self._display_item_line(pipeline_item)
-                    sys.stdout.write("\n")
+                    self._safe_write("\n")
                 
                 sys.stdout.flush()
             else:
