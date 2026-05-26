@@ -1,4 +1,4 @@
-FROM node:25-alpine AS frontend-builder
+FROM node:26-alpine AS frontend-builder
 
 WORKDIR /app/semantica-explorer
 
