@@ -2089,30 +2089,73 @@ def export(
                  format=fmt, output=output)
             return
         try:
+            import tempfile
+
             from .export import get_export_method
-            fn = get_export_method(fmt)
+            from .graph_store import get_nodes, get_relationships
+            from .graph_store.config import graph_store_config
+
+            fn = get_export_method("export", "knowledge_graph")
+            if fn is None:
+                raise click.ClickException("Export method not available: export/knowledge_graph")
+
+            graph_db = dict(cli_ctx.config.to_dict().get("graph_db", {}))
+            backend = cli_ctx.store_backend or graph_db.pop("backend", None)
+            previous_graph_config = graph_store_config.get_all()
+            graph_store_config.update(graph_db)
+            if backend:
+                graph_store_config.set("default_backend", backend)
+            try:
+                entities = get_nodes(limit=sys.maxsize)
+                relationships = get_relationships(limit=sys.maxsize)
+            finally:
+                graph_store_config.update(previous_graph_config)
+
+            knowledge_graph = {
+                "entities": entities,
+                "relationships": relationships,
+                "nodes": entities,
+                "edges": relationships,
+            }
+
             kwargs: Dict[str, Any] = {"format": fmt}
             if with_provenance:
-                kwargs["with_provenance"] = True
+                kwargs["include_provenance"] = True
             if filter_str:
                 kwargs["filter"] = filter_str
-            result = fn(config=cli_ctx.config.to_dict(), **kwargs)
+
+            temp_output = None
+            target_output = output
+            if target_output is None or compress:
+                temp_handle = tempfile.NamedTemporaryFile(delete=False, suffix=".tmp")
+                temp_output = temp_handle.name
+                temp_handle.close()
+                target_output = temp_output
+
+            fn(knowledge_graph, target_output, **kwargs)
         except ImportError as exc:
             raise click.ClickException(f"Export module not available: {exc}") from exc
-        data = result if isinstance(result, (str, bytes)) else json.dumps(result, default=str)
         if compress:
             import gzip
-            compressed = gzip.compress(data.encode() if isinstance(data, str) else data)
+
+            assert temp_output is not None
+            compressed = gzip.compress(Path(temp_output).read_bytes())
             if output:
                 Path(output).write_bytes(compressed)
                 _ok(cli_ctx, f"Wrote compressed {output}")
             else:
                 sys.stdout.buffer.write(compressed)
         elif output:
-            Path(output).write_text(str(data), encoding="utf-8")
             _ok(cli_ctx, f"Wrote {output}")
         else:
-            click.echo(data)
+            assert temp_output is not None
+            try:
+                click.echo(Path(temp_output).read_text(encoding="utf-8"))
+            except UnicodeDecodeError:
+                sys.stdout.buffer.write(Path(temp_output).read_bytes())
+
+        if temp_output:
+            Path(temp_output).unlink(missing_ok=True)
 
     _run_with_error_handling(_action)
 

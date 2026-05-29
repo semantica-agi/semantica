@@ -947,14 +947,96 @@ class TestExport:
         data = _json_output(result)
         assert data["dry_run"] is True
 
+    def test_real_export_runtime_path(self, runner, tmp_path, monkeypatch):
+        class FakeGraphStore:
+            def get_nodes(self, labels=None, properties=None, limit=100, **options):
+                return [
+                    {
+                        "id": "n1",
+                        "type": "Person",
+                        "name": "Alice",
+                        "properties": {"name": "Alice"},
+                    }
+                ]
+
+            def get_relationships(self, node_id=None, rel_type=None, direction="both", limit=100, **options):
+                return [
+                    {
+                        "id": "r1",
+                        "source": "n1",
+                        "target": "n1",
+                        "type": "KNOWS",
+                        "properties": {},
+                    }
+                ]
+
+        monkeypatch.setattr(
+            "semantica.graph_store.methods._get_store",
+            lambda: FakeGraphStore(),
+        )
+        monkeypatch.setattr(
+            "semantica.graph_store.get_nodes",
+            lambda **kwargs: [
+                {
+                    "id": "n1",
+                    "type": "Person",
+                    "name": "Alice",
+                    "properties": {"name": "Alice"},
+                }
+            ],
+        )
+        monkeypatch.setattr(
+            "semantica.graph_store.methods.get_nodes",
+            lambda **kwargs: [
+                {
+                    "id": "n1",
+                    "type": "Person",
+                    "name": "Alice",
+                    "properties": {"name": "Alice"},
+                }
+            ],
+        )
+        monkeypatch.setattr(
+            "semantica.graph_store.get_relationships",
+            lambda **kwargs: [
+                {
+                    "id": "r1",
+                    "source": "n1",
+                    "target": "n1",
+                    "type": "KNOWS",
+                    "properties": {},
+                }
+            ],
+        )
+        monkeypatch.setattr(
+            "semantica.graph_store.methods.get_relationships",
+            lambda **kwargs: [
+                {
+                    "id": "r1",
+                    "source": "n1",
+                    "target": "n1",
+                    "type": "KNOWS",
+                    "properties": {},
+                }
+            ],
+        )
+
+        output_path = tmp_path / "export.json"
+        result = runner.invoke(main, ["export", "--format", "json", "--output", str(output_path)])
+        _ok(result)
+        exported = output_path.read_text(encoding="utf-8")
+        assert "Alice" in exported
+        assert "KNOWS" in exported
+
     def test_invalid_format_fails(self, runner):
         result = runner.invoke(main, ["export", "--format", "magic"])
         assert result.exit_code != 0
 
     def test_import_error_is_clean(self, runner):
+        original_import = __import__
         with patch("builtins.__import__", side_effect=lambda n, *a, **k: (
             (_ for _ in ()).throw(ImportError(n))
-            if "semantica.export" in n else __import__(n, *a, **k)
+            if "semantica.export" in n else original_import(n, *a, **k)
         )):
             result = runner.invoke(main, ["export", "--format", "json"])
         assert result.exit_code != 0
