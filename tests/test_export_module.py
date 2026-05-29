@@ -60,6 +60,17 @@ class TestExportModule(unittest.TestCase):
         entities_path = Path(self.test_dir) / "entities.json"
         exporter.export_entities(self.entities, str(entities_path))
         self.assertTrue(entities_path.exists())
+
+    def test_export_knowledge_graph_smoke(self):
+        from semantica.export.methods import export_knowledge_graph
+
+        output_path = Path(self.test_dir) / "smoke.json"
+        export_knowledge_graph(self.kg, output_path, format="json")
+
+        self.assertTrue(output_path.exists())
+        exported = output_path.read_text(encoding="utf-8")
+        self.assertIn("Alice", exported)
+        self.assertIn("Acme Corp", exported)
         
     def test_csv_exporter(self):
         exporter = CSVExporter()
