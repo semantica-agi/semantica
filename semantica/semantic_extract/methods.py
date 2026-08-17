@@ -282,8 +282,8 @@ def get_nlp_model():
         try:
             _nlp_cache = spacy.load("en_core_web_sm", disable=["parser", "ner", "lemmatizer"])
             return _nlp_cache
-        except:
-            pass
+        except Exception:
+            pass  # spacy.load raises OSError for a missing model
             
     except Exception as e:
         logger.warning(f"Failed to load spaCy model for similarity: {e}")
@@ -1457,9 +1457,9 @@ def extract_relations_similarity(
             if not nlp:
                  # Try loading what we have
                  try:
-                     nlp = load_spacy_model("en_core_web_sm") 
-                 except:
-                     pass
+                     nlp = load_spacy_model("en_core_web_sm")
+                 except Exception:
+                     pass  # load_spacy_model raises OSError for a missing model
         except Exception:
             pass
 
