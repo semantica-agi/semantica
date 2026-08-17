@@ -24,6 +24,7 @@ Author: Semantica Contributors
 License: MIT
 """
 
+import copy
 import os
 import stat
 import time
@@ -46,7 +47,13 @@ NAMESPACES = ("entities", "relations", "triplets")
 
 
 class CacheItem:
-    """Container for cached data."""
+    """Container for cached data with metadata.
+
+    Holds the value exactly as passed by the caller of ``__init__``.  It is
+    the responsibility of the owner (``InMemoryBackend``) to pass an already-
+    isolated snapshot so that the stored value is immune to mutation of the
+    object the original caller passed to ``set()``.
+    """
 
     def __init__(self, value: Any, ttl: Optional[int] = None):
         self.value = value
@@ -113,9 +120,17 @@ class InMemoryBackend(CacheBackend):
         }
         self._locks: Dict[str, Lock] = {ns: Lock() for ns in NAMESPACES}
 
+    # Sentinel distinguishing "no entry under this key" from a stored None.
+    _MISSING = object()
+
     def get(self, namespace: str, key: str) -> Optional[Any]:
         if namespace not in self._caches:
             return None
+
+        # Phase 1: look up the stored snapshot under the lock.  Only the
+        # reference is captured here so lock hold-time is O(1) regardless of
+        # value size.  The deepcopy happens in phase 2, outside the lock.
+        snapshot = self._MISSING
         with self._locks[namespace]:
             cache = self._caches[namespace]
             item = cache.get(key)
@@ -125,16 +140,40 @@ class InMemoryBackend(CacheBackend):
                 del cache[key]
                 return None
             cache.move_to_end(key)  # mark as recently used
-            return item.value
+            snapshot = item.value
+
+        # Phase 2: return a caller-owned copy.  deepcopy is done outside the
+        # lock so a large result does not block concurrent reads on the same
+        # namespace.  If the stored snapshot cannot be copied (e.g. a value
+        # that slipped through CacheItem's own fallback), treat it as a miss
+        # and evict rather than surface a corrupt object.
+        try:
+            return copy.deepcopy(snapshot)
+        except Exception:
+            with self._locks[namespace]:
+                self._caches[namespace].pop(key, None)
+            return None
 
     def set(self, namespace: str, key: str, value: Any, ttl: Optional[int]) -> None:
         if namespace not in self._caches:
             return
+
+        # Prepare the cache-owned snapshot BEFORE acquiring the lock so that
+        # a large deepcopy does not hold the namespace lock and block
+        # concurrent readers (mirroring the get() two-phase design).
+        # If deepcopy fails the value is stored as-is: the writer's result
+        # still caches, and get() will treat the uncopyable entry as a miss
+        # (evict + return None) rather than returning an aliased mutable value.
+        try:
+            snapshot = copy.deepcopy(value)
+        except Exception:
+            snapshot = value
+
         with self._locks[namespace]:
             cache = self._caches[namespace]
             if key in cache:
                 cache.move_to_end(key)
-            cache[key] = CacheItem(value, ttl)
+            cache[key] = CacheItem(snapshot, ttl)
             if len(cache) > self.max_size:
                 cache.popitem(last=False)  # evict least recently used
 
