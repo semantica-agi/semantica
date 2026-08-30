@@ -81,7 +81,7 @@ from ..utils.exceptions import ProcessingError
 from ..utils.helpers import safe_import
 from ..utils.logging import get_logger
 from ..utils.progress_tracker import get_progress_tracker
-from .types import Entity
+from .types import Entity, meets_confidence_threshold
 
 spacy, SPACY_AVAILABLE = safe_import("spacy")
 
@@ -720,17 +720,29 @@ class NERExtractor:
                         try:
                             from .methods import calculate_weighted_confidence
                             for e in entities:
+                                had_score = e.confidence is not None
                                 e.confidence = calculate_weighted_confidence(
                                     item_type=e.label,
                                     original_confidence=e.confidence,
                                     valid_types=entity_types,
                                     item_text=e.text
                                 )
+                                if not had_score and e.confidence is not None:
+                                    if e.metadata is None:
+                                        e.metadata = {}
+                                    e.metadata["confidence_source"] = (
+                                        "type_similarity"
+                                    )
                         except ImportError:
                             pass
 
-                    # Filter by confidence
-                    filtered = [e for e in entities if e.confidence >= min_confidence]
+                    # Filter by confidence (unknown confidence passes: absence
+                    # of a score is not evidence of low confidence)
+                    filtered = [
+                        e
+                        for e in entities
+                        if meets_confidence_threshold(e.confidence, min_confidence)
+                    ]
                     
                     if merge_strategy == "fallback":
                         if filtered:
@@ -1397,6 +1409,10 @@ class NERExtractor:
             min_confidence: Minimum confidence threshold
 
         Returns:
-            list: Filtered entities
+            list: Filtered entities (entities with unknown confidence pass)
         """
-        return [e for e in entities if e.confidence >= min_confidence]
+        return [
+            e
+            for e in entities
+            if meets_confidence_threshold(e.confidence, min_confidence)
+        ]
