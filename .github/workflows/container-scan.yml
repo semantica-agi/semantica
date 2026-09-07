@@ -12,7 +12,7 @@ on:
       - 'README.md'
       - 'LICENSE'
       - 'MANIFEST.in'
-      - '.github/requirements/explorer-extra-py314.txt'
+      - '.github/requirements/explorer-extra-py313.txt'
       - '.github/requirements/pep517-build.txt'
       - 'semantica/**'
       - 'integrations/**'
