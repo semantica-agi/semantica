@@ -86,10 +86,10 @@ All settings can be overridden with environment variables: no code changes neede
 | OpenAI API Key | `OPENAI_API_KEY` | `None` |
 | Groq API Key | `GROQ_API_KEY` | `None` |
 | Anthropic API Key | `ANTHROPIC_API_KEY` | `None` |
-| Graph Store Backend | `GRAPH_STORE_DEFAULT_BACKEND` | `"networkx"` |
+| Graph Store Backend | `GRAPH_STORE_DEFAULT_BACKEND` | `"neo4j"` |
 | Vector Store Backend | `VECTOR_STORE_DEFAULT_BACKEND` | `"faiss"` |
 | Server Host | `SEMANTICA_HOST` | `"127.0.0.1"` |
-| Server Port | `SEMANTICA_PORT` | `8000` |
+| Server API Key | `SEMANTICA_API_KEY` | `None` |
 
 
 ## Troubleshooting
@@ -150,6 +150,10 @@ from semantica.pipeline import ParallelismManager, Task
 
 # Run pipeline tasks concurrently across worker threads
 manager = ParallelismManager(max_workers=8)
+tasks = [
+    Task("task_1", lambda: "process part 1"),
+    Task("task_2", lambda: "process part 2"),
+]
 results = manager.execute_parallel(tasks)
 ```
 
@@ -209,6 +213,7 @@ Process documents in batches rather than one at a time. Split large texts into c
 from semantica.split import TextSplitter
 from semantica.semantic_extract import NERExtractor
 
+document_text = "Acme Corp announced record revenue in Seattle. CEO Jane Doe presented results."
 splitter = TextSplitter(chunk_size=1000, chunk_overlap=100)
 chunks = splitter.split(document_text)
 
@@ -225,8 +230,14 @@ If deduplication is a bottleneck, use candidate blocking to reduce O(n²) compar
 ```python
 from semantica.deduplication import DuplicateDetector, EntityMerger
 
+entities = [
+    {"id": "1", "name": "Acme Corp", "type": "Company"},
+    {"id": "2", "name": "Acme Corporation", "type": "Company"},
+    {"id": "3", "name": "Globex", "type": "Company"},
+]
+
 # Fast candidate blocking for large entity sets
-detector = DuplicateDetector(similarity_threshold=0.85)
+detector = DuplicateDetector(similarity_threshold=0.8)
 duplicates = detector.detect_duplicates(entities, candidate_strategy="blocking_v2")
 
 merger = EntityMerger()
