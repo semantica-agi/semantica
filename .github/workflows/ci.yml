@@ -112,8 +112,8 @@ jobs:
           # `uv pip compile pyproject.toml --extra explorer --python-version 3.11 --constraint requirements-ci.txt --generate-hashes`
           # - regenerate it the same way if pyproject.toml's base/explorer
           # deps change. Resolved specifically for this job's python 3.11
-          # (see the Dockerfile's explorer-extra-py313.txt for why this
-          # can't be shared with python 3.13: audioread needs extra
+          # (see the Dockerfile's explorer-extra-py314.txt for why this
+          # can't be shared with python 3.14: audioread needs extra
           # standard-aifc/standard-sunau hashes only on 3.13+).
           #
           # --no-deps only skips *runtime* dependency resolution - `-e .`
