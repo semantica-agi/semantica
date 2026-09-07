@@ -2114,6 +2114,30 @@ class TestMCP:
         assert "Traceback" not in result.output
         assert "Invalid JSON" in result.output
 
+    def test_call_failure_global_json_mode_keeps_stdout_clean(self, runner):
+        """Under global --json, stdout must stay machine-readable: failures are
+        emitted as structured JSON on stderr, never as a Rich panel on stdout."""
+        result = runner.invoke(
+            cli_module.main,
+            ["--json", "mcp", "call", "some_tool", "--args", "{bad json}"],
+        )
+        assert result.exit_code != 0
+        assert result.stdout == ""
+        err = json.loads(result.stderr)
+        assert err["error"].startswith("Invalid JSON in --args")
+        assert err["type"] == "ClickException"
+
+    def test_call_failure_local_json_mode_keeps_stdout_clean(self, runner):
+        """The subcommand's own --json flag promises the same stream contract."""
+        result = runner.invoke(
+            cli_module.main,
+            ["mcp", "call", "some_tool", "--args", "{bad json}", "--json"],
+        )
+        assert result.exit_code != 0
+        assert result.stdout == ""
+        err = json.loads(result.stderr)
+        assert err["error"].startswith("Invalid JSON in --args")
+
     def test_call_import_error_is_clean(self, runner):
         with patch("builtins.__import__", side_effect=lambda n, *a, **k: (
             (_ for _ in ()).throw(ImportError(n))

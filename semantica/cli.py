@@ -95,7 +95,26 @@ _ERROR_HINTS: Dict[type, str] = {
 }
 
 
+def _json_error_mode() -> bool:
+    """True when this invocation promised machine-readable stdout.
+
+    Covers both the global ``--json`` flag (stored on the CLI context) and a
+    subcommand's local ``--json`` flag (uniformly named ``local_json``).
+    """
+    ctx = click.get_current_context(silent=True)
+    if ctx is None:
+        return False
+    if ctx.params.get("local_json"):
+        return True
+    return isinstance(ctx.obj, CLIContext) and ctx.obj.json_output
+
+
 def _show_error_card(title: str, detail: str, hint: Optional[str] = None) -> None:
+    if _json_error_mode():
+        # --json promises machine-readable stdout with errors on stderr, so
+        # emit a structured error line there instead of a Rich panel.
+        click.echo(json.dumps({"error": detail, "type": title}), err=True)
+        return
     body = f"[bold]{title}[/bold]\n[{_DIM}]{detail}[/{_DIM}]"
     if hint:
         body += f"\n\n[{_KEY}]→[/{_KEY}] [{_DIM}]{hint}[/{_DIM}]"
@@ -105,7 +124,7 @@ def _show_error_card(title: str, detail: str, hint: Optional[str] = None) -> Non
 
 
 def _run_with_error_handling(action: Callable[[], None]) -> None:
-    """Run a CLI action with Rich error cards on failure."""
+    """Run a CLI action with error cards (or JSON-mode stderr errors) on failure."""
     try:
         action()
     except click.ClickException as exc:
