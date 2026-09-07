@@ -2054,9 +2054,9 @@ idna==3.19 \
     #   jsonschema
     #   requests
     #   yarl
-importlib-metadata==8.9.0 \
-    --hash=sha256:58850626cef4bd2df100378b0f2aea9724a7b92f10770d547725b047078f99ee \
-    --hash=sha256:e0f761b6ea91ced3b0844c14c9d955224d538105921f8e6754c00f6ca79fba7f
+importlib-metadata==9.0.1 \
+    --hash=sha256:ab830580bc0ef3db61ce8fae716389e5462b67e033018bab6d8f80ef17172f99 \
+    --hash=sha256:bba5600596a7e21f3eef53281cf28d6a5195634d2f2b78ff9501a3272c6eaab0
     # via
     #   litellm
     #   pyshacl
