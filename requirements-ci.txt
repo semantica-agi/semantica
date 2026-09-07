@@ -426,9 +426,9 @@ boto3==1.43.85 \
     # via
     #   semantica (pyproject.toml)
     #   litellm
-botocore==1.43.85 \
-    --hash=sha256:685510e5f4c0f321806c815a60f121a176c0969665f053c4a336209cbe62b1d5 \
-    --hash=sha256:8fc0a3c56078c629320b021edadf7a45d289eea21a4988ada6a02277e5bbbdc0
+botocore==1.43.88 \
+    --hash=sha256:1b59b6d74fb77b0c3934014b6693d56da4a9a172edb9454f9a5f711b4b3f7353 \
+    --hash=sha256:3c8a6e2292f05c590c5d5299934dd23c81d19a2b6dd70b9eb724f79bd432d04f
     # via
     #   boto3
     #   s3transfer
