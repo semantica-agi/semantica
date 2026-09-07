@@ -531,11 +531,15 @@ class VectorStore:
                         return self._backend_store.add_vectors(vectors, metadata=metadata, **options)
                     return self._backend_store.add_vectors(vectors, **options)
             elif hasattr(self._backend_store, 'insert_vectors'):
-                # QdrantStore: insert_vectors(vectors, ids, payloads=None).
+                # QdrantStore: insert_vectors(vectors, ids, payloads=None)
+                # upserts the points but returns the client's status dict,
+                # while this facade promises callers the stored vector IDs
+                # (decision storage indexes the result at position 0).
                 # metadata entries already carry the source document (folded
                 # in by store()), so they map directly to Qdrant payloads.
                 ids = options.pop('ids', None) or [str(uuid.uuid4()) for _ in range(len(vectors))]
-                return self._backend_store.insert_vectors(vectors, ids, payloads=metadata, **options)
+                self._backend_store.insert_vectors(vectors, ids, payloads=metadata, **options)
+                return ids
             else:
                 raise NotImplementedError(f"Backend store {type(self._backend_store).__name__} does not have add or add_vectors method")
         

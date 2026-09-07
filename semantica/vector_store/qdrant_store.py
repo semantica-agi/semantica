@@ -402,7 +402,13 @@ class QdrantStore:
         facade can read/write without an explicit create_collection() call.
         Reuses the existing collection if a previous process created it.
         """
-        name = self.config.get("collection", "semantica_default")
+        # ``collection_name`` is the option the VectorStore facade and the
+        # docs pass through; accept the legacy ``collection`` spelling too.
+        name = (
+            self.config.get("collection_name")
+            or self.config.get("collection")
+            or "semantica_default"
+        )
         try:
             self.create_collection(name, vector_size=dim)
         except ProcessingError:
@@ -429,6 +435,14 @@ class QdrantStore:
         Returns:
             Insert response
         """
+        if len(ids) != len(vectors):
+            # Points are paired with zip(vectors, ids), so a mismatched ID
+            # list would silently drop the unpaired vectors while the
+            # completion message still reports the full batch as inserted.
+            raise ValidationError(
+                f"Number of ids ({len(ids)}) must match number of vectors ({len(vectors)})"
+            )
+
         tracking_id = self.progress_tracker.start_tracking(
             module="vector_store",
             submodule="QdrantStore",
