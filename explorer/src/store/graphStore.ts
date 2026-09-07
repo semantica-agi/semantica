@@ -26,6 +26,8 @@ export interface NodeAttributes {
   size: number;
   color: string;
   baseColor?: string;
+  /** Original semantic color when a display clone bakes interaction styling into baseColor. */
+  semanticBaseColor?: string;
   mutedColor?: string;
   glowColor?: string;
   baseSize?: number;
@@ -86,6 +88,7 @@ export interface EdgeAttributes {
   dominantEdgeType?: string;
   representativeWeight?: number;
   bundleKind?: "parallel" | "bidirectional" | "community";
+  isSmallGraph?: boolean;
   
  
   edgeType: string;
