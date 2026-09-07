@@ -14,10 +14,12 @@ not. It *composes* the existing public APIs; nothing in ``context_graph.py`` or
 ``agent_memory.py`` changes, and ``ContextGraph`` keeps its graph-scope
 contract.
 
-The property that matters is honest partial reporting. Three vector backends
-(FAISS, Milvus, Weaviate) expose no delete at all, so erasure is genuinely not
-completable on them today. The receipt says ``unsupported`` for those rather
-than reporting a success it did not achieve -- a receipt that reads
+The property that matters is honest partial reporting. FAISS exposes no delete
+at all -- a flat FAISS index cannot remove individual vectors without a full
+rebuild -- so erasure is genuinely not completable on it today. Milvus and
+Weaviate now expose ``delete_vectors`` and are fully supported. The receipt
+says ``unsupported`` for FAISS rather than reporting a success it did not
+achieve -- a receipt that reads
 "graph: erased, memory: 14 erased, vectors: unsupported on faiss" is
 actionable; a bare ``True`` is a compliance liability.
 
@@ -29,9 +31,9 @@ Example:
     ...     "customer-4471", reason="GDPR Art. 17 request #882"
     ... )
     >>> receipt.complete
-    False
+    True
     >>> receipt.stores["vectors"]["status"]
-    'unsupported'
+    'not_configured'
 """
 
 import copy
@@ -377,8 +379,8 @@ class ErasureCoordinator:
 
         method_name, target = _vector_delete_capability(self.vector_store)
         if method_name is None:
-            # FAISS, Milvus and Weaviate expose no delete at all; FAISS in
-            # particular cannot remove from a flat index without a rebuild.
+            # FAISS exposes no delete at all; it cannot remove vectors from a
+            # flat index without a full rebuild.
             self.logger.warning(
                 "Vector backend %r exposes no delete; %d vector id(s) for %r "
                 "were not erased",

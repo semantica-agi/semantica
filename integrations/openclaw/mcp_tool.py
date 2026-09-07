@@ -6,7 +6,7 @@ Two integration paths:
 
 1. **MCP (recommended)** — ``OpenClawMCPConfig`` emits the ``mcporter.json``
    snippet that wires Semantica's MCP server into the OpenClaw Gateway.
-   All 12 Semantica MCP tools become native OpenClaw agent tools with no
+   All 15 Semantica MCP tools become native OpenClaw agent tools with no
    extra code.
 
 2. **REST** — ``OpenClawKGTool`` is a plain Python class that calls the

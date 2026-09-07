@@ -89,7 +89,7 @@ class _DeleteStore:
 
 
 class _NoDeleteStore:
-    """Backend shaped like FAISS/Milvus/Weaviate: no delete surface at all."""
+    """Backend shaped like FAISS: no delete surface at all."""
 
     backend = "faiss"
 
