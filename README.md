@@ -1406,6 +1406,9 @@ semantica-mcp
 | `get_graph_analytics` | Centrality, communities |
 | `export_graph` | Export to RDF/JSON/Parquet |
 | `get_graph_summary` | Graph statistics |
+| `query_graph` | Fetch a node, walk neighbours, keyword search |
+| `update_node` | Merge properties onto a node |
+| `delete_node` | Archive (soft-delete) a node |
 
 ### REST API
 

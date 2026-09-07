@@ -20,6 +20,17 @@ RUN mkdir -p /app/semantica && npm run build
 # .github/dependabot.yml opens a PR bumping the digest pin above. Also: this
 # image only serves plain HTTP via uvicorn and never opens a QUIC listener,
 # so the bug isn't reachable here regardless.
+#
+# Pinned to 3.13, NOT 3.14: #1290 bumped this to python:3.14-slim and broke
+# the build outright (Container Security Scan, every run since) - gensim
+# (a base, non-extras-gated dependency) ships no cp314 wheel on PyPI yet, so
+# pip falls back to building it from source, which needs a C compiler this
+# slim image doesn't carry ("error: [Errno 2] No such file or directory:
+# 'gcc'"). Revisit the 3.14 bump once gensim (and anything else pulled in
+# transitively) publishes cp314 wheels - check with
+# `pip index versions gensim` / the project's PyPI files page, not just
+# whether `uv pip compile` resolves (resolution only reads sdist metadata,
+# it doesn't attempt the build that fails here).
 FROM python:3.13-slim@sha256:7ce4b6dfe35e55397b7cda544f8a13f191b7ae28dc5aad71fe664dbc9bc2623f AS runtime
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
