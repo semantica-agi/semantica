@@ -1283,9 +1283,9 @@ doclang==0.7.3 \
     --hash=sha256:9440c4ca9f7e061a7b8d33bdf15b1029be69a4c13cd8952dd6ce541884e4c685 \
     --hash=sha256:ca50615357e46ebf9597bb9065b9112367103ec24bd539f8ae12649224cf50b0
     # via docling-core
-docling==2.124.0 \
-    --hash=sha256:822474679fc3f14081db8a5aa985057de3ec889390fc24534a8c269225af0b48 \
-    --hash=sha256:bff775aea776429e3bc1d20972dc173e80cd748b1202ebadc4c3ab64c156cdb5
+docling==2.125.0 \
+    --hash=sha256:09fe009f3a3a1f450bed1e3413346e8cdbbcdbdb95b53f30ec4ce4276edc8417 \
+    --hash=sha256:a28a00040f505991ef54b90c7d114f87122774e4977168efcfa304e05be51ee0
     # via semantica (pyproject.toml)
 docling-core==2.93.0 \
     --hash=sha256:0bdf6f42b0c83ca4dcd3916e6d1fbcfdc87168d93f192e00a1d2b0c55d5357d4 \
