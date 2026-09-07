@@ -153,15 +153,29 @@ class QdrantCollection:
             raise ProcessingError("Qdrant not available")
 
         try:
-            search_results = self.client.search(
-                collection_name=self.collection_name,
-                query_vector=query_vector.tolist(),
-                limit=limit,
-                query_filter=query_filter,
-                with_payload=True,
-                with_vectors=False,
-                **options,
-            )
+            # qdrant-client removed `search` in favor of `query_points`
+            # (1.10 deprecated it, later releases dropped it entirely).
+            if hasattr(self.client, "query_points"):
+                response = self.client.query_points(
+                    collection_name=self.collection_name,
+                    query=query_vector.tolist(),
+                    limit=limit,
+                    query_filter=query_filter,
+                    with_payload=True,
+                    with_vectors=False,
+                    **options,
+                )
+                search_results = response.points
+            else:
+                search_results = self.client.search(
+                    collection_name=self.collection_name,
+                    query_vector=query_vector.tolist(),
+                    limit=limit,
+                    query_filter=query_filter,
+                    with_payload=True,
+                    with_vectors=False,
+                    **options,
+                )
 
             results = []
             for result in search_results:
@@ -381,6 +395,21 @@ class QdrantStore:
         except Exception as e:
             raise ProcessingError(f"Failed to get collection: {str(e)}")
 
+    def _ensure_default_collection(self, dim: int = 384) -> QdrantCollection:
+        """Lazily attach the configured collection, creating it on first use.
+
+        Mirrors FAISSStore's automatic index creation so the VectorStore
+        facade can read/write without an explicit create_collection() call.
+        Reuses the existing collection if a previous process created it.
+        """
+        name = self.config.get("collection", "semantica_default")
+        try:
+            self.create_collection(name, vector_size=dim)
+        except ProcessingError:
+            self.get_collection(name)
+        self.logger.info(f"Auto-initialized Qdrant collection '{name}' (dim={dim})")
+        return self.collection
+
     def insert_vectors(
         self,
         vectors: List[Union[np.ndarray, List[float]]],
@@ -408,12 +437,10 @@ class QdrantStore:
 
         try:
             if self.collection is None:
-                self.progress_tracker.stop_tracking(
-                    tracking_id, status="failed", message="Collection not initialized"
-                )
-                raise ProcessingError(
-                    "Collection not initialized. Call create_collection() or get_collection() first."
-                )
+                # len() not truthiness: vectors may be a 2-D ndarray, whose
+                # truth value is ambiguous.
+                dim = int(len(vectors[0])) if len(vectors) else 384
+                self._ensure_default_collection(dim)
 
             if not QDRANT_AVAILABLE:
                 self.progress_tracker.stop_tracking(
@@ -478,12 +505,7 @@ class QdrantStore:
 
         try:
             if self.search_engine is None:
-                self.progress_tracker.stop_tracking(
-                    tracking_id, status="failed", message="Collection not initialized"
-                )
-                raise ProcessingError(
-                    "Collection not initialized. Call create_collection() or get_collection() first."
-                )
+                self._ensure_default_collection(int(len(query_vector)))
 
             self.progress_tracker.update_tracking(
                 tracking_id, message="Performing similarity search..."
