@@ -792,10 +792,9 @@ def list_available_methods(task: Optional[str] = None) -> Dict[str, List[str]]:
     return method_registry.list_all(task)
 
 
-# Register default methods
-method_registry.register("document", "default", parse_document)
-method_registry.register("web", "default", parse_web_content)
-method_registry.register("structured", "default", parse_structured_data)
-method_registry.register("email", "default", parse_email)
-method_registry.register("code", "default", parse_code)
-method_registry.register("media", "default", parse_media)
+# NOTE: the built-in dispatchers (parse_document, parse_web_content, ...) must
+# NOT be registered under their own task's "default" method name. Each
+# dispatcher starts with method_registry.get(<task>, method) and would find
+# itself, re-entering infinitely until RecursionError. "default" is the
+# built-in code path and stays unregistered; users can still register their
+# own "default" (or any other name) to override it.
