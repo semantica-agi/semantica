@@ -1,9 +1,10 @@
 """
 Embedding Visualizer Module
 
-This module provides comprehensive visualization capabilities for vector embeddings in the
-Semantica framework, including 2D/3D dimensionality reduction projections, similarity heatmaps,
-clustering visualizations, multi-modal comparisons, and quality metrics analysis.
+This module provides comprehensive visualization capabilities for vector
+embeddings in the Semantica framework, including 2D/3D dimensionality
+reduction projections, similarity heatmaps, clustering visualizations,
+multi-modal comparisons, and quality metrics analysis.
 
 Key Features:
     - 2D and 3D dimensionality reduction (UMAP, t-SNE, PCA)
@@ -31,9 +32,8 @@ License: MIT
 """
 
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Union
 
-import matplotlib.pyplot as plt
 import numpy as np
 
 try:
@@ -45,8 +45,12 @@ except (ImportError, OSError):
     go = None
     make_subplots = None
 
-from sklearn.decomposition import PCA
-from sklearn.manifold import TSNE
+try:
+    from sklearn.decomposition import PCA
+    from sklearn.manifold import TSNE
+except (ImportError, OSError):
+    PCA = None
+    TSNE = None
 
 try:
     import umap
@@ -57,7 +61,7 @@ from ..utils.exceptions import ProcessingError
 from ..utils.logging import get_logger
 from ..utils.progress_tracker import get_progress_tracker
 from .utils.color_schemes import ColorPalette, ColorScheme
-from .utils.export_formats import export_matplotlib_figure, export_plotly_figure
+from .utils.export_formats import export_plotly_figure
 
 
 class EmbeddingVisualizer:
@@ -94,12 +98,17 @@ class EmbeddingVisualizer:
             self.color_scheme = ColorScheme.DEFAULT
         self.point_size = config.get("point_size", 5)
 
-    def _check_dependencies(self):
+    def _check_dependencies(self, require_sklearn: bool = False):
         """Check if dependencies are available."""
         if px is None or go is None:
             raise ProcessingError(
                 "Plotly is required for embedding visualization. "
-                "Install with: pip install plotly"
+                "Install with: pip install 'semantica[viz]'"
+            )
+        if require_sklearn and (PCA is None or TSNE is None):
+            raise ProcessingError(
+                "scikit-learn is required for dimensionality reduction. "
+                "Reinstall scikit-learn or install dependencies."
             )
 
     def visualize_2d_projection(
@@ -150,10 +159,12 @@ class EmbeddingVisualizer:
 
         try:
             self.logger.info(f"Visualizing 2D projection using {method}")
-            
+
             # Step 2: Data Analysis
             n_samples, n_features = embeddings.shape
-            self.logger.info(f"Embedding Analysis: {n_samples} samples, {n_features} dimensions")
+            self.logger.info(
+                f"Embedding Analysis: {n_samples} samples, {n_features} dimensions"
+            )
 
             if embeddings.shape[1] <= 2:
                 # Already 2D or less, use directly
@@ -165,28 +176,32 @@ class EmbeddingVisualizer:
                 self.progress_tracker.update_tracking(
                     tracking_id, message=f"Reducing dimensions using {method}..."
                 )
+                dim_options = dict(options)
+                n_comp = dim_options.pop("n_components", 2)
                 projected = self._reduce_dimensions(
-                    embeddings, method=method, n_components=2, **options
+                    embeddings, method=method, n_components=n_comp, **dim_options
                 )
 
             self.progress_tracker.update_tracking(
                 tracking_id, message="Generating visualization..."
             )
             result = self._visualize_2d_plotly(
-                projected, 
-                labels, 
-                output, 
-                file_path, 
+                projected,
+                labels,
+                output,
+                file_path,
                 color_by=color_by,
                 size_by=size_by,
                 hover_data=hover_data,
-                **options
+                **options,
             )
 
             self.progress_tracker.stop_tracking(
                 tracking_id,
                 status="completed",
-                message=f"2D projection visualization generated: {len(projected)} points",
+                message=(
+                    f"2D projection visualization generated: {len(projected)} points"
+                ),
             )
             return result
         except Exception as e:
@@ -237,8 +252,10 @@ class EmbeddingVisualizer:
                 self.progress_tracker.update_tracking(
                     tracking_id, message=f"Reducing dimensions using {method}..."
                 )
+                dim_options = dict(options)
+                n_comp = dim_options.pop("n_components", 3)
                 projected = self._reduce_dimensions(
-                    embeddings, method=method, n_components=3, **options
+                    embeddings, method=method, n_components=n_comp, **dim_options
                 )
 
             self.progress_tracker.update_tracking(
@@ -251,7 +268,9 @@ class EmbeddingVisualizer:
             self.progress_tracker.stop_tracking(
                 tracking_id,
                 status="completed",
-                message=f"3D projection visualization generated: {len(projected)} points",
+                message=(
+                    f"3D projection visualization generated: {len(projected)} points"
+                ),
             )
             return result
         except Exception as e:
@@ -342,7 +361,10 @@ class EmbeddingVisualizer:
                 self.progress_tracker.stop_tracking(
                     tracking_id,
                     status="completed",
-                    message=f"Similarity heatmap generated: {len(embeddings)}x{len(embeddings)} matrix",
+                    message=(
+                        f"Similarity heatmap generated: "
+                        f"{len(embeddings)}x{len(embeddings)} matrix"
+                    ),
                 )
                 return fig
             elif file_path:
@@ -404,8 +426,10 @@ class EmbeddingVisualizer:
                 self.progress_tracker.update_tracking(
                     tracking_id, message=f"Reducing dimensions using {method}..."
                 )
+                dim_options = dict(options)
+                n_comp = dim_options.pop("n_components", 2)
                 projected = self._reduce_dimensions(
-                    embeddings, method=method, n_components=2, **options
+                    embeddings, method=method, n_components=n_comp, **dim_options
                 )
 
             num_clusters = len(set(cluster_labels))
@@ -445,7 +469,10 @@ class EmbeddingVisualizer:
                 self.progress_tracker.stop_tracking(
                     tracking_id,
                     status="completed",
-                    message=f"Clustering visualization generated: {num_clusters} clusters, {len(embeddings)} points",
+                    message=(
+                        f"Clustering visualization generated: "
+                        f"{num_clusters} clusters, {len(embeddings)} points"
+                    ),
                 )
                 return fig
             elif file_path:
@@ -541,8 +568,13 @@ class EmbeddingVisualizer:
                 self.progress_tracker.update_tracking(
                     tracking_id, message=f"Reducing dimensions using {method}..."
                 )
+                dim_options = dict(options)
+                n_comp = dim_options.pop("n_components", 2)
                 projected = self._reduce_dimensions(
-                    combined_embeddings, method=method, n_components=2, **options
+                    combined_embeddings,
+                    method=method,
+                    n_components=n_comp,
+                    **dim_options,
                 )
 
             # Color by type
@@ -579,7 +611,10 @@ class EmbeddingVisualizer:
                 self.progress_tracker.stop_tracking(
                     tracking_id,
                     status="completed",
-                    message=f"Multi-modal comparison generated: {len(combined_embeddings)} embeddings",
+                    message=(
+                        f"Multi-modal comparison generated: "
+                        f"{len(combined_embeddings)} embeddings"
+                    ),
                 )
                 return fig
             elif file_path:
@@ -598,8 +633,6 @@ class EmbeddingVisualizer:
             )
             raise
 
-
-
     def _reduce_dimensions(
         self,
         embeddings: np.ndarray,
@@ -608,39 +641,56 @@ class EmbeddingVisualizer:
         **options,
     ) -> np.ndarray:
         """Reduce embedding dimensions using specified method."""
+        opts = dict(options)
+        opts.pop("n_components", None)
+
         if method == "pca":
-            pca = PCA(n_components=n_components, **options)
+            if PCA is None:
+                raise ProcessingError(
+                    "scikit-learn is required for dimensionality reduction. "
+                    "Reinstall scikit-learn or install dependencies."
+                )
+            pca = PCA(n_components=n_components, **opts)
             return pca.fit_transform(embeddings)
 
         elif method == "tsne":
-            perplexity = options.get("perplexity", min(30, len(embeddings) - 1))
+            if TSNE is None:
+                raise ProcessingError(
+                    "scikit-learn is required for dimensionality reduction. "
+                    "Reinstall scikit-learn or install dependencies."
+                )
+            perplexity = opts.pop("perplexity", min(30, len(embeddings) - 1))
+            random_state = opts.pop("random_state", 42)
             tsne = TSNE(
                 n_components=n_components,
                 perplexity=perplexity,
-                random_state=42,
-                **options,
+                random_state=random_state,
+                **opts,
             )
             return tsne.fit_transform(embeddings)
 
         elif method == "umap":
             if umap is not None:
-                n_neighbors = options.get("n_neighbors", min(15, len(embeddings) - 1))
+                n_neighbors = opts.pop("n_neighbors", min(15, len(embeddings) - 1))
                 reducer = umap.UMAP(
-                    n_components=n_components, n_neighbors=n_neighbors, **options
+                    n_components=n_components, n_neighbors=n_neighbors, **opts
                 )
                 return reducer.fit_transform(embeddings)
             else:
-                # Fallback to PCA if UMAP not available
-                self.logger.warning(
-                    "UMAP not available, using PCA. Install with: pip install umap-learn"
+                raise ProcessingError(
+                    "UMAP is required for UMAP dimensionality reduction. "
+                    "Install with: pip install 'semantica[viz]'"
                 )
-                pca = PCA(n_components=n_components)
-                return pca.fit_transform(embeddings)
 
         else:
+            if PCA is None:
+                raise ProcessingError(
+                    "scikit-learn is required for dimensionality reduction. "
+                    "Reinstall scikit-learn or install dependencies."
+                )
             # Fallback to PCA
             self.logger.warning(f"Method {method} not available, using PCA")
-            pca = PCA(n_components=n_components)
+            pca = PCA(n_components=n_components, **opts)
             return pca.fit_transform(embeddings)
 
     def _visualize_2d_plotly(

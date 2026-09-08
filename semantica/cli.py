@@ -880,10 +880,18 @@ def doctor(cli_ctx: CLIContext, local_json: bool, deep_embeddings: bool) -> None
         def _embedding_backend(method: str) -> str:
             if method == "sentence_transformers":
                 import sentence_transformers  # noqa: F401
-                note = f"importable ({importlib.metadata.version('sentence-transformers')})"
+                try:
+                    ver = importlib.metadata.version("sentence-transformers")
+                except Exception:
+                    ver = getattr(sentence_transformers, "__version__", "installed")
+                note = f"importable ({ver})"
             else:
                 import fastembed  # noqa: F401
-                note = f"importable ({importlib.metadata.version('fastembed')})"
+                try:
+                    ver = importlib.metadata.version("fastembed")
+                except Exception:
+                    ver = getattr(fastembed, "__version__", "installed")
+                note = f"importable ({ver})"
             if not deep:
                 return note
             try:
@@ -904,12 +912,12 @@ def doctor(cli_ctx: CLIContext, local_json: bool, deep_embeddings: bool) -> None
         checks.append(_check(
             "Embeddings (sentence-transformers)",
             lambda: _embedding_backend("sentence_transformers"),
-            hint="pip install sentence-transformers",
+            hint="pip install 'semantica[embeddings-local]'",
         ))
         checks.append(_check(
             "Embeddings (fastembed)",
             lambda: _embedding_backend("fastembed"),
-            hint="pip install fastembed",
+            hint="pip install 'semantica[embeddings-local]'",
         ))
 
         # LLM provider keys
@@ -4764,15 +4772,10 @@ def mcp_list_tools(cli_ctx: CLIContext, local_json: bool) -> None:
     cli_ctx = _require_ctx(cli_ctx)
 
     def _action() -> None:
-        try:
-            from semantica_mcp.mcp.tools import __all__ as tools
-        except ImportError:
-            tools = [
-                "extract_entities", "extract_relations", "build_graph",
-                "query_graph", "get_graph_analytics", "run_reasoning",
-                "record_decision", "get_decisions", "export_graph",
-                "validate_shacl", "get_provenance", "embed_and_search",
-            ]
+        # Same catalog the server exposes via tools/list, so `list-tools`
+        # and `mcp start` can't drift (issue #1355).
+        from semantica_mcp.mcp.tools import TOOL_DEFINITIONS
+        tools = [t["name"] for t in TOOL_DEFINITIONS]
         if _is_json(cli_ctx, local_json):
             _jecho({"tools": list(tools)})
         else:
@@ -4805,12 +4808,15 @@ def mcp_call(cli_ctx: CLIContext, tool_name: str, args: str, local_json: bool) -
             tool_args = json.loads(args)
         except json.JSONDecodeError as exc:
             raise click.ClickException(f"Invalid JSON in --args: {exc}") from exc
+        if not isinstance(tool_args, dict):
+            raise click.ClickException("--args must be a JSON object")
+        # Dispatch through the same server `mcp start` spawns; its session
+        # module never defined MCPSession (issue #1355).
+        from semantica_mcp.mcp.server import UnknownToolError, call_tool
         try:
-            from semantica_mcp.mcp.session import MCPSession
-            session = MCPSession(config=cli_ctx.config.to_dict())
-            result = session.call_tool(tool_name, **tool_args)
-        except ImportError as exc:
-            raise click.ClickException(f"MCP module not available: {exc}") from exc
+            result = call_tool(tool_name, tool_args)
+        except UnknownToolError as exc:
+            raise click.ClickException(str(exc)) from exc
         if _is_json(cli_ctx, local_json):
             _jecho(result if isinstance(result, (dict, list)) else {"result": str(result)})
         else:

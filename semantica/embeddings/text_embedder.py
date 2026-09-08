@@ -35,6 +35,7 @@ try:
 
     SENTENCE_TRANSFORMERS_AVAILABLE = True
 except (ImportError, OSError):
+    SentenceTransformer = None
     SENTENCE_TRANSFORMERS_AVAILABLE = False
 
 try:
@@ -42,6 +43,7 @@ try:
 
     FASTEMBED_AVAILABLE = True
 except (ImportError, OSError):
+    TextEmbedding = None
     FASTEMBED_AVAILABLE = False
 
 
@@ -156,7 +158,7 @@ class TextEmbedder:
             else:
                 self.logger.warning(
                     "fastembed not available. "
-                    "Install with: pip install fastembed. "
+                    "Install with: pip install 'semantica[embeddings-local]'. "
                     "Using fallback embedding method."
                 )
         else:
@@ -178,7 +180,7 @@ class TextEmbedder:
             else:
                 self.logger.warning(
                     "sentence-transformers not available. "
-                    "Install with: pip install sentence-transformers. "
+                    "Install with: pip install 'semantica[embeddings-local]'. "
                     "Using fallback embedding method."
                 )
         

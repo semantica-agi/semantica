@@ -18,28 +18,39 @@ from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch
 
 # ── Mock optional heavyweight dependencies before any semantica import ──────
-sys.modules.setdefault("spacy", MagicMock())
-sys.modules.setdefault("instructor", MagicMock())
-_openai_mock = MagicMock()
-sys.modules.setdefault("openai", _openai_mock)
-sys.modules.setdefault("groq", MagicMock())
-sys.modules.setdefault("sentence_transformers", MagicMock())
-sys.modules.setdefault("transformers", MagicMock())
-sys.modules.setdefault("torch", MagicMock())
+_MOCKED_MODULES = [
+    "spacy",
+    "instructor",
+    "openai",
+    "groq",
+    "sentence_transformers",
+    "transformers",
+]
+_original_modules = {k: sys.modules.get(k) for k in _MOCKED_MODULES}
+
+for k in _MOCKED_MODULES:
+    sys.modules.setdefault(k, MagicMock())
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 
-from semantica.semantic_extract.methods import extract_relations_llm
-from semantica.semantic_extract.ner_extractor import Entity
-from semantica.semantic_extract.schemas import (
+from semantica.semantic_extract.methods import extract_relations_llm  # noqa: E402
+
+for _key, _original in _original_modules.items():
+    if _original is None:
+        sys.modules.pop(_key, None)
+    else:
+        sys.modules[_key] = _original
+
+from semantica.semantic_extract.ner_extractor import Entity  # noqa: E402
+from semantica.semantic_extract.schemas import (  # noqa: E402
     RelationsResponse,
     RelationsWithTemporalResponse,
 )
-from semantica.kg.temporal_normalizer import TemporalNormalizer
-from semantica.utils.exceptions import TemporalAmbiguityWarning
-
+from semantica.kg.temporal_normalizer import TemporalNormalizer  # noqa: E402
+from semantica.utils.exceptions import TemporalAmbiguityWarning  # noqa: E402
 
 # ── Helpers ─────────────────────────────────────────────────────────────────
+
 
 def _make_entities():
     return [
@@ -56,15 +67,17 @@ def _ref_date():
 # Part 1 – extract_relations_llm() temporal flag
 # ============================================================================
 
+
 class TestTemporalExtractionFlag(unittest.TestCase):
 
     def setUp(self):
         from semantica.semantic_extract.methods import _result_cache
+
         _result_cache.clear()
 
     @patch("semantica.semantic_extract.methods.create_provider")
     def test_extract_temporal_bounds_true_adds_four_fields(self, mock_create):
-        """With extract_temporal_bounds=True all four temporal keys appear in metadata."""
+        """With extract_temporal_bounds=True all four temporal keys appear."""
         mock_prov = MagicMock()
         mock_prov.is_available.return_value = True
         mock_prov.generate_typed.return_value = RelationsWithTemporalResponse(
@@ -132,7 +145,9 @@ class TestTemporalExtractionFlag(unittest.TestCase):
         self.assertNotIn("temporal_source_text", meta)
 
     @patch("semantica.semantic_extract.methods.create_provider")
-    def test_no_temporal_signal_returns_zero_confidence_and_null_dates(self, mock_create):
+    def test_no_temporal_signal_returns_zero_confidence_and_null_dates(
+        self, mock_create
+    ):
         """When LLM returns no temporal signal, confidence=0.0 and dates are null."""
         mock_prov = MagicMock()
         mock_prov.is_available.return_value = True
@@ -197,10 +212,12 @@ class TestTemporalExtractionFlag(unittest.TestCase):
 
     @patch("semantica.semantic_extract.methods.create_provider")
     def test_correct_schema_used_when_temporal_true(self, mock_create):
-        """generate_typed is called with RelationsWithTemporalResponse when flag=True."""
+        """generate_typed is called with RelationsWithTemporalResponse."""
         mock_prov = MagicMock()
         mock_prov.is_available.return_value = True
-        mock_prov.generate_typed.return_value = RelationsWithTemporalResponse(relations=[])
+        mock_prov.generate_typed.return_value = RelationsWithTemporalResponse(
+            relations=[]
+        )
         mock_create.return_value = mock_prov
 
         extract_relations_llm(
@@ -234,6 +251,7 @@ class TestTemporalExtractionFlag(unittest.TestCase):
 # ============================================================================
 # Part 2 – TemporalNormalizer: relative dates
 # ============================================================================
+
 
 class TestTemporalNormalizerRelativeDates(unittest.TestCase):
 
@@ -313,10 +331,13 @@ class TestTemporalNormalizerRelativeDates(unittest.TestCase):
 # Part 3 – TemporalNormalizer: partial / structured dates
 # ============================================================================
 
+
 class TestTemporalNormalizerPartialDates(unittest.TestCase):
 
     def setUp(self):
-        self.tn = TemporalNormalizer(reference_date=datetime(2025, 3, 25, tzinfo=timezone.utc))
+        self.tn = TemporalNormalizer(
+            reference_date=datetime(2025, 3, 25, tzinfo=timezone.utc)
+        )
 
     def test_year_only(self):
         result = self.tn.normalize("2021")
@@ -396,10 +417,13 @@ class TestTemporalNormalizerPartialDates(unittest.TestCase):
 # Part 4 – TemporalNormalizer: ambiguous formats
 # ============================================================================
 
+
 class TestTemporalNormalizerAmbiguity(unittest.TestCase):
 
     def setUp(self):
-        self.tn = TemporalNormalizer(reference_date=datetime(2025, 3, 25, tzinfo=timezone.utc))
+        self.tn = TemporalNormalizer(
+            reference_date=datetime(2025, 3, 25, tzinfo=timezone.utc)
+        )
 
     def test_ambiguous_slash_date_raises_warning_and_returns_none(self):
         with warnings.catch_warnings(record=True) as w:
@@ -432,14 +456,19 @@ class TestTemporalNormalizerAmbiguity(unittest.TestCase):
 # Part 5 – TemporalNormalizer: domain phrase map
 # ============================================================================
 
+
 class TestTemporalNormalizerDomainPhrases(unittest.TestCase):
 
     def setUp(self):
-        self.tn = TemporalNormalizer(reference_date=datetime(2025, 3, 25, tzinfo=timezone.utc))
+        self.tn = TemporalNormalizer(
+            reference_date=datetime(2025, 3, 25, tzinfo=timezone.utc)
+        )
 
     def _assert_recognized(self, phrase):
         result = self.tn.normalize_phrase(phrase)
-        self.assertIsNotNone(result, f"Expected phrase {phrase!r} to be recognized but got None")
+        self.assertIsNotNone(
+            result, f"Expected phrase {phrase!r} to be recognized but got None"
+        )
         return result
 
     # General / Policy
@@ -522,6 +551,7 @@ class TestTemporalNormalizerDomainPhrases(unittest.TestCase):
 # Part 6 – TemporalNormalizer: custom phrase map
 # ============================================================================
 
+
 class TestTemporalNormalizerCustomPhraseMap(unittest.TestCase):
 
     def setUp(self):
@@ -565,10 +595,12 @@ class TestTemporalNormalizerCustomPhraseMap(unittest.TestCase):
 # Part 7 – Full pipeline: extract → normalize → BiTemporalFact
 # ============================================================================
 
+
 class TestFullPipelineTemporalToBiTemporal(unittest.TestCase):
 
     def setUp(self):
         from semantica.semantic_extract.methods import _result_cache
+
         _result_cache.clear()
 
     @patch("semantica.semantic_extract.methods.create_provider")
@@ -620,10 +652,12 @@ class TestFullPipelineTemporalToBiTemporal(unittest.TestCase):
         self.assertEqual(vf[0].day, 1)
 
         # Feed into BiTemporalFact
-        fact = BiTemporalFact.from_relationship({
-            "valid_from": "2014-05-01T00:00:00Z",
-            "valid_until": None,
-        })
+        fact = BiTemporalFact.from_relationship(
+            {
+                "valid_from": "2014-05-01T00:00:00Z",
+                "valid_until": None,
+            }
+        )
         self.assertIsNotNone(fact.valid_from)
         self.assertEqual(fact.valid_from.year, 2014)
         self.assertEqual(fact.valid_from.month, 5)
@@ -660,7 +694,9 @@ class TestFullPipelineTemporalToBiTemporal(unittest.TestCase):
             extract_temporal_bounds=True,
         )
         meta = rels[0].metadata
-        tn = TemporalNormalizer(reference_date=datetime(2025, 3, 25, tzinfo=timezone.utc))
+        tn = TemporalNormalizer(
+            reference_date=datetime(2025, 3, 25, tzinfo=timezone.utc)
+        )
 
         vf = tn.normalize(meta["valid_from"])
         vu = tn.normalize(meta["valid_until"])

@@ -51,6 +51,27 @@ _INTERNAL_ERROR = -32603
 _TOOL_INDEX: dict[str, dict] = {t["name"]: t for t in TOOL_DEFINITIONS}
 
 
+class UnknownToolError(Exception):
+    """Raised by :func:`call_tool` when the tool name is not in the catalog.
+
+    A dedicated type (rather than ``KeyError``) so callers can distinguish
+    a bad tool name from a ``KeyError`` raised inside a handler indexing a
+    required argument (e.g. ``args["category"]``).
+    """
+
+
+def call_tool(name: str, arguments: dict) -> dict:
+    """Invoke a tool in-process by name and return its raw result dict.
+
+    Shared by the JSON-RPC ``tools/call`` handler and ``semantica mcp call``
+    (issue #1355), so both expose exactly the same tool set.
+    """
+    tool = _TOOL_INDEX.get(name)
+    if tool is None:
+        raise UnknownToolError(f"Unknown tool: {name}")
+    return tool["_handler"](arguments)
+
+
 # ---------------------------------------------------------------------------
 # Request handlers
 # ---------------------------------------------------------------------------
@@ -85,12 +106,10 @@ def _handle_tools_call(req_id: Any, params: dict) -> dict:
     name = params.get("name", "")
     args = params.get("arguments", {}) or {}
 
-    tool = _TOOL_INDEX.get(name)
-    if tool is None:
-        return _err(req_id, _METHOD_NOT_FOUND, f"Unknown tool: {name}")
-
     try:
-        result = tool["_handler"](args)
+        result = call_tool(name, args)
+    except UnknownToolError as exc:
+        return _err(req_id, _METHOD_NOT_FOUND, str(exc))
     except Exception as exc:
         log.exception("Tool %s raised an exception", name)
         # The exception's class name (e.g. "ValidationError", "TimeoutError")

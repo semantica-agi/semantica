@@ -181,6 +181,7 @@ anyio==4.14.2 \
     #   jupyter-server
     #   langsmith
     #   openai
+    #   pinecone
     #   starlette
     #   watchfiles
 argon2-cffi==25.1.0 \

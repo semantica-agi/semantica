@@ -160,7 +160,7 @@ No installation or API key required. FAISS requires `pip install faiss-cpu`.
   <Tab title="Pinecone">
 
 ```bash
-pip install "semantica[pinecone]"
+pip install "semantica[vectorstore-pinecone]"
 ```
 
 ```python
@@ -178,7 +178,7 @@ store = VectorStore(
   <Tab title="Weaviate">
 
 ```bash
-pip install "semantica[weaviate]"
+pip install "semantica[vectorstore-weaviate]"
 ```
 
 ```python
@@ -194,7 +194,7 @@ store = VectorStore(
   <Tab title="Qdrant">
 
 ```bash
-pip install "semantica[qdrant]"
+pip install "semantica[vectorstore-qdrant]"
 ```
 
 ```python
@@ -210,7 +210,7 @@ store = VectorStore(
   <Tab title="PgVector">
 
 ```bash
-pip install "semantica[pgvector]"
+pip install "semantica[vectorstore-pgvector]"
 ```
 
 ```python

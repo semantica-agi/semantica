@@ -343,7 +343,9 @@ class FAISSIndex:
         was originally saved.
         """
         if not FAISS_AVAILABLE:
-            raise ProcessingError("FAISS not available")
+            raise ProcessingError(
+                "FAISS not available. Install with: pip install 'semantica[vectorstore-faiss]' (or 'semantica[gpu]' for CUDA)"
+            )
 
         path = Path(path)
         index = faiss.read_index(str(path))
@@ -482,7 +484,7 @@ class FAISSIndexBuilder:
         """
         if not FAISS_AVAILABLE:
             raise ProcessingError(
-                "FAISS is not available. Install it with: pip install faiss-cpu or faiss-gpu"
+                "FAISS is not available. Install it with: pip install 'semantica[vectorstore-faiss]' (or 'semantica[gpu]' for CUDA)"
             )
 
         # Create index based on type
@@ -554,7 +556,7 @@ class FAISSStore:
         # Check FAISS availability
         if not FAISS_AVAILABLE:
             self.logger.warning(
-                "FAISS not available. Install with: pip install faiss-cpu or faiss-gpu"
+                "FAISS not available. Install with: pip install 'semantica[vectorstore-faiss]' (or 'semantica[gpu]' for CUDA)"
             )
 
     def create_index(
@@ -753,7 +755,9 @@ class FAISSStore:
             FAISSIndex instance
         """
         if not FAISS_AVAILABLE:
-            raise ProcessingError("FAISS not available")
+            raise ProcessingError(
+                "FAISS not available. Install with: pip install 'semantica[vectorstore-faiss]' (or 'semantica[gpu]' for CUDA)"
+            )
 
         path = Path(path)
         if path.exists() and not _metadata_path(path).exists():

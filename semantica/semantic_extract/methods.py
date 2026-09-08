@@ -209,6 +209,11 @@ def load_spacy_model(name: str):
     Raises whatever ``spacy.load`` raises (``OSError`` for a missing model), so
     callers keep their existing fallback behavior.
     """
+    if spacy is None:
+        raise ImportError(
+            "spaCy is not installed. Install with: pip install 'semantica[nlp-spacy]'"
+        )
+
     cached = _spacy_model_cache.get(name)
     if cached is not None and cached[0] is spacy:
         return cached[1]

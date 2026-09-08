@@ -153,44 +153,33 @@ class QdrantCollection:
             raise ProcessingError("Qdrant not available")
 
         try:
-            # qdrant-client removed `search` in favor of `query_points`
-            # (1.10 deprecated it, later releases dropped it entirely).
-            if hasattr(self.client, "query_points"):
-                response = self.client.query_points(
-                    collection_name=self.collection_name,
-                    query=query_vector.tolist(),
-                    limit=limit,
-                    query_filter=query_filter,
-                    with_payload=True,
-                    with_vectors=False,
-                    **options,
-                )
-                search_results = response.points
-            else:
-                search_results = self.client.search(
-                    collection_name=self.collection_name,
-                    query_vector=query_vector.tolist(),
-                    limit=limit,
-                    query_filter=query_filter,
-                    with_payload=True,
-                    with_vectors=False,
-                    **options,
-                )
+            # qdrant-client >=1.10.0: query_points() supersedes the removed search().
+            # It returns a QueryResponse whose .points attribute is a list of
+            # ScoredPoint objects (id, score, payload, …).
+            response = self.client.query_points(
+                collection_name=self.collection_name,
+                query=query_vector.tolist(),
+                limit=limit,
+                query_filter=query_filter,
+                with_payload=True,
+                with_vectors=False,
+                **options,
+            )
 
             results = []
-            for result in search_results:
+            for point in response.points:
                 results.append(
                     {
-                        "id": result.id,
+                        "id": point.id,
                         # See pinecone_store.py PineconeIndex.search_vectors for why
                         # this uses x/(1+|x|) rather than clamping distance-to-zero:
                         # Qdrant's Dot distance metric is unbounded, and the old
                         # clamped formula collapsed every score >= 1.0 to 1.0.
                         "score": (
-                            float(result.score) / (1.0 + abs(float(result.score))) + 1.0
+                            float(point.score) / (1.0 + abs(float(point.score))) + 1.0
                         )
                         / 2.0,
-                        "metadata": result.payload or {},
+                        "metadata": point.payload or {},
                         "vector": None,
                         "distance": None,
                     }
@@ -731,9 +720,31 @@ class QdrantStore:
             collection_info = self.client.get_collection(
                 self.collection.collection_name
             )
+            # vectors_count was removed in qdrant-client 1.16.0.
+            # When it is absent, only infer the total from points_count if we
+            # can confirm the collection uses a single unnamed vector per point
+            # (VectorParams). Named/multi-vector collections (dict of VectorParams)
+            # have an unknown multiplier, so return None rather than a wrong value.
+            # get_collection() accepts externally-created collections without schema
+            # validation, so the schema must be inspected at stats time.
+            vectors_count_fallback: Optional[int]
+            try:
+                vectors_cfg = collection_info.config.params.vectors
+                vectors_count_fallback = (
+                    collection_info.points_count
+                    if QDRANT_AVAILABLE and isinstance(vectors_cfg, VectorParams)
+                    else None
+                )
+            except Exception:
+                vectors_count_fallback = None
+
             return {
                 "points_count": collection_info.points_count,
-                "vectors_count": collection_info.vectors_count,
+                "vectors_count": getattr(
+                    collection_info,
+                    "vectors_count",
+                    vectors_count_fallback,
+                ),
                 "status": str(collection_info.status)
                 if hasattr(collection_info, "status")
                 else "unknown",
