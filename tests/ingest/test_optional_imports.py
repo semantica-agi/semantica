@@ -141,3 +141,134 @@ else:
     assert "ConfigurationError" in result.stdout
     assert "Parquet ingestion" in result.stdout
     assert "pyarrow" in result.stdout
+
+
+def test_repo_ingestor_probe_fails_without_gitpython() -> None:
+    result = _run_python_with_blocked_modules(
+        """
+try:
+    from semantica.ingest import RepoIngestor
+    has_git = True
+except ImportError:
+    has_git = False
+
+assert not has_git, "Expected RepoIngestor import to fail without GitPython"
+print("RepoIngestor probe passed")
+""",
+        ("git",),
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "RepoIngestor probe passed" in result.stdout
+
+
+def test_xml_ingestor_probe_fails_without_lxml() -> None:
+    result = _run_python_with_blocked_modules(
+        """
+try:
+    from semantica.ingest import XMLIngestor
+    has_lxml = True
+except ImportError:
+    has_lxml = False
+
+assert not has_lxml, "Expected XMLIngestor import to fail without lxml"
+print("XMLIngestor probe passed")
+""",
+        ("lxml",),
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "XMLIngestor probe passed" in result.stdout
+
+
+def test_xml_ingestion_reports_missing_lxml_when_used() -> None:
+    result = _run_python_with_blocked_modules(
+        """
+from semantica.ingest import ingest_xml
+
+try:
+    ingest_xml("catalog.xml")
+except Exception as exc:
+    print(type(exc).__name__, exc)
+else:
+    raise SystemExit("expected XML ingestion to fail without lxml")
+""",
+        ("lxml",),
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "ConfigurationError" in result.stdout
+    assert "XML ingestion" in result.stdout
+    assert "lxml" in result.stdout
+
+
+def test_sibling_imports_succeed_without_optional_backends() -> None:
+    result = _run_python_with_blocked_modules(
+        """
+from semantica.ingest import (
+    CodeExtractor,
+    CodeFile,
+    CommitInfo,
+    GitAnalyzer,
+    XMLIngestionData,
+    SalesforceData,
+)
+print(
+    CodeExtractor.__name__,
+    CodeFile.__name__,
+    CommitInfo.__name__,
+    GitAnalyzer.__name__,
+    XMLIngestionData.__name__,
+    SalesforceData.__name__,
+)
+""",
+        ("git", "lxml", "simple_salesforce"),
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert (
+        "CodeExtractor CodeFile CommitInfo GitAnalyzer XMLIngestionData SalesforceData"
+        in result.stdout
+    )
+
+
+def test_salesforce_ingestor_probe_fails_without_simple_salesforce() -> None:
+    result = _run_python_with_blocked_modules(
+        """
+try:
+    from semantica.ingest import SalesforceIngestor
+    has_salesforce = True
+except ImportError:
+    has_salesforce = False
+
+assert not has_salesforce, (
+    "Expected SalesforceIngestor import to fail without simple-salesforce"
+)
+print("SalesforceIngestor probe passed")
+""",
+        ("simple_salesforce",),
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "SalesforceIngestor probe passed" in result.stdout
+
+
+def test_salesforce_ingestion_reports_missing_dep_when_used() -> None:
+    result = _run_python_with_blocked_modules(
+        """
+from semantica.ingest import ingest_salesforce
+
+try:
+    ingest_salesforce()
+except Exception as exc:
+    print(type(exc).__name__, exc)
+else:
+    raise SystemExit("expected Salesforce ingestion to fail without simple-salesforce")
+""",
+        ("simple_salesforce",),
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "ConfigurationError" in result.stdout
+    assert "Salesforce ingestion" in result.stdout
+    assert "simple-salesforce" in result.stdout

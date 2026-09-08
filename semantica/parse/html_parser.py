@@ -33,7 +33,10 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 from urllib.parse import urljoin
 
-from bs4 import BeautifulSoup
+try:
+    from bs4 import BeautifulSoup
+except (ImportError, OSError):
+    BeautifulSoup = None
 
 from ..utils.exceptions import ProcessingError, ValidationError
 from ..utils.logging import get_logger
@@ -113,6 +116,12 @@ class HTMLParser:
         Returns:
             HTMLData: Parsed HTML data
         """
+        if BeautifulSoup is None:
+            raise ProcessingError(
+                "beautifulsoup4 is required to parse HTML files. "
+                "Install it with: pip install 'semantica[documents]'"
+            )
+
         # Track HTML parsing
         file_path = None
         if isinstance(html_content, Path) or (

@@ -2331,7 +2331,7 @@ class TestDoctorEmbeddings:
         checks = self._doctor_checks(runner)
         st = checks["Embeddings (sentence-transformers)"]
         assert st["status"] == "fail"
-        assert st["hint"] == "pip install sentence-transformers"
+        assert st["hint"] == "pip install 'semantica[embeddings-local]'"
 
     def test_deep_probe_detects_fallback_active(self, runner, monkeypatch):
         self._with_fake_st(monkeypatch)

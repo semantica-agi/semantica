@@ -193,6 +193,7 @@ def _is_scp_like_repo_source(source: str) -> bool:
     """Return True for scp-like SSH remotes (``user@host:path``)."""
     return bool(_SCP_LIKE_REPO_URL_RE.match(source.strip()))
 
+
 if TYPE_CHECKING:
     from .api_ingestor import APIData
     from .arrow_ingestor import ArrowData
@@ -252,7 +253,12 @@ def ingest_file(
     if custom_method and custom_method != ingest_file:
         fallback = kwargs.pop("fallback_on_custom_error", False)
         result = call_custom_method(
-            logger, method, custom_method, source, fallback_on_custom_error=fallback, **kwargs
+            logger,
+            method,
+            custom_method,
+            source,
+            fallback_on_custom_error=fallback,
+            **kwargs,
         )
         if result is not CUSTOM_METHOD_FELL_BACK:
             return result
@@ -318,21 +324,18 @@ def ingest_parquet(
     if custom_method and custom_method != ingest_parquet:
         fallback = kwargs.pop("fallback_on_custom_error", False)
         result = call_custom_method(
-            logger, method, custom_method, source, fallback_on_custom_error=fallback, **kwargs
+            logger,
+            method,
+            custom_method,
+            source,
+            fallback_on_custom_error=fallback,
+            **kwargs,
         )
         if result is not CUSTOM_METHOD_FELL_BACK:
             return result
 
     try:
-        try:
-            from .parquet_ingestor import ParquetIngestor
-        except ModuleNotFoundError as exc:
-            if _is_missing_dependency(exc, "pyarrow"):
-                raise _missing_optional_dependency(
-                    "Parquet ingestion",
-                    "pyarrow",
-                ) from exc
-            raise
+        from .parquet_ingestor import ParquetIngestor
 
         config = ingest_config.get_method_config("parquet")
         config.update(kwargs)
@@ -397,21 +400,18 @@ def ingest_arrow(
     if custom_method and custom_method != ingest_arrow:
         fallback = kwargs.pop("fallback_on_custom_error", False)
         result = call_custom_method(
-            logger, method, custom_method, source, fallback_on_custom_error=fallback, **kwargs
+            logger,
+            method,
+            custom_method,
+            source,
+            fallback_on_custom_error=fallback,
+            **kwargs,
         )
         if result is not CUSTOM_METHOD_FELL_BACK:
             return result
 
     try:
-        try:
-            from .arrow_ingestor import ArrowIngestor
-        except ModuleNotFoundError as exc:
-            if _is_missing_dependency(exc, "pyarrow"):
-                raise _missing_optional_dependency(
-                    "Arrow ingestion",
-                    "pyarrow",
-                ) from exc
-            raise
+        from .arrow_ingestor import ArrowIngestor
 
         config = ingest_config.get_method_config("arrow")
         config.update(kwargs)
@@ -481,7 +481,12 @@ def ingest_xml(
     if custom_method and custom_method != ingest_xml:
         fallback = kwargs.pop("fallback_on_custom_error", False)
         result = call_custom_method(
-            logger, method, custom_method, source, fallback_on_custom_error=fallback, **kwargs
+            logger,
+            method,
+            custom_method,
+            source,
+            fallback_on_custom_error=fallback,
+            **kwargs,
         )
         if result is not CUSTOM_METHOD_FELL_BACK:
             return result
@@ -491,7 +496,10 @@ def ingest_xml(
 
         config = ingest_config.get_method_config("xml")
         config.update(kwargs)
-        ingestor = XMLIngestor(**config)
+        try:
+            ingestor = XMLIngestor(**config)
+        except ImportError as exc:
+            raise _missing_optional_dependency("XML ingestion", "lxml") from exc
 
         def _run_single(
             path: Union[str, Path],
@@ -511,6 +519,8 @@ def ingest_xml(
 
         return _run_single(source_path)
 
+    except ConfigurationError:
+        raise
     except Exception as e:
         logger.error(f"Failed to ingest XML: {e}")
         raise
@@ -545,7 +555,12 @@ def ingest_web(
     if custom_method and custom_method != ingest_web:
         fallback = kwargs.pop("fallback_on_custom_error", False)
         result = call_custom_method(
-            logger, method, custom_method, source, fallback_on_custom_error=fallback, **kwargs
+            logger,
+            method,
+            custom_method,
+            source,
+            fallback_on_custom_error=fallback,
+            **kwargs,
         )
         if result is not CUSTOM_METHOD_FELL_BACK:
             return result
@@ -635,7 +650,12 @@ def ingest_public_api(
     if custom_method and custom_method != ingest_public_api:
         fallback = kwargs.pop("fallback_on_custom_error", False)
         result = call_custom_method(
-            logger, method, custom_method, source, fallback_on_custom_error=fallback, **kwargs
+            logger,
+            method,
+            custom_method,
+            source,
+            fallback_on_custom_error=fallback,
+            **kwargs,
         )
         if result is not CUSTOM_METHOD_FELL_BACK:
             return result
@@ -722,7 +742,12 @@ def ingest_feed(
     if custom_method and custom_method != ingest_feed:
         fallback = kwargs.pop("fallback_on_custom_error", False)
         result = call_custom_method(
-            logger, method, custom_method, source, fallback_on_custom_error=fallback, **kwargs
+            logger,
+            method,
+            custom_method,
+            source,
+            fallback_on_custom_error=fallback,
+            **kwargs,
         )
         if result is not CUSTOM_METHOD_FELL_BACK:
             return result
@@ -791,7 +816,12 @@ def ingest_stream(
     if custom_method and custom_method != ingest_stream:
         fallback = kwargs.pop("fallback_on_custom_error", False)
         result = call_custom_method(
-            logger, method, custom_method, source, fallback_on_custom_error=fallback, **kwargs
+            logger,
+            method,
+            custom_method,
+            source,
+            fallback_on_custom_error=fallback,
+            **kwargs,
         )
         if result is not CUSTOM_METHOD_FELL_BACK:
             return result
@@ -868,26 +898,29 @@ def ingest_repository(
     if custom_method and custom_method != ingest_repository:
         fallback = kwargs.pop("fallback_on_custom_error", False)
         result = call_custom_method(
-            logger, method, custom_method, source, fallback_on_custom_error=fallback, **kwargs
+            logger,
+            method,
+            custom_method,
+            source,
+            fallback_on_custom_error=fallback,
+            **kwargs,
         )
         if result is not CUSTOM_METHOD_FELL_BACK:
             return result
 
     try:
-        try:
-            from .repo_ingestor import RepoIngestor
-        except ModuleNotFoundError as exc:
-            if _is_missing_dependency(exc, "git"):
-                raise _missing_optional_dependency(
-                    "Repository ingestion", "GitPython"
-                ) from exc
-            raise
+        from .repo_ingestor import RepoIngestor
 
         # Get config
         config = ingest_config.get_method_config("repo")
         config.update(kwargs)
 
-        ingestor = RepoIngestor(**config)
+        try:
+            ingestor = RepoIngestor(**config)
+        except ImportError as exc:
+            raise _missing_optional_dependency(
+                "Repository ingestion", "GitPython"
+            ) from exc
 
         if method == "clone" or (
             isinstance(source, str)
@@ -940,7 +973,12 @@ def ingest_email(
     if custom_method and custom_method != ingest_email:
         fallback = kwargs.pop("fallback_on_custom_error", False)
         result = call_custom_method(
-            logger, method, custom_method, source, fallback_on_custom_error=fallback, **kwargs
+            logger,
+            method,
+            custom_method,
+            source,
+            fallback_on_custom_error=fallback,
+            **kwargs,
         )
         if result is not CUSTOM_METHOD_FELL_BACK:
             return result
@@ -1019,7 +1057,12 @@ def ingest_ontology(
     if custom_method and custom_method != ingest_ontology:
         fallback = kwargs.pop("fallback_on_custom_error", False)
         result = call_custom_method(
-            logger, method, custom_method, source, fallback_on_custom_error=fallback, **kwargs
+            logger,
+            method,
+            custom_method,
+            source,
+            fallback_on_custom_error=fallback,
+            **kwargs,
         )
         if result is not CUSTOM_METHOD_FELL_BACK:
             return result
@@ -1085,7 +1128,12 @@ def ingest_database(
         if custom_method and custom_method != ingest_database:
             fallback = kwargs.pop("fallback_on_custom_error", False)
             result = call_custom_method(
-                logger, method, custom_method, source, fallback_on_custom_error=fallback, **kwargs
+                logger,
+                method,
+                custom_method,
+                source,
+                fallback_on_custom_error=fallback,
+                **kwargs,
             )
             if result is not CUSTOM_METHOD_FELL_BACK:
                 return result
@@ -1233,105 +1281,122 @@ def ingest_salesforce(
     if custom_method and custom_method != ingest_salesforce:
         fallback = kwargs.pop("fallback_on_custom_error", False)
         result = call_custom_method(
-            logger, method, custom_method, source,
-            fallback_on_custom_error=fallback, **kwargs,
+            logger,
+            method,
+            custom_method,
+            source,
+            fallback_on_custom_error=fallback,
+            **kwargs,
         )
         if result is not CUSTOM_METHOD_FELL_BACK:
             return result
 
     try:
         from .salesforce_ingestor import SalesforceIngestor
-    except ModuleNotFoundError as exc:
-        if _is_missing_dependency(exc, "simple_salesforce"):
+
+        # Unpack credential dict (if given); everything else stays in kwargs.
+        creds: Dict[str, Any] = {}
+        if source is not None:
+            if not isinstance(source, dict):
+                raise ProcessingError(
+                    "ingest_salesforce() source must be a credential dict or None. "
+                    "Pass sobject_name / soql as keyword arguments."
+                )
+            creds = dict(source)
+
+        # Merge any ingest_config method config under "salesforce".
+        # get_method_config() now returns a copy, so this dict is safe to mutate.
+        # We build the final connector config in order of increasing priority:
+        #   1. base method config (lowest — global defaults set by operator)
+        #   2. per-call credential dict supplied via `source`
+        #   3. per-call connector params supplied as kwargs
+        # Credentials are extracted from kwargs and removed so they don't also
+        # flow into the ingest method call (which doesn't understand them).
+        _CONNECTOR_PARAMS = frozenset(
+            {
+                "username",
+                "password",
+                "security_token",
+                "domain",
+                "instance_url",
+                "session_id",
+                "api_version",
+            }
+        )
+        connector_kwargs = {k: v for k, v in kwargs.items() if k in _CONNECTOR_PARAMS}
+        for k in _CONNECTOR_PARAMS:
+            kwargs.pop(k, None)
+
+        # Build a fresh per-call config dict — never mutate the global store.
+        config: Dict[str, Any] = {
+            **ingest_config.get_method_config("salesforce"),  # base (already a copy)
+            **creds,  # source dict credentials
+            **connector_kwargs,  # kwarg credentials
+        }
+
+        try:
+            ingestor = SalesforceIngestor(**config)
+        except ImportError as exc:
             raise _missing_optional_dependency(
                 "Salesforce ingestion", "simple-salesforce"
             ) from exc
+
+        if method == "sobject":
+            sobject_name = kwargs.pop("sobject_name", None)
+            if not sobject_name:
+                raise ProcessingError(
+                    "ingest_salesforce() with method='sobject' requires "
+                    "sobject_name keyword argument."
+                )
+            return ingestor.ingest_sobject(sobject_name, **kwargs)
+
+        elif method == "query":
+            soql = kwargs.pop("soql", None)
+            if not soql:
+                raise ProcessingError(
+                    "ingest_salesforce() with method='query' requires "
+                    "soql keyword argument."
+                )
+            return ingestor.ingest_query(soql, **kwargs)
+
+        elif method == "list_sobjects":
+            return ingestor.list_sobjects()
+
+        elif method == "schema":
+            sobject_name = kwargs.pop("sobject_name", None)
+            if not sobject_name:
+                raise ProcessingError(
+                    "ingest_salesforce() with method='schema' requires "
+                    "sobject_name keyword argument."
+                )
+            return ingestor.get_sobject_schema(sobject_name)
+
+        elif method == "documents":
+            sobject_name = kwargs.pop("sobject_name", None)
+            if not sobject_name:
+                raise ProcessingError(
+                    "ingest_salesforce() with method='documents' requires "
+                    "sobject_name keyword argument."
+                )
+            id_field = kwargs.pop("id_field", "Id")
+            text_fields = kwargs.pop("text_fields", None)
+            data = ingestor.ingest_sobject(sobject_name, **kwargs)
+            return ingestor.export_as_documents(
+                data, id_field=id_field, text_fields=text_fields
+            )
+
+        else:
+            raise ProcessingError(
+                f"Unknown ingest_salesforce method: {method!r}. "
+                "Valid methods: 'sobject', 'query', 'list_sobjects', 'schema', "
+                "'documents'."
+            )
+
+    except ConfigurationError:
         raise
-
-    # Unpack credential dict (if given); everything else stays in kwargs.
-    creds: Dict[str, Any] = {}
-    if source is not None:
-        if not isinstance(source, dict):
-            raise ProcessingError(
-                "ingest_salesforce() source must be a credential dict or None. "
-                "Pass sobject_name / soql as keyword arguments."
-            )
-        creds = dict(source)
-
-    # Merge any ingest_config method config under "salesforce".
-    # get_method_config() now returns a copy, so this dict is safe to mutate.
-    # We build the final connector config in order of increasing priority:
-    #   1. base method config (lowest — global defaults set by operator)
-    #   2. per-call credential dict supplied via `source`
-    #   3. per-call connector params supplied as kwargs
-    # Credentials are extracted from kwargs and removed so they don't also
-    # flow into the ingest method call (which doesn't understand them).
-    _CONNECTOR_PARAMS = frozenset({
-        "username", "password", "security_token", "domain",
-        "instance_url", "session_id", "api_version",
-    })
-    connector_kwargs = {k: v for k, v in kwargs.items() if k in _CONNECTOR_PARAMS}
-    for k in _CONNECTOR_PARAMS:
-        kwargs.pop(k, None)
-
-    # Build a fresh per-call config dict — never mutate the global store.
-    config: Dict[str, Any] = {
-        **ingest_config.get_method_config("salesforce"),  # base (already a copy)
-        **creds,                                           # source dict credentials
-        **connector_kwargs,                                # kwarg credentials
-    }
-
-    ingestor = SalesforceIngestor(**config)
-
-    if method == "sobject":
-        sobject_name = kwargs.pop("sobject_name", None)
-        if not sobject_name:
-            raise ProcessingError(
-                "ingest_salesforce() with method='sobject' requires "
-                "sobject_name keyword argument."
-            )
-        return ingestor.ingest_sobject(sobject_name, **kwargs)
-
-    elif method == "query":
-        soql = kwargs.pop("soql", None)
-        if not soql:
-            raise ProcessingError(
-                "ingest_salesforce() with method='query' requires "
-                "soql keyword argument."
-            )
-        return ingestor.ingest_query(soql, **kwargs)
-
-    elif method == "list_sobjects":
-        return ingestor.list_sobjects()
-
-    elif method == "schema":
-        sobject_name = kwargs.pop("sobject_name", None)
-        if not sobject_name:
-            raise ProcessingError(
-                "ingest_salesforce() with method='schema' requires "
-                "sobject_name keyword argument."
-            )
-        return ingestor.get_sobject_schema(sobject_name)
-
-    elif method == "documents":
-        sobject_name = kwargs.pop("sobject_name", None)
-        if not sobject_name:
-            raise ProcessingError(
-                "ingest_salesforce() with method='documents' requires "
-                "sobject_name keyword argument."
-            )
-        id_field = kwargs.pop("id_field", "Id")
-        text_fields = kwargs.pop("text_fields", None)
-        data = ingestor.ingest_sobject(sobject_name, **kwargs)
-        return ingestor.export_as_documents(data, id_field=id_field,
-                                            text_fields=text_fields)
-
-    else:
-        raise ProcessingError(
-            f"Unknown ingest_salesforce method: {method!r}. "
-            "Valid methods: 'sobject', 'query', 'list_sobjects', 'schema', "
-            "'documents'."
-        )
+    except Exception as e:
+        logger.error(f"Failed to ingest salesforce: {e}")
+        raise
 
 
 def ingest_mcp(
@@ -1399,7 +1464,12 @@ def ingest_mcp(
     if custom_method and custom_method != ingest_mcp:
         fallback = kwargs.pop("fallback_on_custom_error", False)
         result = call_custom_method(
-            logger, method, custom_method, source, fallback_on_custom_error=fallback, **kwargs
+            logger,
+            method,
+            custom_method,
+            source,
+            fallback_on_custom_error=fallback,
+            **kwargs,
         )
         if result is not CUSTOM_METHOD_FELL_BACK:
             return result
@@ -1638,8 +1708,9 @@ def ingest(
     elif source_type == "mcp":
         return {"data": ingest_mcp(sources, method=method or "resources", **kwargs)}
     elif source_type == "salesforce":
-        return {"data": ingest_salesforce(sources,
-                                          method=method or "sobject", **kwargs)}
+        return {
+            "data": ingest_salesforce(sources, method=method or "sobject", **kwargs)
+        }
     else:
         raise ProcessingError(f"Unknown source type: {source_type}")
 

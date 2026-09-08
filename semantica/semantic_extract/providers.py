@@ -61,7 +61,7 @@ Example Usage:
     >>> from semantica.semantic_extract.providers import create_provider
     >>> provider = create_provider("openai", model="gpt-4")
     >>> response = provider.generate("Extract entities from: Apple Inc. was founded in 1976.")
-    >>> 
+    >>>
     >>> loader = HuggingFaceModelLoader(device="cuda")
     >>> ner_model = loader.load_ner_model("dslim/bert-base-NER")
 
@@ -70,7 +70,6 @@ License: MIT
 """
 
 import json
-import os
 import time
 from typing import Any, Dict, List, Optional, Union, Type
 
@@ -121,7 +120,7 @@ class BaseProvider:
         """Extract and parse JSON from text, supporting objects and lists."""
         if not text:
             raise ProcessingError("Empty response from LLM")
-            
+
         # Clean up text - remove markdown code blocks if present
         cleaned_text = text.strip()
         if "```json" in cleaned_text:
@@ -131,8 +130,9 @@ class BaseProvider:
             blocks = cleaned_text.split("```")
             for block in blocks:
                 block = block.strip()
-                if (block.startswith("{") and block.endswith("}")) or \
-                   (block.startswith("[") and block.endswith("]")):
+                if (block.startswith("{") and block.endswith("}")) or (
+                    block.startswith("[") and block.endswith("]")
+                ):
                     cleaned_text = block
                     break
 
@@ -150,22 +150,22 @@ class BaseProvider:
             # Try to find JSON boundaries (outermost { } or [ ])
             start_obj = cleaned_text.find("{")
             start_list = cleaned_text.find("[")
-            
+
             # Determine which one starts first
             start = -1
             if start_obj >= 0 and (start_list < 0 or start_obj < start_list):
                 start = start_obj
             elif start_list >= 0:
                 start = start_list
-            
+
             if start >= 0:
                 # Find the corresponding end
                 end_obj = cleaned_text.rfind("}")
                 end_list = cleaned_text.rfind("]")
                 end = max(end_obj, end_list)
-                
+
                 if end > start:
-                    candidate = cleaned_text[start:end+1]
+                    candidate = cleaned_text[start : end + 1]
                     try:
                         return json.loads(candidate)
                     except json.JSONDecodeError:
@@ -176,78 +176,88 @@ class BaseProvider:
                             # Last resort: if it's truncated, try to close it
                             if candidate.endswith("..."):
                                 candidate = candidate[:-3].strip()
-                            
+
                             # Simple attempt to close unclosed structures
                             open_braces = candidate.count("{") - candidate.count("}")
                             open_brackets = candidate.count("[") - candidate.count("]")
-                            
+
                             fixed_candidate = candidate
                             if open_braces > 0:
                                 fixed_candidate += "}" * open_braces
                             if open_brackets > 0:
                                 fixed_candidate += "]" * open_brackets
-                                
+
                             try:
                                 return json.loads(fix_json(fixed_candidate))
                             except json.JSONDecodeError as e:
-                                raise ProcessingError(f"Failed to parse JSON from LLM response after cleaning: {e}")
-            
-            raise ProcessingError(f"No valid JSON structure found in response. Preview: {text[:100]}...")
+                                raise ProcessingError(
+                                    f"Failed to parse JSON from LLM response after cleaning: {e}"
+                                )
 
-    def generate_structured(self, prompt: str, max_retries: int = 3, **kwargs) -> Union[dict, list]:
+            raise ProcessingError(
+                f"No valid JSON structure found in response. Preview: {text[:100]}..."
+            )
+
+    def generate_structured(
+        self, prompt: str, max_retries: int = 3, **kwargs
+    ) -> Union[dict, list]:
         """Generate structured output with retry logic."""
         last_error = None
         import time
-        
+
         for attempt in range(max_retries):
             try:
                 # Add explicit JSON instruction if not present
                 structured_prompt = prompt
                 if "JSON" not in prompt:
-                    structured_prompt = f"{prompt}\n\nReturn the response as valid JSON only."
-                
+                    structured_prompt = (
+                        f"{prompt}\n\nReturn the response as valid JSON only."
+                    )
+
                 content = self.generate(structured_prompt, **kwargs)
                 result = self._parse_json(content)
-                
+
                 # Basic validation: ensure it's not empty if we expect data
                 if not result and attempt < max_retries - 1:
-                    self.logger.warning(f"Empty structured response (attempt {attempt + 1}/{max_retries}). Retrying...")
+                    self.logger.warning(
+                        f"Empty structured response (attempt {attempt + 1}/{max_retries}). Retrying..."
+                    )
                     continue
-                    
+
                 return result
-                
+
             except (ProcessingError, Exception) as e:
                 last_error = e
                 if attempt < max_retries - 1:
-                    wait_time = (attempt + 1) * 2 # Simple backoff
-                    self.logger.warning(f"Extraction error (attempt {attempt + 1}/{max_retries}): {e}. Retrying in {wait_time}s...")
+                    wait_time = (attempt + 1) * 2  # Simple backoff
+                    self.logger.warning(
+                        f"Extraction error (attempt {attempt + 1}/{max_retries}): {e}. Retrying in {wait_time}s..."
+                    )
                     time.sleep(wait_time)
                 else:
-                    self.logger.error(f"Structured generation failed after {max_retries} attempts: {e}")
-        
+                    self.logger.error(
+                        f"Structured generation failed after {max_retries} attempts: {e}"
+                    )
+
         if last_error:
             raise ProcessingError(f"Failed to generate structured output: {last_error}")
         return []
 
     def generate_typed(
-        self, 
-        prompt: str, 
-        schema: Type[BaseModel], 
-        max_retries: int = 3, 
-        **kwargs
+        self, prompt: str, schema: Type[BaseModel], max_retries: int = 3, **kwargs
     ) -> BaseModel:
         """
         Generate structured output validated against a Pydantic schema.
         Uses instructor if available and supported for the provider, otherwise falls back to a repair loop.
         """
         provider_name = self.__class__.__name__
-        
+
         # Try using instructor first if available
         if instructor:
             try:
                 client = None
                 mode = instructor.Mode.TOOLS  # Default mode
-                
+
                 if provider_name == "OpenAIProvider" and self.client:
                     custom_base_url = getattr(self, "base_url", None)
                     if custom_base_url:
@@ -255,7 +265,9 @@ class BaseProvider:
                         # supported by third-party servers (Qwen, LLaMA gateways, etc.).
                         # Mode.JSON asks the model to return plain JSON and is broadly
                         # supported across all OpenAI-compatible APIs.
-                        client = instructor.from_openai(self.client, mode=instructor.Mode.JSON)
+                        client = instructor.from_openai(
+                            self.client, mode=instructor.Mode.JSON
+                        )
                     elif hasattr(instructor, "from_provider"):
                         try:
                             client = instructor.from_provider(
@@ -270,8 +282,8 @@ class BaseProvider:
                     if hasattr(instructor, "from_provider"):
                         try:
                             client = instructor.from_provider(
-                                provider=f"anthropic/{kwargs.get('model', self.model)}", 
-                                api_key=self.api_key
+                                provider=f"anthropic/{kwargs.get('model', self.model)}",
+                                api_key=self.api_key,
                             )
                         except Exception:
                             client = instructor.from_anthropic(self.client)
@@ -281,26 +293,24 @@ class BaseProvider:
                     if hasattr(instructor, "from_provider"):
                         try:
                             client = instructor.from_provider(
-                                provider=f"gemini/{kwargs.get('model', self.model)}", 
-                                api_key=self.api_key
+                                provider=f"gemini/{kwargs.get('model', self.model)}",
+                                api_key=self.api_key,
                             )
                         except Exception:
                             client = instructor.from_gemini(
-                                self.client, 
-                                mode=instructor.Mode.GEMINI_JSON
+                                self.client, mode=instructor.Mode.GEMINI_JSON
                             )
                     else:
                         client = instructor.from_gemini(
-                            self.client, 
-                            mode=instructor.Mode.GEMINI_JSON
+                            self.client, mode=instructor.Mode.GEMINI_JSON
                         )
                 elif provider_name == "GroqProvider" and self.client:
                     # Try using from_provider which is recommended for Groq in latest instructor
                     if hasattr(instructor, "from_provider"):
                         try:
                             client = instructor.from_provider(
-                                provider=f"groq/{kwargs.get('model', self.model)}", 
-                                api_key=self.api_key
+                                provider=f"groq/{kwargs.get('model', self.model)}",
+                                api_key=self.api_key,
                             )
                         except Exception:
                             client = None
@@ -308,21 +318,28 @@ class BaseProvider:
                     if not client:
                         # Try using from_groq if available (newer instructor versions)
                         if hasattr(instructor, "from_groq"):
-                            client = instructor.from_groq(self.client, mode=instructor.Mode.JSON)
+                            client = instructor.from_groq(
+                                self.client, mode=instructor.Mode.JSON
+                            )
                         else:
                             # Fallback: Create OpenAI client pointing to Groq
                             # This avoids the "Client should be an instance of openai.OpenAI" warning
                             try:
                                 from openai import OpenAI
+
                                 # Fix: Use self.api_key instead of self.client.api_key
                                 groq_client = OpenAI(
                                     base_url="https://api.groq.com/openai/v1",
                                     api_key=self.api_key,
                                 )
-                                client = instructor.from_openai(groq_client, mode=instructor.Mode.JSON)
+                                client = instructor.from_openai(
+                                    groq_client, mode=instructor.Mode.JSON
+                                )
                             except Exception:
                                 # Last resort: try passing the groq client directly
-                                client = instructor.from_openai(self.client, mode=instructor.Mode.JSON)
+                                client = instructor.from_openai(
+                                    self.client, mode=instructor.Mode.JSON
+                                )
                 elif provider_name == "OllamaProvider":
                     # Try from_provider for Ollama if available
                     if hasattr(instructor, "from_provider"):
@@ -332,21 +349,26 @@ class BaseProvider:
                             )
                         except Exception:
                             client = None
-                    
+
                     if not client:
                         # Create OpenAI-compatible client for Ollama
                         try:
                             from openai import OpenAI
+
                             # Ollama typically runs on localhost:11434/v1
-                            base_url = getattr(self, "base_url", "http://localhost:11434")
+                            base_url = getattr(
+                                self, "base_url", "http://localhost:11434"
+                            )
                             if not base_url.endswith("/v1"):
                                 base_url = f"{base_url.rstrip('/')}/v1"
-                            
+
                             ollama_client = OpenAI(
                                 base_url=base_url,
-                                api_key="ollama", # required but unused
+                                api_key="ollama",  # required but unused
                             )
-                            client = instructor.from_openai(ollama_client, mode=instructor.Mode.JSON)
+                            client = instructor.from_openai(
+                                ollama_client, mode=instructor.Mode.JSON
+                            )
                         except ImportError:
                             pass
                 elif provider_name == "DeepSeekProvider" and self.client:
@@ -355,7 +377,7 @@ class BaseProvider:
                         try:
                             client = instructor.from_provider(
                                 provider=f"deepseek/{kwargs.get('model', self.model)}",
-                                api_key=self.api_key
+                                api_key=self.api_key,
                             )
                         except Exception:
                             client = None
@@ -364,15 +386,20 @@ class BaseProvider:
                         # DeepSeek is OpenAI compatible
                         try:
                             from openai import OpenAI
+
                             if isinstance(self.client, OpenAI):
-                                 client = instructor.from_openai(self.client, mode=instructor.Mode.JSON)
+                                client = instructor.from_openai(
+                                    self.client, mode=instructor.Mode.JSON
+                                )
                             else:
-                                 # Try creating fresh client
-                                 ds_client = OpenAI(
-                                     api_key=self.api_key, 
-                                     base_url="https://api.deepseek.com"
-                                 )
-                                 client = instructor.from_openai(ds_client, mode=instructor.Mode.JSON)
+                                # Try creating fresh client
+                                ds_client = OpenAI(
+                                    api_key=self.api_key,
+                                    base_url="https://api.deepseek.com",
+                                )
+                                client = instructor.from_openai(
+                                    ds_client, mode=instructor.Mode.JSON
+                                )
                         except Exception:
                             pass
 
@@ -383,7 +410,9 @@ class BaseProvider:
                             # Format for litellm in instructor is litellm/model_name
                             provider_model = kwargs.get("model", self.model)
                             litellm_provider = f"litellm/{provider_model}"
-                            client = instructor.from_provider(litellm_provider, api_key=self.api_key)
+                            client = instructor.from_provider(
+                                litellm_provider, api_key=self.api_key
+                            )
                         except Exception:
                             pass
 
@@ -395,10 +424,26 @@ class BaseProvider:
                         "messages": [{"role": "user", "content": prompt}],
                         "response_model": schema,
                         "max_retries": max_retries,
-                        "temperature": kwargs.get("temperature") if kwargs.get("temperature") is not None else 0.1,
+                        "temperature": (
+                            kwargs.get("temperature")
+                            if kwargs.get("temperature") is not None
+                            else 0.1
+                        ),
                     }
-                    self._add_if_set(create_kwargs, kwargs, "max_tokens", "max_completion_tokens",
-                                     "top_p", "frequency_penalty", "presence_penalty", "seed", "stop", "logit_bias", "user", "top_k")
+                    self._add_if_set(
+                        create_kwargs,
+                        kwargs,
+                        "max_tokens",
+                        "max_completion_tokens",
+                        "top_p",
+                        "frequency_penalty",
+                        "presence_penalty",
+                        "seed",
+                        "stop",
+                        "logit_bias",
+                        "user",
+                        "top_k",
+                    )
 
                     if provider_name == "GroqProvider":
                         create_kwargs["response_format"] = {"type": "json_object"}
@@ -423,20 +468,27 @@ class BaseProvider:
                                 primary_err,
                                 exc_info=True,
                             )
-                            json_client = instructor.from_openai(self.client, mode=instructor.Mode.JSON)
+                            json_client = instructor.from_openai(
+                                self.client, mode=instructor.Mode.JSON
+                            )
                             # Build a clean kwargs dict for the Mode.JSON retry: drop
                             # response_format (Mode.JSON handles schema differently)
                             # but keep response_model/max_retries so instructor still
                             # validates the typed output.
                             retry_kwargs = {
-                                k: v for k, v in create_kwargs.items()
+                                k: v
+                                for k, v in create_kwargs.items()
                                 if k != "response_format"
                             }
-                            response = json_client.chat.completions.create(**retry_kwargs)
+                            response = json_client.chat.completions.create(
+                                **retry_kwargs
+                            )
                         else:
                             raise
 
-                    verbose_mode = kwargs.get("verbose", False) or self.config.get("verbose", False)
+                    verbose_mode = kwargs.get("verbose", False) or self.config.get(
+                        "verbose", False
+                    )
                     if verbose_mode:
                         self.logger.debug(
                             "[BaseProvider.generate_typed] Typed response received via instructor (%s).",
@@ -453,14 +505,16 @@ class BaseProvider:
         # Fallback: Manual repair loop
         last_error = None
         current_prompt = prompt
-        
+
         for attempt in range(max_retries):
             try:
                 # 1. Generate JSON – try structured mode first, then fall back to
                 # plain generate() + parse.  Custom gateways that reject
                 # response_format=json_object would otherwise loop forever here.
                 try:
-                    json_result = self.generate_structured(current_prompt, max_retries=1, **kwargs)
+                    json_result = self.generate_structured(
+                        current_prompt, max_retries=1, **kwargs
+                    )
                 except Exception as struct_err:
                     self.logger.warning(
                         "generate_structured failed (%s); retrying with plain generate() + JSON parse.",
@@ -469,96 +523,133 @@ class BaseProvider:
                     )
                     raw_content = self.generate(current_prompt, **kwargs)
                     json_result = self._parse_json(raw_content)
-                
+
                 # 2. Validate with Schema
                 # If the result is a list and schema expects a wrapper, or vice versa, we might need adjustment
                 # But we assume the prompt asks for the correct structure matching the schema.
-                
+
                 # Special handling if schema is a wrapper but result is a list
-                if isinstance(json_result, list) and hasattr(schema, "entities") and "entities" in schema.model_fields:
-                     # Auto-wrap for entities
-                     json_result = {"entities": json_result}
+                if (
+                    isinstance(json_result, list)
+                    and hasattr(schema, "entities")
+                    and "entities" in schema.model_fields
+                ):
+                    # Auto-wrap for entities
+                    json_result = {"entities": json_result}
 
                 # Handle categorized dictionary input (e.g. {"PERSON": ["Name"], "ORG": ["Corp"]})
-                elif isinstance(json_result, dict) and hasattr(schema, "entities") and "entities" in schema.model_fields:
-                     # Check if it's NOT already in the correct format (i.e., missing "entities" key)
-                     if "entities" not in json_result:
-                         # Check if values are lists, suggesting categorized output
-                         is_categorized = any(isinstance(v, list) for v in json_result.values())
-                         if is_categorized:
-                             flat_entities = []
-                             for label, items in json_result.items():
-                                 if isinstance(items, list):
-                                     for item in items:
-                                         if isinstance(item, str):
-                                             flat_entities.append({"text": item, "label": label})
-                                         elif isinstance(item, dict):
-                                             # If it's already a dict but nested under label
-                                             item["label"] = label
-                                             flat_entities.append(item)
-                             json_result = {"entities": flat_entities}
+                elif (
+                    isinstance(json_result, dict)
+                    and hasattr(schema, "entities")
+                    and "entities" in schema.model_fields
+                ):
+                    # Check if it's NOT already in the correct format (i.e., missing "entities" key)
+                    if "entities" not in json_result:
+                        # Check if values are lists, suggesting categorized output
+                        is_categorized = any(
+                            isinstance(v, list) for v in json_result.values()
+                        )
+                        if is_categorized:
+                            flat_entities = []
+                            for label, items in json_result.items():
+                                if isinstance(items, list):
+                                    for item in items:
+                                        if isinstance(item, str):
+                                            flat_entities.append(
+                                                {"text": item, "label": label}
+                                            )
+                                        elif isinstance(item, dict):
+                                            # If it's already a dict but nested under label
+                                            item["label"] = label
+                                            flat_entities.append(item)
+                            json_result = {"entities": flat_entities}
 
                 # Handle categorized dictionary input for relations (e.g. {"founded_by": [{"subject":..., "object":...}]})
-                elif isinstance(json_result, dict) and hasattr(schema, "relations") and "relations" in schema.model_fields:
-                     if "relations" not in json_result:
-                         is_categorized = any(isinstance(v, list) for v in json_result.values())
-                         if is_categorized:
-                             flat_relations = []
-                             for label, items in json_result.items():
-                                 if isinstance(items, list):
-                                     for item in items:
-                                         if isinstance(item, dict):
-                                             # If predicate is missing, use the key as predicate
-                                             if "predicate" not in item:
-                                                 item["predicate"] = label
-                                             flat_relations.append(item)
-                             json_result = {"relations": flat_relations}
+                elif (
+                    isinstance(json_result, dict)
+                    and hasattr(schema, "relations")
+                    and "relations" in schema.model_fields
+                ):
+                    if "relations" not in json_result:
+                        is_categorized = any(
+                            isinstance(v, list) for v in json_result.values()
+                        )
+                        if is_categorized:
+                            flat_relations = []
+                            for label, items in json_result.items():
+                                if isinstance(items, list):
+                                    for item in items:
+                                        if isinstance(item, dict):
+                                            # If predicate is missing, use the key as predicate
+                                            if "predicate" not in item:
+                                                item["predicate"] = label
+                                            flat_relations.append(item)
+                            json_result = {"relations": flat_relations}
 
                 # Handle categorized dictionary input for triplets
-                elif isinstance(json_result, dict) and hasattr(schema, "triplets") and "triplets" in schema.model_fields:
-                     if "triplets" not in json_result:
-                         is_categorized = any(isinstance(v, list) for v in json_result.values())
-                         if is_categorized:
-                             flat_triplets = []
-                             for label, items in json_result.items():
-                                 if isinstance(items, list):
-                                     for item in items:
-                                          if isinstance(item, dict):
-                                              flat_triplets.append(item)
-                             json_result = {"triplets": flat_triplets}
+                elif (
+                    isinstance(json_result, dict)
+                    and hasattr(schema, "triplets")
+                    and "triplets" in schema.model_fields
+                ):
+                    if "triplets" not in json_result:
+                        is_categorized = any(
+                            isinstance(v, list) for v in json_result.values()
+                        )
+                        if is_categorized:
+                            flat_triplets = []
+                            for label, items in json_result.items():
+                                if isinstance(items, list):
+                                    for item in items:
+                                        if isinstance(item, dict):
+                                            flat_triplets.append(item)
+                            json_result = {"triplets": flat_triplets}
 
-                elif isinstance(json_result, list) and hasattr(schema, "relations") and "relations" in schema.model_fields:
-                     json_result = {"relations": json_result}
-                elif isinstance(json_result, list) and hasattr(schema, "triplets") and "triplets" in schema.model_fields:
-                     json_result = {"triplets": json_result}
+                elif (
+                    isinstance(json_result, list)
+                    and hasattr(schema, "relations")
+                    and "relations" in schema.model_fields
+                ):
+                    json_result = {"relations": json_result}
+                elif (
+                    isinstance(json_result, list)
+                    and hasattr(schema, "triplets")
+                    and "triplets" in schema.model_fields
+                ):
+                    json_result = {"triplets": json_result}
 
                 validated = schema.model_validate(json_result)
                 return validated
-                
+
             except ValidationError as e:
                 last_error = e
                 error_summary = str(e)
                 # Simplify error summary for the LLM
                 # (You could parse e.errors() for a better message)
-                
+
                 if attempt < max_retries - 1:
                     wait_time = (attempt + 1) * 1
-                    self.logger.warning(f"Schema validation failed (attempt {attempt + 1}): {e}. Retrying with error feedback...")
-                    
+                    self.logger.warning(
+                        f"Schema validation failed (attempt {attempt + 1}): {e}. Retrying with error feedback..."
+                    )
+
                     # Update prompt with error info
                     current_prompt = f"{prompt}\n\nPrevious response was invalid JSON or didn't match schema:\n{error_summary}\n\nPlease fix the errors and return valid JSON matching the schema."
                     time.sleep(wait_time)
                 else:
                     self.logger.error(f"Typed generation failed validation: {e}")
-            
+
             except Exception as e:
                 last_error = e
                 if attempt < max_retries - 1:
-                     time.sleep(1)
+                    time.sleep(1)
                 else:
                     self.logger.error(f"Typed generation failed: {e}")
 
-        raise ProcessingError(f"Failed to generate typed output after {max_retries} attempts: {last_error}")
+        raise ProcessingError(
+            f"Failed to generate typed output after {max_retries} attempts: {last_error}"
+        )
+
 
 class OpenAIProvider(BaseProvider):
     """OpenAI provider implementation."""
@@ -594,6 +685,7 @@ class OpenAIProvider(BaseProvider):
             # Reject non-HTTP schemes (file://, ftp://, etc.) to prevent SSRF
             # when base_url originates from configuration rather than hardcoded values.
             from urllib.parse import urlparse
+
             scheme = urlparse(self.base_url).scheme
             if scheme not in ("http", "https"):
                 raise ValueError(
@@ -630,8 +722,20 @@ class OpenAIProvider(BaseProvider):
             "model": kwargs.get("model", self.model),
             "messages": [{"role": "user", "content": prompt}],
         }
-        self._add_if_set(create_kwargs, kwargs, "temperature", "max_completion_tokens", "max_tokens",
-                         "top_p", "frequency_penalty", "presence_penalty", "seed", "stop", "logit_bias", "user")
+        self._add_if_set(
+            create_kwargs,
+            kwargs,
+            "temperature",
+            "max_completion_tokens",
+            "max_tokens",
+            "top_p",
+            "frequency_penalty",
+            "presence_penalty",
+            "seed",
+            "stop",
+            "logit_bias",
+            "user",
+        )
 
         response = self.client.chat.completions.create(**create_kwargs)
         return response.choices[0].message.content
@@ -651,8 +755,20 @@ class OpenAIProvider(BaseProvider):
         if not self.base_url:
             create_kwargs["response_format"] = {"type": "json_object"}
 
-        self._add_if_set(create_kwargs, kwargs, "temperature", "max_completion_tokens", "max_tokens",
-                         "top_p", "frequency_penalty", "presence_penalty", "seed", "stop", "logit_bias", "user")
+        self._add_if_set(
+            create_kwargs,
+            kwargs,
+            "temperature",
+            "max_completion_tokens",
+            "max_tokens",
+            "top_p",
+            "frequency_penalty",
+            "presence_penalty",
+            "seed",
+            "stop",
+            "logit_bias",
+            "user",
+        )
 
         response = self.client.chat.completions.create(**create_kwargs)
         try:
@@ -679,6 +795,7 @@ class GeminiProvider(BaseProvider):
     def _init_client(self):
         try:
             from google import genai as new_genai
+
             if self.api_key:
                 self.client = new_genai.Client(api_key=self.api_key)
                 self._use_new_genai = True
@@ -687,13 +804,16 @@ class GeminiProvider(BaseProvider):
             pass
         try:
             import google.generativeai as old_genai
+
             if self.api_key:
                 old_genai.configure(api_key=self.api_key)
                 self.client = old_genai.GenerativeModel(self.model)
                 self._use_new_genai = False
         except Exception:
             self.client = None
-            self.logger.warning("Gemini SDK not installed. Install with: pip install semantica[llm-gemini]")
+            self.logger.warning(
+                "Gemini SDK not installed. Install with: pip install semantica[llm-gemini]"
+            )
 
     def _legacy_client_for(self, requested_model: str):
         """Return a legacy-SDK GenerativeModel bound to this instance's own
@@ -711,6 +831,7 @@ class GeminiProvider(BaseProvider):
         """
         try:
             import google.generativeai as old_genai
+
             old_genai.configure(api_key=self.api_key)
         except Exception:
             # _init_client() already required this import to reach the
@@ -747,18 +868,30 @@ class GeminiProvider(BaseProvider):
             )
 
         config = {}
-        self._add_if_set(config, kwargs, "temperature", "top_p", "top_k", "stop_sequences", "candidate_count")
+        self._add_if_set(
+            config,
+            kwargs,
+            "temperature",
+            "top_p",
+            "top_k",
+            "stop_sequences",
+            "candidate_count",
+        )
         if "max_tokens" in kwargs:
             config["max_output_tokens"] = kwargs["max_tokens"]
 
         if self._use_new_genai:
             resp = self.client.models.generate_content(
-                model=kwargs.get("model", self.model), contents=prompt, config=config or None
+                model=kwargs.get("model", self.model),
+                contents=prompt,
+                config=config or None,
             )
             return self._resp_text(resp)
         else:
             legacy_client = self._legacy_client_for(kwargs.get("model", self.model))
-            response = legacy_client.generate_content(prompt, generation_config=config or None)
+            response = legacy_client.generate_content(
+                prompt, generation_config=config or None
+            )
             return self._resp_text(response)
 
     def generate_structured(self, prompt: str, **kwargs) -> dict:
@@ -769,7 +902,15 @@ class GeminiProvider(BaseProvider):
         json_prompt = f"{prompt}\n\nReturn the response as valid JSON only."
 
         config = {}
-        self._add_if_set(config, kwargs, "temperature", "top_p", "top_k", "stop_sequences", "candidate_count")
+        self._add_if_set(
+            config,
+            kwargs,
+            "temperature",
+            "top_p",
+            "top_k",
+            "stop_sequences",
+            "candidate_count",
+        )
         if "max_tokens" in kwargs:
             config["max_output_tokens"] = kwargs["max_tokens"]
 
@@ -784,7 +925,9 @@ class GeminiProvider(BaseProvider):
                 raise ProcessingError(f"Failed to parse JSON from Gemini response: {e}")
         else:
             legacy_client = self._legacy_client_for(kwargs.get("model", self.model))
-            response = legacy_client.generate_content(json_prompt, generation_config=config or None)
+            response = legacy_client.generate_content(
+                json_prompt, generation_config=config or None
+            )
             try:
                 return self._parse_json(self._resp_text(response))
             except Exception as e:
@@ -795,7 +938,10 @@ class GroqProvider(BaseProvider):
     """Groq provider implementation."""
 
     def __init__(
-        self, api_key: Optional[str] = None, model: str = "llama-3.3-70b-versatile", **kwargs
+        self,
+        api_key: Optional[str] = None,
+        model: str = "llama-3.3-70b-versatile",
+        **kwargs,
     ):
         """Initialize Groq provider."""
         super().__init__(**kwargs)
@@ -815,11 +961,11 @@ class GroqProvider(BaseProvider):
                 return
 
             self.client = Groq(api_key=self.api_key)
-            
+
             # Test connection with a minimal prompt
             # Only do this if we have a key and client
             # self._test_connection()
-        except ImportError:
+        except (ImportError, OSError):
             self.client = None
             self.logger.warning(
                 "groq library not installed. Install with: pip install semantica[llm-groq]"
@@ -837,7 +983,7 @@ class GroqProvider(BaseProvider):
             self.client.chat.completions.create(
                 model=self.model,
                 messages=[{"role": "user", "content": "ping"}],
-                max_tokens=1
+                max_tokens=1,
             )
             self.logger.debug("Groq connection test successful")
         except Exception as e:
@@ -858,8 +1004,19 @@ class GroqProvider(BaseProvider):
             "model": kwargs.get("model", self.model),
             "messages": [{"role": "user", "content": prompt}],
         }
-        self._add_if_set(create_kwargs, kwargs, "temperature", "max_completion_tokens", "max_tokens",
-                         "top_p", "frequency_penalty", "presence_penalty", "seed", "stop", "user")
+        self._add_if_set(
+            create_kwargs,
+            kwargs,
+            "temperature",
+            "max_completion_tokens",
+            "max_tokens",
+            "top_p",
+            "frequency_penalty",
+            "presence_penalty",
+            "seed",
+            "stop",
+            "user",
+        )
 
         response = self.client.chat.completions.create(**create_kwargs)
         return response.choices[0].message.content
@@ -870,15 +1027,30 @@ class GroqProvider(BaseProvider):
             raise ProcessingError("Groq client not initialized.")
 
         # Groq requires 'json' in the prompt for json_object mode
-        json_prompt = prompt if "json" in prompt.lower() else f"{prompt}\n\nReturn the response as valid JSON only."
+        json_prompt = (
+            prompt
+            if "json" in prompt.lower()
+            else f"{prompt}\n\nReturn the response as valid JSON only."
+        )
 
         create_kwargs = {
             "model": kwargs.get("model", self.model),
             "messages": [{"role": "user", "content": json_prompt}],
             "response_format": {"type": "json_object"},
         }
-        self._add_if_set(create_kwargs, kwargs, "temperature", "max_completion_tokens", "max_tokens",
-                         "top_p", "frequency_penalty", "presence_penalty", "seed", "stop", "user")
+        self._add_if_set(
+            create_kwargs,
+            kwargs,
+            "temperature",
+            "max_completion_tokens",
+            "max_tokens",
+            "top_p",
+            "frequency_penalty",
+            "presence_penalty",
+            "seed",
+            "stop",
+            "user",
+        )
 
         response = self.client.chat.completions.create(**create_kwargs)
         try:
@@ -927,19 +1099,26 @@ class AnthropicProvider(BaseProvider):
                 "Anthropic client not initialized. Set ANTHROPIC_API_KEY or pass api_key."
             )
 
-        # Anthropic requires max_tokens. 
+        # Anthropic requires max_tokens.
         # We rely on kwargs, but fallback to 8192 (safe max for newer models) if not provided.
         max_tokens = kwargs.get("max_tokens", 8192)
-        
+
         # Prepare arguments
         create_kwargs = {
             "model": kwargs.get("model", self.model),
             "max_tokens": max_tokens,
             "messages": [{"role": "user", "content": prompt}],
         }
-        
+
         # Pass through other common parameters
-        for param in ["temperature", "top_p", "top_k", "stop_sequences", "system", "metadata"]:
+        for param in [
+            "temperature",
+            "top_p",
+            "top_k",
+            "stop_sequences",
+            "system",
+            "metadata",
+        ]:
             if param in kwargs:
                 create_kwargs[param] = kwargs[param]
 
@@ -952,22 +1131,29 @@ class AnthropicProvider(BaseProvider):
             raise ProcessingError("Anthropic client not initialized.")
 
         json_prompt = f"{prompt}\n\nReturn the response as valid JSON only."
-        
-        # Anthropic requires max_tokens. 
+
+        # Anthropic requires max_tokens.
         max_tokens = kwargs.get("max_tokens", 8192)
-        
+
         # Prepare arguments
         create_kwargs = {
             "model": kwargs.get("model", self.model),
             "max_tokens": max_tokens,
             "messages": [{"role": "user", "content": json_prompt}],
         }
-        
+
         # Pass through other common parameters
-        for param in ["temperature", "top_p", "top_k", "stop_sequences", "system", "metadata"]:
+        for param in [
+            "temperature",
+            "top_p",
+            "top_k",
+            "stop_sequences",
+            "system",
+            "metadata",
+        ]:
             if param in kwargs:
                 create_kwargs[param] = kwargs[param]
-        
+
         response = self.client.messages.create(**create_kwargs)
         try:
             return self._parse_json(response.content[0].text)
@@ -1017,7 +1203,9 @@ class OllamaProvider(BaseProvider):
     def _build_options(self, kwargs: dict) -> Optional[dict]:
         """Build Ollama options dict from kwargs."""
         options = {}
-        self._add_if_set(options, kwargs, "temperature", "top_p", "top_k", "repeat_penalty", "seed")
+        self._add_if_set(
+            options, kwargs, "temperature", "top_p", "top_k", "repeat_penalty", "seed"
+        )
         if "max_tokens" in kwargs:
             options["num_predict"] = kwargs["max_tokens"]
         if "num_ctx" in kwargs:
@@ -1058,7 +1246,9 @@ class OllamaProvider(BaseProvider):
 
 
 class DeepSeekProvider(BaseProvider):
-    def __init__(self, api_key: Optional[str] = None, model: str = "deepseek-chat", **kwargs):
+    def __init__(
+        self, api_key: Optional[str] = None, model: str = "deepseek-chat", **kwargs
+    ):
         super().__init__(**kwargs)
         self.api_key = api_key or config.get_api_key("deepseek")
         self.base_url = "https://api.deepseek.com/v1"
@@ -1075,7 +1265,8 @@ class DeepSeekProvider(BaseProvider):
         except (ImportError, OSError):
             self.client = None
             self.logger.warning(
-                "openai library not installed. Install with: pip install semantica[llm-openai]"
+                "openai library not installed. "
+                "Install with: pip install semantica[llm-openai]"
             )
 
     def is_available(self) -> bool:
@@ -1083,13 +1274,26 @@ class DeepSeekProvider(BaseProvider):
 
     def generate(self, prompt: str, **kwargs) -> str:
         if not self.client:
-            raise ProcessingError("DeepSeek client not initialized. Set DEEPSEEK_API_KEY or pass api_key.")
+            raise ProcessingError(
+                "DeepSeek client not initialized. Set DEEPSEEK_API_KEY or pass api_key."
+            )
 
         create_kwargs = {
             "model": kwargs.get("model", self.model),
             "messages": [{"role": "user", "content": prompt}],
         }
-        self._add_if_set(create_kwargs, kwargs, "temperature", "max_tokens", "top_p", "frequency_penalty", "presence_penalty", "seed", "stop", "user")
+        self._add_if_set(
+            create_kwargs,
+            kwargs,
+            "temperature",
+            "max_tokens",
+            "top_p",
+            "frequency_penalty",
+            "presence_penalty",
+            "seed",
+            "stop",
+            "user",
+        )
 
         response = self.client.chat.completions.create(**create_kwargs)
         return response.choices[0].message.content
@@ -1104,7 +1308,18 @@ class DeepSeekProvider(BaseProvider):
             "messages": [{"role": "user", "content": prompt}],
             "response_format": {"type": "json_object"},
         }
-        self._add_if_set(create_kwargs, kwargs, "temperature", "max_tokens", "top_p", "frequency_penalty", "presence_penalty", "seed", "stop", "user")
+        self._add_if_set(
+            create_kwargs,
+            kwargs,
+            "temperature",
+            "max_tokens",
+            "top_p",
+            "frequency_penalty",
+            "presence_penalty",
+            "seed",
+            "stop",
+            "user",
+        )
 
         response = self.client.chat.completions.create(**create_kwargs)
         try:
@@ -1116,7 +1331,12 @@ class DeepSeekProvider(BaseProvider):
 class NovitaProvider(BaseProvider):
     """Novita AI provider implementation - OpenAI-compatible API."""
 
-    def __init__(self, api_key: Optional[str] = None, model: str = "deepseek/deepseek-v3.2", **kwargs):
+    def __init__(
+        self,
+        api_key: Optional[str] = None,
+        model: str = "deepseek/deepseek-v3.2",
+        **kwargs,
+    ):
         """Initialize Novita provider."""
         super().__init__(**kwargs)
         self.api_key = api_key or config.get_api_key("novita")
@@ -1134,7 +1354,8 @@ class NovitaProvider(BaseProvider):
         except (ImportError, OSError):
             self.client = None
             self.logger.warning(
-                "openai library not installed. Install with: pip install semantica[llm-openai]"
+                "openai library not installed. "
+                "Install with: pip install semantica[llm-openai]"
             )
 
     def is_available(self) -> bool:
@@ -1142,13 +1363,26 @@ class NovitaProvider(BaseProvider):
 
     def generate(self, prompt: str, **kwargs) -> str:
         if not self.client:
-            raise ProcessingError("Novita client not initialized. Set NOVITA_API_KEY or pass api_key.")
+            raise ProcessingError(
+                "Novita client not initialized. Set NOVITA_API_KEY or pass api_key."
+            )
 
         create_kwargs = {
             "model": kwargs.get("model", self.model),
             "messages": [{"role": "user", "content": prompt}],
         }
-        self._add_if_set(create_kwargs, kwargs, "temperature", "max_tokens", "top_p", "frequency_penalty", "presence_penalty", "seed", "stop", "user")
+        self._add_if_set(
+            create_kwargs,
+            kwargs,
+            "temperature",
+            "max_tokens",
+            "top_p",
+            "frequency_penalty",
+            "presence_penalty",
+            "seed",
+            "stop",
+            "user",
+        )
 
         response = self.client.chat.completions.create(**create_kwargs)
         return response.choices[0].message.content
@@ -1163,13 +1397,25 @@ class NovitaProvider(BaseProvider):
             "messages": [{"role": "user", "content": prompt}],
             "response_format": {"type": "json_object"},
         }
-        self._add_if_set(create_kwargs, kwargs, "temperature", "max_tokens", "top_p", "frequency_penalty", "presence_penalty", "seed", "stop", "user")
+        self._add_if_set(
+            create_kwargs,
+            kwargs,
+            "temperature",
+            "max_tokens",
+            "top_p",
+            "frequency_penalty",
+            "presence_penalty",
+            "seed",
+            "stop",
+            "user",
+        )
 
         response = self.client.chat.completions.create(**create_kwargs)
         try:
             return self._parse_json(response.choices[0].message.content)
         except Exception as e:
             raise ProcessingError(f"Failed to parse JSON from Novita response: {e}")
+
 
 class HuggingFaceLLMProvider(BaseProvider):
     """HuggingFace transformers for LLM tasks."""
@@ -1184,9 +1430,9 @@ class HuggingFaceLLMProvider(BaseProvider):
             import torch
         except (ImportError, OSError):
             raise ImportError(
-                "torch is required for HuggingFaceLLMProvider. Install with: pip install torch"
+                "torch is required for HuggingFaceLLMProvider. Install with: pip install 'semantica[models-huggingface]'"
             )
-        
+
         self.model_name = model_name
         self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
         self.model = None
@@ -1204,7 +1450,7 @@ class HuggingFaceLLMProvider(BaseProvider):
             self.model.eval()
         except (ImportError, OSError):
             self.logger.warning(
-                "transformers library not installed. Install with: pip install semantica[models-huggingface]"
+                "transformers library not installed. Install with: pip install 'semantica[models-huggingface]'"
             )
         except Exception as e:
             self.logger.warning(
@@ -1222,28 +1468,25 @@ class HuggingFaceLLMProvider(BaseProvider):
             raise ProcessingError("HuggingFace model not initialized.")
 
         inputs = self.tokenizer.encode(prompt, return_tensors="pt").to(self.device)
-        
+
         # Use max_new_tokens if available, otherwise fallback to max_length with a safe default
         generate_kwargs = {
             "temperature": kwargs.get("temperature", 0.7),
             "do_sample": True,
         }
-        
+
         if "max_new_tokens" in kwargs:
             generate_kwargs["max_new_tokens"] = kwargs["max_new_tokens"]
         elif "max_tokens" in kwargs:
             generate_kwargs["max_new_tokens"] = kwargs["max_tokens"]
-            
+
         # Support legacy max_length if explicitly provided
         if "max_length" in kwargs:
             generate_kwargs["max_length"] = kwargs["max_length"]
             # Remove max_new_tokens if max_length is set to avoid conflict
             generate_kwargs.pop("max_new_tokens", None)
 
-        outputs = self.model.generate(
-            inputs,
-            **generate_kwargs
-        )
+        outputs = self.model.generate(inputs, **generate_kwargs)
         generated_text = self.tokenizer.decode(outputs[0], skip_special_tokens=True)
         # Remove the original prompt from the response
         return generated_text[len(prompt) :].strip()
@@ -1271,9 +1514,10 @@ class HuggingFaceModelLoader:
             import torch
         except (ImportError, OSError):
             raise ImportError(
-                "torch is required for HuggingFaceModelLoader. Install with: pip install torch"
+                "torch is required for HuggingFaceModelLoader. "
+                "Install with: pip install 'semantica[models-huggingface]'"
             )
-        
+
         self.device = device or ("cuda" if torch.cuda.is_available() else "cpu")
         self._cache: Dict[str, Any] = {}
         self.logger = get_logger("huggingface_loader")
@@ -1282,7 +1526,7 @@ class HuggingFaceModelLoader:
         """Load NER model."""
         # Import torch at method level to ensure it's available
         import torch
-        
+
         # Include aggregation_strategy in cache key
         agg_strategy = kwargs.get("aggregation_strategy", "simple")
         cache_key = f"{model_name}_ner_{agg_strategy}"
@@ -1291,9 +1535,10 @@ class HuggingFaceModelLoader:
 
         try:
             from transformers import pipeline
-        except ImportError:
+        except (ImportError, OSError):
             raise ImportError(
-                "transformers library not installed. Install with: pip install semantica[models-huggingface]"
+                "transformers library not installed. "
+                "Install with: pip install 'semantica[models-huggingface]'"
             )
 
         try:
@@ -1302,13 +1547,16 @@ class HuggingFaceModelLoader:
                 model=model_name,
                 device=self.device if torch.cuda.is_available() else -1,
                 aggregation_strategy=agg_strategy,
-                tokenizer=kwargs.get("tokenizer") # Allow custom tokenizer
+                tokenizer=kwargs.get("tokenizer"),  # Allow custom tokenizer
             )
             self._cache[cache_key] = nlp
             return nlp
         except OSError as e:
             self.logger.error(f"Failed to load NER model '{model_name}': {e}")
-            raise ValueError(f"Could not load HuggingFace model '{model_name}'. Check if model name is correct. Error: {e}")
+            raise ValueError(
+                f"Could not load HuggingFace model '{model_name}'. "
+                f"Check if model name is correct. Error: {e}"
+            )
         except Exception as e:
             self.logger.error(f"Failed to load NER model {model_name}: {e}")
             raise
@@ -1317,16 +1565,17 @@ class HuggingFaceModelLoader:
         """Load relation extraction model."""
         # Import torch at method level to ensure it's available
         import torch
-        
+
         cache_key = f"{model_name}_relation"
         if cache_key in self._cache:
             return self._cache[cache_key]
 
         try:
             from transformers import pipeline, AutoTokenizer
-        except ImportError:
+        except (ImportError, OSError):
             raise ImportError(
-                "transformers library not installed. Install with: pip install semantica[models-huggingface]"
+                "transformers library not installed. "
+                "Install with: pip install 'semantica[models-huggingface]'"
             )
 
         try:
@@ -1347,7 +1596,10 @@ class HuggingFaceModelLoader:
             return nlp
         except OSError as e:
             self.logger.error(f"Failed to load relation model '{model_name}': {e}")
-            raise ValueError(f"Could not load HuggingFace model '{model_name}'. Check if model name is correct. Error: {e}")
+            raise ValueError(
+                f"Could not load HuggingFace model '{model_name}'. "
+                f"Check if model name is correct. Error: {e}"
+            )
         except Exception as e:
             self.logger.error(f"Failed to load relation model {model_name}: {e}")
             raise
@@ -1359,10 +1611,11 @@ class HuggingFaceModelLoader:
             return self._cache[cache_key]
 
         try:
-            from transformers import AutoModelForSeq2SeqLM, AutoTokenizer, pipeline
-        except ImportError:
+            from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
+        except (ImportError, OSError):
             raise ImportError(
-                "transformers library not installed. Install with: pip install semantica[models-huggingface]"
+                "transformers library not installed. "
+                "Install with: pip install 'semantica[models-huggingface]'"
             )
 
         try:
@@ -1371,7 +1624,7 @@ class HuggingFaceModelLoader:
             if not tokenizer:
                 tokenizer_name = kwargs.get("tokenizer_name", model_name)
                 tokenizer = AutoTokenizer.from_pretrained(tokenizer_name)
-            
+
             model = AutoModelForSeq2SeqLM.from_pretrained(model_name)
             model.to(self.device)
 
@@ -1380,7 +1633,10 @@ class HuggingFaceModelLoader:
             return nlp
         except OSError as e:
             self.logger.error(f"Failed to load triplet model '{model_name}': {e}")
-            raise ValueError(f"Could not load HuggingFace model '{model_name}'. Check if model name is correct. Error: {e}")
+            raise ValueError(
+                f"Could not load HuggingFace model '{model_name}'. "
+                f"Check if model name is correct. Error: {e}"
+            )
         except Exception as e:
             self.logger.error(f"Failed to load triplet model {model_name}: {e}")
             raise
@@ -1389,83 +1645,103 @@ class HuggingFaceModelLoader:
         """Extract entities using loaded model."""
         return model(text)
 
-    def extract_relations(self, model, text: str, entities: List, **kwargs) -> List[Dict]:
+    def extract_relations(
+        self, model, text: str, entities: List, **kwargs
+    ) -> List[Dict]:
         """
         Extract relations using loaded model.
         Iterates through entity pairs and classifies the relationship.
         """
         results = []
-        
+
         # Sort entities by position
         sorted_entities = sorted(entities, key=lambda e: e.start_char)
-        
+
         # Marker configuration
         subj_start = kwargs.get("subj_start_marker", "<subj>")
         subj_end = kwargs.get("subj_end_marker", "</subj>")
         obj_start = kwargs.get("obj_start_marker", "<obj>")
         obj_end = kwargs.get("obj_end_marker", "</obj>")
-        
+
         # Iterate through all pairs
-        import itertools
         for i, e1 in enumerate(sorted_entities):
             for e2 in sorted_entities:
                 if e1 == e2:
                     continue
-                
+
                 # Check distance (optional optimization)
                 # if abs(e1.start_char - e2.start_char) > 200: continue
-                
+
                 # Format text with markers
                 # Strategy: [CLS] text with <subj>...</subj> and <obj>...</obj> [SEP]
                 # We need to insert markers into the original text
-                
+
                 # Create a copy of text with markers inserted
-                # We need to handle offsets correctly. 
+                # We need to handle offsets correctly.
                 # Simplest way: reconstruct string pieces
-                
+
                 p1_start, p1_end = e1.start_char, e1.end_char
                 p2_start, p2_end = e2.start_char, e2.end_char
-                
+
                 if p1_start < p2_start:
                     formatted_text = (
-                        text[:p1_start] + 
-                        f"{subj_start} " + text[p1_start:p1_end] + f" {subj_end}" + 
-                        text[p1_end:p2_start] + 
-                        f"{obj_start} " + text[p2_start:p2_end] + f" {obj_end}" + 
-                        text[p2_end:]
+                        text[:p1_start]
+                        + f"{subj_start} "
+                        + text[p1_start:p1_end]
+                        + f" {subj_end}"
+                        + text[p1_end:p2_start]
+                        + f"{obj_start} "
+                        + text[p2_start:p2_end]
+                        + f" {obj_end}"
+                        + text[p2_end:]
                     )
                 else:
-                     formatted_text = (
-                        text[:p2_start] + 
-                        f"{obj_start} " + text[p2_start:p2_end] + f" {obj_end}" + 
-                        text[p2_end:p1_start] + 
-                        f"{subj_start} " + text[p1_start:p1_end] + f" {subj_end}" + 
-                        text[p1_end:]
+                    formatted_text = (
+                        text[:p2_start]
+                        + f"{obj_start} "
+                        + text[p2_start:p2_end]
+                        + f" {obj_end}"
+                        + text[p2_end:p1_start]
+                        + f"{subj_start} "
+                        + text[p1_start:p1_end]
+                        + f" {subj_end}"
+                        + text[p1_end:]
                     )
-                
+
                 # Predict
                 try:
                     # Pipeline returns [{'label': 'LABEL', 'score': 0.99}]
                     prediction = model(formatted_text, top_k=1)
-                    
+
                     if prediction:
-                        res = prediction[0] if isinstance(prediction, list) else prediction
-                        if isinstance(res, list): res = res[0] # top_k=1 returns list of dicts
-                        
+                        res = (
+                            prediction[0]
+                            if isinstance(prediction, list)
+                            else prediction
+                        )
+                        if isinstance(res, list):
+                            res = res[0]  # top_k=1 returns list of dicts
+
                         label = res.get("label")
                         score = res.get("score")
-                        
+
                         # Filter "no_relation" or low confidence
-                        if label != "no_relation" and score > kwargs.get("threshold", 0.5):
-                            results.append({
-                                "subject": e1,
-                                "object": e2,
-                                "relation": label,
-                                "score": score
-                            })
+                        if label != "no_relation" and score > kwargs.get(
+                            "threshold", 0.5
+                        ):
+                            results.append(
+                                {
+                                    "subject": e1,
+                                    "object": e2,
+                                    "relation": label,
+                                    "score": score,
+                                }
+                            )
                 except Exception as e:
-                    self.logger.warning(f"Relation prediction failed for pair {e1.text}-{e2.text}: {e}")
-                    
+                    self.logger.warning(
+                        f"Relation prediction failed for pair {e1.text}-{e2.text}: {e}"
+                    )
+
         return results
 
     def extract_triplets(self, model, text: str, **kwargs) -> List[Dict]:
@@ -1477,21 +1753,28 @@ class HuggingFaceModelLoader:
         # Use kwargs for max_length, default to 512 for input and 128 for output if not specified
         max_input_length = kwargs.get("max_input_length", 512)
         max_length = kwargs.get("max_length", 128)
-        
+
         generate_kwargs = {"max_length": max_length}
         if "max_new_tokens" in kwargs:
             generate_kwargs["max_new_tokens"] = kwargs["max_new_tokens"]
-            
+
         # Pass other generation args including beams and penalties
-        for param in ["num_beams", "temperature", "top_p", "top_k", "do_sample", 
-                      "length_penalty", "repetition_penalty"]:
+        for param in [
+            "num_beams",
+            "temperature",
+            "top_p",
+            "top_k",
+            "do_sample",
+            "length_penalty",
+            "repetition_penalty",
+        ]:
             if param in kwargs:
                 generate_kwargs[param] = kwargs[param]
 
         inputs = tokenizer(
             text, return_tensors="pt", truncation=True, max_length=max_input_length
         ).to(device)
-        
+
         outputs = model_obj.generate(**inputs, **generate_kwargs)
         # Allow controlling skip_special_tokens (important for REBEL which uses special tokens for delimiters)
         skip_special_tokens = kwargs.get("skip_special_tokens", True)
@@ -1502,7 +1785,7 @@ class HuggingFaceModelLoader:
 
 class ProviderPool:
     """Pool for reusing provider instances."""
-    
+
     def __init__(self):
         self._providers: Dict[str, BaseProvider] = {}
         self.logger = get_logger("provider_pool")
@@ -1512,7 +1795,7 @@ class ProviderPool:
         # Create a cache key from name and kwargs
         # Filter out non-hashable items or volatile args if any
         # For now, we assume kwargs are configuration options that should match
-        
+
         # Helper to make dict hashable
         def make_hashable(value):
             if isinstance(value, dict):
@@ -1523,20 +1806,20 @@ class ProviderPool:
 
         key_parts = [name]
         for k, v in sorted(kwargs.items()):
-            # Skip some keys if they shouldn't affect pooling? 
+            # Skip some keys if they shouldn't affect pooling?
             # For now, all init args matter for the instance identity.
             key_parts.append((k, make_hashable(v)))
-            
+
         key = str(tuple(key_parts))
-        
+
         if key in self._providers:
             return self._providers[key]
-            
+
         self.logger.debug(f"Creating new provider instance for {name}")
         provider = self._create_provider(name, **kwargs)
         self._providers[key] = provider
         return provider
-    
+
     def _create_provider(self, name: str, **kwargs) -> BaseProvider:
         """Internal creation logic."""
         # Check registry first
@@ -1553,7 +1836,7 @@ class ProviderPool:
             "ollama": OllamaProvider,
             "huggingface_llm": HuggingFaceLLMProvider,
             "deepseek": DeepSeekProvider,
-             "novita": NovitaProvider,
+            "novita": NovitaProvider,
         }
 
         provider_class = builtin.get(name.lower())
@@ -1576,7 +1859,7 @@ _provider_pool = ProviderPool()
 def create_provider(name: str, use_pool: bool = True, **kwargs) -> BaseProvider:
     """
     Create provider - checks registry for custom providers.
-    
+
     Args:
         name: Provider name
         use_pool: Whether to use the provider pool (default: True)
@@ -1584,5 +1867,5 @@ def create_provider(name: str, use_pool: bool = True, **kwargs) -> BaseProvider:
     """
     if use_pool:
         return _provider_pool.get(name, **kwargs)
-        
+
     return _provider_pool._create_provider(name, **kwargs)

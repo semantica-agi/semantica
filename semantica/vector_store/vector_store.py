@@ -68,6 +68,7 @@ License: MIT
 from typing import Any, Dict, List, Optional, Tuple, TypedDict, Union, cast
 import concurrent.futures
 import inspect
+import uuid
 
 import numpy as np
 
@@ -482,7 +483,11 @@ class VectorStore:
                     doc_meta = doc.metadata
                 elif isinstance(doc, dict):
                     doc_meta = doc.get("metadata", {})
-                
+                elif isinstance(doc, str):
+                    # Plain-text documents: keep the text itself in the
+                    # payload, otherwise it is silently dropped.
+                    doc_meta = {"document": doc}
+
                 final_metadata[i].update(doc_meta)
         
         return self.store_vectors(vectors, metadata=final_metadata, **options)
@@ -525,6 +530,16 @@ class VectorStore:
                     if supports_metadata:
                         return self._backend_store.add_vectors(vectors, metadata=metadata, **options)
                     return self._backend_store.add_vectors(vectors, **options)
+            elif hasattr(self._backend_store, 'insert_vectors'):
+                # QdrantStore: insert_vectors(vectors, ids, payloads=None)
+                # upserts the points but returns the client's status dict,
+                # while this facade promises callers the stored vector IDs
+                # (decision storage indexes the result at position 0).
+                # metadata entries already carry the source document (folded
+                # in by store()), so they map directly to Qdrant payloads.
+                ids = options.pop('ids', None) or [str(uuid.uuid4()) for _ in range(len(vectors))]
+                self._backend_store.insert_vectors(vectors, ids, payloads=metadata, **options)
+                return ids
             else:
                 raise NotImplementedError(f"Backend store {type(self._backend_store).__name__} does not have add or add_vectors method")
         
