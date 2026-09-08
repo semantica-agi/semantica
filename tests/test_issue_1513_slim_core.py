@@ -216,16 +216,19 @@ def test_salesforce_ingestor_package_import_missing_hint():
 
 
 def test_parse_methods_dynamic_default_resolution():
-    from semantica.parse.methods import (
-        get_parse_method,
-        list_available_methods,
-        parse_document,
-    )
+    """"default" must NOT be registered in the method registry: each built-in
+    dispatcher (parse_document, ...) starts with
+    method_registry.get(<task>, method), so a self-registered "default" would
+    resolve to the dispatcher itself and recurse infinitely. "default" stays
+    the built-in code path, reached only by falling through an unregistered
+    lookup, and callers can still register their own "default" to override
+    it."""
+    from semantica.parse.methods import get_parse_method, list_available_methods
 
-    assert get_parse_method("document", "default") == parse_document
+    assert get_parse_method("document", "default") is None
     methods = list_available_methods()
-    assert "default" in methods.get("document", [])
-    assert "default" in methods.get("structured", [])
+    assert "default" not in methods.get("document", [])
+    assert "default" not in methods.get("structured", [])
 
 
 def test_node_embedder_gensim_missing_hint():
