@@ -64,7 +64,7 @@ Whether you're running your first pipeline or deploying Semantica in production,
         [Temporal Graphs notebook](https://github.com/semantica-agi/semantica/blob/main/cookbook/advanced/10_Temporal_Knowledge_Graphs.ipynb): `valid_from`/`valid_until`, Allen interval algebra, point-in-time queries.
       </Step>
       <Step title="Ontology-driven knowledge bases">
-        [Ontology notebook](https://github.com/semantica-agi/semantica/blob/main/cookbook/introduction/14_Ontology.ipynb): auto-generation, SHACL validation, Ontology Hub (v0.5.0).
+        [Ontology notebook](https://github.com/semantica-agi/semantica/blob/main/cookbook/introduction/14_Ontology.ipynb): auto-generation, SHACL validation, Ontology Hub.
       </Step>
       <Step title="Advanced visualization">
         [Complete Visualization Suite notebook](https://github.com/semantica-agi/semantica/blob/main/cookbook/advanced/03_Complete_Visualization_Suite.ipynb): UMAP, t-SNE, community layouts, embedding projections.
@@ -86,10 +86,10 @@ All settings can be overridden with environment variables: no code changes neede
 | OpenAI API Key | `OPENAI_API_KEY` | `None` |
 | Groq API Key | `GROQ_API_KEY` | `None` |
 | Anthropic API Key | `ANTHROPIC_API_KEY` | `None` |
-| Embedding Provider | `SEMANTICA_EMBEDDING_PROVIDER` | `"openai"` |
-| Graph Backend | `SEMANTICA_GRAPH_BACKEND` | `"networkx"` |
-| Log Level | `SEMANTICA_LOG_LEVEL` | `"INFO"` |
-| Log Format | `SEMANTICA_LOG_FORMAT` | `"text"` |
+| Graph Store Backend | `GRAPH_STORE_DEFAULT_BACKEND` | `"neo4j"` |
+| Vector Store Backend | `VECTOR_STORE_DEFAULT_BACKEND` | `"faiss"` |
+| Server Host | `SEMANTICA_HOST` | `"127.0.0.1"` |
+| Server API Key | `SEMANTICA_API_KEY` | `None` |
 
 
 ## Troubleshooting
@@ -146,10 +146,15 @@ Also reduce batch sizes and enable streaming ingestion for large corpora.
 Enable parallel execution and GPU acceleration:
 
 ```python
-from semantica.pipeline import Pipeline
+from semantica.pipeline import ParallelismManager, Task
 
-pipeline = Pipeline(workers=8, batch_size=32)
-pipeline.run(sources)
+# Run pipeline tasks concurrently across worker threads
+manager = ParallelismManager(max_workers=8)
+tasks = [
+    Task("task_1", lambda: "process part 1"),
+    Task("task_2", lambda: "process part 2"),
+]
+results = manager.execute_parallel(tasks)
 ```
 
 ```bash
@@ -160,19 +165,19 @@ pip install "semantica[gpu]"  # CUDA-backed embeddings
 
 <Accordion title="Windows [all] installation fails" icon="windows">
 
-Fixed in **v0.5.0**. Upgrade:
+Upgrade to the latest release:
 
 ```bash
 pip install --upgrade semantica
 ```
 
-Or install extras individually: `pip install "semantica[core]"`, then add `[llm-openai]`, `[gpu]`, etc. as needed.
+Or install extras individually: `pip install semantica`, then add `[llm-openai]`, `[gpu]`, etc. as needed.
 
 </Accordion>
 
 <Accordion title="cp1252 encoding crash on Windows" icon="windows">
 
-Fixed in **v0.5.0**. For earlier versions, set the encoding environment variable:
+Set the encoding environment variable:
 
 ```bash
 set PYTHONIOENCODING=utf-8
@@ -202,27 +207,44 @@ Use NetworkX for local development and prototyping. Switch to a persistent backe
 
 <Accordion title="Batch processing for large corpora" icon="layer-group">
 
-Process documents in batches rather than one at a time. Configure `chunk_size` based on available RAM: a good starting point is 1,000 documents per batch on a 16 GB machine.
+Process documents in batches rather than one at a time. Split large texts into chunks and extract entities in batches:
 
 ```python
-from semantica.pipeline import Pipeline
+from semantica.split import TextSplitter
+from semantica.semantic_extract import NERExtractor
 
-pipeline = Pipeline(workers=8, batch_size=32)
-pipeline.run(sources)
+document_text = "Acme Corp announced record revenue in Seattle. CEO Jane Doe presented results."
+splitter = TextSplitter(chunk_size=1000, chunk_overlap=100)
+chunks = splitter.split(document_text)
+
+extractor = NERExtractor()
+batch_entities = extractor.extract_entities_batch([c.text for c in chunks])
 ```
 
 </Accordion>
 
 <Accordion title="Deduplication v2: up to 7× faster" icon="bolt">
 
-If deduplication is a bottleneck, switch from v1 strategies to the v2 engine:
+If deduplication is a bottleneck, use candidate blocking to reduce O(n²) comparisons before similarity scoring:
 
 ```python
-resolver = EntityResolver()
-merged   = resolver.resolve(entities, strategy="semantic_v2")  # up to 7x faster
+from semantica.deduplication import DuplicateDetector, EntityMerger
+
+entities = [
+    {"id": "1", "name": "Acme Corp", "type": "Company"},
+    {"id": "2", "name": "Acme Corporation", "type": "Company"},
+    {"id": "3", "name": "Globex", "type": "Company"},
+]
+
+# Fast candidate blocking for large entity sets
+detector = DuplicateDetector(similarity_threshold=0.8)
+duplicates = detector.detect_duplicates(entities, candidate_strategy="blocking_v2")
+
+merger = EntityMerger()
+merged = merger.merge_duplicates(entities, strategy="keep_most_complete")
 ```
 
-The `blocking_v2`, `hybrid_v2`, and `semantic_v2` strategies reduce O(n²) comparisons via candidate blocking before similarity scoring.
+The `blocking_v2` and `hybrid_v2` candidate strategies filter candidate pairs before calculating fine-grained similarity.
 
 </Accordion>
 
@@ -233,8 +255,8 @@ The `blocking_v2`, `hybrid_v2`, and `semantic_v2` strategies reduce O(n²) compa
 
 - **API keys**: store in environment variables or a secrets manager; never commit them to version control; rotate on a schedule
 - **Sensitive data**: use local embedding models (Ollama, HuggingFace) for PII or classified content; avoid sending sensitive data to external APIs without data handling agreements
-- **Graph exports**: encrypt sensitive exports at rest; use the v0.5.0 SSRF-safe `base_url` validation when configuring custom LLM gateways
-- **XML ingestion**: always use `XMLIngestor` (v0.5.0), which uses the XXE-safe lxml backend; never parse untrusted XML with the standard library parser
+- **Graph exports**: encrypt sensitive exports at rest; use SSRF-safe `base_url` validation when configuring custom LLM gateways
+- **XML ingestion**: always use `XMLIngestor`, which uses the XXE-safe lxml backend; never parse untrusted XML with the standard library parser
 
 - [Cookbook](/cookbook): interactive Jupyter notebooks from beginner to advanced.
 - [FAQ](/faq): common questions answered.

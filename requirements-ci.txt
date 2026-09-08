@@ -181,6 +181,7 @@ anyio==4.14.2 \
     #   jupyter-server
     #   langsmith
     #   openai
+    #   pinecone
     #   starlette
     #   watchfiles
 argon2-cffi==25.1.0 \
@@ -786,7 +787,9 @@ charset-normalizer==3.5.1 \
     --hash=sha256:fd0350afdc3aabd5576f60ea109228bd5538139713c7b094c5cd27c73a98bc6f \
     --hash=sha256:fd0a274c0e5f9a21565cd9d3dd749b61f96b7aa1e20a93aa1ba4029518f2e5c0 \
     --hash=sha256:fdb8a068947befafba9952162645dc2fecaeb400e64584829ed5e9b2fbe21a7f
-    # via requests
+    # via
+    #   pdfminer-six
+    #   requests
 click==8.5.0 \
     --hash=sha256:255bc9599cf7748b4b1a446ccc735421bd08a2ae529a8b88597d3de5664ee360 \
     --hash=sha256:ba0d2089de75ea0310e2dde03160e6ca10009947fb95a182f9b54021bb272e34
@@ -1097,6 +1100,7 @@ cryptography==50.0.1 \
     #   azure-storage-blob
     #   google-auth
     #   joserfc
+    #   pdfminer-six
 cuda-bindings==13.3.1 \
     --hash=sha256:04436a9364059c84b8f9636f359eccda1cf814341f5b670c71d80d2f79dbc708 \
     --hash=sha256:120fcc53d57903df529c3486962c56528cba5b7d6c57c99537320ed9922c8b86 \
@@ -4298,6 +4302,14 @@ patsy==1.0.3 \
     --hash=sha256:79ebf4c93ff4d296e58a9d5be2b2ee31bd49d737cf11d70ffbd8a44b2de42e65 \
     --hash=sha256:d3dbebe8fd5f46e29912d030b63c6268647b59bf788a99e2af28a30234cf357c
     # via statsmodels
+pdfminer-six==20260107 \
+    --hash=sha256:366585ba97e80dffa8f00cebe303d2f381884d8637af4ce422f1df3ef38111a9 \
+    --hash=sha256:96bfd431e3577a55a0efd25676968ca4ce8fd5b53f14565f85716ff363889602
+    # via pdfplumber
+pdfplumber==0.11.10 \
+    --hash=sha256:7741ea81bf165b474b153e6789d10d18e06b6ddcf3ec84289c3ef2fed6802580 \
+    --hash=sha256:b95b2d28c66efb0a794a83b88c6c6aea5987532a445d20a1cbcfa657022e6e57
+    # via semantica (pyproject.toml)
 pexpect==4.9.0 \
     --hash=sha256:7236d1e080e4936be2dc3e326cec0af72acf9212a7e1d060210e70a47e253523 \
     --hash=sha256:ee7d41123f3c9911050ea2c2dac107568dc43b2d3b0c7557a33212c398ead30f
@@ -4406,6 +4418,7 @@ pillow==12.3.0 \
     #   docling-slim
     #   fastembed
     #   matplotlib
+    #   pdfplumber
     #   python-pptx
     #   rapidocr
     #   torchvision
@@ -5293,7 +5306,9 @@ pypdfium2==5.13.0 \
     --hash=sha256:d96929bde3bd64c771ab3558ca1ffd7704cc4d872ab92cd9f8f8b8a20f7f36b8 \
     --hash=sha256:d96beb7f379e6c76d874ca93fcd182ac3168dd499056407070f9927fb1061b8e \
     --hash=sha256:da5c7b74eebf40b5c1fbe1de01aa1edc8827a79fb1efd999616bc20dcaf77ba4
-    # via docling-slim
+    # via
+    #   docling-slim
+    #   pdfplumber
 pypickle==2.0.2 \
     --hash=sha256:d3307127314465fe3dc8f0162e11777d5e8284f3a29dc48b0f770d364a85d998 \
     --hash=sha256:d577e39cf501c7c80b1387f6d7dc885cf4efeba65f213df41226d1f24881b1e8

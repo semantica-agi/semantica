@@ -97,24 +97,10 @@ jobs:
       - name: Build Explorer frontend
         working-directory: explorer
         run: npm run build
-      - name: Install Explorer backend test dependencies
+      - name: Install core package and base dependencies
         run: |
-          # Run the deterministic backend path before the all-extras CI
-          # environment is installed.  The Explorer extra supplies the
-          # production API dependencies without importing optional vector
-          # providers such as Pinecone during test collection.
-          #
-          # --no-deps + a separate hash-pinned install (rather than the old
-          # `pip install -e ".[explorer]" pytest==9.1.1`) so every fetched
-          # package is hash-verified (Scorecard Pinned-Dependencies); the
-          # local editable install itself has nothing to hash.
-          # .github/requirements/explorer-extra-py311.txt is
-          # `uv pip compile pyproject.toml --extra explorer --python-version 3.11 --constraint requirements-ci.txt --generate-hashes`
-          # - regenerate it the same way if pyproject.toml's base/explorer
-          # deps change. Resolved specifically for this job's python 3.11
-          # (see the Dockerfile's explorer-extra-py313.txt for why this
-          # can't be shared with python 3.13: audioread needs extra
-          # standard-aifc/standard-sunau hashes only on 3.13+).
+          # Verify that core semantica installs cleanly with only its base dependencies
+          # (no optional extras) and that core imports and lazy missing-dependency hints work.
           #
           # --no-deps only skips *runtime* dependency resolution - `-e .`
           # still does a PEP 517 build, which by default creates an isolated
@@ -125,8 +111,30 @@ jobs:
           # copies instead of fetching its own.
           pip install -r .github/requirements/pep517-build.txt --require-hashes
           pip install --no-deps --no-build-isolation -e .
-          pip install -r .github/requirements/explorer-extra-py311.txt --require-hashes
+          pip install -r .github/requirements/base-deps.txt --require-hashes
           pip install -r .github/requirements/pytest-tool.txt --require-hashes
+      - name: Verify core-only package importability and slim behavior
+        run: |
+          python -c "
+          import semantica
+          print('semantica', semantica.__version__, 'core installed and importable')
+          "
+          pytest -q tests/test_issue_1513_slim_core.py
+      - name: Install Explorer backend test dependencies
+        run: |
+          # Run the deterministic backend path before the all-extras CI
+          # environment is installed.  The Explorer extra supplies the
+          # production API dependencies without importing optional vector
+          # providers such as Pinecone during test collection.
+          #
+          # .github/requirements/explorer-extra-py311.txt is
+          # `uv pip compile pyproject.toml --extra explorer --python-version 3.11 --constraint requirements-ci.txt --generate-hashes`
+          # - regenerate it the same way if pyproject.toml's base/explorer
+          # deps change. Resolved specifically for this job's python 3.11
+          # (see the Dockerfile's explorer-extra-py313.txt for why this
+          # can't be shared with python 3.13: audioread needs extra
+          # standard-aifc/standard-sunau hashes only on 3.13+).
+          pip install -r .github/requirements/explorer-extra-py311.txt --require-hashes
       - name: Test deterministic Explorer backend path
         run: |
           pytest -q tests/explorer/test_explorer_deterministic_rendering_e2e.py

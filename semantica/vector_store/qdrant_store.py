@@ -153,9 +153,12 @@ class QdrantCollection:
             raise ProcessingError("Qdrant not available")
 
         try:
-            search_results = self.client.search(
+            # qdrant-client >=1.10.0: query_points() supersedes the removed search().
+            # It returns a QueryResponse whose .points attribute is a list of
+            # ScoredPoint objects (id, score, payload, …).
+            response = self.client.query_points(
                 collection_name=self.collection_name,
-                query_vector=query_vector.tolist(),
+                query=query_vector.tolist(),
                 limit=limit,
                 query_filter=query_filter,
                 with_payload=True,
@@ -164,19 +167,19 @@ class QdrantCollection:
             )
 
             results = []
-            for result in search_results:
+            for point in response.points:
                 results.append(
                     {
-                        "id": result.id,
+                        "id": point.id,
                         # See pinecone_store.py PineconeIndex.search_vectors for why
                         # this uses x/(1+|x|) rather than clamping distance-to-zero:
                         # Qdrant's Dot distance metric is unbounded, and the old
                         # clamped formula collapsed every score >= 1.0 to 1.0.
                         "score": (
-                            float(result.score) / (1.0 + abs(float(result.score))) + 1.0
+                            float(point.score) / (1.0 + abs(float(point.score))) + 1.0
                         )
                         / 2.0,
-                        "metadata": result.payload or {},
+                        "metadata": point.payload or {},
                         "vector": None,
                         "distance": None,
                     }
@@ -381,6 +384,27 @@ class QdrantStore:
         except Exception as e:
             raise ProcessingError(f"Failed to get collection: {str(e)}")
 
+    def _ensure_default_collection(self, dim: int = 384) -> QdrantCollection:
+        """Lazily attach the configured collection, creating it on first use.
+
+        Mirrors FAISSStore's automatic index creation so the VectorStore
+        facade can read/write without an explicit create_collection() call.
+        Reuses the existing collection if a previous process created it.
+        """
+        # ``collection_name`` is the option the VectorStore facade and the
+        # docs pass through; accept the legacy ``collection`` spelling too.
+        name = (
+            self.config.get("collection_name")
+            or self.config.get("collection")
+            or "semantica_default"
+        )
+        try:
+            self.create_collection(name, vector_size=dim)
+        except ProcessingError:
+            self.get_collection(name)
+        self.logger.info(f"Auto-initialized Qdrant collection '{name}' (dim={dim})")
+        return self.collection
+
     def insert_vectors(
         self,
         vectors: List[Union[np.ndarray, List[float]]],
@@ -400,6 +424,14 @@ class QdrantStore:
         Returns:
             Insert response
         """
+        if len(ids) != len(vectors):
+            # Points are paired with zip(vectors, ids), so a mismatched ID
+            # list would silently drop the unpaired vectors while the
+            # completion message still reports the full batch as inserted.
+            raise ValidationError(
+                f"Number of ids ({len(ids)}) must match number of vectors ({len(vectors)})"
+            )
+
         tracking_id = self.progress_tracker.start_tracking(
             module="vector_store",
             submodule="QdrantStore",
@@ -408,12 +440,10 @@ class QdrantStore:
 
         try:
             if self.collection is None:
-                self.progress_tracker.stop_tracking(
-                    tracking_id, status="failed", message="Collection not initialized"
-                )
-                raise ProcessingError(
-                    "Collection not initialized. Call create_collection() or get_collection() first."
-                )
+                # len() not truthiness: vectors may be a 2-D ndarray, whose
+                # truth value is ambiguous.
+                dim = int(len(vectors[0])) if len(vectors) else 384
+                self._ensure_default_collection(dim)
 
             if not QDRANT_AVAILABLE:
                 self.progress_tracker.stop_tracking(
@@ -478,12 +508,7 @@ class QdrantStore:
 
         try:
             if self.search_engine is None:
-                self.progress_tracker.stop_tracking(
-                    tracking_id, status="failed", message="Collection not initialized"
-                )
-                raise ProcessingError(
-                    "Collection not initialized. Call create_collection() or get_collection() first."
-                )
+                self._ensure_default_collection(int(len(query_vector)))
 
             self.progress_tracker.update_tracking(
                 tracking_id, message="Performing similarity search..."
@@ -695,9 +720,31 @@ class QdrantStore:
             collection_info = self.client.get_collection(
                 self.collection.collection_name
             )
+            # vectors_count was removed in qdrant-client 1.16.0.
+            # When it is absent, only infer the total from points_count if we
+            # can confirm the collection uses a single unnamed vector per point
+            # (VectorParams). Named/multi-vector collections (dict of VectorParams)
+            # have an unknown multiplier, so return None rather than a wrong value.
+            # get_collection() accepts externally-created collections without schema
+            # validation, so the schema must be inspected at stats time.
+            vectors_count_fallback: Optional[int]
+            try:
+                vectors_cfg = collection_info.config.params.vectors
+                vectors_count_fallback = (
+                    collection_info.points_count
+                    if QDRANT_AVAILABLE and isinstance(vectors_cfg, VectorParams)
+                    else None
+                )
+            except Exception:
+                vectors_count_fallback = None
+
             return {
                 "points_count": collection_info.points_count,
-                "vectors_count": collection_info.vectors_count,
+                "vectors_count": getattr(
+                    collection_info,
+                    "vectors_count",
+                    vectors_count_fallback,
+                ),
                 "status": str(collection_info.status)
                 if hasattr(collection_info, "status")
                 else "unknown",

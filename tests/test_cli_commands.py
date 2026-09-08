@@ -2090,12 +2090,16 @@ class TestMCP:
         # Table renders correctly — at minimum the column header is present
         assert "Tool" in result.output or "tool" in result.output.lower()
 
-    def test_list_tools_with_mock_shows_known_tools(self, runner, monkeypatch):
-        fake_tools = _fake_module(__all__=["extract_entities", "query_graph"])
-        monkeypatch.setitem(__import__("sys").modules, "semantica_mcp.mcp.tools", fake_tools)
+    def test_list_tools_reads_server_catalog(self, runner, monkeypatch):
+        """list-tools must read TOOL_DEFINITIONS (what the server serves via
+        tools/list), not the module's ``__all__`` (issue #1355)."""
+        import semantica_mcp.mcp.tools as tools_mod
+        fake = [{"name": "fake_tool_from_catalog", "description": "", "inputSchema": {},
+                 "_handler": lambda a: {}}]
+        monkeypatch.setattr(tools_mod, "TOOL_DEFINITIONS", fake)
         result = runner.invoke(cli_module.main, ["mcp", "list-tools"])
         _ok(result)
-        assert "extract_entities" in result.output
+        assert "fake_tool_from_catalog" in result.output
 
     def test_list_tools_json(self, runner):
         result = runner.invoke(cli_module.main, ["mcp", "list-tools", "--json"])
@@ -2114,14 +2118,63 @@ class TestMCP:
         assert "Traceback" not in result.output
         assert "Invalid JSON" in result.output
 
-    def test_call_import_error_is_clean(self, runner):
-        with patch("builtins.__import__", side_effect=lambda n, *a, **k: (
-            (_ for _ in ()).throw(ImportError(n))
-            if n.startswith("mcp") else __import__(n, *a, **k)
-        )):
-            result = runner.invoke(cli_module.main, ["mcp", "call", "extract_entities"])
+    def test_call_failure_global_json_mode_keeps_stdout_clean(self, runner):
+        """Under global --json, stdout must stay machine-readable: failures are
+        emitted as structured JSON on stderr, never as a Rich panel on stdout."""
+        result = runner.invoke(
+            cli_module.main,
+            ["--json", "mcp", "call", "some_tool", "--args", "{bad json}"],
+        )
+        assert result.exit_code != 0
+        assert result.stdout == ""
+        err = json.loads(result.stderr)
+        assert err["error"].startswith("Invalid JSON in --args")
+        assert err["type"] == "ClickException"
+
+    def test_call_failure_local_json_mode_keeps_stdout_clean(self, runner):
+        """The subcommand's own --json flag promises the same stream contract."""
+        result = runner.invoke(
+            cli_module.main,
+            ["mcp", "call", "some_tool", "--args", "{bad json}", "--json"],
+        )
+        assert result.exit_code != 0
+        assert result.stdout == ""
+        err = json.loads(result.stderr)
+        assert err["error"].startswith("Invalid JSON in --args")
+
+    def test_call_dispatches_through_packaged_server(self, runner):
+        """Regression for issue #1355: ``mcp call`` dispatches in-process through
+        ``semantica_mcp.mcp.server`` (the server ``mcp start`` spawns) instead
+        of importing the nonexistent ``MCPSession``."""
+        result = runner.invoke(
+            cli_module.main, ["--json", "mcp", "call", "extract_entities"]
+        )
+        _ok(result)
+        # Empty args short-circuit before heavy imports; reaching the
+        # handler's own validation proves the dispatch path works.
+        assert "text is required" in result.output
+
+    def test_call_unknown_tool_fails_cleanly(self, runner):
+        result = runner.invoke(cli_module.main, ["mcp", "call", "no_such_tool"])
         assert result.exit_code != 0
         assert "Traceback" not in result.output
+        assert "Unknown tool" in result.output
+
+    def test_call_non_object_args_rejected(self, runner):
+        result = runner.invoke(
+            cli_module.main, ["mcp", "call", "extract_entities", "--args", "[1, 2]"]
+        )
+        assert result.exit_code != 0
+        assert "Traceback" not in result.output
+        assert "--args must be a JSON object" in result.output
+
+    def test_list_tools_json_matches_server_catalog(self, runner):
+        """The CLI catalog and the MCP server catalog must be the same list."""
+        from semantica_mcp.mcp.tools import TOOL_DEFINITIONS
+        result = runner.invoke(cli_module.main, ["mcp", "list-tools", "--json"])
+        _ok(result)
+        data = _json_output(result)
+        assert data["tools"] == [t["name"] for t in TOOL_DEFINITIONS]
 
 
 # ─── services group (backward-compat wrapper) ─────────────────────────────────
@@ -2278,7 +2331,7 @@ class TestDoctorEmbeddings:
         checks = self._doctor_checks(runner)
         st = checks["Embeddings (sentence-transformers)"]
         assert st["status"] == "fail"
-        assert st["hint"] == "pip install sentence-transformers"
+        assert st["hint"] == "pip install 'semantica[embeddings-local]'"
 
     def test_deep_probe_detects_fallback_active(self, runner, monkeypatch):
         self._with_fake_st(monkeypatch)
