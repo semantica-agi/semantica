@@ -28,14 +28,15 @@ def handle_extract_entities(args: dict) -> dict:
     _clear_cache()
     try:
         from semantica.semantic_extract import NamedEntityRecognizer
-        entities = NamedEntityRecognizer().extract(text) or []
+        entities = NamedEntityRecognizer().extract_entities(text) or []
         return {
             "entities": [
                 {
-                    "label": getattr(e, "label", str(e)),
-                    "type": getattr(e, "type", None),
-                    "start": getattr(e, "start", None),
-                    "end": getattr(e, "end", None),
+                    "text": getattr(e, "text", ""),
+                    "label": getattr(e, "label", ""),
+                    "type": getattr(e, "label", None),
+                    "start": getattr(e, "start_char", getattr(e, "start", None)),
+                    "end": getattr(e, "end_char", getattr(e, "end", None)),
                     "confidence": getattr(e, "confidence", None),
                 }
                 for e in entities
@@ -55,7 +56,7 @@ def handle_extract_relations(args: dict) -> dict:
     _clear_cache()
     try:
         from semantica.semantic_extract import NamedEntityRecognizer, RelationExtractor, TripletExtractor
-        entities = NamedEntityRecognizer().extract(text) or []
+        entities = NamedEntityRecognizer().extract_entities(text) or []
         relations = RelationExtractor().extract(text, entities) or []
         triplets = TripletExtractor().extract(text) or []
         return {
@@ -102,9 +103,13 @@ def handle_extract_all(args: dict) -> dict:
             TripletExtractor,
         )
 
-        entities = NamedEntityRecognizer().extract(text) or []
+        entities = NamedEntityRecognizer().extract_entities(text) or []
         result["entities"] = [
-            {"label": getattr(e, "label", str(e)), "type": getattr(e, "type", None)}
+            {
+                "text": getattr(e, "text", ""),
+                "label": getattr(e, "label", ""),
+                "type": getattr(e, "label", None),
+            }
             for e in entities
         ]
 
