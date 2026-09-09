@@ -5,6 +5,7 @@ from unittest.mock import patch
 
 from semantica.semantic_extract import (
     CoreferenceResolver,
+    Event,
     EventDetector,
     NamedEntityRecognizer,
     RelationExtractor,
@@ -106,6 +107,7 @@ def test_extract_all_keeps_coreferences_separate_from_downstream_text():
     )
     relation = Relation(alice, "founded", acme, confidence=0.75)
     triplet = Triplet("Alice", "founded", "Acme Corp", confidence=0.7)
+    event = Event("founded", "FOUNDING", 8, 15, confidence=0.85)
 
     with (
         patch.object(
@@ -115,7 +117,7 @@ def test_extract_all_keeps_coreferences_separate_from_downstream_text():
         patch.object(
             RelationExtractor, "extract", return_value=[relation]
         ) as extract_relations,
-        patch.object(EventDetector, "extract", return_value=[]),
+        patch.object(EventDetector, "extract", return_value=[event]),
         patch.object(
             TripletExtractor, "extract", return_value=[triplet]
         ) as extract_triplets,
@@ -146,7 +148,7 @@ def test_extract_all_keeps_coreferences_separate_from_downstream_text():
                 "confidence": 0.75,
             }
         ],
-        "events": [],
+        "events": [{"type": "FOUNDING", "trigger": "founded"}],
         "triplets": [
             {"subject": "Alice", "predicate": "founded", "object": "Acme Corp"}
         ],
@@ -154,7 +156,7 @@ def test_extract_all_keeps_coreferences_separate_from_downstream_text():
             "entities": 2,
             "coreferences": 1,
             "relations": 1,
-            "events": 0,
+            "events": 1,
             "triplets": 1,
         },
     }

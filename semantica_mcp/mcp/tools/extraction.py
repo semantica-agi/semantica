@@ -151,8 +151,8 @@ def handle_extract_all(args: dict) -> dict:
             events = EventDetector().extract(text) or []
             result["events"] = [
                 {
-                    "type": getattr(ev, "type", None),
-                    "trigger": getattr(ev, "trigger", str(ev)),
+                    "type": getattr(ev, "event_type", getattr(ev, "type", None)),
+                    "trigger": getattr(ev, "text", getattr(ev, "trigger", str(ev))),
                 }
                 for ev in events
             ]
