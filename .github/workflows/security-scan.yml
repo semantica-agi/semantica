@@ -154,13 +154,13 @@ jobs:
           fi
 
           # Vulnerability IDs reviewed and accepted as non-actionable for this
-          # project. Empty for now: pip-audit's OSV-backed database doesn't
-          # currently carry either of the findings Safety used to flag here
-          # (cuda-toolkit CVE-2025-33228, torchvision CVE-2026-65918), so
-          # there's nothing to exclude. Left in place so a future finding can
-          # be added the same way without restructuring this step - see git
-          # history on this file for the reasoning behind past entries.
-          IGNORED_VULN_IDS=""
+          # project:
+          # - GHSA-4j2p-28q2-5m79: accelerate<=1.14.0 (transitive via docling-slim).
+          #   Path traversal in sharded checkpoint index loading (load_checkpoint_in_model).
+          #   1.14.0 is the latest available PyPI release; no upstream patch exists yet.
+          #   Semantica does not load arbitrary user checkpoints. Re-evaluate once
+          #   accelerate releases a fixed version.
+          IGNORED_VULN_IDS="GHSA-4j2p-28q2-5m79"
 
           # Exported so the "Comment PR with Security Results" step below can
           # apply the same exclusion list to the raw report - it reads
