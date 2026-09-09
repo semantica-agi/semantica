@@ -155,12 +155,20 @@ jobs:
 
           # Vulnerability IDs reviewed and accepted as non-actionable for this
           # project:
-          # - GHSA-4j2p-28q2-5m79: accelerate<=1.14.0 (transitive via docling-slim).
-          #   Path traversal in sharded checkpoint index loading (load_checkpoint_in_model).
-          #   1.14.0 is the latest available PyPI release; no upstream patch exists yet.
-          #   Semantica does not load arbitrary user checkpoints. Re-evaluate once
-          #   accelerate releases a fixed version.
-          IGNORED_VULN_IDS="GHSA-4j2p-28q2-5m79"
+          # - GHSA-4j2p-28q2-5m79 (aka CVE-2026-69112): accelerate<=1.14.0
+          #   (transitive via docling-slim). Path traversal in sharded checkpoint
+          #   index loading (load_checkpoint_in_model). 1.14.0 is the latest
+          #   available PyPI release; no upstream patch exists yet. Semantica does
+          #   not load arbitrary user checkpoints. Re-evaluate once accelerate
+          #   releases a fixed version.
+          #   NOTE: pip-audit's OSV-backed report may surface either identifier as
+          #   the primary `id` (with the other listed under `aliases`) depending on
+          #   which alias the backing database picks as canonical, so both need to
+          #   be listed here and the matching below checks aliases too - see
+          #   https://github.com/semantica-agi/semantica/actions/runs/34296586683
+          #   where this ignore list had only the GHSA id but the report's `id`
+          #   was the CVE, so the gate still failed.
+          IGNORED_VULN_IDS="GHSA-4j2p-28q2-5m79,CVE-2026-69112"
 
           # Exported so the "Comment PR with Security Results" step below can
           # apply the same exclusion list to the raw report - it reads
@@ -176,9 +184,16 @@ jobs:
           # no vulns field at all (see the skip_reason handling above) -
           # without the fallback, iterating `null[]` raises inside jq and
           # this whole computation silently evaluates to empty.
+          #
+          # Matching checks `.id` AND `.aliases` (pip-audit includes aliases by
+          # default for JSON output): the OSV-backed report can surface either
+          # the GHSA or the CVE identifier as the canonical `id` for the same
+          # advisory, with the other one demoted to an alias, so matching on
+          # `.id` alone is not reliable.
           VULNS=$(jq --arg ignored "$IGNORED_VULN_IDS" '
             ($ignored | split(",") | map(select(length > 0))) as $ignore_list
-            | [.dependencies[] | (.vulns // [])[] | select(.id as $id | ($ignore_list | index($id)) | not)]
+            | [.dependencies[] | (.vulns // [])[]
+               | select(([.id] + (.aliases // [])) as $ids | ($ids - $ignore_list | length) == ($ids | length))]
             | length
           ' pip-audit-report.json 2>/dev/null)
 
@@ -199,7 +214,8 @@ jobs:
             jq --arg ignored "$IGNORED_VULN_IDS" -r '
               ($ignored | split(",") | map(select(length > 0))) as $ignore_list
               | .dependencies[] as $dependency
-              | ($dependency.vulns // [])[] | select(.id as $id | ($ignore_list | index($id)) | not)
+              | ($dependency.vulns // [])[]
+              | select(([.id] + (.aliases // [])) as $ids | ($ids - $ignore_list | length) == ($ids | length))
               | "- \($dependency.name)==\($dependency.version): \(.id)"
             ' pip-audit-report.json || true
             exit 1
@@ -345,9 +361,16 @@ jobs:
                   return null;
                 }
 
+                // A vuln's canonical `id` and its `aliases` (e.g. GHSA vs. CVE
+                // for the same advisory) are checked together - mirrors the
+                // shell gate above, which needs the same fallback because
+                // pip-audit's OSV-backed report doesn't consistently pick the
+                // same identifier as canonical across advisories.
                 return data.dependencies.flatMap((dependency) =>
                   (dependency.vulns || [])
-                    .filter((vulnerability) => !ignoredVulnIds.includes(vulnerability.id))
+                    .filter((vulnerability) =>
+                      ![vulnerability.id, ...(vulnerability.aliases || [])].some((id) => ignoredVulnIds.includes(id))
+                    )
                     .map(
                       (vulnerability) => `- \`${dependency.name}==${dependency.version}\`: ${vulnerability.id}` +
                         (vulnerability.fix_versions?.length ? ` (fixed by ${vulnerability.fix_versions.join(', ')})` : '')
