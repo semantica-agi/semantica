@@ -91,7 +91,7 @@ export const temporalOverlayPlugin: GraphPlugin = {
           <div style={detailRowStyle}>
             <span style={detailLabelStyle}>Bounds</span>
             <span style={detailValueStyle}>
-              {(temporal?.minDate ?? "1970")} → {(temporal?.maxDate ?? "2030")}
+              {(temporal?.minDate ?? "1970")} → {(temporal?.maxDate ?? "now")}
             </span>
           </div>
           <div style={detailRowStyle}>
