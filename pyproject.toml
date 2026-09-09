@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "semantica"
-version = "0.6.8"
+version = "0.7.0"
 description = "Graph-Native Infrastructure for Context and Accountable AI Systems: context graphs, decision intelligence, full provenance tracking, and explainable reasoning engines — every AI decision traceable, every output auditable."
 readme = "README.md"
 license = { text = "MIT" }
@@ -12,7 +12,11 @@ license = { text = "MIT" }
 authors = [{ name = "Semantica", email = "kaif@getsemantica.ai" }]
 maintainers = [{ name = "Semantica", email = "kaif@getsemantica.ai" }]
 
-requires-python = ">=3.8"
+# 3.8 is already unsatisfiable in practice (numpy>=2.0.2 requires >=3.9) and is
+# not exercised by the Install Matrix (3.9-3.12). The floor is 3.9.2 rather
+# than 3.9.0 because cryptography (db-snowflake) excludes 3.9.0/3.9.1 from
+# every release's requires-python, so those patch levels can never resolve.
+requires-python = ">=3.9.2"
 
 classifiers = [
   "Development Status :: 5 - Production/Stable",
@@ -22,7 +26,6 @@ classifiers = [
   "License :: OSI Approved :: MIT License",
   "Operating System :: OS Independent",
   "Programming Language :: Python :: 3",
-  "Programming Language :: Python :: 3.8",
   "Programming Language :: Python :: 3.9",
   "Programming Language :: Python :: 3.10",
   "Programming Language :: Python :: 3.11",
@@ -52,30 +55,13 @@ dependencies = [
   # last 3.9-compatible release line; 3.10+ is left unconstrained.
   "scikit-learn>=1.6.1,<1.7.0; python_version < '3.10'",
   "scikit-learn>=1.7.2; python_version >= '3.10'",
-  "umap-learn>=0.5.12",
-  # thinc (spacy's core dep) dropped Python 3.9 wheels at 8.3.10, and later
-  # spacy patch releases (3.8.8+) require thinc>=8.3.9-only-on-3.10+ ranges,
-  # which forces a source build that fails outright on 3.9 (see Install
-  # Matrix run history). Capping both keeps 3.9 on the last wheel-compatible
-  # pair; 3.10+ is left unconstrained to always get the latest spacy/thinc.
-  "spacy>=3.4.0,<3.8.8; python_version < '3.10'",
-  "spacy>=3.4.0; python_version >= '3.10'",
-  "thinc<8.3.5; python_version < '3.10'",
-  "transformers>=4.20.0",
-  "torch>=1.13.1",
-  "sentence-transformers>=2.2.0",
   "rdflib>=6.2.0",
   "networkx>=2.8.0",
-  "matplotlib>=3.9.4",
-  "seaborn>=0.13.2",
-  "plotly>=6.8.0",
-  "ipywidgets>=8.0.0",
   # requests dropped Python 3.9 support at 2.33.0 (requires_python >=3.10),
   # so an unqualified >=2.34.2 floor is unsatisfiable on 3.9. Cap 3.9 to the
   # last 3.9-compatible release; 3.10+ is left unconstrained.
   "requests>=2.32.5,<2.33.0; python_version < '3.10'",
   "requests>=2.34.2; python_version >= '3.10'",
-  "GitPython>=3.1.58",
   # chardet dropped Python 3.9 support at 6.0.0 (requires_python >=3.10), so
   # an unqualified >=7.4.3 floor is unsatisfiable on 3.9. Cap 3.9 to the last
   # 3.9-compatible release; 3.10+ is left unconstrained.
@@ -87,26 +73,11 @@ dependencies = [
   # 3.9-compatible release; 3.10+ is left unconstrained.
   "grpcio>=1.80.0,<1.81.0; python_version < '3.10'",
   "grpcio>=1.81.1; python_version >= '3.10'",
-  "beautifulsoup4>=4.15.0",
-  "lxml>=6.1.1",
-  "python-docx>=1.2.0",
-  "openpyxl>=3.1.5",
   # pillow dropped Python 3.9 support at 12.0.0 (requires_python >=3.10), so
   # an unqualified >=12.2.0 floor is unsatisfiable on 3.9. Cap 3.9 to the last
   # 3.9-compatible release; 3.10+ is left unconstrained.
   "pillow>=11.3.0,<12.0.0; python_version < '3.10'",
   "pillow>=12.2.0; python_version >= '3.10'",
-  "librosa>=0.9.0",
-  "opencv-python>=4.13.0.92",
-  "faiss-cpu>=1.7.0",
-  "fastembed>=0.2.0",
-  # onnxruntime stopped shipping cp39 wheels at 1.20.0 (its PyPI metadata
-  # still claims requires_python >=3.9, but no matching wheel exists), so an
-  # unqualified >=1.20.1 floor is unsatisfiable on 3.9. Cap 3.9 to the last
-  # release with a cp39 wheel; 3.10+ is left unconstrained.
-  "onnxruntime>=1.19.2,<1.20.0; python_version < '3.10'",
-  "onnxruntime>=1.20.1; python_version >= '3.10'",
-  "tokenizers>=0.15.0",
   "pydantic>=2.13.4",
   # click dropped Python 3.9 support at 8.2.0 (requires_python >=3.10), so an
   # unqualified >=8.4.2 floor is unsatisfiable on 3.9. Cap 3.9 to the last
@@ -120,7 +91,6 @@ dependencies = [
   "python-dotenv>=1.2.1",
   "loguru>=0.7.3",
   "structlog>=22.1.0",
-  "gensim>=4.4.0",
   "httpx<0.29.0",
   "pyarrow>=14.0.0"
 ]
@@ -144,7 +114,10 @@ llm-anthropic = ["anthropic>=0.122.0"]
 llm-ollama = ["ollama>=0.1.0"]
 llm-deepseek = ["openai>=1.0.0"]
 llm-novita = ["openai>=1.0.0"]
-llm-litellm = ["litellm>=1.83.9"]
+# litellm>=1.83.10 requires Python>=3.10, and the last 3.9-compatible release
+# (1.83.9) pins python-dotenv==1.0.1, which conflicts with our >=1.2.1 core
+# floor — so no litellm satisfies 3.9 at all. Gate it to 3.10+.
+llm-litellm = ["litellm>=1.83.9; python_version >= '3.10'"]
 llm-instructor = ["instructor>=1.15.3"]
 
 llm-all = [
@@ -152,19 +125,49 @@ llm-all = [
 ]
 
 # ---- Document Parsing ----
-parse-docling = ["docling>=2.107.0"]
+documents = [
+  "python-docx>=1.2.0",
+  "openpyxl>=3.1.5",
+  "lxml>=6.1.1",
+  "beautifulsoup4>=4.15.0"
+]
+# every docling release requires Python>=3.10 (no 3.9-compatible version
+# exists to cap to), so gate it like google-adk below rather than split it.
+parse-docling = ["docling>=2.107.0; python_version >= '3.10'"]
+# pdfplumber powers the default PDFParser; not pulled in by any other extra.
+parse-pdf = ["pdfplumber>=0.10.0"]
 
 # ---- SHACL Validation ----
 shacl = ["pyshacl>=0.25.0"]
 
 # ---- Database Connectors ----
-db-snowflake = ["snowflake-connector-python>=4.6.0", "cryptography>=49.0.0"]
+# snowflake-connector-python dropped Python 3.9 support at 4.6.0
+# (requires_python >=3.10), so an unqualified >=4.6.0 floor is unsatisfiable
+# on 3.9. Cap 3.9 below it; 3.10+ keeps the newer floor.
+db-snowflake = [
+  "snowflake-connector-python>=4.6.0; python_version >= '3.10'",
+  "snowflake-connector-python>=3.13.0,<4.6.0; python_version < '3.10'",
+  "cryptography>=49.0.0"
+]
 db-databricks = ["databricks-sdk>=0.60.0", "databricks-sql-connector>=4.0.0"]
-db-arrow = ["pyarrow>=24.0.0"]
+# pyarrow dropped Python 3.9 support at 24.0.0 (requires_python >=3.10), so an
+# unqualified >=24.0.0 floor is unsatisfiable on 3.9. Cap 3.9 below the last
+# 3.9-compatible release line; 3.10+ is left unconstrained.
+db-arrow = [
+  "pyarrow>=24.0.0; python_version >= '3.10'",
+  "pyarrow>=14.0.0,<24.0.0; python_version < '3.10'"
+]
 db-salesforce = ["simple-salesforce>=1.12.0"]
-ingest-parquet = ["pyarrow>=24.0.0"]
-ingest-arrow = ["pyarrow>=24.0.0"]
+ingest-parquet = [
+  "pyarrow>=24.0.0; python_version >= '3.10'",
+  "pyarrow>=14.0.0,<24.0.0; python_version < '3.10'"
+]
+ingest-arrow = [
+  "pyarrow>=24.0.0; python_version >= '3.10'",
+  "pyarrow>=14.0.0,<24.0.0; python_version < '3.10'"
+]
 ingest-sap = ["requests>=2.28.0"]
+ingest-git = ["GitPython>=3.1.58"]
 
 db-all = [
   "semantica[db-snowflake,db-databricks,db-salesforce,db-arrow]"
@@ -175,22 +178,35 @@ models-huggingface = [
   "transformers>=4.20.0",
   "torch>=1.13.1"
 ]
+embeddings-local = [
+  "sentence-transformers>=2.2.0",
+  "fastembed>=0.2.0",
+  "onnxruntime>=1.19.2,<1.20.0; python_version < '3.10'",
+  "onnxruntime>=1.20.1; python_version >= '3.10'",
+  "tokenizers>=0.15.0"
+]
+nlp-spacy = [
+  "spacy>=3.4.0,<3.8.8; python_version < '3.10'",
+  "spacy>=3.4.0; python_version >= '3.10'"
+]
 
 # ---- Graph Backends ----
 graph-neo4j = ["neo4j>=5.0.0"]
 graph-falkordb = ["falkordb>=1.0.0", "redis>=4.3.0"]
 graph-amazon-neptune = ["boto3>=1.24.0", "neo4j>=5.0.0"]
 graph-apache-age = ["psycopg2-binary>=2.9.0"]
+graph-embeddings = ["gensim>=4.4.0"]
 
 graph-all = [
-  "semantica[graph-neo4j,graph-falkordb,graph-amazon-neptune,graph-apache-age]"
+  "semantica[graph-neo4j,graph-falkordb,graph-amazon-neptune,graph-apache-age,graph-embeddings]"
 ]
 
 # ---- Triplet Store Backends ----
 tripletstore-oxigraph = ["pyoxigraph>=0.5.0"]
 
 # ---- Vector Store Backends ----
-vectorstore-qdrant = ["qdrant-client>=1.0.0"]
+vectorstore-faiss = ["faiss-cpu>=1.7.0"]
+vectorstore-qdrant = ["qdrant-client>=1.10.0"]
 vectorstore-weaviate = ["weaviate-client>=4.0.0"]
 vectorstore-pinecone = ["pinecone>=3.0.0"]
 vectorstore-milvus = ["pymilvus>=2.0.0"]
@@ -198,7 +214,7 @@ vectorstore-pgvector = ["psycopg[binary,pool]>=3.0.0", "pgvector>=0.2.0"]
 vectorstore-sqlite = ["sqlite-vec>=0.1.1"]
 
 vectorstore-all = [
-  "semantica[vectorstore-qdrant,vectorstore-weaviate,vectorstore-pinecone,vectorstore-milvus,vectorstore-pgvector,vectorstore-sqlite]"
+  "semantica[vectorstore-qdrant,vectorstore-weaviate,vectorstore-pinecone,vectorstore-milvus,vectorstore-pgvector,vectorstore-sqlite,vectorstore-faiss]"
 ]
 
 # ---- Infra / Queues / Workers ----
@@ -230,7 +246,18 @@ monitoring = [
 viz = [
   "pyvis>=0.3.0",
   "graphviz>=0.21",
-  "d3blocks>=1.0.0"
+  "d3blocks>=1.0.0",
+  "matplotlib>=3.9.4",
+  "seaborn>=0.13.2",
+  "plotly>=6.8.0",
+  "ipywidgets>=8.0.0",
+  "umap-learn>=0.5.12"
+]
+
+# ---- Media ----
+media = [
+  "librosa>=0.9.0",
+  "opencv-python>=4.13.0.92"
 ]
 
 # ---- GPU ----
@@ -244,7 +271,9 @@ agno = ["agno>=1.0.0"]
 # crewai core provides BaseTool and BaseKnowledgeSource; crewai-tools is not
 # needed (it pulls vulnerable transitive deps like chromadb) and would only
 # duplicate the prebuilt tooling users can install separately.
-crewai = ["crewai>=0.80.0"]
+# No un-yanked crewai release supports Python 3.9 (all require >=3.10), so
+# gate the extra to 3.10+.
+crewai = ["crewai>=0.80.0; python_version >= '3.10'"]
 langchain = ["langchain-core>=0.3.0"]
 google-adk = ["google-adk>=1.27.0; python_version >= '3.10'"]
 
@@ -269,15 +298,23 @@ dev = [
   "isort>=6.1.0",
   "flake8>=4.0.0",
   "mypy>=0.971",
-  "pre-commit>=4.6.0",
+  # pre-commit dropped Python 3.9 support at 4.6.0 (requires_python >=3.10).
+  # Cap 3.9 below it; 3.10+ keeps the >=4.6.0 floor.
+  "pre-commit>=4.0.0,<4.6.0; python_version < '3.10'",
+  "pre-commit>=4.6.0; python_version >= '3.10'",
   "jupyter>=1.0.0",
   "ipykernel>=6.15.0"
 ]
 
 # Explorer Dashboard
+# fastapi dropped Python 3.9 support at 0.129.0 (requires_python >=3.10), and
+# every fastapi below that caps starlette<0.53.0 — so the 3.10+ starlette
+# floor is unsatisfiable on 3.9. Cap both on 3.9; 3.10+ keeps the newer floors.
 explorer = [
-  "fastapi>=0.109.2",
-  "starlette>=0.53.0",
+  "fastapi>=0.109.2,<0.129.0; python_version < '3.10'",
+  "fastapi>=0.109.2; python_version >= '3.10'",
+  "starlette>=0.36.3,<0.53.0; python_version < '3.10'",
+  "starlette>=0.53.0; python_version >= '3.10'",
   "uvicorn[standard]>=0.22.0",
   "websockets>=15.0.1",
   "python-multipart>=0.0.7",
@@ -294,8 +331,7 @@ explorer-lite = [
 # (CVE-2026-45829) with no fixed release — including it here would fail the CI
 # dependency-audit/security gates.  Install it explicitly via ``semantica[crewai]``.
 all = [
-  "semantica[dev,viz,infra,cloud,monitoring,watch,llm-all,models-huggingface,split-all,graph-all,tripletstore-oxigraph,vectorstore-all,parse-docling,ingest-parquet,ingest-arrow,shacl,explorer]",
-  "semantica[dev,viz,infra,cloud,monitoring,watch,llm-all,models-huggingface,split-all,graph-all,tripletstore-oxigraph,vectorstore-all,parse-docling,ingest-parquet,ingest-arrow,shacl,agno,langchain,google-adk]"
+  "semantica[dev,viz,media,infra,cloud,monitoring,watch,llm-all,models-huggingface,embeddings-local,nlp-spacy,documents,ingest-git,graph-embeddings,split-all,graph-all,tripletstore-oxigraph,vectorstore-all,parse-docling,parse-pdf,ingest-parquet,ingest-arrow,shacl,explorer,agno,langchain,google-adk]"
 ]
 
 # ---------------- ENTRYPOINTS ----------------

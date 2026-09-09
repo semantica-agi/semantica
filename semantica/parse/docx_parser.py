@@ -32,12 +32,20 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
-from docx import Document
-from docx.document import Document as DocxDocument
-from docx.oxml.table import CT_Tbl
-from docx.oxml.text.paragraph import CT_P
-from docx.table import Table
-from docx.text.paragraph import Paragraph
+try:
+    from docx import Document
+    from docx.document import Document as DocxDocument
+    from docx.oxml.table import CT_Tbl
+    from docx.oxml.text.paragraph import CT_P
+    from docx.table import Table
+    from docx.text.paragraph import Paragraph
+except (ImportError, OSError):
+    Document = None
+    DocxDocument = None
+    CT_Tbl = None
+    CT_P = None
+    Table = None
+    Paragraph = None
 
 from ..utils.exceptions import ProcessingError, ValidationError
 from ..utils.logging import get_logger
@@ -84,7 +92,9 @@ class DOCXParser:
         self.config = config
         self.progress_tracker = get_progress_tracker()
 
-    def parse(self, file_path: Union[str, Path], pipeline_id: Optional[str] = None, **options) -> Dict[str, Any]:
+    def parse(
+        self, file_path: Union[str, Path], pipeline_id: Optional[str] = None, **options
+    ) -> Dict[str, Any]:
         """
         Parse DOCX document.
 
@@ -99,6 +109,12 @@ class DOCXParser:
         Returns:
             dict: Parsed document data
         """
+        if Document is None:
+            raise ProcessingError(
+                "python-docx is required to parse DOCX files. "
+                "Install it with: pip install 'semantica[documents]'"
+            )
+
         file_path = Path(file_path)
 
         # Track DOCX parsing

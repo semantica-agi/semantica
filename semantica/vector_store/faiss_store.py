@@ -128,6 +128,11 @@ class FAISSIndex:
         self.index_type = index_type
         self.vector_ids: List[str] = []
         self.metadata: Dict[str, Dict[str, Any]] = {}
+        # Monotonic counter for default ID generation, mirroring FAISSStore._next_id.
+        # Persisted in the .meta.json sidecar so that load_index restores the
+        # correct value rather than deriving it from ntotal (which underestimates
+        # when vectors have been deleted and sparse gaps exist).
+        self.next_id: int = 0
 
     def add_vectors(self, vectors: np.ndarray, ids: Optional[List[str]] = None):
         """
@@ -199,6 +204,98 @@ class FAISSIndex:
         """Get metadata by ID."""
         return self.metadata.get(vector_id)
 
+    def delete_vectors(self, vector_ids_to_delete: List[str]) -> Dict[str, Any]:
+        """Remove vectors by their external string IDs.
+
+        Translates each requested external ID to its sequential internal FAISS
+        position, calls ``index.remove_ids`` with an ``IDSelectorBatch`` of
+        those positions, then updates ``vector_ids`` and ``metadata`` to match
+        the compacted index.  The invariant ``len(self.vector_ids) ==
+        self.index.ntotal`` is re-checked after the operation.
+
+        **Persistence:** the deletion is in-memory only.  Call
+        :meth:`FAISSStore.save_index` afterwards to write the updated state to
+        disk; without that call the deleted vectors will reappear on the next
+        process restart.
+
+        Args:
+            vector_ids_to_delete: External string IDs to remove.  Unknown IDs
+                are silently ignored.  Duplicate entries are deduplicated.
+
+        Returns:
+            ``{"delete_count": N}`` where *N* is the number of vectors
+            actually removed from the FAISS index (0 if none existed).
+
+        Raises:
+            NotImplementedError: If the underlying FAISS index type does not
+                support ``remove_ids`` (e.g. ``IndexHNSWFlat``).  No state is
+                mutated before this is raised.
+            ProcessingError: For any other unexpected FAISS error.
+        """
+        if not vector_ids_to_delete:
+            return {"delete_count": 0}
+
+        delete_set = set(vector_ids_to_delete)
+
+        # Map external string IDs to sequential internal FAISS positions.
+        positions = [
+            pos
+            for pos, vid in enumerate(self.vector_ids)
+            if vid in delete_set
+        ]
+        if not positions:
+            return {"delete_count": 0}
+
+        # IVF-family indices (IndexIVFFlat, etc.) do NOT compact their internal
+        # labels after remove_ids: the surviving vectors keep their original
+        # sequential labels.  The current architecture interprets search-result
+        # labels as offsets into vector_ids, so a non-compacting removal would
+        # silently return wrong external IDs and cause IndexError on labels
+        # beyond the compacted list length.  Raise NotImplementedError here so
+        # callers get STATUS_UNSUPPORTED rather than silent data corruption.
+        # (Flat and PQ indices DO compact labels, so they are safe.)
+        if FAISS_AVAILABLE and isinstance(self.index, faiss.IndexIVF):
+            raise NotImplementedError(
+                f"The underlying FAISS index type ({type(self.index).__name__}) "
+                "does not compact internal labels after remove_ids, which would "
+                "desynchronize search labels from the vector_ids mapping.  Use a "
+                "Flat index for deletion support, or rebuild the IVF index without "
+                "the deleted vectors."
+            )
+
+        sel = faiss.IDSelectorBatch(np.array(positions, dtype=np.int64))
+        try:
+            removed = self.index.remove_ids(sel)
+        except RuntimeError as exc:
+            if "not implemented" in str(exc).lower():
+                # HNSW and a handful of other index types do not implement
+                # remove_ids.  Raise NotImplementedError so callers (and the
+                # ErasureCoordinator) can distinguish "unsupported" from a
+                # transient failure worth retrying.
+                raise NotImplementedError(
+                    f"The underlying FAISS index type "
+                    f"({type(self.index).__name__}) does not support "
+                    "remove_ids().  Use a Flat index for deletion support, "
+                    "or rebuild the index without the deleted vectors."
+                ) from exc
+            raise ProcessingError(f"FAISS remove_ids failed: {exc}") from exc
+
+        # Keep state consistent: update the Python-side list and metadata
+        # dict to mirror the now-compacted FAISS array.  The list comprehension
+        # cannot raise, so the index and its metadata are always updated
+        # together (no partial-mutation window).
+        self.vector_ids = [vid for vid in self.vector_ids if vid not in delete_set]
+        for vid in delete_set:
+            self.metadata.pop(vid, None)
+
+        if len(self.vector_ids) != self.index.ntotal:
+            raise ProcessingError(
+                f"FAISSIndex invariant broken after delete_vectors: "
+                f"vector_ids={len(self.vector_ids)}, ntotal={self.index.ntotal}. "
+                "This indicates a bug in FAISS remove_ids or the deletion logic."
+            )
+        return {"delete_count": removed}
+
     def save(self, path: Union[str, Path]):
         """Save index to disk.
 
@@ -223,6 +320,7 @@ class FAISSIndex:
                 "metadata": self.metadata,
                 "dimension": self.dimension,
                 "index_type": self.index_type,
+                "next_id": self.next_id,
             },
             cls=_LosslessJSONEncoder,
         )
@@ -245,7 +343,9 @@ class FAISSIndex:
         was originally saved.
         """
         if not FAISS_AVAILABLE:
-            raise ProcessingError("FAISS not available")
+            raise ProcessingError(
+                "FAISS not available. Install with: pip install 'semantica[vectorstore-faiss]' (or 'semantica[gpu]' for CUDA)"
+            )
 
         path = Path(path)
         index = faiss.read_index(str(path))
@@ -261,6 +361,12 @@ class FAISSIndex:
                 dimension = int(persisted_dimension)
             if persisted_index_type is not None:
                 index_type = persisted_index_type
+
+            # Restore the monotonic ID counter.  Older sidecar files written
+            # before this field was added will not have the key; fall back to
+            # ntotal, which equals the counter value for stores that have never
+            # had a deletion (no gaps in label space).
+            persisted_next_id = data.get("next_id")
 
             # Check for vector count vs sidecar ID count mismatch
             if len(vector_ids) != index.ntotal:
@@ -279,10 +385,28 @@ class FAISSIndex:
             )
             vector_ids = []
             metadata = {}
+            persisted_next_id = None
 
         obj = cls(index, dimension, index_type)
         obj.vector_ids = vector_ids
         obj.metadata = metadata
+        # Restore the monotonic counter.  Always clamp to at least the
+        # highest inferred vec_N ID, so a stale or corrupted persisted value
+        # (e.g. written before a deletion that shifted the gap) cannot cause
+        # future default IDs to collide with existing vector IDs.
+        _vec_nums = [
+            int(v[4:]) + 1
+            for v in vector_ids
+            if v.startswith("vec_") and v[4:].isdigit()
+        ]
+        _inferred = max(_vec_nums) if _vec_nums else index.ntotal
+        if persisted_next_id is not None:
+            # Trust the persisted value but never go below the inferred minimum
+            # (guards against stale/corrupted sidecars).
+            obj.next_id = max(int(persisted_next_id), _inferred)
+        else:
+            # Older sidecar files lack this field.  Use the inferred value.
+            obj.next_id = _inferred
         return obj
 
 
@@ -315,7 +439,7 @@ class FAISSSearch:
 
         results = []
         for i, (dist, idx) in enumerate(zip(distances[0], indices[0])):
-            if idx < len(self.index.vector_ids):
+            if idx < len(self.index.vector_ids) and idx >= 0:
                 vector_id = self.index.vector_ids[idx]
                 dist_val = float(dist)
 
@@ -360,7 +484,7 @@ class FAISSIndexBuilder:
         """
         if not FAISS_AVAILABLE:
             raise ProcessingError(
-                "FAISS is not available. Install it with: pip install faiss-cpu or faiss-gpu"
+                "FAISS is not available. Install it with: pip install 'semantica[vectorstore-faiss]' (or 'semantica[gpu]' for CUDA)"
             )
 
         # Create index based on type
@@ -422,11 +546,17 @@ class FAISSStore:
         self.index: Optional[FAISSIndex] = None
         self.index_builder = FAISSIndexBuilder(dimension)
         self.search_engine: Optional[FAISSSearch] = None
+        # Path remembered by load_index so delete_vectors can auto-save.
+        self._index_path: Optional[Path] = None
+        # Monotonic counter for default ID generation.  Incremented on every
+        # successful add, never decremented on deletion, so ids generated by
+        # consecutive add_vectors calls can never collide with surviving IDs.
+        self._next_id: int = 0
 
         # Check FAISS availability
         if not FAISS_AVAILABLE:
             self.logger.warning(
-                "FAISS not available. Install with: pip install faiss-cpu or faiss-gpu"
+                "FAISS not available. Install with: pip install 'semantica[vectorstore-faiss]' (or 'semantica[gpu]' for CUDA)"
             )
 
     def create_index(
@@ -498,13 +628,25 @@ class FAISSStore:
 
             vectors = vectors.astype(np.float32)
 
-            # Generate IDs if not provided
+            # Generate IDs if not provided.  Use a monotonic counter so
+            # that default IDs never collide with surviving IDs after a
+            # deletion (len(vector_ids) would decrease, potentially reusing
+            # a label that still exists in the index).
             if ids is None:
-                ids = [
-                    f"vec_{len(self.index.vector_ids) + i}" for i in range(len(vectors))
-                ]
+                _existing = set(self.index.vector_ids)
+                generated: List[str] = []
+                while len(generated) < len(vectors):
+                    cand = f"vec_{self._next_id}"
+                    self._next_id += 1
+                    if cand not in _existing:
+                        generated.append(cand)
+                        _existing.add(cand)
+                ids = generated
+                # Sync FAISSIndex.next_id so save() persists the correct value.
+                self.index.next_id = self._next_id
 
-            # Store metadata
+            # Assign metadata before the duplicate-skip filter so callers
+            # always get up-to-date metadata even for already-present ids.
             if metadata:
                 self.progress_tracker.update_tracking(
                     tracking_id, message="Storing metadata..."
@@ -613,7 +755,9 @@ class FAISSStore:
             FAISSIndex instance
         """
         if not FAISS_AVAILABLE:
-            raise ProcessingError("FAISS not available")
+            raise ProcessingError(
+                "FAISS not available. Install with: pip install 'semantica[vectorstore-faiss]' (or 'semantica[gpu]' for CUDA)"
+            )
 
         path = Path(path)
         if path.exists() and not _metadata_path(path).exists():
@@ -625,6 +769,12 @@ class FAISSStore:
 
         self.index = FAISSIndex.load(path, self.dimension, index_type)
         self.search_engine = FAISSSearch(self.index)
+        # Remember the path so delete_vectors can auto-save to the same location.
+        self._index_path = path
+        # Restore the monotonic counter from the sidecar (via FAISSIndex.next_id)
+        # rather than using ntotal.  After a deletion ntotal is smaller than the
+        # highest generated ID, so ntotal would cause ID collisions on the next add.
+        self._next_id = self.index.next_id
 
         self.logger.info(f"Loaded FAISS index from {path}")
         return self.index
@@ -735,10 +885,62 @@ class FAISSStore:
         """Return the number of vectors currently tracked in this store.
 
         Returns the length of the ``vector_ids`` list maintained by
-        ``FAISSIndex``.  FAISSStore does not implement vector deletion, so
-        this list is strictly append-only and is always consistent with the
-        underlying FAISS index (``index.ntotal``).
+        ``FAISSIndex``.  This list is always kept consistent with the
+        underlying FAISS index (``index.ntotal``), including after deletions.
         """
         if self.index is None:
             return 0
         return len(self.index.vector_ids)
+
+    def delete_vectors(self, vector_ids: List[str], **options) -> Dict[str, Any]:
+        """Delete vectors by their external string IDs.
+
+        Delegates to :meth:`FAISSIndex.delete_vectors`.  When the store was
+        loaded from disk via :meth:`load_index`, the updated index and sidecar
+        are written back to disk before this method returns, so the deletion is
+        durable across process restarts without the caller needing a separate
+        :meth:`save_index` call.  Note: only the ``.meta.json`` sidecar write
+        is atomic (temp-file + rename); the ``.faiss`` binary is written in
+        place.  A process crash between those two writes would leave the files
+        inconsistent, but the mismatch guard in :meth:`FAISSIndex.load` would
+        detect it on the next load rather than silently returning wrong data.
+
+        No-op deletions (all requested IDs unknown, or empty input) do not
+        trigger a disk write.
+
+        When the store was created in memory (no :meth:`load_index` call), the
+        deletion is in-memory only and the caller must invoke
+        :meth:`save_index` to persist it.
+
+        IVF indices do not support deletion because their internal labels do
+        not compact after ``remove_ids``, which would desynchronize search
+        labels from the ``vector_ids`` mapping.  HNSW indices also do not
+        support ``remove_ids``.  Both raise ``NotImplementedError``, which the
+        :class:`ErasureCoordinator` translates to ``STATUS_UNSUPPORTED``.
+
+        Args:
+            vector_ids: External string IDs to delete.  Unknown IDs are
+                silently ignored.  Duplicates are deduplicated.
+            **options: Accepted for API parity with other backends; unused.
+
+        Returns:
+            ``{"delete_count": N}``
+
+        Raises:
+            ProcessingError: If no index has been initialized.
+            NotImplementedError: If the underlying index type (IVF or HNSW)
+                does not support safe deletion.
+        """
+        if self.index is None:
+            raise ProcessingError(
+                "Index not initialized. Call create_index() first."
+            )
+        result = self.index.delete_vectors(vector_ids)
+        # If the store was loaded from disk (load_index recorded the path),
+        # persist the deletion so that the vectors cannot be resurrected by a
+        # process restart.  Only write when something was actually removed:
+        # a no-op deletion (all IDs unknown or empty list) must not trigger
+        # a full index rewrite.
+        if self._index_path is not None and result.get("delete_count", 0) > 0:
+            self.index.save(self._index_path)
+        return result

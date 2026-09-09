@@ -8,7 +8,7 @@ icon: "plug"
 
 MCP stands for the Model Context Protocol. It is an open standard that allows external AI assistants (like Claude Desktop, Cursor, or Windsurf) to securely access local tools and data sources. 
 
-The Semantica MCP server exposes your knowledge graph as 12 callable tools. By connecting it, any compatible AI client can traverse the graph live, record decisions, run analytics, and export results during a conversation — without you having to write custom tool wrappers.
+The Semantica MCP server exposes your knowledge graph as 15 callable tools. By connecting it, any compatible AI client can traverse the graph live, record decisions, run analytics, and export results during a conversation — without you having to write custom tool wrappers.
 
 <Info>
   The Semantica MCP server exposes 15 tools and 3 read-only resources. All tools accept and return JSON. No configuration beyond an optional environment variable for graph persistence is required.
@@ -40,7 +40,7 @@ Connecting your AI client follows a standard progression:
 1. **Install**: Install Semantica in your Python environment.
 2. **Configure Client**: Add the `semantica-mcp` command and absolute graph paths to your AI client's JSON configuration.
 3. **Start Client**: Launch Claude Desktop or Windsurf, which automatically spawns the MCP server.
-4. **Tool Calls**: Prompt the AI in natural language. The AI autonomously chains the 12 available tools.
+4. **Tool Calls**: Prompt the AI in natural language. The AI autonomously chains the 15 available tools.
 5. **Graph Updates**: The AI directly modifies your local graph, adding entities, edges, and decisions.
 
 ---

@@ -1406,6 +1406,9 @@ semantica-mcp
 | `get_graph_analytics` | Centrality, communities |
 | `export_graph` | Export to RDF/JSON/Parquet |
 | `get_graph_summary` | Graph statistics |
+| `query_graph` | Fetch a node, walk neighbours, keyword search |
+| `update_node` | Merge properties onto a node |
+| `delete_node` | Archive (soft-delete) a node |
 
 ### REST API
 
@@ -1477,6 +1480,14 @@ app = create_app(session=GraphSession(graph), agent_memory=memory)
 The Memories workspace is shown only when `agent_memory` is provided. Apply
 updates the supplied runtime object; it does not add disk persistence.
 
+## What's New in v0.7.0
+
+**Slim core dependencies: lightweight base install with granular optional extras** — `pip install semantica` now installs only 22 essential core dependencies, moving heavy packages into dedicated optional extras:
+- **Dramatically lighter and faster installation**: Core installation no longer pulls heavy machine learning or visualization packages by default.
+- **Granular extras**: Install only what your workload requires (`documents`, `embeddings-local`, `models-huggingface`, `nlp-spacy`, `viz`, `media`, `vectorstore-faiss`, `graph-embeddings`, `ingest-git`).
+- **Full backward compatibility**: `pip install "semantica[all]"` preserves the full bundled suite, while `semantica<0.7.0` remains a permanent escape hatch.
+- **Lazy parser construction & graceful fallbacks**: Document parsers can be constructed without extras and only raise actionable error hints upon calling `.parse()`; `XMLParser` automatically falls back to Python's standard library `xml.etree`.
+
 ---
 
 ## What's New in v0.6.8
@@ -1515,32 +1526,42 @@ Semantica is designed for environments where AI outputs must be explainable, aud
 ## Installation
 
 ```bash
-pip install semantica           # core
-pip install semantica[all]      # everything
+pip install semantica             # lightweight core (22 essential dependencies)
+pip install "semantica[all]"      # full bundled behavior with all extras
 ```
 
+> **Note for upgrades from <0.7.0**: In Semantica 0.7.0+, heavy machine learning, NLP, visualization, and document dependencies were moved into optional extras to make core installation significantly lighter and faster. If you want the previous bundled installation, install with `pip install "semantica[all]"` or pin `semantica<0.7.0`.
+
 ```bash
-pip install semantica[agno]                 # Agno multi-agent integration
-pip install semantica[crewai]               # CrewAI integration
-pip install semantica[langchain]            # LangChain / LangGraph integration
-pip install semantica[llm-litellm]          # OpenAI, Anthropic, Gemini, Mistral, Llama, Groq, Cohere, Bedrock, Ollama, DeepSeek, and more
-pip install semantica[graph-neo4j]          # Neo4j graph store (LPG)
-pip install semantica[graph-falkordb]       # FalkorDB graph store (LPG)
-pip install semantica[graph-apache-age]     # Apache AGE graph store (LPG)
-pip install semantica[graph-amazon-neptune] # AWS Neptune graph store (LPG)
-pip install semantica[tripletstore-oxigraph] # Embedded in-memory/on-disk RDF store
+# Granular Extras
+pip install "semantica[documents]"          # Document parsing (docx, openpyxl, lxml, beautifulsoup4)
+pip install "semantica[embeddings-local]"   # Local embeddings (sentence-transformers, fastembed, onnxruntime)
+pip install "semantica[models-huggingface]" # HuggingFace models (transformers, torch)
+pip install "semantica[nlp-spacy]"          # spaCy NLP pipelines (spacy)
+pip install "semantica[viz]"                # Visualization (matplotlib, seaborn, plotly, pyvis, graphviz)
+pip install "semantica[media]"              # Audio & computer vision (librosa, opencv-python)
+pip install "semantica[graph-embeddings]"   # Knowledge graph embeddings (gensim / Node2Vec)
+pip install "semantica[ingest-git]"         # Git repository ingestor (GitPython)
+pip install "semantica[vectorstore-faiss]"  # FAISS vector store
+pip install "semantica[vectorstore-all]"    # All vector stores (Qdrant, Pinecone, Weaviate, FAISS, PgVector, SQLite)
+pip install "semantica[agno]"               # Agno multi-agent integration
+pip install "semantica[crewai]"             # CrewAI integration
+pip install "semantica[langchain]"          # LangChain / LangGraph integration
+pip install "semantica[llm-all]"            # All LLM provider clients
+pip install "semantica[graph-neo4j]"        # Neo4j graph store (LPG)
+pip install "semantica[graph-falkordb]"     # FalkorDB graph store (LPG)
+pip install "semantica[graph-apache-age]"   # Apache AGE graph store (LPG)
+pip install "semantica[graph-amazon-neptune]" # AWS Neptune graph store (LPG)
+pip install "semantica[tripletstore-oxigraph]" # Embedded in-memory/on-disk RDF store
 # RDF triple stores (Blazegraph, Apache Jena, Eclipse RDF4J) need no extra:
 # semantica.triplet_store talks SPARQL over HTTP using the core `requests` dependency
-pip install semantica[vectorstore-qdrant]   # Qdrant vector store
-pip install semantica[vectorstore-pinecone] # Pinecone vector store
-pip install semantica[db-snowflake]         # Snowflake
-pip install semantica[db-databricks]        # Databricks (SDK + SQL connector)
-pip install semantica[ingest-sap]           # SAP OData
-pip install semantica[ingest-parquet]       # Parquet / PyArrow
-pip install semantica[ingest-arrow]        # Apache Arrow, Feather, IPC
-pip install semantica[viz]                  # HTML interactive visualization
-pip install semantica[watch]                # Directory file watcher
-pip install semantica[explorer]             # Knowledge Explorer dashboard
+pip install "semantica[db-snowflake]"       # Snowflake
+pip install "semantica[db-databricks]"      # Databricks (SDK + SQL connector)
+pip install "semantica[ingest-sap]"         # SAP OData
+pip install "semantica[ingest-parquet]"     # Parquet / PyArrow
+pip install "semantica[ingest-arrow]"       # Apache Arrow, Feather, IPC
+pip install "semantica[watch]"              # Directory file watcher
+pip install "semantica[explorer]"           # Knowledge Explorer dashboard
 ```
 
 For production deployments, use Docker or Kubernetes rather than a local `pip install`. Set `SEMANTICA_API_KEY`, configure a persistent LPG graph store (Neo4j / FalkorDB / Apache AGE / AWS Neptune) and/or RDF triple store (Blazegraph / Apache Jena / Eclipse RDF4J), and point the vector store at a hosted backend (Qdrant / Pinecone). See [ARCHITECTURE.md](ARCHITECTURE.md) for the full deployment topology.

@@ -9,6 +9,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Schema-guided extraction validation** (#1510) by @Besokus
+  - New `SchemaValidator` (`semantica.semantic_extract`, lazy export): a deterministic sibling of `ExtractionValidator` that checks extraction output for *conformance to a domain ontology* — an axis orthogonal to `ExtractionValidator`'s confidence checks. It mirrors the same interface (`validate_entities()` / `validate_relations()` returning `ValidationResult`, batch-aware), so the two compose back-to-back
+  - Entity labels must be concepts in the schema; relation predicates must be in the schema and satisfy their `domain` / `range`. Violations are reported in `ValidationResult.errors` with counts in `metrics` and `score` = conformance ratio; `filter_by_schema()` / `filter_relations_by_schema()` return the conforming subset (mirroring `filter_by_confidence`). No LLM required
+  - New `ExtractionSchema` (`semantica.semantic_extract`, lazy export): a lightweight, read-only view over a domain ontology (allowed concepts + predicates with optional `domain` / `range`). Reuses the project's existing OWL ontology representation rather than a parallel type — build one from a `generate_ontology`-style dict (`ExtractionSchema.from_ontology`) or an OWL/Turtle file/string (`ExtractionSchema.from_owl`, via the existing `rdflib` dependency). An empty `domain`/`range` means unconstrained, matching OWL
+  - Implements the deterministic core of ontology-based information extraction (OBIE; Wimalasuriya & Dou, 2010). No new runtime dependencies
+  - New `tests/semantic_extract/test_schema_validator.py`
+
+## [0.7.0] - 2026-09-07
+
+### Changed
+
+- **Slim core dependencies: moved ~22 heavy packages to optional extras** (#1513)
+  - Core dependencies in `pyproject.toml` are now reduced to exactly 22 direct packages: `numpy`, `pandas`, `scipy`, `scikit-learn`, `rdflib`, `networkx`, `requests`, `chardet`, `protobuf`, `grpcio`, `pillow`, `pydantic`, `click`, `rich`, `tqdm`, `pyyaml`, `toml`, `python-dotenv`, `loguru`, `structlog`, `httpx`, and `pyarrow`.
+  - Heavy ML/NLP, visualization, document parsing, and ingestion packages moved into granular optional extras:
+    - `models-huggingface`: `torch`, `transformers`
+    - `embeddings-local`: `sentence-transformers`, `fastembed`, `onnxruntime`, `tokenizers`
+    - `nlp-spacy`: `spacy`
+    - `viz`: expanded to include `matplotlib`, `seaborn`, `plotly`, `ipywidgets`, `umap-learn`, alongside `pyvis`, `graphviz`, and `d3blocks`
+    - `media`: `librosa`, `opencv-python`
+    - `vectorstore-faiss`: `faiss-cpu` (also included in `vectorstore-all`)
+    - `documents`: `python-docx`, `openpyxl`, `lxml`, `beautifulsoup4`
+    - `ingest-git`: `GitPython`
+    - `graph-embeddings`: `gensim` (also included in `graph-all`)
+  - Full bundled behavior preserved via `pip install "semantica[all]"`, which includes all optional extras. Pinning `semantica<0.7.0` remains a permanent escape hatch for legacy workflows.
+  - Safe lazy construction across parsers and visualizers:
+    - `DOCXParser`, `ExcelParser`, `HTMLParser`, and `XMLParser` remain constructible without error on `__init__()`. They fail only upon calling `.parse()` with actionable error messages directing users to install `semantica[documents]`.
+    - `XMLParser` automatically falls back to standard library `xml.etree` (`_parse_with_etree`) when `lxml` is not installed, preserving XML parsing capabilities without extra dependencies.
+    - `EmbeddingVisualizer` and `OntologyVisualizer` safely guard `matplotlib` and optional reduction packages, advising `pip install 'semantica[viz]'`.
+    - `RepoIngestor` guards `GitPython` with a clear error pointing to `semantica[ingest-git]`.
+    - `PublicAPIIngestor` guards `lxml` and `_SAFE_XML_PARSER`.
+    - Updated user-facing installation hints across CLI doctor commands, node embeddings (`NodeEmbedder`), vector stores (`FAISSStore`), and model loaders.
+  - Recompiled CI lockfiles (`requirements-ci.txt`, `.github/requirements/explorer-extra-py311.txt`, `.github/requirements/explorer-extra-py313.txt`, and `.github/requirements/base-deps.txt`).
+
 ## [0.6.8] - 2026-09-05
 
 ### Added

@@ -4,6 +4,7 @@ import { Timeline } from "vis-timeline";
 import type { TimelineOptions } from "vis-timeline";
 import "vis-timeline/styles/vis-timeline-graph2d.css";
 import { GRAPH_THEME } from "./graphTheme";
+import { DEFAULT_MIN_DATE, resolvePlayStepMs, resolveScrubberBounds } from "./temporalScrubberBounds";
 
 export interface TimelinePanelProps {
   onTimeChange: (time: Date) => void;
@@ -11,11 +12,9 @@ export interface TimelinePanelProps {
   maxDate?: string;
 }
 
-const DEFAULT_MIN_DATE = new Date("1970-01-01T00:00:00Z");
-const DEFAULT_MAX_DATE = new Date("2030-01-01T00:00:00Z");
 const PLAYHEAD_ID = "playhead";
 const PLAY_INTERVAL_MS = 500;
-const PLAY_STEP_MONTHS = 6;
+const ONE_DAY_MS = 1000 * 60 * 60 * 24;
 
 const VIS_OVERRIDE_CSS = `
   .sem-timeline-wrap .vis-timeline { border: none !important; background: transparent !important; overflow: visible !important; }
@@ -54,12 +53,6 @@ const VIS_OVERRIDE_CSS = `
   .sem-timeline-wrap .vis-panel.vis-left { display: none !important; }
 `;
 
-function safeDate(value: string | undefined, fallback: Date): Date {
-  if (!value) return fallback;
-  const parsed = new Date(value);
-  return Number.isNaN(parsed.getTime()) ? fallback : parsed;
-}
-
 function formatPlayheadLabel(value: Date): string {
   return `${value.getFullYear()}/${String(value.getMonth() + 1).padStart(2, "0")}`;
 }
@@ -72,9 +65,13 @@ export function TimelinePanel({ onTimeChange, minDate, maxDate }: TimelinePanelP
   const [isPlaying, setIsPlaying] = useState(false);
   const [displayDate, setDisplayDate] = useState(formatPlayheadLabel(DEFAULT_MIN_DATE));
 
-  const minBound = useMemo(() => safeDate(minDate, DEFAULT_MIN_DATE), [minDate]);
-  const maxBound = useMemo(() => safeDate(maxDate, DEFAULT_MAX_DATE), [maxDate]);
-  const defaultTime = useMemo(() => new Date(Math.round((minBound.getTime() + maxBound.getTime()) / 2)), [maxBound, minBound]);
+  // Captured once per mount so re-renders keep the same reference and do not
+  // retrigger the timeline effect below.
+  const now = useMemo(() => new Date(), []);
+  const { minBound, maxBound, defaultTime } = useMemo(
+    () => resolveScrubberBounds({ minDate, maxDate, now }),
+    [maxDate, minDate, now],
+  );
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -91,12 +88,10 @@ export function TimelinePanel({ onTimeChange, minDate, maxDate }: TimelinePanelP
         showCurrentTime: false,
         zoomable: true,
         moveable: true,
-        zoomMin: 1000 * 60 * 60 * 24 * 365,
+        zoomMin: ONE_DAY_MS,
         zoomMax: 1000 * 60 * 60 * 24 * 365 * 80,
         showMajorLabels: true,
         showMinorLabels: true,
-        timeAxis: { scale: "year", step: 5 },
-        format: { minorLabels: { year: "YYYY" }, majorLabels: { year: "YYYY" } },
         orientation: { axis: "bottom" },
         margin: { item: 0, axis: 0 },
         selectable: false,
@@ -134,8 +129,7 @@ export function TimelinePanel({ onTimeChange, minDate, maxDate }: TimelinePanelP
     playIntervalRef.current = setInterval(() => {
       const timeline = timelineRef.current;
       if (!timeline) return;
-      const next = new Date(playheadRef.current);
-      next.setMonth(next.getMonth() + PLAY_STEP_MONTHS);
+      const next = new Date(playheadRef.current.getTime() + resolvePlayStepMs(minBound, maxBound));
       if (next >= maxBound) {
         next.setTime(minBound.getTime());
       }

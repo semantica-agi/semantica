@@ -35,8 +35,14 @@ License: MIT
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
-import matplotlib.patches as mpatches
-import matplotlib.pyplot as plt
+try:
+    import matplotlib.patches as mpatches
+    import matplotlib.pyplot as plt
+    from matplotlib.patches import FancyBboxPatch
+except (ImportError, OSError):
+    mpatches = None
+    plt = None
+    FancyBboxPatch = None
 
 try:
     import plotly.express as px
@@ -46,8 +52,6 @@ except (ImportError, OSError):
     px = None
     go = None
     make_subplots = None
-
-from matplotlib.patches import FancyBboxPatch
 
 try:
     import graphviz
@@ -106,13 +110,13 @@ class OntologyVisualizer:
             if graphviz is None:
                 raise ProcessingError(
                     "Graphviz is required for DOT export. "
-                    "Install with: pip install graphviz"
+                    "Install with: pip install 'semantica[viz]'"
                 )
         else:
-            if px is None or go is None:
+            if go is None:
                 raise ProcessingError(
                     "Plotly is required for ontology visualization. "
-                    "Install with: pip install plotly"
+                    "Install with: pip install 'semantica[viz]'"
                 )
 
     def visualize_hierarchy(
@@ -892,7 +896,7 @@ class OntologyVisualizer:
         """Create Graphviz hierarchy visualization."""
         if graphviz is None:
             raise ProcessingError(
-                "Graphviz not available. Install with: pip install graphviz"
+                "Graphviz not available. Install with: pip install 'semantica[viz]'"
             )
 
         dot = graphviz.Digraph(comment="Ontology Hierarchy")
