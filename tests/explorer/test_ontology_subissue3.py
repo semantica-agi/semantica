@@ -17,6 +17,7 @@ from semantica.explorer.routes.ontology import (  # noqa: E402
     OntologyEntry,
     _convert_ontology_to_graph,
     _node_belongs_to_ontology,
+    _resolve_owning_ontology,
 )
 from semantica.explorer.session import GraphSession  # noqa: E402
 
@@ -292,6 +293,54 @@ def test_entity_detail_reports_no_owner_for_unregistered_nested_namespace(client
     # onto-a must not claim a nested vocabulary its own /graph response
     # excludes, or a deep link selects onto-a and then finds nothing to select.
     assert response.json()["owning_ontology"] is None
+
+
+def test_entity_detail_reports_an_explicit_owner_outside_the_registry(client):
+    graph = client.app.state.session.graph
+    borrowed = "http://example.org/onto-a#Borrowed"
+    unregistered_owner = "http://unregistered.example/vocab"
+    # Sits directly in onto-a's namespace, so the namespace rule has an answer
+    # ready — the node's own scheme_uri still has to win, or /entity reports an
+    # owner that contradicts the node and the editor opens the wrong ontology.
+    graph.add_node(
+        borrowed,
+        node_type="owl:Class",
+        content="Borrowed",
+        scheme_uri=unregistered_owner,
+    )
+
+    response = client.get(f"/api/ontology/entity/{quote(borrowed, safe='')}")
+
+    assert response.status_code == 200
+    assert response.json()["owning_ontology"] == unregistered_owner
+
+
+def test_owner_resolution_agrees_with_graph_membership(client):
+    """_resolve_owning_ontology and _node_belongs_to_ontology must not diverge.
+
+    The two answer the same question from opposite directions, and /entity and
+    /graph each use one of them. If they disagree, a deep link opens an ontology
+    whose graph then excludes the entity it was opened for.
+    """
+    parent = "http://example.org/onto-a"
+    nested = "http://example.org/onto-a/nested"
+    known = {parent, nested}
+    cases = [
+        {"id": parent},
+        {"id": f"{parent}#Direct"},
+        {"id": f"{parent}/Direct"},
+        {"id": f"{nested}#Term"},
+        {"id": f"{parent}/unregistered#Term"},
+        {"id": "http://elsewhere.example/Thing"},
+        {"id": f"{parent}#Explicit", "properties": {"scheme_uri": nested}},
+    ]
+
+    for node in cases:
+        owner = _resolve_owning_ontology(node, known)
+        for candidate in known:
+            assert _node_belongs_to_ontology(node, candidate, known) == (
+                owner == candidate
+            ), f"{node['id']} vs {candidate}: owner={owner}"
 
 
 def test_load_fallback_import_without_declaration_is_editable(client):

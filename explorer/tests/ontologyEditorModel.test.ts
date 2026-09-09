@@ -30,6 +30,20 @@ test("explicit scheme ownership wins when an entity uses another namespace", () 
   );
 });
 
+test("an explicit owner missing from the registry is used, not quietly replaced", () => {
+  // The entity sits under a registered namespace, so the guess has an answer
+  // ready; the backend naming a different, unregistered owner must still win,
+  // or the editor opens an ontology nobody said owned this entity.
+  assert.equal(
+    inferOntologyUri(
+      registry,
+      "https://example.test/foo#Class",
+      "https://unregistered.test/vocab",
+    ),
+    "https://unregistered.test/vocab",
+  );
+});
+
 test("only draft-supported class and property nodes are editable", () => {
   assert.equal(isEditableEntityType("class"), true);
   assert.equal(isEditableEntityType("property"), true);
@@ -70,15 +84,31 @@ test("an authoritative no-owner verdict suppresses the namespace guess", () => {
   // Without suppression the prefix guess would pick the registered parent
   // for an unregistered nested entity — the deep link must not do that.
   const nested = "https://example.test/foo/unregistered#Term";
-  assert.equal(resolveEditorOntology(registry, nested, null), undefined);
+  assert.deepEqual(resolveEditorOntology(registry, nested, null), {
+    status: "unowned",
+    entityUri: nested,
+  });
   // An unavailable verdict may still fall back to inference
-  assert.equal(
+  assert.deepEqual(
     resolveEditorOntology(registry, "https://example.test/foo#Class", undefined),
-    "https://example.test/foo",
+    { status: "resolved", uri: "https://example.test/foo" },
   );
-  // A named owner wins outright when it is registered
-  assert.equal(
+  // A named owner wins outright
+  assert.deepEqual(
     resolveEditorOntology(registry, nested, "https://example.test/foo/nested"),
-    "https://example.test/foo/nested",
+    { status: "resolved", uri: "https://example.test/foo/nested" },
   );
+});
+
+test("unowned is distinguishable from unresolved, so neither collapses to a default", () => {
+  // Both mean "no ontology to open", and the editor treats them oppositely:
+  // unresolved may land on the registry default, unowned must not. A caller
+  // writing `resolve(...) || entries[0]` reintroduced exactly the parent
+  // selection this verdict exists to prevent, so the difference is typed.
+  const unowned = resolveEditorOntology(registry, "https://example.test/foo/x#T", null);
+  const unresolved = resolveEditorOntology(registry, "https://elsewhere.test/T", undefined);
+
+  assert.equal(unowned.status, "unowned");
+  assert.equal(unresolved.status, "unresolved");
+  assert.notEqual(unowned.status, unresolved.status);
 });

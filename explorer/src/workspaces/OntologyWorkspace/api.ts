@@ -32,7 +32,11 @@ export type OntologyGraphResponse = {
 };
 
 export type OntologyEntityOwner = {
-  owning_ontology: string | null;
+  // Optional on purpose, unlike OntologyGraphNode.entity_type. There, a missing
+  // field degrades to a read-only node — benign. Here it would be read as an
+  // authoritative "nothing owns this entity", which now suppresses selection
+  // outright, so presence has to be checked rather than assumed.
+  owning_ontology?: string | null;
 };
 
 async function parseResponse<T>(response: Response): Promise<T> {
@@ -71,8 +75,13 @@ export type OntologyOwnerVerdict = string | null | undefined;
 export async function loadOntologyEntityOwner(uri: string): Promise<OntologyOwnerVerdict> {
   const response = await fetch(`/api/ontology/entity/${encodeURIComponent(uri)}`);
   if (!response.ok) return undefined;
-  const owner = await response.json() as OntologyEntityOwner;
-  return owner.owning_ontology ?? null;
+  const owner = await response.json() as OntologyEntityOwner | null;
+  // Only a field that is actually there carries the verdict. Coercing an absent
+  // field to null would assert the strongest available claim — "nothing owns
+  // this" — on the weakest possible evidence, and that claim now stops the
+  // editor selecting an ontology at all.
+  const verdict = owner?.owning_ontology;
+  return verdict === undefined ? undefined : verdict;
 }
 
 export async function loadAlignments(uri?: string): Promise<OntologyAlignment[]> {
