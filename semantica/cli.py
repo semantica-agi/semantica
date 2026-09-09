@@ -465,7 +465,7 @@ def _show_startup(cli_ctx: CLIContext) -> None:
         return
     cfg = cli_ctx.config.to_dict()
     graph_store = (
-        cli_ctx.store_backend or cfg.get("graph_db", {}).get("backend", "memory")
+        cli_ctx.store_backend or cfg.get("graph_db", {}).get("backend", "neo4j")
     )
     vector_store = (
         cli_ctx.vector_store_backend
@@ -851,9 +851,7 @@ def doctor(cli_ctx: CLIContext, local_json: bool, deep_embeddings: bool) -> None
         # Graph store reachability
         def _graph() -> str:
             cfg = cli_ctx.config.to_dict()
-            backend = cli_ctx.store_backend or cfg.get("graph_db", {}).get("backend", "memory")
-            if backend == "memory":
-                return "memory (always available)"
+            backend = cli_ctx.store_backend or cfg.get("graph_db", {}).get("backend", "neo4j")
             gs = _get_graph_store(cli_ctx)
             gs.ping() if hasattr(gs, "ping") else gs.connect()
             return f"{backend} reachable"
