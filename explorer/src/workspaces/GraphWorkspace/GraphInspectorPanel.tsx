@@ -346,7 +346,7 @@ export function GraphInspectorPanel({
           <div style={{ color: GRAPH_THEME.ui.text.strong, fontWeight: 600, marginBottom: 6 }}>Selected item is not directly inspectable in the current graph.</div>
           <div style={{ color: GRAPH_THEME.ui.text.body, fontSize: 13, lineHeight: 1.6 }}>
             {canActivateFocused
-              ? "Activate Focused mode to resolve this grouped selection to its canonical node."
+              ? "Use Focus to resolve this grouped selection to its canonical node."
               : (focusedUnavailableReason ?? "Focused mode is unavailable for the current selection.")}
           </div>
         </div>
