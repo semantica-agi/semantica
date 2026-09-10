@@ -189,3 +189,67 @@ class LiteLLM:
             logger.error(f"LiteLLM structured generation failed: {e}")
             raise ProcessingError(f"LiteLLM structured generation failed: {e}")
 
+    def generate_typed(self, prompt: str, schema: Any, max_retries: int = 3, **kwargs) -> Any:
+        """
+        Generate output validated against a Pydantic schema.
+
+        Uses the ``instructor`` library when it is installed (schema and retries
+        handled natively); otherwise falls back to a JSON-generation plus
+        Pydantic-validation retry loop on top of ``generate_structured()``.
+
+        Args:
+            prompt: Input prompt text
+            schema: Pydantic model class to validate the output against
+            max_retries: Number of retries if validation fails (default: 3)
+            **kwargs: Generation options
+
+        Returns:
+            An instance of `schema`, populated from the model's response
+
+        Raises:
+            ProcessingError: If provider is not available or generation fails
+        """
+        if not self.is_available():
+            raise ProcessingError(
+                "LiteLLM library not installed. Install with: pip install litellm"
+            )
+
+        options = {**self.config, **kwargs}
+
+        # Preferred path: instructor drives the schema and retries natively.
+        instructor_mod, instructor_available = safe_import("instructor")
+        if instructor_available:
+            try:
+                client = instructor_mod.from_litellm(completion)
+                return client.chat.completions.create(
+                    model=self.model,
+                    messages=[{"role": "user", "content": prompt}],
+                    api_key=self.api_key,
+                    response_model=schema,
+                    max_retries=max_retries,
+                    **options,
+                )
+            except Exception as e:
+                logger.warning(
+                    f"instructor typed generation failed ({e}); "
+                    "falling back to manual validation loop."
+                )
+
+        # Fallback: generate JSON, validate against the schema, retry with feedback.
+        last_error = None
+        current_prompt = prompt
+        for _attempt in range(max_retries):
+            try:
+                data = self.generate_structured(current_prompt, **kwargs)
+                return schema.model_validate(data)
+            except Exception as e:
+                last_error = e
+                current_prompt = (
+                    f"{prompt}\n\nThe previous response did not match the required "
+                    f"schema:\n{e}\n\nReturn valid JSON that matches the schema."
+                )
+
+        raise ProcessingError(
+            f"LiteLLM typed generation failed after {max_retries} attempts: {last_error}"
+        )
+
