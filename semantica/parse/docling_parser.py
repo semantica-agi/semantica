@@ -549,7 +549,7 @@ class DoclingParser:
                             "tables": [],
                             "images": [],
                         })
-                    except:
+                    except Exception:
                         pages.append({
                             "page_number": 1,
                             "text": "",
@@ -572,7 +572,7 @@ class DoclingParser:
                     "tables": [],
                     "images": [],
                 })
-            except:
+            except Exception:
                 pages.append({
                     "page_number": 1,
                     "text": "",

@@ -210,78 +210,111 @@ _spacy_model_cache_lock = threading.Lock()
 
 
 def _load_spacy_entry(name: str) -> Tuple[Any, Any, threading.Lock]:
-    """Load (or fetch) the cache entry for `name`: (spacy module, nlp, call lock)."""
-    cached = _spacy_model_cache.get(name)
-    if cached is not None and cached[0] is spacy:
-        with _spacy_model_cache_lock:
-            _spacy_model_cache.move_to_end(name)
-        return cached
+    """Return the cache entry for ``name``: ``(spacy_module, nlp, call_lock)``.
 
+    The entire lookup-plus-update is performed under ``_spacy_model_cache_lock``
+    so that the LRU ``move_to_end`` and eviction are always consistent.
+    ``spacy.load`` is called inside the lock; that is acceptable here because
+    model loads are rare (at most ``MAX_SPACY_MODELS_CACHED`` per process) and
+    the simpler design eliminates the TOCTOU window that a lockless fast-path
+    would introduce.
+
+    Raises whatever ``spacy.load`` raises (``OSError`` for a missing model).
+    """
+    if spacy is None:
+        raise ImportError(
+            "spaCy is not installed. Install with: pip install 'semantica[nlp-spacy]'"
+        )
     with _spacy_model_cache_lock:
         cached = _spacy_model_cache.get(name)
         if cached is not None and cached[0] is spacy:
             _spacy_model_cache.move_to_end(name)
             return cached
         nlp = spacy.load(name)
-        _spacy_model_cache[name] = (spacy, nlp, threading.Lock())
+        entry: Tuple[Any, Any, threading.Lock] = (spacy, nlp, threading.Lock())
+        _spacy_model_cache[name] = entry
         while len(_spacy_model_cache) > MAX_SPACY_MODELS_CACHED:
             _spacy_model_cache.popitem(last=False)
-        return _spacy_model_cache[name]
+        return entry
 
 
 def load_spacy_model(name: str):
     """Load a spaCy model once per process, keyed by model name.
 
     Raises whatever ``spacy.load`` raises (``OSError`` for a missing model), so
-    callers keep their existing fallback behavior. Note the returned Language
-    is shared process-wide and must only be *called* under
-    ``spacy_pipeline_guard`` — spaCy pipelines are not safe to invoke from
-    multiple threads concurrently, and batch extraction fans out over threads.
+    callers keep their existing fallback behavior.
+
+    .. warning::
+        The returned ``Language`` object is shared process-wide.  Calling it
+        from multiple threads concurrently is not safe.  Use
+        ``spacy_pipeline_guard`` (or ``run_spacy_text``) to serialize calls.
     """
-    entry = _load_spacy_entry(name)
-    return entry[1]
+    _spacy_module, nlp, _call_lock = _load_spacy_entry(name)
+    return nlp
 
 
 @contextmanager
 def spacy_pipeline_guard(name: str):
-    """Yield the cached Language for `name` under its per-model call lock.
+    """Yield the cached ``Language`` for ``name`` under its per-model call lock.
 
-    Loading happens here, so the guard raises like ``spacy.load`` (OSError for
-    a missing model). Different models still run in parallel; concurrent calls
-    on the SAME model serialize, which is the contract spaCy leaves us.
+    Concurrent calls on the *same* model serialize; calls on *different* models
+    run in parallel.  Raises whatever ``spacy.load`` raises (``OSError`` for a
+    missing model).
     """
     _spacy_module, nlp, call_lock = _load_spacy_entry(name)
     with call_lock:
         yield nlp
 
 
-def run_spacy_text(name: str, text: str, *, fallback: Optional[str] = None, log_label: str = "spaCy"):
-    """Call ``nlp(text)`` on the cached pipeline, with a fallback model chain.
+def run_spacy_text(
+    name: str,
+    text: str,
+    *,
+    fallback: Optional[str] = None,
+    log_label: str = "spaCy",
+):
+    """Call ``nlp(text)`` under the per-model guard; try ``fallback`` on ``OSError``.
 
-    Returns the Doc, or None when neither `name` nor `fallback` loads — the
-    caller's cue to take its own pattern fallback. All calls go through
-    spacy_pipeline_guard, so thread fans-out stays safe.
+    Returns the ``Doc``, or ``None`` when no usable model is available — the
+    caller's cue to take its own pattern fallback.  All ``nlp(text)`` calls go
+    through ``spacy_pipeline_guard``, serializing concurrent thread access for
+    the same model while letting different models run in parallel.
+
+    Fallback is only attempted when the *primary* model is missing (``OSError``).
+    A pipeline error (non-OSError) returns ``None`` immediately without trying
+    the fallback, because the fallback would likely hit the same error.
     """
     try:
         with spacy_pipeline_guard(name) as nlp:
             return nlp(text)
     except OSError:
         if not fallback:
-            logger.warning("%s model %s not found", log_label, name)
+            logger.warning("%s model '%s' not found", log_label, name)
             return None
-    except Exception as exc:
         logger.warning(
-            "%s model %s failed to initialize: %s", log_label, name, exc, exc_info=True
+            "%s model '%s' not found, trying fallback '%s'",
+            log_label, name, fallback,
+        )
+    except Exception:
+        logger.warning(
+            "%s model '%s' raised an unexpected error; skipping.",
+            log_label, name, exc_info=True,
         )
         return None
+
+    # Reached only when primary raised OSError and fallback is set.
     try:
         with spacy_pipeline_guard(fallback) as nlp:
             return nlp(text)
     except OSError:
-        logger.warning("%s model %s not found, and fallback %s unavailable", log_label, name, fallback)
-    except Exception as exc:
         logger.warning(
-            "%s fallback model %s failed to initialize: %s", log_label, fallback, exc, exc_info=True
+            "%s fallback model '%s' not found either",
+            log_label, fallback,
+        )
+    except Exception:
+        logger.warning(
+            "%s fallback model '%s' raised an unexpected error; skipping.",
+            log_label, fallback, exc_info=True,
         )
     return None
 
@@ -825,7 +858,7 @@ def extract_entities_ml(
         return extract_entities_pattern(text, **kwargs)
 
     doc = run_spacy_text(
-        model, text, fallback="en_core_web_sm", log_label="spaCy model"
+        model, text, fallback="en_core_web_sm", log_label="spaCy NER"
     )
     if doc is None:
         return extract_entities_pattern(text, **kwargs)
@@ -1537,7 +1570,9 @@ def extract_relations_similarity(
 
             if has_vectors and relation_vectors and chosen_model:
                 # Vector similarity — each call re-enters the model's guard
-                doc = run_spacy_text(chosen_model, between_text, log_label="spaCy similarity model")
+                doc = run_spacy_text(
+                    chosen_model, between_text, log_label="spaCy similarity"
+                )
                 if doc is not None and doc.vector_norm:
                     for rt, vec in relation_vectors.items():
                         if vec.vector_norm:
@@ -1590,7 +1625,7 @@ def extract_relations_dependency(
         logger.warning("spaCy not available, falling back to pattern extraction")
         return extract_relations_pattern(text, entities, **kwargs)
 
-    doc = run_spacy_text(model, text, log_label="spaCy relation model")
+    doc = run_spacy_text(model, text, log_label="spaCy dependency")
     if doc is None:
         return extract_relations_pattern(text, entities, **kwargs)
     relations = []
