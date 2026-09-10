@@ -93,6 +93,11 @@ test("visible legend follows loaded data, reloads, focused views, and distance m
   assert.equal(await legend.getByText("Person", { exact: true }).count(), 0);
   await assertLegendMatchesGraph(page);
 
+  // getByRole matches the accessible name, so the visible text needs its own assertion.
+  const focus = page.getByRole("button", { name: "Focus", exact: true });
+  assert.equal(await focus.locator(".explore-tool-button-label").innerText(), "Focus");
+  assert.equal(await focus.isDisabled(), true, "Focus needs a selected node");
+
   await page.getByPlaceholder("Search command, node, or concept").fill("Alice");
   await page.getByRole("option").filter({ hasText: "Alice" }).click();
   const heatmap = page.getByRole("button", { name: "Heatmap", exact: true });
@@ -101,7 +106,9 @@ test("visible legend follows loaded data, reloads, focused views, and distance m
   await heatmap.click();
   await legend.waitFor();
   await assertLegendMatchesGraph(page);
-  await page.getByRole("button", { name: "Focused", exact: true }).click();
+  assert.equal(await focus.isDisabled(), false, "a selected node must enable Focus");
+  await focus.click();
+  assert.equal(await focus.getAttribute("data-active"), "true");
   await legend.getByText("Document", { exact: true }).waitFor({ state: "hidden" });
   await assertLegendMatchesGraph(page, ["alice", "acme", "research"]);
   assert.equal(await legend.getByText("Researcher", { exact: true }).count(), 1);
