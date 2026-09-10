@@ -98,3 +98,25 @@ class HuggingFaceLLM:
             )
         return self.provider.generate_structured(prompt, **kwargs)
 
+    def generate_typed(self, prompt: str, schema: Any, max_retries: int = 3, **kwargs) -> Any:
+        """
+        Generate output validated against a Pydantic schema.
+
+        Args:
+            prompt: Input prompt text
+            schema: Pydantic model class to validate the output against
+            max_retries: Number of retries if validation fails (default: 3)
+            **kwargs: Generation options
+
+        Returns:
+            An instance of `schema`, populated from the model's response
+
+        Raises:
+            ProcessingError: If provider is not available or generation fails
+        """
+        if not self.is_available():
+            raise ProcessingError(
+                "HuggingFace LLM provider not available. Install transformers library."
+            )
+        return self.provider.generate_typed(prompt, schema, max_retries=max_retries, **kwargs)
+
