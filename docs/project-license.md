@@ -12,7 +12,7 @@ icon: "file-contract"
 ```
 MIT License
 
-Copyright (c) 2026 Hawksight AI
+Copyright (c) 2026 Semantica
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -76,5 +76,5 @@ By contributing to Semantica, you agree that your contributions will be licensed
 
 ## See Also
 
-- [Contributing](contributing-guide) — How to contribute to the project.
-- [Citation](citation) — How to cite Semantica in research.
+- [Contributing](/contributing-guide): how to contribute to the project.
+- [Citation](/citation): how to cite Semantica in research.

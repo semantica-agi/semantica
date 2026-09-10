@@ -65,9 +65,11 @@ import os
 import re
 import stat
 import tempfile
+import threading
 from collections import deque
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
+from functools import wraps
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
@@ -77,6 +79,13 @@ import yaml
 from ..utils.logging import get_logger
 from ..utils.progress_tracker import get_progress_tracker
 from ..utils.types import EntityDict, RelationshipDict
+from ._markdown_filesystem import find_filesystem_link
+from .markdown import (
+    MarkdownIdentityError,
+    MarkdownResourceNotFoundError,
+    MarkdownRevisionConflictError,
+    markdown_document_revision,
+)
 
 
 class _UniqueKeySafeLoader(yaml.SafeLoader):
@@ -157,6 +166,17 @@ class MemoryItem:
         )
 
 
+def _with_memory_lock(method):
+    """Serialize AgentMemory state mutations and Markdown revision checks."""
+
+    @wraps(method)
+    def locked(self, *args, **kwargs):
+        with self._memory_lock:
+            return method(self, *args, **kwargs)
+
+    return locked
+
+
 class AgentMemory:
     """
     Agent memory manager with RAG integration and Hierarchical Memory.
@@ -196,6 +216,7 @@ class AgentMemory:
         self.logger = get_logger("agent_memory")
         self.config = config or {}
         self.config.update(kwargs)
+        self._memory_lock = threading.RLock()
 
         self.vector_store = self.config.get("vector_store")
         self.knowledge_graph = self.config.get("knowledge_graph")
@@ -248,6 +269,7 @@ class AgentMemory:
 
         self.logger.info(f"Saved agent memory to {path}")
 
+    @_with_memory_lock
     def load(self, path: str) -> None:
         """
         Load memory state from disk.
@@ -297,6 +319,7 @@ class AgentMemory:
 
         self.logger.info(f"Loaded agent memory from {path}")
 
+    @_with_memory_lock
     def store(
         self,
         content: str,
@@ -580,6 +603,7 @@ class AgentMemory:
             "relationships": memory_item.relationships,
         }
 
+    @_with_memory_lock
     def delete_memory(self, memory_id: str, *, skip_vector: bool = False) -> bool:
         """
         Delete memory item.
@@ -594,16 +618,15 @@ class AgentMemory:
             return False
 
         # Remove from vector store unless a caller is staging an atomic local update.
-        if not skip_vector:
-            if self.vector_store:
-                try:
-                    vector_ids = list(self._vector_ids.get(memory_id, [])) or [
-                        memory_id
-                    ]
-                    self._delete_vector_ids(vector_ids)
-                except Exception as e:
-                    self.logger.warning(f"Failed to delete from vector store: {e}")
-            self._vector_ids.pop(memory_id, None)
+        if not skip_vector and self.vector_store:
+            try:
+                vector_ids = list(self._vector_ids.get(memory_id, [])) or [memory_id]
+                self._delete_vector_ids(vector_ids)
+            except Exception as e:
+                self.logger.warning(f"Failed to delete from vector store: {e}")
+        # Bookkeeping runs unconditionally: a skip_vector delete still removes the
+        # item, so leaving its tracked ids behind would orphan them permanently.
+        self._vector_ids.pop(memory_id, None)
 
         memory_item = self.memory_items[memory_id]
 
@@ -631,6 +654,28 @@ class AgentMemory:
 
         self.logger.debug(f"Deleted memory item: {memory_id}")
         return True
+
+    @_with_memory_lock
+    def vector_ids_for(self, memory_id: str) -> List[str]:
+        """Return the vector-store ids owned by a memory item.
+
+        Read-only view of the ids ``delete_memory()`` would remove for this
+        item, so a caller that needs to *report* on vector removal can delete
+        them itself rather than relying on ``delete_memory()``'s best-effort
+        cascade, which logs a vector-store failure and still returns ``True``.
+
+        Mirrors the fallback in ``delete_memory``: an item stored without
+        tracked vector ids is keyed in the vector store by its own memory id.
+
+        Args:
+            memory_id: Memory identifier.
+
+        Returns:
+            The item's vector ids, or ``[]`` if the item is unknown.
+        """
+        if memory_id not in self.memory_items:
+            return []
+        return list(self._vector_ids.get(memory_id, [])) or [memory_id]
 
     def clear_memory(self, **filters) -> int:
         """
@@ -1122,6 +1167,7 @@ class AgentMemory:
         """
         return self.get_memory(memory_id)
 
+    @_with_memory_lock
     def update(
         self,
         memory_id: str,
@@ -1292,13 +1338,19 @@ class AgentMemory:
         """
         return self.retrieve(content, max_results=limit, **kwargs)
 
-    def find_by_entity(self, entity_id: str, limit: int = 10) -> List[Dict[str, Any]]:
+    def find_by_entity(
+        self, entity_id: str, limit: Optional[int] = None
+    ) -> List[Dict[str, Any]]:
         """
         Find by entity.
 
         Args:
             entity_id: Entity ID to search for
-            limit: Maximum results (default: 10)
+            limit: Maximum results. None (the default) returns ALL matches.
+                The previous default of 10 silently truncated results — an
+                erasure workflow computing "what references this entity"
+                from a truncated page would leave the remainder live
+                (#1018). Callers that want pagination pass an explicit limit.
 
         Returns:
             List of memory dicts containing the entity
@@ -1314,9 +1366,9 @@ class AgentMemory:
                     if mem_dict:
                         results.append(mem_dict)
                     break
-            if len(results) >= limit:
+            if limit is not None and len(results) >= limit:
                 break
-        return results[:limit]
+        return results if limit is None else results[:limit]
 
     def find_by_relationship(
         self, relationship_type: str, limit: int = 10
@@ -1395,6 +1447,13 @@ class AgentMemory:
                     results.append(mem_dict)
 
         return results
+
+    @_with_memory_lock
+    def list_snapshot(
+        self, *, limit: int = 100, offset: int = 0
+    ) -> Tuple[List[Dict[str, Any]], int]:
+        """Return one memory page and its total from the same locked state."""
+        return self.list(limit=limit, offset=offset), len(self.memory_items)
 
     def get_by_conversation(
         self, conversation_id: str, limit: int = 100
@@ -1567,12 +1626,16 @@ class AgentMemory:
                     memory_ids.append(memory_id)
         return memory_ids
 
-    def batch_delete(self, memory_ids: List[str]) -> int:
+    def batch_delete(self, memory_ids: List[str], *, skip_vector: bool = False) -> int:
         """
         Batch delete.
 
         Args:
             memory_ids: List of memory IDs to delete
+            skip_vector: If True, skip each item's own vector-store cascade
+                (see ``delete_memory``). A caller that is already erasing these
+                ids' vectors itself passes this to avoid a redundant,
+                best-effort delete against the vector store.
 
         Returns:
             Number of memories deleted
@@ -1582,7 +1645,7 @@ class AgentMemory:
         """
         deleted = 0
         for memory_id in memory_ids:
-            if self.delete_memory(memory_id):
+            if self.delete_memory(memory_id, skip_vector=skip_vector):
                 deleted += 1
         return deleted
 
@@ -1606,6 +1669,88 @@ class AgentMemory:
             if memory_id and self.update(memory_id, **update_fields):
                 updated += 1
         return updated
+
+    @_with_memory_lock
+    def export_item_markdown(self, memory_id: str) -> str:
+        """Return one existing memory item as canonical Markdown.
+
+        Args:
+            memory_id: Stable identifier of the memory item to export.
+
+        Returns:
+            Canonical Markdown containing the memory frontmatter and body.
+
+        Raises:
+            MarkdownResourceNotFoundError: If ``memory_id`` does not exist.
+        """
+        memory = self.get(memory_id)
+        if memory is None:
+            raise MarkdownResourceNotFoundError(
+                f"AgentMemory item {memory_id!r} was not found."
+            )
+        return self._memory_to_markdown(memory)
+
+    @_with_memory_lock
+    def apply_item_markdown(
+        self,
+        memory_id: str,
+        document: str,
+        *,
+        expected_revision: Optional[str] = None,
+    ) -> bool:
+        """Validate and atomically replace one existing memory item.
+
+        Args:
+            memory_id: Stable identifier of the memory item to update.
+            document: Canonical Markdown containing the replacement item.
+            expected_revision: Optional revision returned by
+                :meth:`export_item_markdown`. A mismatch rejects stale edits.
+
+        Returns:
+            ``True`` when the item changed, otherwise ``False``.
+
+        Raises:
+            ValueError: If the Markdown or frontmatter is invalid.
+            MarkdownIdentityError: If the frontmatter changes the memory ID.
+            MarkdownResourceNotFoundError: If ``memory_id`` does not exist.
+            MarkdownRevisionConflictError: If ``expected_revision`` is stale.
+            RuntimeError: If the validated item cannot be persisted.
+        """
+        memory = self._markdown_to_memory_dict(document, source=f"memory {memory_id!r}")
+        document_id = memory["memory_id"]
+        if document_id != memory_id:
+            raise MarkdownIdentityError(
+                f"Frontmatter id {document_id!r} does not match resource id "
+                f"{memory_id!r}."
+            )
+        if not self.exists(memory_id):
+            raise MarkdownResourceNotFoundError(
+                f"AgentMemory item {memory_id!r} was not found."
+            )
+        if expected_revision is not None:
+            # _memory_lock is an RLock; this re-entrant call into
+            # export_item_markdown (also @_with_memory_lock) is intentional
+            # and safe because RLock allows the same thread to re-acquire.
+            current_revision = markdown_document_revision(
+                self.export_item_markdown(memory_id)
+            )
+            if current_revision != expected_revision:
+                raise MarkdownRevisionConflictError(current_revision)
+        if self._markdown_record_matches(memory_id, memory):
+            return False
+
+        success = self._replace_memory_item(
+            memory_id,
+            memory["content"],
+            metadata=memory["metadata"],
+            entities=memory["entities"],
+            relationships=memory["relationships"],
+            timestamp=memory["timestamp"],
+            skip_graph=True,
+        )
+        if not success:
+            raise RuntimeError(f"AgentMemory item {memory_id!r} could not be replaced.")
+        return True
 
     # Export/Import
     def export(
@@ -1655,6 +1800,7 @@ class AgentMemory:
             return self._export_markdown(memories, destination=destination)
         return export_data
 
+    @_with_memory_lock
     def import_data(
         self, data: Union[str, Path, Dict[str, Any]], format: str = "json"
     ) -> int:
@@ -1749,9 +1895,10 @@ class AgentMemory:
     @staticmethod
     def _write_markdown_file(file_path: Path, document: str) -> None:
         """Atomically replace a Markdown file without following output symlinks."""
-        if file_path.is_symlink():
+        if find_filesystem_link(file_path) is not None:
             raise ValueError(
-                f"Refusing to overwrite Markdown symbolic link: {file_path}"
+                "Refusing to overwrite Markdown symbolic link or junction: "
+                f"{file_path}"
             )
 
         temporary_path = None
@@ -1874,7 +2021,8 @@ class AgentMemory:
             if "\n" not in data and "\r" not in data:
                 candidate = Path(data)
                 try:
-                    candidate_exists = candidate.exists()
+                    candidate_is_link = find_filesystem_link(candidate) is not None
+                    candidate_exists = candidate_is_link or candidate.exists()
                 except OSError as exc:
                     error_message = (
                         "Failed to inspect possible Markdown import "
@@ -1916,62 +2064,71 @@ class AgentMemory:
         return memories
 
     def _read_markdown_file_content(self, file_path: Path) -> str:
-        if file_path.is_symlink():
-            raise ValueError(f"Symlink Markdown import paths are rejected: {file_path}")
+        if find_filesystem_link(file_path) is not None:
+            raise ValueError(
+                "Symlink Markdown import paths are rejected; symbolic links and "
+                f"junctions are unsafe: {file_path}"
+            )
 
         flags = os.O_RDONLY
-        if hasattr(os, "O_NOFOLLOW"):
-            # On POSIX, O_NOFOLLOW makes os.open() fail with ELOOP if the
-            # final path component is a symlink, atomically closing the TOCTOU
-            # window between the is_symlink() check above and the open call.
-            # On Windows, O_NOFOLLOW is not available; the is_symlink() pre-check
-            # above is the only symlink defense and remains vulnerable to a narrow
-            # race.  The fstat()/S_ISREG guard below still rejects special files
-            # (FIFOs, devices) on both platforms.
-            flags |= os.O_NOFOLLOW
+        nofollow_flag = getattr(os, "O_NOFOLLOW", 0)
+        flags |= nofollow_flag
 
         try:
             fd = os.open(str(file_path), flags)
         except OSError as exc:
-            if exc.errno == getattr(errno, "ELOOP", None):
+            if (
+                (nofollow_flag and exc.errno == errno.ELOOP)
+                or find_filesystem_link(file_path) is not None
+            ):
                 raise ValueError(
-                    f"Symlink Markdown import paths are rejected: {file_path}"
+                    "Symlink Markdown import paths are rejected; symbolic links "
+                    f"and junctions are unsafe: {file_path}"
                 ) from exc
             raise
 
         try:
-            stat_res = os.fstat(fd)
-            if not stat.S_ISREG(stat_res.st_mode):
+            if find_filesystem_link(file_path) is not None:
+                raise ValueError(
+                    "Symlink Markdown import paths are rejected; symbolic links "
+                    f"and junctions are unsafe: {file_path}"
+                )
+            if not stat.S_ISREG(os.fstat(fd).st_mode):
                 raise ValueError(
                     f"Markdown import path is not a regular file: {file_path}"
                 )
-            with open(fd, "r", encoding="utf-8", closefd=True) as f:
-                return f.read()
-        except Exception:
-            try:
+            with os.fdopen(fd, mode="r", encoding="utf-8") as source:
+                fd = -1
+                return source.read()
+        finally:
+            if fd >= 0:
                 os.close(fd)
-            except OSError:
-                pass
-            raise
 
     def _read_markdown_path(self, path: Path) -> List[Tuple[str, str]]:
-        if path.is_symlink():
-            raise ValueError(f"Symlink Markdown import paths are rejected: {path}")
+        if find_filesystem_link(path) is not None:
+            raise ValueError(
+                "Symlink Markdown import paths are rejected; symbolic links and "
+                f"junctions are unsafe: {path}"
+            )
 
         if not path.exists():
             raise FileNotFoundError(f"Markdown import path does not exist: {path}")
 
         if path.is_dir():
-            file_paths = sorted(
-                (
-                    file_path
-                    for file_path in path.iterdir()
-                    if file_path.is_file()
-                    and not file_path.is_symlink()
-                    and file_path.suffix.lower() in self._MARKDOWN_EXTENSIONS
-                ),
-                key=lambda file_path: (file_path.name.casefold(), file_path.name),
-            )
+            file_paths = []
+            for file_path in path.iterdir():
+                if file_path.suffix.lower() not in self._MARKDOWN_EXTENSIONS:
+                    continue
+                if find_filesystem_link(file_path) is not None:
+                    continue
+                if file_path.is_file():
+                    file_paths.append(file_path)
+            if find_filesystem_link(path) is not None:
+                raise ValueError(
+                    "Symlink Markdown import paths are rejected; symbolic links "
+                    f"and junctions are unsafe: {path}"
+                )
+            file_paths.sort(key=lambda item: (item.name.casefold(), item.name))
         elif path.is_file():
             file_paths = [path]
         else:

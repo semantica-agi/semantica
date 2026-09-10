@@ -33,10 +33,15 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
 import pandas as pd
-from openpyxl import load_workbook
+
+try:
+    from openpyxl import load_workbook
+except (ImportError, OSError):
+    load_workbook = None
 
 from ..utils.exceptions import ProcessingError, ValidationError
 from ..utils.logging import get_logger
+from ..utils.progress_tracker import get_progress_tracker
 
 
 @dataclass
@@ -91,6 +96,12 @@ class ExcelParser:
         Returns:
             ExcelData or ExcelSheet: Parsed Excel data
         """
+        if load_workbook is None:
+            raise ProcessingError(
+                "openpyxl is required to parse Excel files. "
+                "Install it with: pip install 'semantica[documents]'"
+            )
+
         file_path = Path(file_path)
 
         # Track Excel parsing

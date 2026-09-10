@@ -33,7 +33,10 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 from urllib.parse import urljoin, urlparse
 
-from bs4 import BeautifulSoup
+try:
+    from bs4 import BeautifulSoup
+except (ImportError, OSError):
+    BeautifulSoup = None
 
 from ..utils.exceptions import ProcessingError, ValidationError
 from ..utils.logging import get_logger
@@ -187,6 +190,12 @@ class HTMLContentParser(HTMLParser):
         }
 
         # Load HTML for structure extraction
+        if BeautifulSoup is None:
+            raise ProcessingError(
+                "beautifulsoup4 is required for HTML structure extraction. "
+                "Install it with: pip install 'semantica[documents]'"
+            )
+
         if isinstance(html_content, Path) or (
             isinstance(html_content, str) and Path(html_content).exists()
         ):
@@ -242,6 +251,12 @@ class HTMLContentParser(HTMLParser):
                 html_string = f.read()
         else:
             html_string = html_content
+
+        if BeautifulSoup is None:
+            raise ProcessingError(
+                "beautifulsoup4 is required for HTML cleaning. "
+                "Install it with: pip install 'semantica[documents]'"
+            )
 
         soup = BeautifulSoup(html_string, "html.parser")
 

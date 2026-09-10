@@ -9,6 +9,7 @@ from .property_generator import PropertyGenerator
 from .owl_generator import OWLGenerator
 from .ontology_evaluator import OntologyEvaluator
 from .ontology_validator import OntologyValidator
+from .quality_gate import OntologyQualityGate, OntologyQualityReport
 from .llm_generator import LLMOntologyGenerator
 from ..semantic_extract.triplet_extractor import Triplet
 
@@ -25,6 +26,9 @@ class OntologyEngine:
         self.owl = OWLGenerator(**config)
         self.evaluator = OntologyEvaluator(**config)
         self.validator = OntologyValidator(**config)
+        self.quality_gate = OntologyQualityGate(
+            validator=self.validator, evaluator=self.evaluator
+        )
         self.llm = LLMOntologyGenerator(**config)
         self.store = config.get("store")
 
@@ -203,6 +207,8 @@ class OntologyEngine:
         include_inherited: bool = True,
         severity: str = "Violation",
         quality_tier: str = "standard",
+        target_namespace: Optional[str] = None,
+        attach_domainless_properties: bool = False,
         validate_output: bool = False,
         **options,
     ) -> str:
@@ -217,6 +223,12 @@ class OntologyEngine:
             include_inherited: Propagate parent class property shapes to child shapes.
             severity: Default severity — "Violation", "Warning", or "Info".
             quality_tier: Constraint completeness — "basic", "standard" (default), "strict".
+            target_namespace: Namespace sh:targetClass and sh:path are expanded in,
+                when the ontology supplies no absolute IRIs. Separate from base_uri,
+                which says where the shape resources themselves live.
+            attach_domainless_properties: Attach properties with no declared domain
+                to every node shape. Off by default: it states a constraint the
+                ontology does not.
             validate_output: Syntax-check output via rdflib before returning.
 
         Returns:
@@ -236,12 +248,16 @@ class OntologyEngine:
                 or (ns.get("base_uri") if isinstance(ns, dict) else None)
                 or "https://semantica.dev/shapes/"
             )
+            # These two are constructor-only on SHACLGenerator, so forwarding
+            # them through generate(**options) silently dropped them.
             generator = SHACLGenerator(
                 base_uri=resolved_base,
                 shapes_uri=shapes_uri,
                 include_inherited=include_inherited,
                 severity=severity,
                 quality_tier=quality_tier,
+                target_namespace=target_namespace,
+                attach_domainless_properties=attach_domainless_properties,
             )
             graph = generator.generate(ontology, **options)
             self.progress.update_tracking(tracking_id, message="Serializing SHACL graph")
@@ -580,6 +596,15 @@ class OntologyEngine:
 
     def validate(self, ontology: Dict[str, Any], **options):
         return self.validator.validate(ontology, **options)
+
+    def quality_check(
+        self,
+        ontology: Dict[str, Any],
+        graph_data: Optional[Dict[str, Any]] = None,
+        **options,
+    ) -> OntologyQualityReport:
+        """Run deterministic ontology quality checks suitable for CI."""
+        return self.quality_gate.check(ontology, graph_data=graph_data, **options)
 
     def to_owl(self, ontology: Dict[str, Any], format: str = "turtle", **options):
         return self.owl.generate_owl(ontology, format=format, **options)

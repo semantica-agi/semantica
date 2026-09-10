@@ -52,6 +52,23 @@ async def list_decisions(
     return [_node_to_decision(node) for node in nodes[skip : skip + limit]]
 
 
+@router.get("/causal-distance", response_model=CausalDistanceReport)
+async def causal_distance(
+    source: str = Query(..., description="Source node/decision ID"),
+    target: str = Query(..., description="Target node/decision ID"),
+    session: GraphSession = Depends(get_session),
+):
+    """FR-8 — Compute causal distance between two decisions via causal-edge-only traversal."""
+    from ...context.causal_analyzer import CausalChainAnalyzer
+
+    analyzer = CausalChainAnalyzer(session.graph)
+    report = await asyncio.to_thread(analyzer.interpret_causal_distance, source, target)
+    return CausalDistanceReport(**report)
+
+
+# NOTE: static routes (e.g. /causal-distance above) must stay above this
+# dynamic route — Starlette matches in definition order, otherwise the static
+# path is captured as decision_id (see issue #1531).
 @router.get("/{decision_id}", response_model=DecisionResponse)
 async def get_decision(
     decision_id: str,
@@ -123,20 +140,6 @@ async def get_precedents(
 
     scored.sort(key=lambda item: item[0], reverse=True)
     return [_node_to_decision(decision) for _, decision in scored[:limit]]
-
-
-@router.get("/causal-distance", response_model=CausalDistanceReport)
-async def causal_distance(
-    source: str = Query(..., description="Source node/decision ID"),
-    target: str = Query(..., description="Target node/decision ID"),
-    session: GraphSession = Depends(get_session),
-):
-    """FR-8 — Compute causal distance between two decisions via causal-edge-only traversal."""
-    from ...context.causal_analyzer import CausalChainAnalyzer
-
-    analyzer = CausalChainAnalyzer(session.graph)
-    report = await asyncio.to_thread(analyzer.interpret_causal_distance, source, target)
-    return CausalDistanceReport(**report)
 
 
 @router.get("/{decision_id}/compliance", response_model=ComplianceResponse)

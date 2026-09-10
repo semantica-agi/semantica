@@ -1,13 +1,21 @@
 import errno
+import os
+import stat
+import subprocess
 import sys
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 import yaml
 
 from semantica.context.agent_memory import AgentMemory
+from semantica.context.markdown import (
+    MarkdownRevisionConflictError,
+    markdown_document_revision,
+)
 
 _ERROR_PRIVILEGE_NOT_HELD = 1314
 
@@ -54,6 +62,25 @@ class TrackingConcreteVectorStore:
 def markdown_document(frontmatter, body=""):
     yaml_text = yaml.safe_dump(frontmatter, sort_keys=False, allow_unicode=True)
     return f"---\n{yaml_text}---\n\n{body}"
+
+
+def _require_symlink_support(tmp_path):
+    """Skip the test if this environment cannot create symbolic links.
+
+    Symlink creation can be unavailable even on POSIX (e.g. restricted
+    containers) and commonly requires elevated privilege or Developer Mode
+    on Windows. Probe actual capability instead of assuming based on
+    platform, so these tests still run wherever symlinks genuinely work.
+    """
+    probe_target = tmp_path / ".symlink_probe_target"
+    probe_link = tmp_path / ".symlink_probe_link"
+    probe_target.write_text("", encoding="utf-8")
+    try:
+        probe_link.symlink_to(probe_target)
+    except OSError as exc:
+        pytest.skip(f"environment cannot create symbolic links: {exc}")
+    probe_link.unlink()
+    probe_target.unlink()
 
 
 def required_frontmatter(memory_id="mem_test", **overrides):
@@ -707,6 +734,151 @@ def test_markdown_string_path_inspection_errors_are_actionable():
     assert exc_info.value.__cause__ is original_error
 
 
+@pytest.mark.parametrize("use_string_path", [False, True])
+def test_markdown_import_rejects_symlinked_file(tmp_path, use_string_path):
+    _require_symlink_support(tmp_path)
+    outside = tmp_path / "outside.md"
+    outside.write_text(
+        markdown_document(required_frontmatter(), "Do not import"),
+        encoding="utf-8",
+    )
+    source = tmp_path / "memory.md"
+    source.symlink_to(outside)
+    payload = str(source) if use_string_path else source
+    memory = AgentMemory()
+
+    with pytest.raises(ValueError, match="symbolic link"):
+        memory.import_data(payload, format="markdown")
+
+    assert memory.count() == 0
+
+
+@pytest.mark.parametrize("use_string_path", [False, True])
+def test_markdown_import_rejects_broken_symlink(tmp_path, use_string_path):
+    _require_symlink_support(tmp_path)
+    source = tmp_path / "missing-memory.md"
+    source.symlink_to(tmp_path / "missing-target.md")
+    payload = str(source) if use_string_path else source
+    memory = AgentMemory()
+
+    with pytest.raises(ValueError, match="symbolic link"):
+        memory.import_data(payload, format="markdown")
+
+    assert memory.count() == 0
+
+
+@pytest.mark.parametrize("use_string_path", [False, True])
+def test_markdown_import_rejects_symlinked_directory(tmp_path, use_string_path):
+    _require_symlink_support(tmp_path)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "memory.md").write_text(
+        markdown_document(required_frontmatter(), "Do not import"),
+        encoding="utf-8",
+    )
+    source = tmp_path / "memory-export"
+    source.symlink_to(outside, target_is_directory=True)
+    payload = str(source) if use_string_path else source
+    memory = AgentMemory()
+
+    with pytest.raises(ValueError, match="symbolic link"):
+        memory.import_data(payload, format="markdown")
+
+    assert memory.count() == 0
+
+
+def test_markdown_import_skips_symlinked_file_in_directory(tmp_path):
+    _require_symlink_support(tmp_path)
+    outside = tmp_path / "outside.md"
+    outside.write_text(
+        markdown_document(required_frontmatter(), "Do not import"),
+        encoding="utf-8",
+    )
+    source = tmp_path / "memory-export"
+    source.mkdir()
+    (source / "memory.md").symlink_to(outside)
+    memory = AgentMemory()
+
+    assert memory.import_data(source, format="markdown") == 0
+    assert memory.count() == 0
+
+
+@pytest.mark.skipif(not hasattr(os, "O_NOFOLLOW"), reason="requires O_NOFOLLOW")
+def test_markdown_import_does_not_follow_symlink_raced_before_open(tmp_path):
+    _require_symlink_support(tmp_path)
+    outside = tmp_path / "outside.md"
+    outside.write_text(
+        markdown_document(required_frontmatter(), "Do not import"),
+        encoding="utf-8",
+    )
+    source = tmp_path / "memory.md"
+    source.symlink_to(outside)
+
+    with patch.object(Path, "is_symlink", return_value=False):
+        with pytest.raises(ValueError, match="symbolic link"):
+            AgentMemory()._read_markdown_file_content(source)
+
+
+def test_markdown_import_rejects_windows_junction(tmp_path, monkeypatch):
+    source = tmp_path / "junction"
+    source.mkdir()
+    (source / "memory.md").write_text("not read", encoding="utf-8")
+
+    monkeypatch.setattr(
+        os.path,
+        "isjunction",
+        lambda candidate: Path(candidate) == source,
+        raising=False,
+    )
+
+    with pytest.raises(ValueError, match="junction"):
+        AgentMemory().import_data(source, format="markdown")
+
+
+def test_markdown_import_rejects_windows_reparse_point_fallback(tmp_path, monkeypatch):
+    source = tmp_path / "reparse-point"
+    source.mkdir()
+    real_lstat = os.lstat
+
+    class ReparseStat:
+        st_file_attributes = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+
+    monkeypatch.delattr(os.path, "isjunction", raising=False)
+    monkeypatch.setattr(Path, "is_symlink", lambda self: False)
+    monkeypatch.setattr(
+        os,
+        "lstat",
+        lambda candidate: (
+            ReparseStat() if Path(candidate) == source else real_lstat(candidate)
+        ),
+    )
+
+    with pytest.raises(ValueError, match="junction"):
+        AgentMemory().import_data(source, format="markdown")
+
+
+@pytest.mark.skipif(os.name != "nt", reason="requires Windows junctions")
+def test_markdown_import_rejects_real_windows_junction(tmp_path):
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "memory.md").write_text("not read", encoding="utf-8")
+    source = tmp_path / "junction"
+    result = subprocess.run(
+        ["cmd.exe", "/c", "mklink", "/J", str(source), str(outside)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        pytest.skip(f"could not create Windows junction: {result.stderr}")
+
+    try:
+        with pytest.raises(ValueError, match="junction"):
+            AgentMemory().import_data(source, format="markdown")
+    finally:
+        os.rmdir(source)
+
+
 def test_legacy_dict_import_behavior_is_unchanged():
     memory = AgentMemory()
     data = {
@@ -750,6 +922,7 @@ def test_markdown_import_file_open_security_rejects_symlink(tmp_path):
 
     with pytest.raises(ValueError, match="Symlink Markdown import paths are rejected"):
         memory._read_markdown_file_content(symlink_file)
+
 
 def test_markdown_import_public_api_rejects_symlink(tmp_path):
     """
@@ -839,3 +1012,144 @@ def test_markdown_import_rejects_non_regular_file(tmp_path):
     with patch("semantica.context.agent_memory.os.fstat", return_value=fake_stat):
         with pytest.raises(ValueError, match="not a regular file"):
             memory._read_markdown_file_content(real_file)
+
+
+def _editable_memory(vector_store=None):
+    memory = AgentMemory(vector_store=vector_store)
+    memory.store(
+        "Original body",
+        memory_id="mem-edit",
+        timestamp=datetime.fromisoformat("2026-07-22T09:00:00+00:00"),
+        metadata={
+            "type": "note",
+            "updated_at": "2026-07-22T10:00:00+00:00",
+            "owner": "before",
+        },
+    )
+    return memory
+
+
+def test_single_item_markdown_export_and_apply_preserve_identity():
+    memory = _editable_memory()
+    source = memory.export_item_markdown("mem-edit")
+    edited = source.replace("owner: before", "owner: after").replace(
+        "Original body", "Updated body"
+    )
+
+    assert memory.apply_item_markdown("mem-edit", edited) is True
+    item = memory.get("mem-edit")
+    assert item["memory_id"] == "mem-edit"
+    assert item["content"] == "Updated body"
+    assert item["metadata"]["owner"] == "after"
+    assert memory.export_item_markdown("mem-edit") == edited
+
+
+def test_single_item_markdown_rejects_identity_change_without_mutation():
+    memory = _editable_memory()
+    before = deepcopy(memory.get("mem-edit"))
+    document = memory.export_item_markdown("mem-edit").replace(
+        "id: mem-edit", "id: mem-other"
+    )
+
+    with pytest.raises(ValueError, match="does not match resource id"):
+        memory.apply_item_markdown("mem-edit", document)
+
+    assert memory.get("mem-edit") == before
+    assert memory.get("mem-other") is None
+
+
+def test_single_item_markdown_invalid_document_and_missing_item_are_safe():
+    memory = _editable_memory()
+    before = deepcopy(memory.get("mem-edit"))
+
+    with pytest.raises(ValueError, match="Invalid Markdown frontmatter"):
+        memory.apply_item_markdown("mem-edit", "---\nid: [\n---\n\nBroken")
+    with pytest.raises(KeyError, match="missing"):
+        memory.export_item_markdown("missing")
+
+    assert memory.get("mem-edit") == before
+
+
+def test_single_item_markdown_noop_skips_vector_sync():
+    vector_store = TrackingVectorStore()
+    memory = _editable_memory(vector_store=vector_store)
+    vector_store.events.clear()
+    source = memory.export_item_markdown("mem-edit")
+
+    assert memory.apply_item_markdown("mem-edit", source) is False
+    assert vector_store.events == []
+
+
+def test_single_item_markdown_revision_check_is_atomic_with_apply():
+    memory = _editable_memory()
+    source = memory.export_item_markdown("mem-edit")
+    expected_revision = markdown_document_revision(source)
+    memory.update("mem-edit", content="Concurrent update")
+
+    with pytest.raises(MarkdownRevisionConflictError):
+        memory.apply_item_markdown(
+            "mem-edit",
+            source.replace("Original body", "Stale edit"),
+            expected_revision=expected_revision,
+        )
+
+    assert memory.get("mem-edit")["content"] == "Concurrent update"
+
+
+def test_apply_item_markdown_rolls_back_all_state_on_store_failure():
+    """apply_item_markdown fully restores AgentMemory state if _replace_memory_item fails.
+
+    The test injects a failure inside the store() call that executes AFTER
+    delete_memory() completes, so that at least one real mutation has already
+    happened before the exception is raised.  This verifies the rollback path
+    inside _replace_memory_item is exercised through apply_item_markdown, not
+    just through import_data.
+    """
+    memory = _editable_memory()
+    original_item = deepcopy(memory.get("mem-edit"))
+    original_stats = deepcopy(memory.stats)
+    original_index = list(memory.memory_index)
+    original_stm = [item.memory_id for item in memory.short_term_memory]
+    original_vector_ids = deepcopy(memory._vector_ids)
+
+    source = memory.export_item_markdown("mem-edit")
+    edited = source.replace("Original body", "Replaced body")
+
+    # Patch store() so it succeeds (internally called by _replace_memory_item),
+    # but raises AFTER the new item is inserted into memory_items.
+    real_store = memory.store
+    call_count = 0
+
+    def fail_after_store(*args, **kwargs):
+        nonlocal call_count
+        call_count += 1
+        result = real_store(*args, **kwargs)
+        # Raise on the store() call made by _replace_memory_item (not any earlier call)
+        if call_count >= 1:
+            raise RuntimeError("simulated store failure after insert")
+        return result
+
+    with patch.object(memory, "store", side_effect=fail_after_store):
+        with pytest.raises(RuntimeError, match="simulated store failure"):
+            memory.apply_item_markdown("mem-edit", edited)
+
+    # All state must be identical to what it was before apply_item_markdown
+    assert memory.get("mem-edit") == original_item, (
+        "memory_items must be fully restored after rollback"
+    )
+    assert memory.stats == original_stats, (
+        "stats must be fully restored after rollback"
+    )
+    assert list(memory.memory_index) == original_index, (
+        "memory_index must be fully restored after rollback"
+    )
+    assert [item.memory_id for item in memory.short_term_memory] == original_stm, (
+        "short_term_memory must be fully restored after rollback"
+    )
+    assert memory._vector_ids == original_vector_ids, (
+        "vector_ids must be fully restored after rollback"
+    )
+    # The memory must still be readable and unchanged
+    assert memory.exists("mem-edit")
+    assert memory.get("mem-edit")["content"] == "Original body"
+    assert memory.count() == 1

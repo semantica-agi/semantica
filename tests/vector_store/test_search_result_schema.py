@@ -112,7 +112,9 @@ class TestQdrantSearchSchema(unittest.TestCase):
         mock_hit.id = "q_1"
         mock_hit.score = 0.88
         mock_hit.payload = {"category": "x"}
-        mock_client.search.return_value = [mock_hit]
+        # search_points prefers the modern query_points API; a MagicMock
+        # exposes it, so the response must carry the hits in .points.
+        mock_client.query_points.return_value = MagicMock(points=[mock_hit])
 
         coll = QdrantCollection(mock_client, "test_col")
         results = coll.search_points(np.array([0.1, 0.2]), limit=1)
@@ -132,7 +134,9 @@ class TestQdrantSearchSchema(unittest.TestCase):
         mock_hit_high = MagicMock(id="q_hi", score=50.0, payload={})
         mock_hit_mid = MagicMock(id="q_mid", score=2.0, payload={})
         mock_hit_low = MagicMock(id="q_lo", score=1.0, payload={})
-        mock_client.search.return_value = [mock_hit_high, mock_hit_mid, mock_hit_low]
+        mock_client.query_points.return_value = MagicMock(
+            points=[mock_hit_high, mock_hit_mid, mock_hit_low]
+        )
 
         coll = QdrantCollection(mock_client, "test_col")
         results = coll.search_points(np.array([0.1, 0.2]), limit=3)

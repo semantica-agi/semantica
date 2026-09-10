@@ -1,5 +1,6 @@
 import type { CSSProperties } from "react";
 
+import { buildGraphColorLegend } from "../graphColorLegend";
 import type {
   GraphAnalyticsSnapshot,
   GraphDiagnosticsSnapshot,
@@ -48,6 +49,11 @@ const SCENE_EFFECT_ROWS: EffectRowConfig[] = [
     description: "Low-contrast density halos around the strongest visible anchors.",
   },
   {
+    key: "edgeLabelsEnabled",
+    label: "Edge Labels",
+    description: "Draw the relationship type on graph edges. Off restores label-free edges on dense graphs.",
+  },
+  {
     key: "legendEnabled",
     label: "Regions Summary",
     description: "Keep the regions and signals summary visible in the Effects panel.",
@@ -83,6 +89,7 @@ const AVAILABILITY_KEYS: Record<GraphEffectToggle, keyof GraphDiagnosticsSnapsho
   communitiesEnabled: "communities",
   centralityEnabled: "centrality",
   legendEnabled: "legend",
+  edgeLabelsEnabled: "edgeLabels",
   diagnosticsEnabled: "diagnostics",
 };
 
@@ -98,19 +105,7 @@ function renderAvailabilityText(availability: GraphEffectAvailability) {
 }
 
 function collectFallbackLegendItems(context: Parameters<NonNullable<GraphPlugin["renderPanel"]>>[0]) {
-  const groups = new Map<string, { count: number; color: string }>();
-  context.graph.forEachNode((_nodeId, attrs) => {
-    const semanticGroup = String(attrs.semanticGroup || attrs.nodeType || "entity");
-    const color = String(attrs.baseColor || context.theme.palette.semantic[0]);
-    const current = groups.get(semanticGroup);
-    groups.set(semanticGroup, {
-      count: (current?.count ?? 0) + 1,
-      color,
-    });
-  });
-
-  return [...groups.entries()]
-    .map(([group, data]) => ({ group, ...data }))
+  return buildGraphColorLegend(context.graph, context.theme)
     .sort((left, right) => right.count - left.count)
     .slice(0, context.theme.effects.legend.maxGroups);
 }
@@ -249,7 +244,7 @@ function renderRegionsAndSignals(
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           <div style={subsectionTitleStyle}>Fallback semantic legend</div>
           {fallbackLegendItems.map((item) => (
-            <div key={item.group} style={legendRowStyle}>
+            <div key={item.id} style={legendRowStyle}>
               <span
                 style={{
                   ...legendSwatchStyle,

@@ -203,6 +203,13 @@ export_lpg(graph,  "import.cypher", method="cypher")
     exporter = SemanticNetworkYAMLExporter()
     exporter.export(graph, "graph.yaml")
     ```
+
+    The YAML exporters read `entities`/`relationships`/`triplets` (with
+    `nodes`/`edges` accepted as aliases, so `ContextGraph.to_dict()` exports
+    directly). A non-empty mapping supplying none of them raises
+    `ValidationError` rather than writing a file with every collection empty,
+    as does one whose collection value is not a list of records
+    (`{"entities": "abc"}`).
   </Tab>
   <Tab title="Graph DB Import">
     **LPGExporter** writes Cypher `CREATE` statements for Neo4j and Memgraph:
@@ -235,6 +242,12 @@ export_lpg(graph,  "import.cypher", method="cypher")
     ```
 
     Both exporters write to a file and return `None`.
+
+    `LPGExporter`, `ArangoAQLExporter`, and `Neo4jCSVExporter` resolve mapping
+    payloads on the same terms as the YAML exporters above, so an unrecognized
+    or malformed mapping is rejected instead of exported as an empty graph.
+    `Neo4jCSVExporter` still reads graph *objects* off their
+    `nodes`/`entities` and `edges`/`relationships` attributes.
 
     <Warning>
       **`ArangoAQLExporter.export()` and `LPGExporter.export()` write to a file and return `None`.** They do not return the AQL/Cypher string. Write to a file and read it back if you need the string.
@@ -381,7 +394,7 @@ The `export_csv` convenience function delegates to `CSVExporter.export()`. For p
   **Match your export format to your consumer.** Neo4j → `cypher`; ArangoDB → `aql`; Gephi/yEd → `graphml` or `gexf`; semantic web tools → `turtle` or `json-ld`; analytics pipelines → `parquet`; zero-copy IPC → `arrow`.
 </Tip>
 
-- [Triplet Store](triplet_store) — Store RDF exports in a SPARQL-queryable backend.
+- [Triplet Store](/reference/triplet_store) — Store RDF exports in a SPARQL-queryable backend.
 - [Ontology](ontology) — Export OWL ontologies.
 - [Provenance](provenance) — Include provenance metadata in RDF exports.
 - [Pipeline](pipeline) — Add export as a final pipeline step.

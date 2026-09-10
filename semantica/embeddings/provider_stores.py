@@ -212,7 +212,7 @@ class FastEmbedStore(ProviderStore):
             self.logger.info(f"Loaded FastEmbed model: {self.model_name}")
         except (ImportError, OSError):
             self.logger.warning(
-                "fastembed not available. Install with: pip install fastembed"
+                "fastembed not available. Install with: pip install 'semantica[embeddings-local]'"
             )
         except Exception as e:
             self.logger.warning(f"Failed to load FastEmbed model: {e}")

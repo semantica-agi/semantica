@@ -9,6 +9,36 @@ import type {
   ShaclValidationResponse,
 } from "./types";
 
+export type OntologyGraphNode = {
+  id: string;
+  type: string;
+  content?: string;
+  properties?: Record<string, unknown>;
+};
+
+export type OntologyGraphEdge = {
+  id?: string;
+  source: string;
+  target: string;
+  type: string;
+  weight?: number;
+  properties?: Record<string, unknown>;
+};
+
+export type OntologyGraphResponse = {
+  uri: string;
+  nodes: OntologyGraphNode[];
+  edges: OntologyGraphEdge[];
+};
+
+export type OntologyEntityOwner = {
+  // Optional on purpose, unlike OntologyGraphNode.entity_type. There, a missing
+  // field degrades to a read-only node — benign. Here it would be read as an
+  // authoritative "nothing owns this entity", which now suppresses selection
+  // outright, so presence has to be checked rather than assumed.
+  owning_ontology?: string | null;
+};
+
 async function parseResponse<T>(response: Response): Promise<T> {
   if (!response.ok) {
     let detail = `Request failed with status ${response.status}`;
@@ -29,6 +59,29 @@ async function parseResponse<T>(response: Response): Promise<T> {
 
 export async function loadOntologyRegistry(): Promise<OntologyEntry[]> {
   return parseResponse<OntologyEntry[]>(await fetch("/api/ontology/registry"));
+}
+
+export async function loadOntologyGraph(uri: string, signal?: AbortSignal): Promise<OntologyGraphResponse> {
+  return parseResponse<OntologyGraphResponse>(
+    await fetch(`/api/ontology/graph?uri=${encodeURIComponent(uri)}`, { signal }),
+  );
+}
+
+// Three-state verdict: a string names the owner, null is the backend's
+// authoritative "no known ontology owns this entity", and undefined means the
+// request failed so there is no verdict to act on.
+export type OntologyOwnerVerdict = string | null | undefined;
+
+export async function loadOntologyEntityOwner(uri: string): Promise<OntologyOwnerVerdict> {
+  const response = await fetch(`/api/ontology/entity/${encodeURIComponent(uri)}`);
+  if (!response.ok) return undefined;
+  const owner = await response.json() as OntologyEntityOwner | null;
+  // Only a field that is actually there carries the verdict. Coercing an absent
+  // field to null would assert the strongest available claim — "nothing owns
+  // this" — on the weakest possible evidence, and that claim now stops the
+  // editor selecting an ontology at all.
+  const verdict = owner?.owning_ontology;
+  return verdict === undefined ? undefined : verdict;
 }
 
 export async function loadAlignments(uri?: string): Promise<OntologyAlignment[]> {

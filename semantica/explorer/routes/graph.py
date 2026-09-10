@@ -78,66 +78,6 @@ def _parse_bbox(raw_bbox: Optional[str]) -> Optional[tuple[float, float, float, 
     return min_x, min_y, max_x, max_y
 
 
-def _coerce_embedding_vector(value: object) -> Optional[List[float]]:
-    if isinstance(value, dict):
-        # Probe keys in priority order: generic first, then framework-specific.
-        # Must stay aligned with the top-level keys in _extract_node_embeddings.
-        for key in ("embedding", "embeddings", "vector", "values", "node2vec", "semantic"):
-            nested = _coerce_embedding_vector(value.get(key))
-            if nested is not None:
-                return nested
-        return None
-
-    if not isinstance(value, (list, tuple)):
-        return None
-
-    vector: List[float] = []
-    for item in value:
-        try:
-            vector.append(float(item))
-        except (TypeError, ValueError):
-            return None
-
-    return vector if vector else None
-
-
-def _extract_node_embeddings(graph_dict: dict) -> dict[str, List[float]]:
-    """Extract embeddings from graph dictionary."""
-    # Top-level keys to probe on each entity (and its metadata/properties dicts).
-    # Priority: generic names first, then KG-extras-specific names.
-    # Must stay aligned with the inner probe list in _coerce_embedding_vector.
-    embedding_keys = (
-        "embedding",
-        "embeddings",
-        "vector",
-        "node_embedding",
-        "node2vec_embedding",
-        "semantic_embedding",
-        "reasoning_embedding",
-    )
-
-    embeddings: dict[str, List[float]] = {}
-    for entity in graph_dict.get("entities") or graph_dict.get("nodes") or []:
-        if not isinstance(entity, dict):
-            continue
-        node_id = entity.get("id") or entity.get("node_id")
-        if not node_id:
-            continue
-
-        metadata = entity.get("metadata") if isinstance(entity.get("metadata"), dict) else {}
-        properties = entity.get("properties") if isinstance(entity.get("properties"), dict) else {}
-
-        for key in embedding_keys:
-            vector = _coerce_embedding_vector(
-                entity.get(key, metadata.get(key, properties.get(key)))
-            )
-            if vector is not None:
-                embeddings[str(node_id)] = vector
-                break
-
-    return embeddings
-
-
 def _get_cached_embeddings(session: GraphSession) -> dict[str, List[float]]:
     """Get embeddings from session cache for optimal performance."""
     return session.get_cached_embeddings()
@@ -145,6 +85,13 @@ def _get_cached_embeddings(session: GraphSession) -> dict[str, List[float]]:
 
 def _node_response(node: dict) -> NodeResponse:
     return NodeResponse(**node)
+
+
+async def _get_node_or_404(node_id: str, session: GraphSession) -> NodeResponse:
+    node = await asyncio.to_thread(session.get_node, node_id)
+    if node is None:
+        raise HTTPException(status_code=404, detail=f"Node '{node_id}' not found")
+    return _node_response(node)
 
 
 def _edge_response(edge: dict) -> EdgeResponse:
@@ -181,15 +128,20 @@ async def list_nodes(
     )
 
 
+@router.get("/node", response_model=NodeResponse)
+async def get_node_by_query(
+    node_id: str = Query(..., description="Exact node ID"),
+    session: GraphSession = Depends(get_session),
+):
+    return await _get_node_or_404(node_id, session)
+
+
 @router.get("/node/{node_id}", response_model=NodeResponse)
 async def get_node(
     node_id: str,
     session: GraphSession = Depends(get_session),
 ):
-    node = await asyncio.to_thread(session.get_node, node_id)
-    if node is None:
-        raise HTTPException(status_code=404, detail=f"Node '{node_id}' not found")
-    return _node_response(node)
+    return await _get_node_or_404(node_id, session)
 
 
 @router.get("/node/{node_id}/neighbors", response_model=list[NeighborResponse])
@@ -501,7 +453,7 @@ async def distance_matrix(
                     embeddings = _get_cached_embeddings(session)
                     src_embedding = embeddings.get(src)
                     tgt_embedding = embeddings.get(tgt)
-                    
+
                     if src_embedding is None or tgt_embedding is None:
                         val = None
                     else:
@@ -511,7 +463,7 @@ async def distance_matrix(
                         tgt_vec = np.array(tgt_embedding)
                         sim = np.dot(src_vec, tgt_vec) / (np.linalg.norm(src_vec) * np.linalg.norm(tgt_vec))
                         val = 1.0 - float(sim) if isinstance(sim, (int, float)) else None
-                    
+
                     matrix[i][j] = val
                     matrix[j][i] = val
                 elif path_finder is not None:

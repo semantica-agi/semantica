@@ -130,7 +130,14 @@ Example Usage:
 from __future__ import annotations
 
 import importlib
-from typing import Any, Dict, Tuple
+from typing import TYPE_CHECKING, Any, Dict, Tuple
+
+if TYPE_CHECKING:
+    from .salesforce_ingestor import (
+        SalesforceConnector,
+        SalesforceData,
+        SalesforceIngestor,
+    )
 
 from .config import IngestConfig, ingest_config
 from .file_ingestor import (
@@ -152,6 +159,7 @@ from .methods import (
     ingest_parquet,
     ingest_public_api,
     ingest_repository,
+    ingest_salesforce,
     ingest_stream,
     ingest_web,
     ingest_xml,
@@ -218,6 +226,10 @@ _LAZY_EXPORTS: Dict[str, Tuple[str, str]] = {
     "SnowflakeIngestor": (".snowflake_ingestor", "SnowflakeIngestor"),
     "SnowflakeData": (".snowflake_ingestor", "SnowflakeData"),
     "SnowflakeConnector": (".snowflake_ingestor", "SnowflakeConnector"),
+    # SAP OData ingestion
+    "SAPIngestor": (".sap_ingestor", "SAPIngestor"),
+    "SAPODataEntity": (".sap_ingestor", "SAPODataEntity"),
+    "SAPODataConnector": (".sap_ingestor", "SAPODataConnector"),
     # Databricks ingestion
     "DatabricksIngestor": (".databricks_ingestor", "DatabricksIngestor"),
     "DatabricksData": (".databricks_ingestor", "DatabricksData"),
@@ -231,32 +243,51 @@ _LAZY_EXPORTS: Dict[str, Tuple[str, str]] = {
     # XML ingestion
     "XMLIngestor": (".xml_ingestor", "XMLIngestor"),
     "XMLIngestionData": (".xml_ingestor", "XMLIngestionData"),
+    # Salesforce ingestion
+    "SalesforceIngestor": (".salesforce_ingestor", "SalesforceIngestor"),
+    "SalesforceData": (".salesforce_ingestor", "SalesforceData"),
+    "SalesforceConnector": (".salesforce_ingestor", "SalesforceConnector"),
 }
 
 _OPTIONAL_DEPENDENCY_MESSAGES = {
     ".repo_ingestor": (
         "Repository ingestion requires optional dependency 'GitPython'. "
-        "Install it before importing RepoIngestor or using ingest_repository()."
+        "Install it before importing RepoIngestor or using ingest_repository(). "
+        "Install it with: pip install 'semantica[ingest-git]'"
     ),
     ".web_ingestor": (
         "Web ingestion requires optional dependency 'beautifulsoup4'. "
-        "Install it before importing WebIngestor or using ingest_web()."
+        "Install it before importing WebIngestor or using ingest_web(). "
+        "Install it with: pip install 'semantica[documents]'"
     ),
     ".feed_ingestor": (
         "Feed ingestion requires optional dependency 'beautifulsoup4'. "
-        "Install it before importing FeedIngestor or using ingest_feed()."
+        "Install it before importing FeedIngestor or using ingest_feed(). "
+        "Install it with: pip install 'semantica[documents]'"
     ),
     ".email_ingestor": (
         "Email ingestion requires optional dependency 'beautifulsoup4'. "
-        "Install it before importing EmailIngestor or using ingest_email()."
+        "Install it before importing EmailIngestor or using ingest_email(). "
+        "Install it with: pip install 'semantica[documents]'"
+    ),
+    ".xml_ingestor": (
+        "XML ingestion requires optional dependency 'lxml'. "
+        "Install it before importing XMLIngestor or using ingest_xml(). "
+        "Install it with: pip install 'semantica[documents]'"
     ),
     ".parquet_ingestor": (
         "Parquet ingestion requires optional dependency 'pyarrow'. "
-        "Install it before importing ParquetIngestor or using ingest_parquet()."
+        "Install it before importing ParquetIngestor or using ingest_parquet(). "
+        "Install it with: pip install 'semantica[ingest-parquet]'"
     ),
     ".arrow_ingestor": (
         "Arrow ingestion requires optional dependency 'pyarrow'. "
-        "Install it before importing ArrowIngestor or using ingest_arrow()."
+        "Install it before importing ArrowIngestor or using ingest_arrow(). "
+        "Install it with: pip install 'semantica[ingest-arrow]'"
+    ),
+    ".salesforce_ingestor": (
+        "Salesforce ingestion requires optional dependency 'simple-salesforce'. "
+        "Install it with: pip install 'semantica[db-salesforce]'"
     ),
 }
 
@@ -269,12 +300,54 @@ def __getattr__(name: str) -> Any:
     module_name, attr_name = _LAZY_EXPORTS[name]
     try:
         module = importlib.import_module(module_name, __name__)
-    except ModuleNotFoundError as exc:
+    except (ImportError, OSError) as exc:
         message = _OPTIONAL_DEPENDENCY_MESSAGES.get(module_name)
         missing_name = getattr(exc, "name", None)
-        if message and missing_name in {"git", "bs4", "pyarrow"}:
+        if message and (
+            missing_name is None
+            or any(
+                pkg in missing_name
+                for pkg in ("git", "bs4", "pyarrow", "simple_salesforce", "lxml")
+            )
+        ):
             raise ImportError(message) from exc
         raise
+
+    # Guard against backends whose modules imported cleanly with dependencies
+    # set to None; ensure probe imports (e.g. try: from semantica.ingest import ...)
+    # fail at import time rather than postponing failure to construction time.
+    if module_name == ".repo_ingestor" and name in {"RepoIngestor"}:
+        if getattr(module, "git", None) is None:
+            message = _OPTIONAL_DEPENDENCY_MESSAGES.get(module_name)
+            if message:
+                raise ImportError(message)
+
+    if module_name == ".xml_ingestor" and name in {"XMLIngestor"}:
+        if getattr(module, "etree", None) is None:
+            message = _OPTIONAL_DEPENDENCY_MESSAGES.get(module_name)
+            if message:
+                raise ImportError(message)
+
+    if module_name == ".parquet_ingestor" and name in {"ParquetIngestor"}:
+        if not getattr(module, "PARQUET_AVAILABLE", True):
+            message = _OPTIONAL_DEPENDENCY_MESSAGES.get(module_name)
+            if message:
+                raise ImportError(message)
+
+    if module_name == ".arrow_ingestor" and name in {"ArrowIngestor"}:
+        if not getattr(module, "ARROW_AVAILABLE", True):
+            message = _OPTIONAL_DEPENDENCY_MESSAGES.get(module_name)
+            if message:
+                raise ImportError(message)
+
+    if module_name == ".salesforce_ingestor" and name in {
+        "SalesforceIngestor",
+        "SalesforceConnector",
+    }:
+        if not getattr(module, "SALESFORCE_AVAILABLE", True):
+            message = _OPTIONAL_DEPENDENCY_MESSAGES.get(module_name)
+            if message:
+                raise ImportError(message)
 
     value = getattr(module, attr_name)
     globals()[name] = value
@@ -345,6 +418,10 @@ __all__ = [
     "SnowflakeIngestor",
     "SnowflakeData",
     "SnowflakeConnector",
+    # SAP OData ingestion
+    "SAPIngestor",
+    "SAPODataEntity",
+    "SAPODataConnector",
     # Databricks ingestion
     "DatabricksIngestor",
     "DatabricksData",
@@ -358,6 +435,10 @@ __all__ = [
     # XML ingestion
     "XMLIngestor",
     "XMLIngestionData",
+    # Salesforce ingestion
+    "SalesforceIngestor",
+    "SalesforceData",
+    "SalesforceConnector",
     # Registry and Methods
     "MethodRegistry",
     "method_registry",
@@ -369,6 +450,7 @@ __all__ = [
     "ingest_repository",
     "ingest_email",
     "ingest_database",
+    "ingest_salesforce",
     "ingest_ontology",
     "ingest_arrow",
     "ingest_parquet",

@@ -50,7 +50,7 @@ A context graph is a property graph that stores entities as **nodes** and relati
 - Cases where setup complexity exceeds the relationship complexity
 
 <Info>
-  ContextGraph is an **in-memory data structure**. All nodes, edges, and metadata are stored in Python dictionaries and lists. For standalone graphs, persist state with `save_to_file()`. When using `AgentContext`, call `AgentContext.save()` instead — it saves the graph, the FAISS vector index, and memory in one step. For analytical operations on top of a populated graph — centrality rankings, community detection, node embeddings, link prediction — see the [Graph Analytics guide](graph-analytics). For recording and querying decisions stored as nodes, see the [Decision Intelligence guide](decision-intelligence).
+  ContextGraph is an **in-memory data structure**. All nodes, edges, and metadata are stored in Python dictionaries and lists. For standalone graphs, persist state with `save_to_file()`. When using `AgentContext`, call `AgentContext.save()` instead — it saves the graph, the FAISS vector index, and memory in one step. For analytical operations on top of a populated graph — centrality rankings, community detection, node embeddings, link prediction — see the [Graph Analytics guide](/guides/graph-analytics). For recording and querying decisions stored as nodes, see the [Decision Intelligence guide](/guides/decision-intelligence).
 </Info>
 
 ## Constructing the Graph
@@ -436,6 +436,35 @@ d = graph.to_dict()
 # d["statistics"] → {"node_count": int, "edge_count": int}
 ```
 
+For a human-editable, version-control-friendly representation, save a Markdown
+directory instead:
+
+```python
+graph.save_to_file("context_graph/", format="markdown")
+
+restored = ContextGraph(advanced_analytics=True)
+restored.load_from_file("context_graph/", format="markdown")
+```
+
+The directory contains a versioned `graph.md` manifest for graph identity,
+relationships, and cross-graph link descriptors, plus one file per node under
+`nodes/`. A node's content is its Markdown body; its ID, type, properties,
+metadata, and temporal validity are YAML frontmatter. Node, edge, family, graph,
+and cross-graph link IDs are preserved across round trips.
+
+Markdown loading uses replacement semantics, like `from_dict()`: it parses and
+validates the complete directory before replacing the current graph. Invalid YAML,
+duplicate IDs, unsupported versions, and unsafe filesystem links fail without
+partially mutating the graph. As with JSON loading, an edge endpoint without a node
+file creates an `entity` stub node. Symlinks, Windows directory junctions, and other
+Windows reparse points are rejected.
+
+Re-exporting to an existing managed directory atomically replaces it, removing stale
+node files. Before replacement, Semantica validates the complete canonical export
+layout, not just the manifest header. Untracked files, assets, extra directories, or
+renamed node files therefore cause the export to fail closed instead of being deleted.
+Keep attachments and hand-written indexes outside the managed export directory.
+
 If the graph had cross-graph links created with `link_graph()`, call `resolve_links()` after loading to restore live navigation — object references cannot be serialized, so they must be reconnected manually:
 
 ```python
@@ -675,8 +704,8 @@ for n in stress_reach:
 
 ## Related Guides
 
-- [Graph Analytics](graph-analytics) — centrality rankings, community detection, node embeddings, and link prediction on a populated `ContextGraph`
-- [Decision Intelligence](decision-intelligence) — recording decisions as typed nodes, causal chain analysis, precedent search, and policy enforcement
+- [Graph Analytics](/guides/graph-analytics) — centrality rankings, community detection, node embeddings, and link prediction on a populated `ContextGraph`
+- [Decision Intelligence](/guides/decision-intelligence) — recording decisions as typed nodes, causal chain analysis, precedent search, and policy enforcement
 - [Ingest](ingest) — loading data from PDFs, APIs, databases, STIX bundles, and RSS feeds into the graph
 - [Deduplication](deduplication) — detecting and merging near-duplicate nodes before insertion to prevent graph fragmentation
 - [Reasoning](reasoning) — temporal interval algebra (Allen relations), forward/backward chaining, and SPARQL over the knowledge graph

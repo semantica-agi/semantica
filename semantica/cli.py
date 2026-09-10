@@ -20,7 +20,7 @@ if sys.platform == "win32":
         sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
 from dataclasses import asdict, dataclass, field, is_dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 import yaml
@@ -95,7 +95,26 @@ _ERROR_HINTS: Dict[type, str] = {
 }
 
 
+def _json_error_mode() -> bool:
+    """True when this invocation promised machine-readable stdout.
+
+    Covers both the global ``--json`` flag (stored on the CLI context) and a
+    subcommand's local ``--json`` flag (uniformly named ``local_json``).
+    """
+    ctx = click.get_current_context(silent=True)
+    if ctx is None:
+        return False
+    if ctx.params.get("local_json"):
+        return True
+    return isinstance(ctx.obj, CLIContext) and ctx.obj.json_output
+
+
 def _show_error_card(title: str, detail: str, hint: Optional[str] = None) -> None:
+    if _json_error_mode():
+        # --json promises machine-readable stdout with errors on stderr, so
+        # emit a structured error line there instead of a Rich panel.
+        click.echo(json.dumps({"error": detail, "type": title}), err=True)
+        return
     body = f"[bold]{title}[/bold]\n[{_DIM}]{detail}[/{_DIM}]"
     if hint:
         body += f"\n\n[{_KEY}]→[/{_KEY}] [{_DIM}]{hint}[/{_DIM}]"
@@ -105,7 +124,7 @@ def _show_error_card(title: str, detail: str, hint: Optional[str] = None) -> Non
 
 
 def _run_with_error_handling(action: Callable[[], None]) -> None:
-    """Run a CLI action with Rich error cards on failure."""
+    """Run a CLI action with error cards (or JSON-mode stderr errors) on failure."""
     try:
         action()
     except click.ClickException as exc:
@@ -446,7 +465,7 @@ def _show_startup(cli_ctx: CLIContext) -> None:
         return
     cfg = cli_ctx.config.to_dict()
     graph_store = (
-        cli_ctx.store_backend or cfg.get("graph_db", {}).get("backend", "memory")
+        cli_ctx.store_backend or cfg.get("graph_db", {}).get("backend", "neo4j")
     )
     vector_store = (
         cli_ctx.vector_store_backend
@@ -773,10 +792,22 @@ def changelog(cli_ctx: CLIContext, local_json: bool) -> None:
     _run_with_error_handling(_action)
 
 
+class _DeepEmbeddingFailure(Exception):
+    """A deep-probe failure from doctor's embedding checks.
+
+    Marks failures that happened AFTER the backend imported cleanly — model
+    load, probe, or runtime problems — so the check's hint can point at the
+    real remediation instead of `pip install`.
+    """
+
+
 @main.command()
 @click.option("--json", "local_json", is_flag=True, default=False)
+@click.option("--deep-embeddings", "deep_embeddings", is_flag=True, default=False,
+              help="Also instantiate the local embedding backends and embed a probe "
+                   "text (catches backends that import cleanly but cannot load).")
 @click.pass_obj
-def doctor(cli_ctx: CLIContext, local_json: bool) -> None:
+def doctor(cli_ctx: CLIContext, local_json: bool, deep_embeddings: bool) -> None:
     """Run a health check on all Semantica components and backends."""
     import importlib.metadata
     cli_ctx = _require_ctx(cli_ctx)
@@ -787,6 +818,16 @@ def doctor(cli_ctx: CLIContext, local_json: bool) -> None:
         try:
             note = fn()
             return label, "ok", note, None
+        except _DeepEmbeddingFailure as exc:
+            # A deep-probe failure means the package IMPORTED fine: the pip
+            # hint would be the wrong remediation for what is actually a
+            # runtime/model-load problem (broken torch, failed model
+            # download, missing shared libs).
+            return label, "fail", str(exc), (
+                "runtime/model-load failure — reinstalling the package usually "
+                "does not help; check the warnings above (torch install, model "
+                "download, disk space)"
+            )
         except Exception as exc:
             return label, "fail", str(exc), hint
 
@@ -810,9 +851,7 @@ def doctor(cli_ctx: CLIContext, local_json: bool) -> None:
         # Graph store reachability
         def _graph() -> str:
             cfg = cli_ctx.config.to_dict()
-            backend = cli_ctx.store_backend or cfg.get("graph_db", {}).get("backend", "memory")
-            if backend == "memory":
-                return "memory (always available)"
+            backend = cli_ctx.store_backend or cfg.get("graph_db", {}).get("backend", "neo4j")
             gs = _get_graph_store(cli_ctx)
             gs.ping() if hasattr(gs, "ping") else gs.connect()
             return f"{backend} reachable"
@@ -826,6 +865,58 @@ def doctor(cli_ctx: CLIContext, local_json: bool) -> None:
                 import faiss  # noqa: F401
             return f"{backend} importable"
         checks.append(_check("Vector store", _vector, hint="pip install semantica[vectorstore-…]"))
+
+        # Embedding backends (#994): `doctor` used to report all green while
+        # every local embedding backend was non-functional — import success
+        # says nothing about model loading. Default checks stay cheap
+        # (import + version); --deep-embeddings (or
+        # SEMANTICA_DOCTOR_DEEP_EMBEDDINGS=1) instantiates the backend through
+        # TextEmbedder and embeds a probe, which is the only level that
+        # catches a backend that imports cleanly but cannot actually load.
+        deep = deep_embeddings or os.environ.get("SEMANTICA_DOCTOR_DEEP_EMBEDDINGS", "").strip().lower() in ("1", "true", "yes", "on")
+
+        def _embedding_backend(method: str) -> str:
+            if method == "sentence_transformers":
+                import sentence_transformers  # noqa: F401
+                try:
+                    ver = importlib.metadata.version("sentence-transformers")
+                except Exception:
+                    ver = getattr(sentence_transformers, "__version__", "installed")
+                note = f"importable ({ver})"
+            else:
+                import fastembed  # noqa: F401
+                try:
+                    ver = importlib.metadata.version("fastembed")
+                except Exception:
+                    ver = getattr(fastembed, "__version__", "installed")
+                note = f"importable ({ver})"
+            if not deep:
+                return note
+            try:
+                from .embeddings import TextEmbedder
+                embedder = TextEmbedder(method=method)
+                if embedder.model is None and embedder.fastembed_model is None:
+                    raise RuntimeError(
+                        "model failed to load — the hash fallback is active "
+                        "(see warnings above); embedding quality is degraded"
+                    )
+                probe = embedder.embed_text("semantica doctor embedding probe")
+            except _DeepEmbeddingFailure:
+                raise
+            except Exception as exc:
+                raise _DeepEmbeddingFailure(str(exc)) from exc
+            return f"{note}; deep probe ok ({len(probe)}-dim)"
+
+        checks.append(_check(
+            "Embeddings (sentence-transformers)",
+            lambda: _embedding_backend("sentence_transformers"),
+            hint="pip install 'semantica[embeddings-local]'",
+        ))
+        checks.append(_check(
+            "Embeddings (fastembed)",
+            lambda: _embedding_backend("fastembed"),
+            hint="pip install 'semantica[embeddings-local]'",
+        ))
 
         # LLM provider keys
         for provider, var in [("OpenAI", "OPENAI_API_KEY"), ("Anthropic", "ANTHROPIC_API_KEY"),
@@ -851,11 +942,11 @@ def doctor(cli_ctx: CLIContext, local_json: bool) -> None:
                     for lbl, st, note, hint in checks])
             return
 
-        tbl = Table(box=_TABLE_BOX, show_edge=False, padding=(0, 2))
-        tbl.add_column("Check",  style=_KEY, no_wrap=True, min_width=16)
-        tbl.add_column("Status", no_wrap=True, min_width=6)
-        tbl.add_column("Note",   style=_DIM)
-        tbl.add_column("Hint",   style=_DIM)
+        tbl = Table(box=_TABLE_BOX, show_edge=False, padding=(0, 2), expand=True)
+        tbl.add_column("Check",  style=_KEY, no_wrap=True, min_width=34)
+        tbl.add_column("Status", no_wrap=True, min_width=4)
+        tbl.add_column("Note",   style=_DIM, min_width=15, ratio=2, overflow="fold")
+        tbl.add_column("Hint",   style=_DIM, min_width=20, ratio=3, overflow="fold")
 
         icons = {"ok": f"[{_SUCCESS}] ✓[/{_SUCCESS}]",
                  "warn": f"[{_WARN_STY}] ⚠[/{_WARN_STY}]",
@@ -1087,6 +1178,57 @@ def _get_graph_store(cli_ctx: CLIContext) -> Any:
     graph_db = dict(cfg.get("graph_db", {}))
     backend = cli_ctx.store_backend or graph_db.pop("backend", "neo4j")
     return GraphStore(backend=backend, **graph_db)
+
+
+def _load_rule_definitions(path: str) -> List[str]:
+    """Load reasoning rule definitions from a YAML or plain-text rules file.
+
+    YAML files may hold a list of rule strings or a mapping with a ``rules``
+    list; anything else (e.g. Datalog) is read as one rule per non-comment
+    line. The strings are handed to ``Reasoner.add_rule()`` untouched.
+    """
+    text = Path(path).read_text(encoding="utf-8")
+    try:
+        data = yaml.safe_load(text)
+    except yaml.YAMLError:
+        data = None
+    if isinstance(data, dict):
+        rules_value = data.get("rules")
+        if rules_value is None and "rules" not in data:
+            raise click.ClickException(
+                f"Rules file '{path}' is a YAML mapping but has no 'rules' key. "
+                "Expected either a YAML list or a mapping with a 'rules' list."
+            )
+        data = rules_value
+    if isinstance(data, list):
+        return [str(item) for item in data]
+    return [line.strip() for line in text.splitlines()
+            if line.strip() and not line.lstrip().startswith("#")]
+
+
+def _graph_store_facts(cli_ctx: CLIContext) -> List[str]:
+    """Read the configured graph store into Reasoner fact strings.
+
+    Follows the same conventions ``Reasoner.add_fact()`` applies to
+    KG-style dicts: nodes become ``Label(name)`` and relationships become
+    ``TYPE(source, target)``, with internal node ids resolved to names.
+    """
+    gs = _get_graph_store(cli_ctx)
+    nodes = gs.get_nodes(limit=sys.maxsize)
+    relationships = gs.get_relationships(limit=sys.maxsize)
+    names: Dict[Any, Any] = {}
+    facts: List[str] = []
+    for node in nodes:
+        props = node.get("properties") or {}
+        name = props.get("name") or props.get("id") or node.get("id")
+        names[node.get("id")] = name
+        for label in node.get("labels") or ["Entity"]:
+            facts.append(f"{label}({name})")
+    for rel in relationships:
+        source = names.get(rel.get("start_node_id"), rel.get("start_node_id"))
+        target = names.get(rel.get("end_node_id"), rel.get("end_node_id"))
+        facts.append(f"{rel.get('type', 'RELATED_TO')}({source}, {target})")
+    return facts
 
 
 # ─── Output helpers ──────────────────────────────────────────────────────────
@@ -1349,6 +1491,31 @@ _INGEST_TYPES = [
 ]
 
 _INGEST_FORMATS = ["pdf", "docx", "csv", "excel", "html", "json", "parquet", "xml", "rdf"]
+_GRAPH_STORE_ENV_BACKEND_HINTS = {
+    "GRAPH_STORE_NEO4J_URI": "neo4j",
+    "GRAPH_STORE_FALKORDB_HOST": "falkordb",
+    "GRAPH_STORE_NEPTUNE_ENDPOINT": "neptune",
+    "GRAPH_STORE_AGE_CONNECTION_STRING": "age",
+}
+
+
+def _configured_ingest_graph_backend(
+    cli_ctx: CLIContext, store_override: Optional[str]
+) -> Optional[str]:
+    graph_db = dict(cli_ctx.config.to_dict().get("graph_db", {}))
+    backend = store_override or cli_ctx.store_backend or graph_db.get("backend")
+    if backend:
+        return str(backend)
+
+    env_backend = os.environ.get("GRAPH_STORE_DEFAULT_BACKEND")
+    if env_backend:
+        return env_backend
+
+    for env_var, hinted_backend in _GRAPH_STORE_ENV_BACKEND_HINTS.items():
+        if os.environ.get(env_var):
+            return hinted_backend
+
+    return None
 
 
 @main.command()
@@ -1361,8 +1528,13 @@ _INGEST_FORMATS = ["pdf", "docx", "csv", "excel", "html", "json", "parquet", "xm
 @click.option("--watch", is_flag=True, default=False, help="Re-ingest on file changes.")
 @click.option("--batch-size", default=500, type=int, show_default=True)
 @click.option("--store", "store_override", default=None,
-              help="Target graph backend: neo4j falkordb age neptune")
-@click.option("--output", default=None, type=click.Path(), help="Write to file instead of graph store.")
+              help="Target graph backend: neo4j falkordb age neptune. "
+                   "Not yet implemented — ingest cannot persist to a graph "
+                   "store, so this only determines whether the command "
+                   "refuses to report false success; use --output instead.")
+@click.option("--output", default=None, type=click.Path(),
+              help="Write ingested content to a .json/.jsonl/.csv file "
+                   "instead of the (unimplemented) graph store.")
 @click.option("--dry-run", "local_dry", is_flag=True, default=False)
 @click.option("--json", "local_json", is_flag=True, default=False)
 @click.pass_obj
@@ -1386,6 +1558,19 @@ def ingest(
             _dry(cli_ctx, "ingest", json_out=_is_json(cli_ctx, local_json),
                  source=source, type=ingestor_type, format=fmt)
             return
+        graph_backend = _configured_ingest_graph_backend(cli_ctx, store_override)
+        if graph_backend and graph_backend.lower() != "memory" and not output:
+            raise click.ClickException(
+                f"A graph backend is configured ({graph_backend}), but "
+                "semantica ingest does not write to graph stores yet — no CLI "
+                "command currently does (tracked in issues #1351, #1352). "
+                "Pass --output <file>.json to save the ingested content "
+                "instead, or build a GraphStore/GraphBuilder directly in "
+                "Python."
+            )
+        # NOTE: --store/GRAPH_STORE_DEFAULT_BACKEND are read only to decide
+        # whether to raise the error above — nothing downstream of this point
+        # writes to a graph store, so neither is forwarded as an ingest kwarg.
         kwargs: Dict[str, Any] = {"batch_size": batch_size}
         if ingestor_type:
             kwargs["source_type"] = ingestor_type
@@ -1395,10 +1580,6 @@ def ingest(
             kwargs["recursive"] = True
         if watch:
             kwargs["watch"] = True
-        if store_override or cli_ctx.store_backend:
-            kwargs["store"] = store_override or cli_ctx.store_backend
-        if output:
-            kwargs["output"] = output
         try:
             from .ingest import ingest as _ingest
             label = Path(source).name if Path(source).exists() else source
@@ -1412,7 +1593,10 @@ def ingest(
                     result = _ingest(source, **kwargs)
         except ImportError as exc:
             raise click.ClickException(f"Ingest module not available: {exc}") from exc
-        if _is_json(cli_ctx, local_json):
+        if output:
+            _write_result_output(Path(output), result)
+            _ok(cli_ctx, f"Wrote {output}")
+        elif _is_json(cli_ctx, local_json):
             _jecho(result if isinstance(result, dict) else {"status": "ok"})
         else:
             _ok(cli_ctx, f"Ingested: {source}")
@@ -1666,6 +1850,103 @@ def embed(ctx: click.Context) -> None:
         click.echo(ctx.get_help())
 
 
+def _json_default(obj) -> object:
+    """JSON serialiser that converts NumPy scalars/arrays to native Python types.
+
+    Also expands dataclasses (e.g. ``FileObject`` from ``ingest``) to plain
+    dicts and decodes ``bytes`` as UTF-8 text where possible, so a domain
+    object round-trips through ``--output`` as data instead of a repr string.
+    Falls back to ``str()`` for everything else so the writer never crashes on
+    unexpected types (e.g. ``datetime``).
+    """
+    if is_dataclass(obj) and not isinstance(obj, type):
+        return asdict(obj)
+    if isinstance(obj, bytes):
+        try:
+            return obj.decode("utf-8")
+        except UnicodeDecodeError:
+            return obj.hex()
+    try:
+        import numpy as np  # local import — only needed when result contains numpy
+        if isinstance(obj, np.ndarray):
+            return obj.tolist()
+        if isinstance(obj, np.generic):
+            return obj.item()
+    except ImportError:
+        pass
+    return str(obj)
+
+
+def _write_result_output(out_path: Path, result) -> None:
+    """Serialize a structured CLI result (dict or list) for ``--output``.
+
+    Domain commands like ``deduplicate`` and ``ontology align`` produce dicts
+    and lists, not numeric matrices — routing them through the embeddings
+    writer rejected their shapes and extensions (.csv is documented for
+    deduplicate). JSON-family formats serialize anything; CSV serializes a
+    list of dicts (or a single dict as one row).
+
+    Accepted extensions: .json, .jsonl, .csv  (no-extension and .txt are
+    rejected so the path reported to the caller always matches the file
+    actually created, consistent with every other --output in the CLI).
+    """
+    import json as _json
+
+    suffix = out_path.suffix.lower()
+
+    # ── JSON ────────────────────────────────────────────────────────────────
+    if suffix == ".json":
+        with open(out_path, "w", encoding="utf-8") as fh:
+            _json.dump(result, fh, indent=2, default=_json_default)
+        return
+
+    # ── JSON Lines ──────────────────────────────────────────────────────────
+    # Every record must occupy exactly one line.  Wrap a bare dict in a list
+    # so callers never need to know whether their result is singular or plural.
+    if suffix == ".jsonl":
+        items = result if isinstance(result, list) else [result]
+        with open(out_path, "w", encoding="utf-8") as fh:
+            for item in items:
+                fh.write(_json.dumps(item, default=_json_default) + "\n")
+        return
+
+    # ── CSV ─────────────────────────────────────────────────────────────────
+    if suffix == ".csv":
+        import pandas as pd
+
+        rows = result if isinstance(result, list) else [result]
+        if not rows:
+            raise click.ClickException(
+                "No results to write — output file not created."
+            )
+        # Normalise numpy scalars/arrays to Python natives so to_csv() does
+        # not fall back to repr() strings for array-valued cells.
+        def _normalise(row):
+            if not isinstance(row, dict):
+                return row
+            out = {}
+            for k, v in row.items():
+                try:
+                    import numpy as np
+                    if isinstance(v, np.ndarray):
+                        v = v.tolist()
+                    elif isinstance(v, np.generic):
+                        v = v.item()
+                except ImportError:
+                    pass
+                out[k] = v
+            return out
+
+        pd.DataFrame([_normalise(r) for r in rows]).to_csv(out_path, index=False)
+        return
+
+    # ── unsupported ─────────────────────────────────────────────────────────
+    display = suffix if suffix else "(no extension)"
+    raise click.ClickException(
+        f"Unsupported output format '{display}'. Use .json, .jsonl, or .csv"
+    )
+
+
 @embed.command("generate")
 @click.argument("input_path")
 @click.option("--model",
@@ -1708,7 +1989,43 @@ def embed_generate(cli_ctx: CLIContext, input_path: str, model: str,
         except ImportError as exc:
             raise click.ClickException(f"Embeddings module not available: {exc}") from exc
         if output:
-            Path(output).write_text(json.dumps(result, default=str), encoding="utf-8")
+            output_path = Path(output)
+            suffix = output_path.suffix.lower()
+            try:
+                import numpy as np
+                import pandas as pd
+                arr = np.asarray(result)
+                if arr.ndim == 1:
+                    arr = arr[np.newaxis, :]
+                if arr.ndim != 2:
+                    raise click.ClickException(
+                        f"embed generate --output expects a 1-D or 2-D array, "
+                        f"got {arr.ndim}-D (shape {arr.shape})"
+                    )
+                rows = [list(row) for row in arr]
+                if suffix == ".parquet":
+                    # Schema: single 'embedding' column (list[float] per row).
+                    # embed index detects vector columns via
+                    # isinstance(df[c].iloc[0], (list, np.ndarray)).
+                    df = pd.DataFrame({"embedding": rows})
+                    df.to_parquet(output_path, index=False)
+                elif suffix in (".json", ".jsonl"):
+                    df = pd.DataFrame({"embedding": rows})
+                    df.to_json(
+                        output_path,
+                        orient="records",
+                        lines=(suffix == ".jsonl"),
+                    )
+                else:
+                    raise click.ClickException(
+                        f"Unsupported output format '{suffix}'. "
+                        "Use .parquet, .json, or .jsonl"
+                    )
+            except ImportError as exc:
+                raise click.ClickException(
+                    f"Missing dependency for --output: {exc}. "
+                    "Install pyarrow with: pip install pyarrow"
+                ) from exc
             _ok(cli_ctx, f"Wrote {output}")
         elif _is_json(cli_ctx, local_json):
             _jecho(result if isinstance(result, dict) else {"status": "ok"})
@@ -1930,7 +2247,7 @@ def deduplicate(
         except ImportError as exc:
             raise click.ClickException(f"Deduplication module not available: {exc}") from exc
         if output:
-            Path(output).write_text(json.dumps(result, default=str), encoding="utf-8")
+            _write_result_output(Path(output), result)
             _ok(cli_ctx, f"Wrote {output}")
         elif _is_json(cli_ctx, local_json):
             _jecho(result if isinstance(result, (dict, list)) else {"result": str(result)})
@@ -1971,17 +2288,43 @@ def reason_run(cli_ctx: CLIContext, engine: str, rules: Optional[str],
     cli_ctx = _require_ctx(cli_ctx)
 
     def _action() -> None:
+        # Only the forward-chaining production-rule engines run through
+        # Reasoner.infer_facts(); the other engines take different inputs
+        # (SPARQL/Datalog queries, observations, premises) and are not wired
+        # to this command yet. Fail honestly instead of silently
+        # forward-chaining under another engine's name.
+        if engine not in ("rete", "forward-chain"):
+            hint = (" Use 'semantica reason query' for SPARQL/Datalog queries."
+                    if engine in ("sparql", "datalog") else "")
+            raise click.ClickException(
+                f"Engine '{engine}' is not wired to 'reason run' yet; "
+                f"supported engines: rete, forward-chain.{hint}")
         try:
             from .reasoning import Reasoner
+            # Reasoner has no run() method (#1354); dispatch to its real
+            # API: facts from the configured graph store + rules from the
+            # optional --rules file into infer_facts().
             r = Reasoner(engine=engine, config=cli_ctx.config.to_dict())
+            rule_defs = _load_rule_definitions(rules) if rules else None
+            facts = _graph_store_facts(cli_ctx)
+
+            def _infer() -> Dict[str, Any]:
+                inferred = r.infer_facts(facts, rule_defs)
+                return {
+                    "engine": engine,
+                    "facts": len(facts),
+                    "inferred_count": len(inferred),
+                    "inferred_facts": inferred,
+                }
+
             if cli_ctx.quiet or cli_ctx.json_output:
-                result = r.run(rules_file=rules)
+                result = _infer()
             else:
                 with console.status(
                     f"[{_DIM}]Running {engine} reasoning engine…[/{_DIM}]",
                     spinner="dots",
                 ):
-                    result = r.run(rules_file=rules)
+                    result = _infer()
         except ImportError as exc:
             raise click.ClickException(f"Reasoning module not available: {exc}") from exc
         if _is_json(cli_ctx, local_json):
@@ -3054,7 +3397,7 @@ def ontology_align(cli_ctx: CLIContext, source: str, target: str, strategy: str,
         except ImportError as exc:
             raise click.ClickException(f"Ontology module not available: {exc}") from exc
         if output:
-            Path(output).write_text(json.dumps(result, default=str), encoding="utf-8")
+            _write_result_output(Path(output), result)
             _ok(cli_ctx, f"Wrote {output}")
         elif _is_json(cli_ctx, local_json):
             _jecho(result if isinstance(result, dict) else {"alignments": str(result)})
@@ -3472,14 +3815,17 @@ def store_connect(cli_ctx: CLIContext, backend: str, uri: Optional[str], local_j
 
     def _action() -> None:
         try:
-            from .graph_store import get_graph_store_method
-            store_cls = get_graph_store_method(backend)
+            # get_graph_store_method(task, method_name) is the method
+            # registry, not a backend factory (#1354); build the store
+            # through GraphStore, which resolves the backend by name.
+            from .graph_store import GraphStore
             cfg = dict(cli_ctx.config.to_dict().get("graph_db", {}))
+            cfg.pop("backend", None)
             if uri:
                 cfg["uri"] = uri
-            # Attempt instantiation as the minimal connectivity probe; backends
-            # that require a live connection will fail here if unreachable.
-            store_instance = store_cls(config=cfg)
+            # Instantiation only wires the backend; the probe below performs
+            # the live connectivity check and raises if unreachable.
+            store_instance = GraphStore(backend=backend, **cfg)
             for probe in ("health_check", "ping", "connect"):
                 fn = getattr(store_instance, probe, None)
                 if callable(fn):
@@ -3525,19 +3871,61 @@ def store_stats(cli_ctx: CLIContext, backend: str, fmt: str, local_json: bool) -
     _run_with_error_handling(_action)
 
 
+_MIGRATE_SUPPORTED_BACKENDS = {"faiss", "sqlite", "pgvector"}
+_MIGRATE_BATCH_SIZE = 500
+
+
+def _migrate_backend_config(vs_cfg: Dict[str, Any], backend: str) -> Dict[str, Any]:
+    """Resolve per-backend config out of the vector_store config section.
+
+    Supports both a per-backend nested shape (``vector_store.faiss.dimension``)
+    and the common flat single-backend shape (``vector_store.backend`` +
+    sibling keys), since either can appear depending on how many backends a
+    user has configured.
+    """
+    nested = vs_cfg.get(backend)
+    if isinstance(nested, dict):
+        return dict(nested)
+    if vs_cfg.get("backend") == backend:
+        return {k: v for k, v in vs_cfg.items() if k != "backend"}
+    return {}
+
+
+def _require_faiss_index_path(cfg: Dict[str, Any], role: str) -> str:
+    """FAISS has no server to hold state between commands: a fresh FAISSStore
+    starts empty and nothing outside the process persists it, so migration
+    needs an explicit on-disk index to read from or write to."""
+    index_path = cfg.get("index_path")
+    if not index_path:
+        raise click.ClickException(
+            f"faiss as migration {role} requires 'index_path' in the vector_store "
+            f"config (vector_store.faiss.index_path or vector_store.index_path "
+            f"when faiss is the configured backend)."
+        )
+    return index_path
+
+
 @store.command("migrate")
 @click.option("--from", "from_backend", required=True)
 @click.option("--to", "to_backend", required=True)
 @click.option("--namespace", default=None)
 @click.option("--dry-run", "local_dry", is_flag=True, default=False)
+@click.option("--json", "local_json", is_flag=True, default=False)
 @click.pass_obj
 def store_migrate(cli_ctx: CLIContext, from_backend: str, to_backend: str,
-                  namespace: Optional[str], local_dry: bool) -> None:
+                  namespace: Optional[str], local_dry: bool, local_json: bool) -> None:
     """Migrate data between backends.
+
+    Direct migration is only wired up between faiss, sqlite, and pgvector -
+    these are the backends whose storage contract supports paging through
+    every stored vector. Migrating to or from qdrant, pinecone, milvus, or
+    weaviate still needs the export/reindex workaround below, since each of
+    those needs its own enumeration design (Qdrant scroll, Pinecone list,
+    etc.) that hasn't been built yet.
 
     \b
     Example:
-      semantica store migrate --from faiss --to qdrant --namespace production --dry-run
+      semantica store migrate --from faiss --to sqlite --namespace production --dry-run
     """
     cli_ctx = _require_ctx(cli_ctx)
 
@@ -3545,13 +3933,76 @@ def store_migrate(cli_ctx: CLIContext, from_backend: str, to_backend: str,
         if _is_dry(cli_ctx, local_dry):
             _dry(cli_ctx, "migrate", from_backend=from_backend, to_backend=to_backend)
             return
-        raise click.ClickException(
-            f"Direct backend migration ({from_backend} → {to_backend}) is not yet supported "
-            "by the vector store layer. To migrate, export your data first:\n"
-            "  semantica export --format parquet --output dump.parquet\n"
-            f"  semantica embed index dump.parquet --store {to_backend}"
-            + (f" --namespace {namespace}" if namespace else "")
-        )
+
+        if from_backend not in _MIGRATE_SUPPORTED_BACKENDS or to_backend not in _MIGRATE_SUPPORTED_BACKENDS:
+            raise click.ClickException(
+                f"Direct backend migration ({from_backend} → {to_backend}) is only supported "
+                f"between {', '.join(sorted(_MIGRATE_SUPPORTED_BACKENDS))}. To migrate involving "
+                "another backend, export your data first:\n"
+                "  semantica export --format parquet --output dump.parquet\n"
+                f"  semantica embed index dump.parquet --store {to_backend}"
+                + (f" --namespace {namespace}" if namespace else "")
+            )
+
+        from .vector_store import VectorStore
+
+        vs_cfg = cli_ctx.config.to_dict().get("vector_store", {}) or {}
+        source_cfg = _migrate_backend_config(vs_cfg, from_backend)
+        dest_cfg = _migrate_backend_config(vs_cfg, to_backend)
+
+        source_index_path = None
+        if from_backend == "faiss":
+            source_index_path = _require_faiss_index_path(source_cfg, "source")
+        dest_index_path = None
+        if to_backend == "faiss":
+            dest_index_path = _require_faiss_index_path(dest_cfg, "destination")
+
+        source = VectorStore(backend=from_backend, config=source_cfg)
+        if source_index_path:
+            source._backend_store.load_index(source_index_path)
+
+        source_dimension = getattr(source._backend_store, "dimension", None)
+        if source_dimension and "dimension" not in dest_cfg:
+            dest_cfg["dimension"] = source_dimension
+
+        dest = VectorStore(backend=to_backend, config=dest_cfg)
+        if dest_index_path and Path(dest_index_path).exists():
+            dest._backend_store.load_index(dest_index_path)
+
+        migrated = 0
+        vectors_batch: List[Any] = []
+        metadata_batch: List[Dict[str, Any]] = []
+        ids_batch: List[str] = []
+
+        def _flush() -> None:
+            nonlocal migrated
+            if not vectors_batch:
+                return
+            dest.store_vectors(list(vectors_batch), list(metadata_batch), ids=list(ids_batch))
+            migrated += len(vectors_batch)
+            vectors_batch.clear()
+            metadata_batch.clear()
+            ids_batch.clear()
+
+        for item in source.iter_vectors(batch_size=_MIGRATE_BATCH_SIZE):
+            meta = dict(item.get("metadata") or {})
+            if namespace and "namespace" not in meta:
+                meta["namespace"] = namespace
+            vectors_batch.append(item["vector"])
+            metadata_batch.append(meta)
+            ids_batch.append(item["id"])
+            if len(vectors_batch) >= _MIGRATE_BATCH_SIZE:
+                _flush()
+        _flush()
+
+        if dest_index_path and migrated:
+            dest._backend_store.save_index(dest_index_path)
+
+        result = {"from": from_backend, "to": to_backend, "migrated": migrated}
+        if _is_json(cli_ctx, local_json):
+            _jecho(result)
+        else:
+            _ok(cli_ctx, f"Migrated {migrated} vectors from {from_backend} to {to_backend}")
 
     _run_with_error_handling(_action)
 
@@ -3933,15 +4384,68 @@ def backup_restore(cli_ctx: CLIContext, source: str, local_dry: bool) -> None:
 
         try:
             if _tf.is_tarfile(str(work_path)):
-                restore_root = Path.cwd()
+                restore_root = Path.cwd().resolve()
                 with _tf.open(str(work_path), "r:*") as tar:
                     # Dry-run listing was already handled above; extract now
                     for member in tar.getmembers():
                         # Strip the leading "semantica-backup/" prefix
                         member.name = member.name.replace("semantica-backup/", "", 1)
-                        if member.name:
-                            tar.extract(member, path=str(restore_root))
-                            console.print(f"  restored: {member.name}")
+                        if not member.name:
+                            continue
+
+                        # Reject members whose resolved path escapes the
+                        # restore root (path traversal / absolute paths),
+                        # regardless of the "semantica-backup/" prefix.
+                        member_path = (restore_root / member.name).resolve()
+                        try:
+                            member_path.relative_to(restore_root)
+                        except ValueError:
+                            raise click.ClickException(
+                                f"Refusing to restore '{member.name}': "
+                                "path escapes the restore directory."
+                            )
+
+                        # Reject symlink/hardlink members whose target
+                        # escapes the restore root. Checked two ways:
+                        # lexically (linkname itself, so an absolute path or
+                        # a literal ".." segment is rejected outright, with
+                        # no dependence on what else does or doesn't already
+                        # exist on disk) and by resolution (catches any
+                        # remaining traversal the lexical check misses).
+                        if member.issym() or member.islnk():
+                            linkname = member.linkname or ""
+                            linkname_parts = PurePosixPath(
+                                linkname.replace("\\", "/")
+                            ).parts
+                            if (
+                                not linkname
+                                or os.path.isabs(linkname)
+                                or PureWindowsPath(linkname).is_absolute()
+                                or ".." in linkname_parts
+                            ):
+                                raise click.ClickException(
+                                    f"Refusing to restore '{member.name}': "
+                                    "link target is absolute or traverses "
+                                    "out of the archive."
+                                )
+                            link_target = (
+                                member_path.parent / linkname
+                            ).resolve()
+                            try:
+                                link_target.relative_to(restore_root)
+                            except ValueError:
+                                raise click.ClickException(
+                                    f"Refusing to restore '{member.name}': "
+                                    "link target escapes the restore directory."
+                                )
+
+                        extract_kwargs: Dict[str, Any] = {"path": str(restore_root)}
+                        if hasattr(_tf, "data_filter"):
+                            # Python >=3.12: also reject device files, and
+                            # further harden the traversal/ownership checks.
+                            extract_kwargs["filter"] = "data"
+                        tar.extract(member, **extract_kwargs)
+                        console.print(f"  restored: {member.name}")
             elif src.is_dir():
                 restore_root = Path.cwd()
                 for f in src.rglob("*"):
@@ -4224,7 +4728,7 @@ def mcp_start(cli_ctx: CLIContext, transport: str, port: int) -> None:
 
     def _action() -> None:
         import subprocess as sp
-        cmd = [sys.executable, "-m", "mcp.server"]
+        cmd = [sys.executable, "-m", "semantica_mcp.mcp.server"]
         if transport == "http":
             cmd += ["--port", str(port)]
         proc = sp.Popen(cmd)
@@ -4266,15 +4770,10 @@ def mcp_list_tools(cli_ctx: CLIContext, local_json: bool) -> None:
     cli_ctx = _require_ctx(cli_ctx)
 
     def _action() -> None:
-        try:
-            from mcp.tools import __all__ as tools
-        except ImportError:
-            tools = [
-                "extract_entities", "extract_relations", "build_graph",
-                "query_graph", "get_graph_analytics", "run_reasoning",
-                "record_decision", "get_decisions", "export_graph",
-                "validate_shacl", "get_provenance", "embed_and_search",
-            ]
+        # Same catalog the server exposes via tools/list, so `list-tools`
+        # and `mcp start` can't drift (issue #1355).
+        from semantica_mcp.mcp.tools import TOOL_DEFINITIONS
+        tools = [t["name"] for t in TOOL_DEFINITIONS]
         if _is_json(cli_ctx, local_json):
             _jecho({"tools": list(tools)})
         else:
@@ -4307,12 +4806,15 @@ def mcp_call(cli_ctx: CLIContext, tool_name: str, args: str, local_json: bool) -
             tool_args = json.loads(args)
         except json.JSONDecodeError as exc:
             raise click.ClickException(f"Invalid JSON in --args: {exc}") from exc
+        if not isinstance(tool_args, dict):
+            raise click.ClickException("--args must be a JSON object")
+        # Dispatch through the same server `mcp start` spawns; its session
+        # module never defined MCPSession (issue #1355).
+        from semantica_mcp.mcp.server import UnknownToolError, call_tool
         try:
-            from mcp.session import MCPSession
-            session = MCPSession(config=cli_ctx.config.to_dict())
-            result = session.call_tool(tool_name, **tool_args)
-        except ImportError as exc:
-            raise click.ClickException(f"MCP module not available: {exc}") from exc
+            result = call_tool(tool_name, tool_args)
+        except UnknownToolError as exc:
+            raise click.ClickException(str(exc)) from exc
         if _is_json(cli_ctx, local_json):
             _jecho(result if isinstance(result, (dict, list)) else {"result": str(result)})
         else:

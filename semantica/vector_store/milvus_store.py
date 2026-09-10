@@ -438,6 +438,46 @@ class MilvusStore:
                 raise ProcessingError(f"Collection {collection_name} does not exist")
 
             collection = Collection(collection_name)
+            # Reject schemas that don't match create_collection()'s shape:
+            # id/VARCHAR pk + vector + metadata. Otherwise an incompatible
+            # collection attaches and fails far later in get_vector/get_metadata.
+            schema = getattr(collection, "schema", None)
+            fields = list(getattr(schema, "fields", None) or [])
+            pk = [f for f in fields if getattr(f, "is_primary", False)]
+            if (
+                not pk
+                or pk[0].name != "id"
+                or getattr(getattr(pk[0], "dtype", None), "name", None) != "VARCHAR"
+                or getattr(pk[0], "auto_id", False)
+            ):
+                raise ProcessingError(
+                    f"Collection '{collection_name}' has an invalid primary key: "
+                    "expected VARCHAR field 'id' without auto_id"
+                )
+            vector_field = next((f for f in fields if f.name == "vector"), None)
+            if vector_field is None:
+                raise ProcessingError(
+                    f"Collection '{collection_name}' is missing required field 'vector'"
+                )
+            if (
+                getattr(getattr(vector_field, "dtype", None), "name", None)
+                != "FLOAT_VECTOR"
+            ):
+                raise ProcessingError(
+                    f"Collection '{collection_name}' has an invalid vector field: "
+                    "expected FLOAT_VECTOR 'vector'"
+                )
+            metadata_field = next((f for f in fields if f.name == "metadata"), None)
+            if metadata_field is None:
+                raise ProcessingError(
+                    f"Collection '{collection_name}' is missing required field 'metadata'"
+                )
+            if getattr(getattr(metadata_field, "dtype", None), "name", None) != "JSON":
+                raise ProcessingError(
+                    f"Collection '{collection_name}' has an invalid metadata field: "
+                    "expected JSON 'metadata'"
+                )
+
             self.collection = MilvusCollection(collection, collection_name)
             self.search_engine = MilvusSearch(self.collection)
             return self.collection
@@ -587,6 +627,46 @@ class MilvusStore:
             )
             raise
 
+    def delete_vectors(self, vector_ids: List[str], **options) -> Dict[str, Any]:
+        """Delete vectors from collection by their ids.
+
+        Args:
+            vector_ids: Vector ids to delete
+            **options: Additional options
+
+        Returns:
+            A dict with the number of matching entities that were deleted
+            (``delete_count``).
+        """
+        if self.collection is None:
+            raise ProcessingError(
+                "Collection not initialized. Call create_collection() or get_collection() first."
+            )
+
+        if not vector_ids:
+            return {"delete_count": 0}
+
+        try:
+            # Milvus DELETE deletes by expression. Escape each id so a quote or
+            # backslash in an id cannot break out of the string literal.
+            if len(vector_ids) == 1:
+                expr = f"id == {_format_milvus_value(vector_ids[0])}"
+            else:
+                formatted = ", ".join(_format_milvus_value(i) for i in vector_ids)
+                expr = f"id in [{formatted}]"
+            result = self.collection.collection.delete(expr=expr, **options)
+            delete_count = getattr(result, "delete_count", 0)
+            if delete_count is None:
+                delete_count = 0
+            elif isinstance(delete_count, (str, bytes)):
+                try:
+                    delete_count = int(delete_count)
+                except (TypeError, ValueError):
+                    delete_count = 0
+            return {"delete_count": delete_count}
+        except Exception as e:
+            raise ProcessingError(f"Failed to delete vectors: {str(e)}")
+
     def get_vector(self, vector_id: str) -> Optional[np.ndarray]:
         """Get vector by ID."""
         if not MILVUS_AVAILABLE or not self.collection:
@@ -620,6 +700,15 @@ class MilvusStore:
             return None
         except Exception:
             return None
+
+    @staticmethod
+    def _record_to_result(item: Dict[str, Any]) -> Dict[str, Any]:
+        vec = item.get("vector")
+        return {
+            "id": str(item.get("id")),
+            "metadata": item.get("metadata") or {},
+            "vector": np.array(vec) if vec is not None else None,
+        }
 
     def filter_by_metadata(
         self, filters: Dict[str, Any], limit: int = 10
@@ -665,20 +754,82 @@ class MilvusStore:
                 limit=limit,
                 output_fields=["id", "vector", "metadata"],
             )
-            results = []
-            for item in query_results:
-                vec = item.get("vector")
-                results.append(
-                    {
-                        "id": str(item.get("id")),
-                        "metadata": item.get("metadata") or {},
-                        "vector": np.array(vec) if vec is not None else None,
-                    }
-                )
-            return results
+            return [self._record_to_result(item) for item in query_results]
         except Exception as e:
             self.logger.warning(f"Failed to query Milvus vectors by metadata expression: {e}")
             return []
+
+    def iter_all(self, batch_size: int = 500):
+        """
+        Iterate over every stored entity using Milvus's query iterator.
+
+        Paginates by primary-key cursor rather than row offset, which is why
+        this exists instead of scan_vectors(offset, limit). query(offset=...)
+        is capped by the 16384 result window and would truncate anything
+        larger.
+
+        Assumes the schema create_collection() builds: a VARCHAR `id` primary
+        key plus vector and metadata fields, as get_vector() and
+        filter_by_metadata() already do. get_collection() does not validate
+        schema, so a collection with an integer key or no metadata field fails
+        here.
+
+        Args:
+            batch_size: Entities to request per iterator batch
+
+        Yields:
+            Result dicts with 'id', 'metadata', and 'vector', in cursor order
+
+        Raises:
+            ProcessingError: If the collection is not initialized, or the
+                installed pymilvus does not expose query_iterator().
+        """
+        if self.collection is None:
+            raise ProcessingError(
+                "Collection not initialized. Call create_collection() or get_collection() first."
+            )
+
+        if not MILVUS_AVAILABLE:
+            raise ProcessingError("Milvus not available")
+
+        query_iterator = getattr(self.collection.collection, "query_iterator", None)
+        if not callable(query_iterator):
+            raise ProcessingError(
+                "This pymilvus version does not expose Collection.query_iterator(), "
+                "which full enumeration requires. Falling back to query(offset=...) "
+                "is not safe here: it is capped by the 16384 result window and would "
+                "silently truncate a larger collection."
+            )
+
+        # Query operations need a loaded collection. Idempotent, and once per
+        # scan rather than per batch.
+        self.collection.load()
+
+        # Milvus rejects an empty expression; this match-all form is what
+        # filter_by_metadata() already uses.
+        iterator = query_iterator(
+            batch_size=batch_size,
+            expr="id != ''",
+            output_fields=["id", "vector", "metadata"],
+        )
+
+        try:
+            while True:
+                batch = iterator.next()
+                if not batch:
+                    return
+                for item in batch:
+                    yield self._record_to_result(item)
+        finally:
+            # Release the server-side iterator even if the consumer stops early.
+            # Swallowed so a broken connection at cleanup time doesn't replace
+            # whatever real exception was already propagating out of the try.
+            close = getattr(iterator, "close", None)
+            if callable(close):
+                try:
+                    close()
+                except Exception as e:
+                    self.logger.warning(f"Failed to close Milvus query iterator: {e}")
 
     def get_stats(self, collection_name: Optional[str] = None) -> Dict[str, Any]:
         """Get collection statistics."""

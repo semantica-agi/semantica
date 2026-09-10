@@ -19,6 +19,7 @@ import {
   withAlpha,
   zoomTierAtLeast,
 } from "./graphTheme";
+import { getSemanticNodeColor } from "./graphColorLegend";
 import { classifyEntityShape } from "./graphEntityShape";
 import { computeGraphAnalyticsBase } from "./graphAnalytics";
 import type {
@@ -1013,9 +1014,8 @@ function resolveNodeColor(
   state: GraphNodeVisualState,
   attrs: NodeAttributes,
   cameraRatio: number,
-  fallbackColor?: string,
 ) {
-  const semanticColor = String(attrs.baseColor || fallbackColor || theme.palette.semantic[0]);
+  const semanticColor = getSemanticNodeColor(attrs, theme);
   const isCommunityGroup = Boolean(attrs.isCommunityGroup);
   const entityShapeConfig = theme.nodes.entityShapes[resolveEntityShape(attrs)];
   const overviewTint = state === "neighbor"
@@ -1062,9 +1062,8 @@ function resolveNodeShellColor(
   state: GraphNodeVisualState,
   attrs: NodeAttributes,
   cameraRatio: number,
-  fallbackColor?: string,
 ) {
-  const semanticColor = String(attrs.baseColor || fallbackColor || theme.palette.semantic[0]);
+  const semanticColor = getSemanticNodeColor(attrs, theme);
   const isCommunityGroup = Boolean(attrs.isCommunityGroup);
   const entityShapeConfig = theme.nodes.entityShapes[resolveEntityShape(attrs)];
   const presenceBoost = getOverviewPresenceBoost(cameraRatio);
@@ -1633,8 +1632,8 @@ export function resolveNodeElementStyle(
   const isCommunityGroup = Boolean(attrs.isCommunityGroup);
   const baseSize = Number(attrs.baseSize || attrs.size || 4);
   const labelPriority = Number(attrs.labelPriority ?? 0);
-  const color = resolveNodeColor(theme, zoomTier, state, attrs, cameraRatio, attrs.color);
-  const shellColor = resolveNodeShellColor(theme, zoomTier, state, attrs, cameraRatio, attrs.color);
+  const color = resolveNodeColor(theme, zoomTier, state, attrs, cameraRatio);
+  const shellColor = resolveNodeShellColor(theme, zoomTier, state, attrs, cameraRatio);
   const sizeMultiplier = (state === "default" ? tierConfig.nodeScale : stateConfig.sizeMultiplier)
     * variantConfig.sizeMultiplier
     * (isCommunityGroup ? theme.grouped.style.nodeSizeScale : 1);
@@ -1783,6 +1782,7 @@ export function resolveEdgeElementStyle(
   const isCommunityBundle = attrs.bundleKind === "community";
   const baseSize = Number(attrs.baseSize || attrs.size || 0.9);
   const visualPriority = Number(attrs.visualPriority ?? 0);
+  const isSmallGraphEdge = viewMode === "full" && attrs.isSmallGraph === true;
   const isFullBridgeEdge = viewMode === "full" && fullEdgeClass === "bridge";
   const isFullBackboneEdge = viewMode === "full" && fullEdgeClass === "backbone";
   const shouldCurveBridge = isFullBridgeEdge
@@ -1790,11 +1790,13 @@ export function resolveEdgeElementStyle(
   const visibilityPolicy = resolveEdgeVisibilityPolicy(theme, viewMode, zoomTier, isCommunityBundle);
   const isContextEdge = isContextEdgeState(state);
   const isNonCriticalEdge = isNonCriticalEdgeVariant(edgeVariant);
-  const belowPriorityThreshold = state === "default"
+  const belowPriorityThreshold = !isSmallGraphEdge && state === "default"
     && visualPriority < Math.max(tierConfig.edgePriorityThreshold, visibilityPolicy.defaultPriorityThreshold)
     && isNonCriticalEdge;
-  const hiddenByMutedState = (state === "muted" || state === "inactive") && visibilityPolicy.hideMuted;
-  const sampledOut = isNonCriticalEdge
+  const hiddenByMutedState = !isSmallGraphEdge
+    && (state === "muted" || state === "inactive")
+    && visibilityPolicy.hideMuted;
+  const sampledOut = !isSmallGraphEdge && isNonCriticalEdge
     && (
       (state === "default" && !isContextEdge && shouldSampleOutBackgroundEdge(visibilityPolicy.backgroundSampleRate, visualPriority, edgeId, sourceId, targetId))
       || (
@@ -1837,11 +1839,14 @@ export function resolveEdgeElementStyle(
       ? resolveEdgeCurvature(theme, state, edgeVariant, attrs, sourceId, targetId)
       : 0;
   const baseColor = resolveEdgeColor(theme, zoomTier, state, attrs, attrs.color, fullEdgeClass);
-  const lodAlpha = resolveEdgeLodAlpha(theme, viewMode, zoomTier, state, attrs, isCommunityBundle, fullEdgeClass);
+  const resolvedLodAlpha = resolveEdgeLodAlpha(theme, viewMode, zoomTier, state, attrs, isCommunityBundle, fullEdgeClass);
+  const lodAlpha = isSmallGraphEdge
+    ? Math.max(resolvedLodAlpha ?? 1, isContextEdge ? 0.62 : 0.46)
+    : resolvedLodAlpha;
   const color = lodAlpha === null ? baseColor : withAlpha(baseColor, lodAlpha);
   const rawSize = Math.max(
     baseSize * sizeMultiplier * (isCommunityBundle ? theme.grouped.style.edgeSizeScale : 1),
-    stateConfig.minSize,
+    isSmallGraphEdge ? Math.max(stateConfig.minSize, 0.9) : stateConfig.minSize,
   );
   
   const interactionMaxSize = (fullEdgeClass === "path" || state === "path")
@@ -2099,6 +2104,15 @@ function createCollapsedNeighborhoodGraph(
   return collapsedGraph;
 }
 
+// Normalize an edge relationship type: empty string, null, and undefined all
+// fall back to the project-wide default used consistently across every
+// aggregation path. Keep this local — it exists only to guarantee that the
+// three code paths (single-entry, multi-entry, community-grouped) produce the
+// same semantics and do not diverge again.
+function normalizeEdgeType(value: string | null | undefined): string {
+  return value || "related_to";
+}
+
 function aggregateDisplayGraph(graphRef: GraphRef): Graph<NodeAttributes, EdgeAttributes> {
   const aggregated = new Graph<NodeAttributes, EdgeAttributes>({
     type: "directed",
@@ -2124,10 +2138,13 @@ function aggregateDisplayGraph(graphRef: GraphRef): Graph<NodeAttributes, EdgeAt
       const [{ edgeId, attrs }] = entries;
       aggregated.mergeDirectedEdgeWithKey(edgeId, sourceId, targetId, {
         ...attrs,
+        // #1009: normalize empty/null/undefined edgeType so Sigma's label
+        // renderer never receives a blank string on the single-entry path.
+        edgeType: normalizeEdgeType(attrs.edgeType),
+        dominantEdgeType: normalizeEdgeType(attrs.dominantEdgeType ?? attrs.edgeType),
         rawEdgeIds: collectRawEdgeIds(attrs, edgeId),
         isAggregated: isAggregatedEdgeAttributes(attrs),
         aggregateCount: attrs.aggregateCount ?? collectRawEdgeIds(attrs, edgeId).length,
-        dominantEdgeType: attrs.dominantEdgeType ?? attrs.edgeType,
         representativeWeight: attrs.representativeWeight ?? Number(attrs.weight ?? 1),
       });
       return;
@@ -2150,10 +2167,11 @@ function aggregateDisplayGraph(graphRef: GraphRef): Graph<NodeAttributes, EdgeAt
     const rawEdgeIds = entries.flatMap(({ edgeId, attrs }) => collectRawEdgeIds(attrs, edgeId));
     const typeCounts = new Map<string, number>();
     entries.forEach(({ attrs }) => {
-      const edgeType = String(attrs.edgeType ?? "related_to");
+      const edgeType = normalizeEdgeType(attrs.edgeType);
       typeCounts.set(edgeType, (typeCounts.get(edgeType) ?? 0) + 1);
     });
-    const dominantEdgeType = [...typeCounts.entries()].sort((left, right) => right[1] - left[1])[0]?.[0] ?? representative.attrs.edgeType ?? "related_to";
+    const dominantEdgeType = [...typeCounts.entries()].sort((left, right) => right[1] - left[1])[0]?.[0]
+      ?? normalizeEdgeType(representative.attrs.edgeType);
     const reverseKey = `${targetId}→${sourceId}`;
     const isBidirectionalBundle = groupedEdges.has(reverseKey);
     const syntheticEdgeId = `${AGGREGATED_EDGE_PREFIX}${sourceId}::${targetId}`;
@@ -2167,10 +2185,10 @@ function aggregateDisplayGraph(graphRef: GraphRef): Graph<NodeAttributes, EdgeAt
       rawEdgeIds,
       isAggregated: true,
       aggregateCount: rawEdgeIds.length,
-      dominantEdgeType: String(dominantEdgeType),
+      dominantEdgeType: dominantEdgeType,
       representativeWeight: Number(representative.attrs.weight ?? 1),
       weight: Number(representative.attrs.weight ?? 1),
-      edgeType: String(representative.attrs.edgeType ?? dominantEdgeType ?? "related_to"),
+      edgeType: representative.attrs.edgeType || dominantEdgeType,
       parallelCount: rawEdgeIds.length,
       familySize: rawEdgeIds.length,
       bundleKind: isBidirectionalBundle ? "bidirectional" : "parallel",
@@ -2280,7 +2298,7 @@ function buildCommunityGroupedGraph(): GraphDisplayResult {
     };
     bucket.rawEdgeIds.push(String(edgeId));
     bucket.weight = Math.max(bucket.weight, Number((attrs as EdgeAttributes).weight ?? 1));
-    const edgeType = String((attrs as EdgeAttributes).edgeType ?? "related_to");
+    const edgeType = normalizeEdgeType((attrs as EdgeAttributes).edgeType);
     bucket.typeCounts.set(edgeType, (bucket.typeCounts.get(edgeType) ?? 0) + 1);
     groupedEdges.set(key, bucket);
   });
@@ -2396,7 +2414,8 @@ function buildCommunityGroupedGraph(): GraphDisplayResult {
     if (!visibleGroupedEdgeKeys.has(key)) {
       return;
     }
-    const dominantEdgeType = [...bundle.typeCounts.entries()].sort((left, right) => right[1] - left[1])[0]?.[0] ?? "related_to";
+    const dominantEdgeType = [...bundle.typeCounts.entries()].sort((left, right) => right[1] - left[1])[0]?.[0]
+      ?? "related_to";
     const reverseKey = `${bundle.targetId}→${bundle.sourceId}`;
     const syntheticEdgeId = `${AGGREGATED_EDGE_PREFIX}${key}`;
     const aggregateCount = bundle.rawEdgeIds.length;
@@ -2550,6 +2569,7 @@ export function createFocusedGraph(
     color: selectedState.color,
     size: Math.max(selectedState.size, 22),
     baseColor: selectedState.color,
+    semanticBaseColor: getSemanticNodeColor(selectedAttrs),
     baseSize: Math.max(selectedState.size, 22),
     label: selectedState.label,
   });
@@ -2589,6 +2609,7 @@ export function createFocusedGraph(
       color: style.color,
       size: Math.max(style.size, 8.5),
       baseColor: style.color,
+      semanticBaseColor: getSemanticNodeColor(baseAttrs),
       baseSize: Math.max(style.size, 8.5),
       label: style.label,
     });
