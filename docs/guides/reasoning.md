@@ -840,7 +840,7 @@ if proof:
 
 - [Semantic Extraction](/guides/semantic-extraction) — extract the entities and relationships that populate the graph facts you reason over
 - [GraphRAG](/guides/graphrag) — retrieve graph-grounded context for LLM responses
-- [Ontology Management](ontology) — generate OWL ontologies to give your rules formal semantics
+- [Ontology Management](/guides/ontology) — generate OWL ontologies to give your rules formal semantics
 - [Decision Intelligence](/guides/decision-intelligence) — record and trace inferred decisions through the full causal chain
 - [Context Graphs](/guides/context-graphs) — the knowledge graph that reasoning operates over
 - [MCP Server](/guides/mcp-server) — expose `run_reasoning` as a tool for Claude and other agents

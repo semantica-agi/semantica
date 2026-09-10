@@ -342,8 +342,8 @@ The result is a fully auditable credit decision trail with precedent links, read
 
 ## Related Guides
 
-- [Reasoning & Rules](reasoning) — the engine behind the `run_reasoning` tool
+- [Reasoning & Rules](/guides/reasoning) — the engine behind the `run_reasoning` tool
 - [Decision Intelligence](/guides/decision-intelligence) — how decisions are stored as causal graph nodes
 - [Context Graphs](/guides/context-graphs) — the graph that `add_entity` and `add_relationship` write to
-- [Export & Serialization](export) — all export formats available via `export_graph`
-- [Ontology Management](ontology) — generate OWL ontologies from the graph built via MCP
+- [Export & Serialization](/guides/export) — all export formats available via `export_graph`
+- [Ontology Management](/guides/ontology) — generate OWL ontologies from the graph built via MCP

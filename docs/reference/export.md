@@ -395,6 +395,6 @@ The `export_csv` convenience function delegates to `CSVExporter.export()`. For p
 </Tip>
 
 - [Triplet Store](/reference/triplet_store) — Store RDF exports in a SPARQL-queryable backend.
-- [Ontology](ontology) — Export OWL ontologies.
-- [Provenance](provenance) — Include provenance metadata in RDF exports.
-- [Pipeline](pipeline) — Add export as a final pipeline step.
+- [Ontology](/reference/ontology) — Export OWL ontologies.
+- [Provenance](/reference/provenance) — Include provenance metadata in RDF exports.
+- [Pipeline](/reference/pipeline) — Add export as a final pipeline step.

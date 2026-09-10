@@ -223,4 +223,4 @@ config = read_json_file("config.json")
 ```
 
 - [Core](/reference/core) — Framework orchestration that uses Utils internally.
-- [Pipeline](pipeline) — Uses ProgressTracker for per-step tracking.
+- [Pipeline](/reference/pipeline) — Uses ProgressTracker for per-step tracking.

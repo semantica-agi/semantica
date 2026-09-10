@@ -753,8 +753,8 @@ def validate_before_publish(data_graph_str: str, ontology: dict) -> None:
 
 ## Related Guides
 
-- [Ontology Management](ontology) — generate the OWL ontology that SHACL shapes are derived from
-- [Reasoning & Rules](reasoning) — complement SHACL structural constraints with logical inference rules
-- [Export & Serialization](export) — serialize graph data to Turtle/RDF/XML for `run_shacl_validation` input
+- [Ontology Management](/guides/ontology) — generate the OWL ontology that SHACL shapes are derived from
+- [Reasoning & Rules](/guides/reasoning) — complement SHACL structural constraints with logical inference rules
+- [Export & Serialization](/guides/export) — serialize graph data to Turtle/RDF/XML for `run_shacl_validation` input
 - [Conflict Resolution](/guides/conflict-resolution) — detect and resolve data conflicts before SHACL validation
 - [Change Management](/guides/change-management) — version-gate SHACL shapes alongside ontology versions

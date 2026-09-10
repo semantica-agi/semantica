@@ -316,7 +316,7 @@ ontology_data = ingest_ontology("schema.jsonld")  # JSON-LD
   Ontology versioning (`VersionManager`, `OntologyVersion`) has moved to `semantica.change_management`. Import from there: `from semantica.change_management import VersionManager`.
 </Note>
 
-- [Reasoning](reasoning) — Apply inference rules over ontology axioms.
+- [Reasoning](/reference/reasoning) — Apply inference rules over ontology axioms.
 - [Knowledge Graph](/reference/kg) — The graph being modeled by the ontology.
-- [Export](export) — Export ontologies as RDF, OWL, or JSON-LD.
+- [Export](/reference/export) — Export ontologies as RDF, OWL, or JSON-LD.
 - [Conflicts](/reference/conflicts) — Detect ontology constraint violations.
