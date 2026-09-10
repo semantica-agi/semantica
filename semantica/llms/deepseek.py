@@ -4,7 +4,9 @@ DeepSeek LLM Provider
 Wrapper for DeepSeek API provider with clean interface.
 """
 
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Type, Union
+
+from pydantic import BaseModel
 
 from ..semantic_extract.providers import DeepSeekProvider
 from ..utils.exceptions import ProcessingError
@@ -88,7 +90,9 @@ class DeepSeek:
             )
         return self.provider.generate_structured(prompt, **kwargs)
 
-    def generate_typed(self, prompt: str, schema: Any, max_retries: int = 3, **kwargs) -> Any:
+    def generate_typed(
+        self, prompt: str, schema: Type[BaseModel], max_retries: int = 3, **kwargs
+    ) -> BaseModel:
         """
         Generate output validated against a Pydantic schema.
 

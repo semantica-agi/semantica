@@ -4,7 +4,9 @@ OpenAI LLM Provider
 Wrapper for OpenAI API provider with clean interface.
 """
 
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional, Type, Union
+
+from pydantic import BaseModel
 
 from ..semantic_extract.providers import OpenAIProvider
 from ..utils.exceptions import ProcessingError
@@ -67,7 +69,7 @@ class OpenAI:
             )
         return self.provider.generate(prompt, **kwargs)
 
-    def generate_structured(self, prompt: str, **kwargs) -> Dict[str, Any]:
+    def generate_structured(self, prompt: str, **kwargs) -> Union[Dict[str, Any], List[Any]]:
         """
         Generate structured JSON output.
 
@@ -76,7 +78,8 @@ class OpenAI:
             **kwargs: Generation options
 
         Returns:
-            Parsed JSON response as dictionary
+            Parsed JSON response. A dict for a top-level JSON object, or a
+            list if the model returns a top-level JSON array.
 
         Raises:
             ProcessingError: If provider is not available or parsing fails
@@ -87,7 +90,9 @@ class OpenAI:
             )
         return self.provider.generate_structured(prompt, **kwargs)
 
-    def generate_typed(self, prompt: str, schema: Any, max_retries: int = 3, **kwargs) -> Any:
+    def generate_typed(
+        self, prompt: str, schema: Type[BaseModel], max_retries: int = 3, **kwargs
+    ) -> BaseModel:
         """
         Generate output validated against a Pydantic schema.
 

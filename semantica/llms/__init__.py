@@ -7,8 +7,8 @@ to provide a cleaner API.
 
 Every provider wrapper exposes the same generation interface:
     - generate(prompt, **kwargs) -> str
-    - generate_structured(prompt, **kwargs) -> dict
-    - generate_typed(prompt, schema, max_retries=3, **kwargs) -> schema instance
+    - generate_structured(prompt, **kwargs) -> dict | list
+    - generate_typed(prompt, schema, max_retries=3, **kwargs) -> BaseModel
     - is_available() -> bool
 
 Supported Providers:
