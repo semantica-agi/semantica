@@ -1,7 +1,7 @@
 """Timestamp semantics for AgentMemory (#found-by-audit).
 
 MemoryItem timestamps had two producers with different naive conventions:
-``add()`` defaulted to ``datetime.now()`` (naive LOCAL) while ``from_dict``
+``store()`` defaulted to ``datetime.now()`` (naive LOCAL) while ``from_dict``
 fell back to ``datetime.utcnow()`` (naive UTC). ``_timestamp_comparison_key``
 interprets every naive stamp as LOCAL time, so on any host off UTC the two
 producers disagree by the host's offset — a UTC+8 host pushed freshly added
@@ -32,13 +32,13 @@ def host_offset() -> timedelta:
 
 
 class TestAwareUtcProducers(unittest.TestCase):
-    def test_add_default_timestamp_is_aware_utc(self):
+    def test_store_default_timestamp_is_aware_utc(self):
         memory = AgentMemory()
         memory.store("recall me")
 
         item = next(iter(memory.memory_items.values()))
-        self.assertIsNotNone(item.timestamp.tzinfo, "add() must not produce naive stamps")
-        self.assertEqual(item.timestamp.utcoffset(), timedelta(0), "add() must stamp UTC, not local")
+        self.assertIsNotNone(item.timestamp.tzinfo, "store() must not produce naive stamps")
+        self.assertEqual(item.timestamp.utcoffset(), timedelta(0), "store() must stamp UTC, not local")
 
     def test_from_dict_missing_timestamp_is_aware_utc(self):
         item = MemoryItem.from_dict({"content": "reconstructed"})
