@@ -1485,16 +1485,6 @@ app = create_app(session=GraphSession(graph), agent_memory=memory)
 The Memories workspace is shown only when `agent_memory` is provided. Apply
 updates the supplied runtime object; it does not add disk persistence.
 
-## What's New in v0.7.0
-
-**Slim core dependencies: lightweight base install with granular optional extras** — `pip install semantica` now installs only 22 essential core dependencies, moving heavy packages into dedicated optional extras:
-- **Dramatically lighter and faster installation**: Core installation no longer pulls heavy machine learning or visualization packages by default.
-- **Granular extras**: Install only what your workload requires (`documents`, `embeddings-local`, `models-huggingface`, `nlp-spacy`, `viz`, `media`, `vectorstore-faiss`, `graph-embeddings`, `ingest-git`).
-- **Full backward compatibility**: `pip install "semantica[all]"` preserves the full bundled suite, while `semantica<0.7.0` remains a permanent escape hatch.
-- **Lazy parser construction & graceful fallbacks**: Document parsers can be constructed without extras and only raise actionable error hints upon calling `.parse()`; `XMLParser` automatically falls back to Python's standard library `xml.etree`.
-
----
-
 ## What's New in v0.6.8
 
 **Every release from here on is cryptographically signed** — the build now runs SLSA build-provenance attestation plus Sigstore signing, and `.sigstore.json` bundles ship alongside the wheel/sdist on every GitHub Release, closing the OpenSSF Scorecard Signed-Releases gap. Beyond that, this is a large fix-and-hardening release plus a batch of vector-store and LLM-provider additions:
@@ -1512,22 +1502,6 @@ Also fixes 35 correctness bugs (Python 3.9 install breakage, FAISS save/load met
 
 ---
 
-## Built for High-Stakes Domains
-
-Semantica is designed for environments where AI outputs must be explainable, auditable, and defensible, and where the data itself can't leave your infrastructure. Self-hostable with zero vendor lock-in, it's built as much for organizations handling confidential or classified data as for regulated industries chasing an audit trail:
-
-- **Finance:** Loan underwriting audit trails, fraud detection, AML compliance, regulatory risk knowledge graphs
-- **Healthcare:** Clinical decision support, drug interaction graphs, and patient safety audit trails
-- **Legal:** Evidence-backed research, contract analysis, case law reasoning, and privilege tracking
-- **Government & Defense:** Policy decision records, classified information governance, and regulatory reporting, fully self-hosted with no data leaving your perimeter
-- **Law Enforcement:** Case linkage, evidence provenance chains, and investigative knowledge graphs that hold up under legal scrutiny
-- **Cybersecurity:** Threat attribution, incident response timelines, and IOC provenance tracking
-- **Autonomous Systems:** Decision logs, safety validation, and explainable AI for certification
-
-> ⚠️ **This is system-level explainability, not foundation-model explainability.** Semantica does not expose, reconstruct, or explain what happens *inside* the LLM/foundation model — its internal reasoning or chain-of-thought stays opaque, as it does for any external system. What Semantica explains is *outside* the model: the context and data fed in, the decision produced, its provenance, the relevant relationships, the policies applied, and the full execution trail. In short, Semantica explains and audits what the AI system did, not the LLM's private internal reasoning.
-
----
-
 ## Installation
 
 ```bash
@@ -1535,7 +1509,7 @@ pip install semantica             # lightweight core (22 essential dependencies)
 pip install "semantica[all]"      # full bundled behavior with all extras
 ```
 
-> **Note for upgrades from <0.7.0**: In Semantica 0.7.0+, heavy machine learning, NLP, visualization, and document dependencies were moved into optional extras to make core installation significantly lighter and faster. If you want the previous bundled installation, install with `pip install "semantica[all]"` or pin `semantica<0.7.0`.
+> **Note:** Heavy machine learning, NLP, visualization, and document dependencies live in optional extras to keep core installation lightweight and fast. If you want the previous bundled installation, install with `pip install "semantica[all]"`.
 
 ```bash
 # Granular Extras
