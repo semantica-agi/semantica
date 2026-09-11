@@ -212,6 +212,7 @@ from semantica.ingest import (
     GitAnalyzer,
     XMLIngestionData,
     SalesforceData,
+    LookerData,
 )
 print(
     CodeExtractor.__name__,
@@ -220,15 +221,16 @@ print(
     GitAnalyzer.__name__,
     XMLIngestionData.__name__,
     SalesforceData.__name__,
+    LookerData.__name__,
 )
 """,
-        ("git", "lxml", "simple_salesforce"),
+        ("git", "lxml", "simple_salesforce", "looker_sdk"),
     )
 
     assert result.returncode == 0, result.stderr
     assert (
-        "CodeExtractor CodeFile CommitInfo GitAnalyzer XMLIngestionData SalesforceData"
-        in result.stdout
+        "CodeExtractor CodeFile CommitInfo GitAnalyzer XMLIngestionData "
+        "SalesforceData LookerData" in result.stdout
     )
 
 
@@ -347,3 +349,78 @@ else:
     assert result.returncode == 0, result.stderr
     assert "ImportError" in result.stdout
     assert "db-redshift" in result.stdout
+
+
+def test_looker_package_imports_without_sdk() -> None:
+    """``import semantica.ingest`` must not eagerly pull in looker_sdk."""
+    result = _run_python_with_blocked_modules(
+        """
+from semantica.ingest import FileIngestor, ingest_file
+print(FileIngestor.__name__, callable(ingest_file))
+""",
+        ("looker_sdk",),
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "FileIngestor True" in result.stdout
+
+
+def test_looker_data_importable_without_sdk() -> None:
+    """``LookerData`` is a plain dataclass — no SDK needed to import it."""
+    result = _run_python_with_blocked_modules(
+        """
+from semantica.ingest import LookerData
+print(LookerData.__name__)
+""",
+        ("looker_sdk",),
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "LookerData" in result.stdout
+
+
+def test_looker_ingestor_probe_fails_without_sdk() -> None:
+    """``from semantica.ingest import LookerIngestor`` must raise
+    ``ImportError`` when ``looker_sdk`` is absent."""
+    result = _run_python_with_blocked_modules(
+        """
+try:
+    from semantica.ingest import LookerIngestor
+    has_looker = True
+except ImportError:
+    has_looker = False
+
+assert not has_looker, (
+    "Expected LookerIngestor import to fail without looker-sdk"
+)
+print("LookerIngestor probe passed")
+""",
+        ("looker_sdk",),
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "LookerIngestor probe passed" in result.stdout
+
+
+def test_looker_connector_reports_missing_dep_with_install_hint() -> None:
+    """Constructing ``LookerConnector`` without the SDK must raise
+    ``ImportError`` with a message that names the ``ingest-looker`` extra."""
+    result = _run_python_with_blocked_modules(
+        """
+from semantica.ingest.looker_ingestor import LookerConnector
+
+try:
+    LookerConnector()
+except ImportError as exc:
+    print(type(exc).__name__, exc)
+else:
+    raise SystemExit(
+        "expected LookerConnector() to fail without looker-sdk"
+    )
+""",
+        ("looker_sdk",),
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "ImportError" in result.stdout
+    assert "ingest-looker" in result.stdout

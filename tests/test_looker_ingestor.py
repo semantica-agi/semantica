@@ -25,11 +25,16 @@ not at the repository root, so no test here may require DNS resolution.
 from __future__ import annotations
 
 import json
+import logging
 import os
+import unittest
 from datetime import datetime, timezone
 from unittest.mock import MagicMock, Mock, patch
 
 import pytest
+import requests
+from requests.adapters import BaseAdapter
+from requests.exceptions import TooManyRedirects
 
 # ---------------------------------------------------------------------------
 # Optional SDK detection
@@ -53,6 +58,20 @@ PUBLIC_BASE_URL = "https://93.184.216.34"
 PRIVATE_BASE_URL = "http://127.0.0.1:19999"
 CLIENT_ID = "test-client-id"
 CLIENT_SECRET = "test-client-secret"
+ACCESS_TOKEN = "test-access-token-do-not-log"
+
+# Literal secret values that must never survive normalization or logging.
+SECRET_FIELD_VALUES = {
+    "git_password": "git-password-do-not-log",
+    "deploy_secret": "deploy-secret-do-not-log",
+    "password": "dashboard-password-do-not-log",
+    "pdt_password": "pdt-password-do-not-log",
+    "device_token": ACCESS_TOKEN,
+}
+
+# Logger names whose records must never carry a credential or token.
+CONNECTOR_LOGGER = "semantica.looker_ingestor"
+TRANSPORT_LOGGER = "looker_sdk.rtl.requests_transport"
 
 _LOOKER_ENV_KEYS = (
     "LOOKERSDK_BASE_URL",
@@ -1338,3 +1357,170 @@ class TestLookerIngestorExport:
         json.dumps(models_data.data)
         json.dumps(ingestor.export_as_documents(looks_data))
         json.dumps(ingestor.export_as_documents(models_data))
+
+
+# ---------------------------------------------------------------------------
+# TestLookerConnectorSecretLogging — R11/R13
+# ---------------------------------------------------------------------------
+
+
+@requires_looker_sdk
+class TestLookerConnectorSecretLogging(unittest.TestCase):
+    """No credential, PAT, or secret-adjacent field may reach a log record.
+
+    Records are captured with :meth:`unittest.TestCase.assertLogs` from the
+    connector logger and from the SDK's own transport logger across a
+    mocked ``connect()``, the ``test_connection()`` probe, and all five
+    metadata reads.
+    """
+
+    @staticmethod
+    def _secret_rows():
+        """Rows carrying every secret-adjacent SDK field."""
+        return [
+            {
+                "id": 1,
+                "title": "Orders",
+                "project_name": "shop",
+                "name": "ecommerce",
+                "git_remote_url": (
+                    f"https://user:{CLIENT_SECRET}@git.example.com/shop.git"
+                ),
+                **SECRET_FIELD_VALUES,
+            }
+        ]
+
+    def test_secret_and_access_token_never_reach_log_records(self):
+        from semantica.ingest.looker_ingestor import LookerConnector, LookerIngestor
+
+        client = _make_mock_client()
+        rows = self._secret_rows()
+        for sdk_method in (
+            "all_looks",
+            "all_dashboards",
+            "all_lookml_models",
+            "all_folders",
+            "all_projects",
+        ):
+            getattr(client, sdk_method).return_value = rows
+
+        # The probe fails with an SDK error whose text embeds both a token
+        # and the client secret: only the exception type may be logged.
+        client.me.side_effect = _looker_sdk.error.SDKError(
+            f"auth failed token={ACCESS_TOKEN} secret={CLIENT_SECRET}"
+        )
+
+        with patch(
+            "semantica.ingest.looker_ingestor.looker_sdk.init40",
+            return_value=client,
+        ):
+            connector = LookerConnector(
+                base_url=PUBLIC_BASE_URL,
+                client_id=CLIENT_ID,
+                client_secret=CLIENT_SECRET,
+            )
+
+            with self.assertLogs(CONNECTOR_LOGGER, level="DEBUG") as connector_logs:
+                connector.connect()
+                assert connector.test_connection() is False
+
+                ingestor = LookerIngestor(connector=connector)
+                for method_name in (
+                    "ingest_looks",
+                    "ingest_dashboards",
+                    "ingest_lookml_models",
+                    "ingest_folders",
+                    "ingest_projects",
+                ):
+                    data = getattr(ingestor, method_name)()
+                    ingestor.export_as_documents(data)
+
+                # The client is mocked, so emit the single info-level record
+                # the real transport logs (HTTP method and path only) to keep
+                # the SDK transport capture non-vacuous.
+                with self.assertLogs(TRANSPORT_LOGGER, level="DEBUG") as transport_logs:
+                    logging.getLogger(TRANSPORT_LOGGER).info(
+                        "GET(%s)", "/api/4.0/looks"
+                    )
+
+        captured = "\n".join(connector_logs.output + transport_logs.output)
+        assert connector_logs.output, "expected connector log records"
+        assert transport_logs.output, "expected transport log records"
+
+        for secret in (CLIENT_SECRET, ACCESS_TOKEN, *SECRET_FIELD_VALUES.values()):
+            assert secret not in captured
+
+
+# ---------------------------------------------------------------------------
+# TestLookerConnectorTransportHardening — KTD2 compensating controls
+# ---------------------------------------------------------------------------
+
+
+@requires_looker_sdk
+class TestLookerConnectorTransportHardening:
+    """The SDK session must not follow redirects or trust proxy env vars."""
+
+    def _connect_with_real_session(self, session):
+        """Connect a LookerConnector whose client carries *session*."""
+        from semantica.ingest.looker_ingestor import LookerConnector
+
+        client = _make_mock_client()
+        client.transport.session = session
+
+        with patch(
+            "semantica.ingest.looker_ingestor.looker_sdk.init40",
+            return_value=client,
+        ):
+            connector = LookerConnector(
+                base_url=PUBLIC_BASE_URL,
+                client_id=CLIENT_ID,
+                client_secret=CLIENT_SECRET,
+            )
+            connector.connect()
+        return connector
+
+    def test_redirect_response_is_not_followed(self):
+        target = f"{PUBLIC_BASE_URL}/api/4.0/looks"
+        seen = []
+
+        class _RedirectAdapter(BaseAdapter):
+            def send(self, request, **kwargs):
+                seen.append(request.url)
+                response = requests.Response()
+                response.status_code = 302
+                response.headers["Location"] = "https://evil.example.com/steal"
+                response.url = request.url
+                response.request = request
+                response.raw = None
+                return response
+
+            def close(self):
+                pass
+
+        session = requests.Session()
+        assert session.max_redirects != 0  # default is a real redirect cap
+
+        self._connect_with_real_session(session)
+        session.mount("https://", _RedirectAdapter())
+
+        assert session.max_redirects == 0
+        with pytest.raises(TooManyRedirects):
+            session.get(target)
+
+        # The redirect target was never requested: only the original hop.
+        assert seen == [target]
+
+    def test_proxy_environment_variable_is_not_honoured(self, monkeypatch):
+        monkeypatch.setenv("HTTP_PROXY", "http://127.0.0.1:9")
+        monkeypatch.setenv("HTTPS_PROXY", "http://127.0.0.1:9")
+
+        session = requests.Session()
+        assert session.trust_env is True  # default honours the environment
+
+        self._connect_with_real_session(session)
+
+        assert session.trust_env is False
+        settings = session.merge_environment_settings(
+            f"{PUBLIC_BASE_URL}/api/4.0/looks", {}, None, None, None
+        )
+        assert settings["proxies"] == {}

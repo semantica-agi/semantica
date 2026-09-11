@@ -159,6 +159,7 @@ db-arrow = [
 ]
 db-salesforce = ["simple-salesforce>=1.12.0"]
 db-redshift = ["redshift-connector>=2.0.0"]
+ingest-looker = ["looker-sdk>=24.0.0"]
 ingest-parquet = [
   "pyarrow>=24.0.0; python_version >= '3.10'",
   "pyarrow>=14.0.0,<24.0.0; python_version < '3.10'"
