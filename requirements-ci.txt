@@ -421,9 +421,9 @@ blis==1.3.3 \
     --hash=sha256:f20f7ad69aaffd1ce14fe77de557b6df9b61e0c9e582f75a843715d836b5c8af \
     --hash=sha256:f36c0ca84a05ee5d3dbaa38056c4423c1fc29948b17a7923dd2fed8967375d74
     # via thinc
-boto3==1.43.85 \
-    --hash=sha256:113b6e1aa3f5722f90c01fc63968c269a9b1fd03ac2594fe16c56a66e6331c5f \
-    --hash=sha256:f11bdaca18e59f53ec0529f4d6203dd1f0bb7ff165e51559d62fd863024abc9b
+boto3==1.43.89 \
+    --hash=sha256:c28abbe472e9b7cad08807356311aeec51bde5218c18489da827045d2267bfd9 \
+    --hash=sha256:fe4190afe63eb562b6ba6a3911cf4427473b35fa047adde093bf696d3ae09fc0
     # via
     #   semantica (pyproject.toml)
     #   litellm
