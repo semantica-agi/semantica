@@ -1,37 +1,70 @@
 ---
 name: provenance
-description: Trace data lineage, source attribution, audit trails, and provenance assertions in Semantica graphs.
+description: Trace data lineage, source attribution, audit trails, and W3C PROV-O export in Semantica graphs. Uses ProvenanceManager.
 ---
 
 # /semantica:provenance
 
-Inspect provenance metadata. Usage: `/semantica:provenance <task> [args]`
-
-`$ARGUMENTS` = task + optional node, edge, or time range.
+Lineage and audit trails. Usage: `/semantica:provenance <task> [args]`
 
 ---
 
-## `trace <node_id> [--depth N]`
-
-Trace the provenance of a node or fact.
+## `lineage <entity_id> [--depth N]`
 
 ```python
-from semantica.provenance import ProvenanceTracer
+import os
+from semantica.provenance import ProvenanceManager
 
-tracer = ProvenanceTracer()
-trace = tracer.trace_node(node_id=node_id, depth=depth)
+db_path = os.path.expanduser("~/.semantica/prov.db")   # storage_path is passed to
+os.makedirs(os.path.dirname(db_path), exist_ok=True)   # sqlite3.connect() unexpanded
+pm = ProvenanceManager(storage_path=db_path)   # SQLite, or omit for in-memory
+chain = pm.lineage(entity_id, depth=3)
+full  = pm.get_lineage(entity_id)          # complete ancestry
+down  = pm.get_descendants(entity_id)      # what this entity influenced
 ```
-
-Output: source chain, authors, timestamps, and validation status.
 
 ---
 
-## `audit [--since <ts>] [--actor <id>]`
-
-View audit logs for graph changes.
+## `sources <entity_id>`
 
 ```python
-audit_log = tracer.get_audit_log(since=since, actor=actor)
+srcs = pm.get_all_sources(entity_id)       # every source that contributed
+prov = pm.get_provenance(entity_id)        # the raw PROV entry
+hist = pm.revision_history(entity_id)
 ```
 
-Return: change events, actor, affected objects, and action details.
+---
+
+## `audit [--since <iso-date>] [--format table|json]`
+
+```python
+log = pm.audit_log(since="2026-01-01", format="table")
+between = pm.query_recorded_between(start, end)
+stats = pm.get_statistics()
+```
+
+---
+
+## `export [--format turtle|json-ld|xml]`
+
+W3C PROV-O export — this is the regulator-facing artifact.
+
+```python
+rdf = pm.export_prov(format="turtle", base_uri="https://example.org/prov/")
+```
+
+---
+
+## `invalidate <entity_id> <agent_id> [--reason ...]`
+
+Mark an entity superseded without deleting history.
+
+```python
+pm.invalidate(entity_id, agent_id, reason="source retracted")
+```
+
+## `check [--strict]`
+
+```python
+report = pm.check(strict=False)   # integrity check over the provenance store
+```
