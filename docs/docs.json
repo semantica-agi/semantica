@@ -201,6 +201,7 @@
               "reference/distance",
               "reference/semantic_extract",
               "reference/reasoning",
+              "reference/truth_maintenance",
               "reference/ontology"
             ]
           },

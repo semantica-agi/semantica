@@ -483,6 +483,7 @@ step.confidence     # float
 </Warning>
 
 - [Knowledge Graph](/reference/kg) — The knowledge graph being reasoned over.
+- [Truth Maintenance](/reference/truth_maintenance) — Source-aware logical retraction for fixed non-recursive rules.
 - [Ontology](ontology) — Ontology axioms and SHACL constraints for logical reasoning.
 - [Triplet Store](/reference/triplet_store) — RDF backend for SPARQL-based reasoning.
 - [Context](/reference/context) — Reasoning integrated into agent decision intelligence.
