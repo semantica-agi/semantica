@@ -1,0 +1,577 @@
+"""
+Tests for Hierarchical Community Structure and Multi-Level Coarsening.
+"""
+
+import networkx as nx
+import pytest
+
+from semantica.kg import (
+    CommunityHierarchy,
+    CommunityHierarchyBuilder,
+    HierarchicalCommunity,
+    KnowledgeGraph,
+    build_community_hierarchy,
+)
+from semantica.kg.registry import algorithm_registry, method_registry
+
+
+# ---------------------------------------------------------------------------
+# HierarchicalCommunity Dataclass Tests
+# ---------------------------------------------------------------------------
+
+class TestHierarchicalCommunity:
+    """Unit tests for HierarchicalCommunity dataclass."""
+
+    def test_create_hierarchical_community_defaults(self):
+        comm = HierarchicalCommunity(
+            id="c_0_0",
+            level=0,
+            index=0,
+            entity_ids=["node_b", "node_a"],
+        )
+        assert comm.id == "c_0_0"
+        assert comm.level == 0
+        assert comm.index == 0
+        assert comm.entity_ids == ["node_a", "node_b"]
+        assert comm.size == 2
+        assert comm.child_ids == []
+        assert comm.parent_id is None
+        assert comm.metrics == {}
+        assert len(comm.content_hash) == 64
+
+    def test_content_hash_deterministic(self):
+        comm1 = HierarchicalCommunity(
+            id="c_0_0",
+            level=0,
+            index=0,
+            entity_ids=["z", "a", "m"],
+            child_ids=["c_prev_2", "c_prev_1"],
+        )
+        comm2 = HierarchicalCommunity(
+            id="c_0_0",
+            level=0,
+            index=0,
+            entity_ids=["a", "m", "z"],
+            child_ids=["c_prev_1", "c_prev_2"],
+        )
+        assert comm1.content_hash == comm2.content_hash
+
+    def test_content_hash_changes_on_difference(self):
+        comm1 = HierarchicalCommunity(
+            id="c_0_0",
+            level=0,
+            index=0,
+            entity_ids=["a", "b"],
+        )
+        comm2 = HierarchicalCommunity(
+            id="c_0_0",
+            level=0,
+            index=0,
+            entity_ids=["a", "c"],
+        )
+        assert comm1.content_hash != comm2.content_hash
+
+    def test_to_dict_and_from_dict(self):
+        comm = HierarchicalCommunity(
+            id="c_1_2",
+            level=1,
+            index=2,
+            entity_ids=["n1", "n2"],
+            child_ids=["c_0_1"],
+            parent_id="c_2_0",
+            metrics={"density": 0.75, "internal_edges": 1},
+        )
+        data = comm.to_dict()
+        restored = HierarchicalCommunity.from_dict(data)
+        assert restored.id == comm.id
+        assert restored.level == comm.level
+        assert restored.index == comm.index
+        assert restored.entity_ids == comm.entity_ids
+        assert restored.child_ids == comm.child_ids
+        assert restored.parent_id == comm.parent_id
+        assert restored.size == comm.size
+        assert restored.metrics == comm.metrics
+        assert restored.content_hash == comm.content_hash
+
+
+# ---------------------------------------------------------------------------
+# CommunityHierarchy Container Tests
+# ---------------------------------------------------------------------------
+
+class TestCommunityHierarchyContainer:
+    """Unit tests for CommunityHierarchy container."""
+
+    def test_empty_hierarchy(self):
+        hierarchy = CommunityHierarchy()
+        assert hierarchy.is_empty is True
+        assert len(hierarchy) == 0
+        assert hierarchy.levels == []
+        assert hierarchy.max_level == -1
+        assert hierarchy.root_communities == []
+        assert hierarchy.leaf_communities == []
+        assert hierarchy.get_community("c_0_0") is None
+        assert hierarchy.get_community_for_node("node_1") is None
+
+    def test_container_indexing_and_traversal(self):
+        c0_0 = HierarchicalCommunity(
+            id="c_0_0",
+            level=0,
+            index=0,
+            entity_ids=["n1", "n2"],
+            parent_id="c_1_0",
+        )
+        c0_1 = HierarchicalCommunity(
+            id="c_0_1",
+            level=0,
+            index=1,
+            entity_ids=["n3"],
+            parent_id="c_1_0",
+        )
+        c1_0 = HierarchicalCommunity(
+            id="c_1_0",
+            level=1,
+            index=0,
+            entity_ids=["n1", "n2", "n3"],
+            child_ids=["c_0_0", "c_0_1"],
+            parent_id=None,
+        )
+
+        hierarchy = CommunityHierarchy([c0_0, c0_1, c1_0])
+
+        assert hierarchy.is_empty is False
+        assert len(hierarchy) == 3
+        assert hierarchy.levels == [0, 1]
+        assert hierarchy.max_level == 1
+        assert len(hierarchy.root_communities) == 1
+        assert hierarchy.root_communities[0].id == "c_1_0"
+        assert len(hierarchy.leaf_communities) == 2
+        assert [c.id for c in hierarchy.leaf_communities] == ["c_0_0", "c_0_1"]
+
+        # get_community
+        assert hierarchy.get_community("c_0_0") == c0_0
+        assert hierarchy.get_community("nonexistent") is None
+
+        # get_communities_at_level
+        assert hierarchy.get_communities_at_level(0) == [c0_0, c0_1]
+        assert hierarchy.get_communities_at_level(1) == [c1_0]
+        assert hierarchy.get_communities_at_level(99) == []
+
+        # get_children
+        assert hierarchy.get_children("c_1_0") == [c0_0, c0_1]
+        assert hierarchy.get_children(c1_0) == [c0_0, c0_1]
+        assert hierarchy.get_children("c_0_0") == []
+
+        # get_parent
+        assert hierarchy.get_parent("c_0_0") == c1_0
+        assert hierarchy.get_parent(c0_1) == c1_0
+        assert hierarchy.get_parent("c_1_0") is None
+
+        # get_community_for_node (O(1))
+        assert hierarchy.get_community_for_node("n1") == c0_0
+        assert hierarchy.get_community_for_node("n1", level=0) == c0_0
+        assert hierarchy.get_community_for_node("n1", level=1) == c1_0
+        assert hierarchy.get_community_for_node("n3", level=0) == c0_1
+        assert hierarchy.get_community_for_node("n3", level=1) == c1_0
+        assert hierarchy.get_community_for_node("missing_node") is None
+        assert hierarchy.get_community_for_node("n1", level=99) is None
+
+        # Container dunder methods
+        assert "c_0_0" in hierarchy
+        assert "c_9_9" not in hierarchy
+        assert hierarchy["c_0_0"] == c0_0
+        all_comms = list(hierarchy)
+        assert len(all_comms) == 3
+
+    def test_to_dict_and_to_json_roundtrip(self):
+        c0 = HierarchicalCommunity(
+            id="c_0_0", level=0, index=0, entity_ids=["a", "b"]
+        )
+        hierarchy = CommunityHierarchy([c0])
+
+        d = hierarchy.to_dict()
+        restored_from_dict = CommunityHierarchy.from_dict(d)
+        assert len(restored_from_dict) == 1
+        assert restored_from_dict["c_0_0"].entity_ids == ["a", "b"]
+        matched_comm = restored_from_dict.get_community_for_node("a")
+        assert matched_comm == restored_from_dict["c_0_0"]
+
+        json_str = hierarchy.to_json()
+        assert isinstance(json_str, str)
+        restored_from_json = CommunityHierarchy.from_json(json_str)
+        assert len(restored_from_json) == 1
+        assert restored_from_json["c_0_0"].id == "c_0_0"
+
+    def test_get_subgraph_networkx(self):
+        g = nx.Graph()
+        g.add_edge("1", "2")
+        g.add_edge("2", "3")
+        g.add_edge("3", "4")
+
+        c = HierarchicalCommunity(
+            id="c_0_0", level=0, index=0, entity_ids=["1", "2"]
+        )
+        hierarchy = CommunityHierarchy([c], graph=g)
+
+        sub = hierarchy.get_subgraph("c_0_0")
+        assert isinstance(sub, nx.Graph)
+        assert set(sub.nodes()) == {"1", "2"}
+        assert sub.has_edge("1", "2")
+        assert not sub.has_edge("2", "3")
+
+    def test_get_subgraph_knowledge_graph(self):
+        kg = KnowledgeGraph(
+            entities=[{"id": "e1"}, {"id": "e2"}, {"id": "e3"}],
+            relationships=[
+                {"source": "e1", "target": "e2", "type": "KNOWS"},
+                {"source": "e2", "target": "e3", "type": "KNOWS"},
+            ],
+            metadata={"source": "test"},
+        )
+        c = HierarchicalCommunity(
+            id="c_0_0", level=0, index=0, entity_ids=["e1", "e2"]
+        )
+        hierarchy = CommunityHierarchy([c])
+
+        sub = hierarchy.get_subgraph("c_0_0", graph=kg)
+        assert isinstance(sub, KnowledgeGraph)
+        assert len(sub.entities) == 2
+        assert len(sub.relationships) == 1
+        assert sub.relationships[0]["source"] == "e1"
+
+    def test_get_subgraph_dict_representations(self):
+        kg_dict = {
+            "entities": [{"id": "x"}, {"id": "y"}, {"id": "z"}],
+            "relationships": [
+                {"source": "x", "target": "y", "weight": 1.0},
+                {"source": "y", "target": "z", "weight": 1.0},
+            ],
+        }
+        c = HierarchicalCommunity(
+            id="c_0_0", level=0, index=0, entity_ids=["x", "y"]
+        )
+        hierarchy = CommunityHierarchy([c], graph=kg_dict)
+
+        sub_kg = hierarchy.get_subgraph("c_0_0")
+        assert len(sub_kg["entities"]) == 2
+        assert len(sub_kg["relationships"]) == 1
+
+        nodes_dict = {
+            "nodes": [{"id": "p"}, {"id": "q"}],
+            "edges": [{"source": "p", "target": "q"}],
+        }
+        c2 = HierarchicalCommunity(
+            id="c_0_0", level=0, index=0, entity_ids=["p", "q"]
+        )
+        hierarchy2 = CommunityHierarchy([c2], graph=nodes_dict)
+        sub_nodes = hierarchy2.get_subgraph("c_0_0")
+        assert len(sub_nodes["nodes"]) == 2
+        assert len(sub_nodes["edges"]) == 1
+
+    def test_get_subgraph_errors(self):
+        c = HierarchicalCommunity(
+            id="c_0_0", level=0, index=0, entity_ids=["a"]
+        )
+        hierarchy = CommunityHierarchy([c])
+
+        with pytest.raises(ValueError, match="graph must be provided"):
+            hierarchy.get_subgraph("c_0_0")
+
+        with pytest.raises(KeyError, match="not found"):
+            hierarchy.get_subgraph("c_unknown", graph=nx.Graph())
+
+
+# ---------------------------------------------------------------------------
+# CommunityHierarchyBuilder Invariant Tests
+# ---------------------------------------------------------------------------
+
+class TestCommunityHierarchyBuilder:
+    """Core tests for CommunityHierarchyBuilder algorithms and invariants."""
+
+    def _verify_all_hierarchy_invariants(
+        self, graph: nx.Graph, hierarchy: CommunityHierarchy
+    ):
+        """Helper to assert all structural and mathematical invariants."""
+        assert not hierarchy.is_empty
+        all_graph_nodes = {str(n) for n in graph.nodes()}
+        levels = hierarchy.levels
+        assert len(levels) >= 1
+
+        for level in levels:
+            level_comms = hierarchy.get_communities_at_level(level)
+            assert len(level_comms) > 0
+
+            # Disjoint and complete coverage invariant
+            level_nodes = []
+            for comm in level_comms:
+                assert comm.level == level
+                assert comm.size == len(comm.entity_ids)
+                level_nodes.extend(comm.entity_ids)
+
+            assert set(level_nodes) == all_graph_nodes
+            assert len(level_nodes) == len(all_graph_nodes)
+
+            # Inverted index consistency
+            for comm in level_comms:
+                for node_id in comm.entity_ids:
+                    indexed_comm = hierarchy.get_community_for_node(
+                        node_id, level=level
+                    )
+                    assert indexed_comm is not None
+                    assert indexed_comm.id == comm.id
+
+        # Hierarchical containment invariants between adjacent levels
+        for l_idx in range(len(levels) - 1):
+            child_level = levels[l_idx]
+            parent_level = levels[l_idx + 1]
+
+            children = hierarchy.get_communities_at_level(child_level)
+            parents = hierarchy.get_communities_at_level(parent_level)
+            parent_map = {p.id: p for p in parents}
+
+            for child in children:
+                assert child.parent_id is not None
+                assert child.parent_id in parent_map
+                parent = parent_map[child.parent_id]
+                # Child entity set must be a subset of parent entity set
+                assert set(child.entity_ids).issubset(set(parent.entity_ids))
+                assert child.id in parent.child_ids
+
+            # Parent entity set must be the exact union of child entity sets
+            for parent in parents:
+                assert len(parent.child_ids) > 0
+                union_child_entities = set()
+                for cid in parent.child_ids:
+                    c = hierarchy.get_community(cid)
+                    assert c is not None
+                    union_child_entities.update(c.entity_ids)
+                assert set(parent.entity_ids) == union_child_entities
+
+        # Root communities must have parent_id == None
+        top_level = hierarchy.max_level
+        top_comms = hierarchy.get_communities_at_level(top_level)
+        for c in top_comms:
+            assert c.parent_id is None
+
+        # Leaf communities must have child_ids == []
+        bottom_level = levels[0]
+        bottom_comms = hierarchy.get_communities_at_level(bottom_level)
+        for c in bottom_comms:
+            assert c.child_ids == []
+
+    def test_build_louvain_karate_club(self):
+        g = nx.karate_club_graph()
+        builder = CommunityHierarchyBuilder(algorithm="louvain", seed=42)
+        hierarchy = builder.build(g)
+
+        assert hierarchy.max_level >= 1
+        self._verify_all_hierarchy_invariants(g, hierarchy)
+
+    def test_build_leiden_karate_club(self):
+        g = nx.karate_club_graph()
+        builder = CommunityHierarchyBuilder(algorithm="leiden", seed=42)
+        hierarchy = builder.build(g)
+
+        assert hierarchy.max_level >= 1
+        self._verify_all_hierarchy_invariants(g, hierarchy)
+
+    def test_non_merging_communities_invariant(self):
+        # Construct graph where one cluster merges, but another does not.
+        g = nx.Graph()
+        for u in range(10):
+            for v in range(u + 1, 10):
+                g.add_edge(str(u), str(v))
+        g.add_edge("isolated_a", "isolated_b")
+
+        builder = CommunityHierarchyBuilder(algorithm="louvain", seed=42)
+        hierarchy = builder.build(g)
+
+        self._verify_all_hierarchy_invariants(g, hierarchy)
+
+        if hierarchy.max_level >= 1:
+            for parent in hierarchy.get_communities_at_level(1):
+                if len(parent.child_ids) == 1:
+                    child = hierarchy.get_community(parent.child_ids[0])
+                    assert child is not None
+                    assert set(parent.entity_ids) == set(child.entity_ids)
+
+    def test_directed_graph_with_weakly_connected_refinement(self):
+        g = nx.DiGraph()
+        g.add_edges_from([("1", "2"), ("2", "3"), ("3", "1")])
+        g.add_edges_from([("4", "5"), ("5", "6"), ("6", "4")])
+        g.add_edge("3", "4")
+
+        builder = CommunityHierarchyBuilder(
+            algorithm="louvain", seed=42, directed=True
+        )
+        hierarchy = builder.build(g)
+
+        self._verify_all_hierarchy_invariants(g, hierarchy)
+
+        for comm in hierarchy:
+            sub = g.subgraph(comm.entity_ids)
+            assert nx.is_weakly_connected(sub)
+
+    def test_isolated_nodes_handling(self):
+        g = nx.erdos_renyi_graph(20, 0.15, seed=42)
+        g.add_node(999)
+        g.add_node(1000)
+
+        builder = CommunityHierarchyBuilder(algorithm="louvain", seed=42)
+        hierarchy = builder.build(g)
+
+        self._verify_all_hierarchy_invariants(g, hierarchy)
+
+        for level in hierarchy.levels:
+            c999 = hierarchy.get_community_for_node("999", level=level)
+            c1000 = hierarchy.get_community_for_node("1000", level=level)
+            assert c999 is not None
+            assert c1000 is not None
+            assert "999" in c999.entity_ids
+            assert "1000" in c1000.entity_ids
+
+    def test_empty_graph(self):
+        builder = CommunityHierarchyBuilder(algorithm="louvain", seed=42)
+        hierarchy = builder.build(nx.Graph())
+        assert hierarchy.is_empty is True
+        assert hierarchy.levels == []
+        assert hierarchy.max_level == -1
+
+    def test_single_node_graph(self):
+        g = nx.Graph()
+        g.add_node("single")
+        builder = CommunityHierarchyBuilder(algorithm="louvain", seed=42)
+        hierarchy = builder.build(g)
+
+        assert not hierarchy.is_empty
+        assert hierarchy.levels == [0]
+        assert hierarchy.max_level == 0
+        comm = hierarchy.get_community_for_node("single")
+        assert comm is not None
+        assert comm.entity_ids == ["single"]
+        assert comm.parent_id is None
+        assert comm.child_ids == []
+
+    def test_deterministic_reproducibility(self):
+        g = nx.erdos_renyi_graph(40, 0.1, seed=123)
+
+        builder1 = CommunityHierarchyBuilder(algorithm="louvain", seed=42)
+        builder2 = CommunityHierarchyBuilder(algorithm="louvain", seed=42)
+
+        h1 = builder1.build(g)
+        h2 = builder2.build(g)
+
+        assert h1.to_dict() == h2.to_dict()
+
+        builder_leiden1 = CommunityHierarchyBuilder(
+            algorithm="leiden", seed=42
+        )
+        builder_leiden2 = CommunityHierarchyBuilder(
+            algorithm="leiden", seed=42
+        )
+
+        hl1 = builder_leiden1.build(g)
+        hl2 = builder_leiden2.build(g)
+
+        assert hl1.to_dict() == hl2.to_dict()
+
+    def test_knowledge_graph_dataclass_input(self):
+        kg = KnowledgeGraph(
+            entities=[{"id": f"n{i}"} for i in range(10)],
+            relationships=[
+                {"source": f"n{i}", "target": f"n{i+1}", "weight": 1.0}
+                for i in range(9)
+            ],
+        )
+        builder = CommunityHierarchyBuilder(algorithm="louvain", seed=42)
+        hierarchy = builder.build(kg)
+
+        assert not hierarchy.is_empty
+        for i in range(10):
+            assert hierarchy.get_community_for_node(f"n{i}") is not None
+
+    def test_semantica_dict_input(self):
+        data = {
+            "entities": [{"id": "a"}, {"id": "b"}, {"id": "c"}],
+            "relationships": [
+                {"source": "a", "target": "b"},
+                {"source": "b", "target": "c"},
+            ],
+        }
+        builder = CommunityHierarchyBuilder(algorithm="louvain", seed=42)
+        hierarchy = builder.build(data)
+
+        assert not hierarchy.is_empty
+        assert hierarchy.get_community_for_node("a") is not None
+
+    def test_max_levels_constraint(self):
+        g = nx.erdos_renyi_graph(60, 0.08, seed=42)
+        builder = CommunityHierarchyBuilder(
+            algorithm="louvain", seed=42, max_levels=1
+        )
+        hierarchy = builder.build(g)
+
+        assert len(hierarchy.levels) == 1
+        assert hierarchy.max_level == 0
+
+    def test_unsupported_algorithm_raises(self):
+        with pytest.raises(ValueError, match="Unsupported algorithm"):
+            CommunityHierarchyBuilder(algorithm="invalid_algo")
+
+    def test_community_metrics(self):
+        g = nx.Graph()
+        g.add_edges_from([("1", "2"), ("2", "3"), ("3", "1")])
+        builder = CommunityHierarchyBuilder(algorithm="louvain", seed=42)
+        hierarchy = builder.build(g)
+
+        comm = hierarchy.get_community_for_node("1")
+        assert comm is not None
+        assert comm.metrics["internal_edges"] == 3
+        assert comm.metrics["external_edges"] == 0
+        assert comm.metrics["density"] == 1.0
+        assert comm.metrics["conductance"] == 0.0
+
+
+# ---------------------------------------------------------------------------
+# Integration & Registry Tests
+# ---------------------------------------------------------------------------
+
+class TestIntegrationAndRegistry:
+    """Tests for integration into semantica.kg, methods.py, and registry.py."""
+
+    def test_build_community_hierarchy_convenience_function(self):
+        g = nx.karate_club_graph()
+        h_louvain = build_community_hierarchy(g, method="louvain", seed=42)
+        assert isinstance(h_louvain, CommunityHierarchy)
+        assert not h_louvain.is_empty
+
+        h_leiden = build_community_hierarchy(g, method="leiden", seed=42)
+        assert isinstance(h_leiden, CommunityHierarchy)
+        assert not h_leiden.is_empty
+
+    def test_method_registry_integration(self):
+        default_fn = method_registry.get("community_hierarchy", "default")
+        louvain_fn = method_registry.get("community_hierarchy", "louvain")
+        leiden_fn = method_registry.get("community_hierarchy", "leiden")
+
+        assert callable(default_fn)
+        assert callable(louvain_fn)
+        assert callable(leiden_fn)
+
+    def test_algorithm_registry_integration(self):
+        cls_louvain = algorithm_registry.get("community_hierarchy", "louvain")
+        cls_leiden = algorithm_registry.get("community_hierarchy", "leiden")
+
+        assert cls_louvain is CommunityHierarchyBuilder
+        assert cls_leiden is CommunityHierarchyBuilder
+
+        inst_louvain = algorithm_registry.create_instance(
+            "community_hierarchy", "louvain", seed=42
+        )
+        assert isinstance(inst_louvain, CommunityHierarchyBuilder)
+        assert inst_louvain.algorithm == "louvain"
+
+        inst_leiden = algorithm_registry.create_instance(
+            "community_hierarchy", "leiden", seed=42
+        )
+        assert isinstance(inst_leiden, CommunityHierarchyBuilder)
+        assert inst_leiden.algorithm == "leiden"
