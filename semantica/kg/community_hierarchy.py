@@ -6,9 +6,14 @@ indexing, and querying hierarchical community structures across
 multiple levels of coarsening.
 """
 
+from collections import Counter, defaultdict
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 import hashlib
 import json
+import math
+import random
+import traceback
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 import networkx as nx
@@ -20,11 +25,118 @@ from .knowledge_graph import KnowledgeGraph
 logger = get_logger("community_hierarchy")
 
 
+def _clean_attr_val(val: Any) -> Any:
+    """Clean and normalize attribute value for canonical deterministic hashing."""
+    if isinstance(val, float):
+        return None if math.isnan(val) else float(val)
+    if isinstance(val, (int, str, bool)):
+        return val
+    if val is None:
+        return None
+    if isinstance(val, dict):
+        return {
+            str(k): _clean_attr_val(v)
+            for k, v in sorted(val.items(), key=lambda x: str(x[0]))
+        }
+    if isinstance(val, (list, tuple)):
+        return [_clean_attr_val(x) for x in val]
+    return str(val)
+
+
+def canonicalize_edges(
+    edges: Any,
+    directed: bool = False,
+) -> List[Dict[str, Any]]:
+    """Produce deterministic canonical representation of induced edges."""
+    if not edges:
+        return []
+
+    if hasattr(edges, "edges"):
+        is_dir = getattr(edges, "is_directed", lambda: directed)()
+        raw_edges = edges.edges(data=True)
+    elif isinstance(edges, (str, bytes)):
+        return []
+    elif isinstance(edges, Iterable):
+        is_dir = directed
+        raw_edges = edges
+    else:
+        return []
+
+    canonical = []
+    for item in raw_edges:
+        if isinstance(item, dict):
+            src = str(
+                item.get("source", item.get("source_id", item.get("src", "")))
+            )
+            tgt = str(
+                item.get("target", item.get("target_id", item.get("tgt", "")))
+            )
+            raw_attrs: Dict[str, Any] = {}
+            if "attributes" in item and isinstance(item["attributes"], dict):
+                raw_attrs.update(item["attributes"])
+            for k, v in item.items():
+                if k not in (
+                    "source",
+                    "source_id",
+                    "src",
+                    "target",
+                    "target_id",
+                    "tgt",
+                    "attributes",
+                ):
+                    raw_attrs[k] = v
+            attrs = raw_attrs
+        elif isinstance(item, (tuple, list)):
+            if len(item) == 2:
+                src, tgt = str(item[0]), str(item[1])
+                attrs = {}
+            elif len(item) >= 3:
+                src, tgt = str(item[0]), str(item[1])
+                data = item[2]
+                if isinstance(data, dict):
+                    attrs = dict(data)
+                elif isinstance(data, (int, float)):
+                    attrs = {"weight": float(data)}
+                else:
+                    attrs = {"data": str(data)}
+            else:
+                continue
+        else:
+            continue
+
+        if not is_dir and src > tgt:
+            src, tgt = tgt, src
+
+        clean_attrs: Dict[str, Any] = {
+            str(k): _clean_attr_val(v)
+            for k, v in sorted(attrs.items(), key=lambda x: str(x[0]))
+        }
+
+        canonical.append(
+            {
+                "attributes": clean_attrs,
+                "source": src,
+                "target": tgt,
+            }
+        )
+
+    canonical.sort(
+        key=lambda e: (
+            e["source"],
+            e["target"],
+            json.dumps(e["attributes"], sort_keys=True, separators=(",", ":")),
+        )
+    )
+    return canonical
+
+
 def compute_community_hash(
     level: int,
     index: int,
     entity_ids: List[str],
     child_ids: Optional[List[str]] = None,
+    edges: Optional[Any] = None,
+    directed: bool = False,
 ) -> str:
     """Compute canonical deterministic SHA-256 hash for community content."""
     payload = {
@@ -32,6 +144,7 @@ def compute_community_hash(
         "index": index,
         "entity_ids": sorted(set(str(e) for e in entity_ids)),
         "child_ids": sorted(set(str(c) for c in (child_ids or []))),
+        "edges": canonicalize_edges(edges, directed=directed),
     }
     dumped = json.dumps(payload, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(dumped.encode("utf-8")).hexdigest()
@@ -50,6 +163,8 @@ class HierarchicalCommunity:
     size: int = 0
     metrics: Dict[str, Any] = field(default_factory=dict)
     content_hash: str = ""
+    edges: List[Dict[str, Any]] = field(default_factory=list)
+    directed: bool = False
 
     def __post_init__(self) -> None:
         if self.entity_ids:
@@ -62,12 +177,22 @@ class HierarchicalCommunity:
         else:
             self.child_ids = []
 
+        if self.edges:
+            self.edges = canonicalize_edges(self.edges, directed=self.directed)
+        else:
+            self.edges = []
+
         if not self.size:
             self.size = len(self.entity_ids)
 
         if not self.content_hash:
             self.content_hash = compute_community_hash(
-                self.level, self.index, self.entity_ids, self.child_ids
+                self.level,
+                self.index,
+                self.entity_ids,
+                self.child_ids,
+                edges=self.edges,
+                directed=self.directed,
             )
 
     def to_dict(self) -> Dict[str, Any]:
@@ -82,6 +207,8 @@ class HierarchicalCommunity:
             "size": self.size,
             "metrics": dict(self.metrics),
             "content_hash": self.content_hash,
+            "edges": list(self.edges),
+            "directed": self.directed,
         }
 
     @classmethod
@@ -99,6 +226,8 @@ class HierarchicalCommunity:
             size=int(data.get("size", len(data.get("entity_ids", [])))),
             metrics=dict(data.get("metrics", {})),
             content_hash=str(data.get("content_hash", "")),
+            edges=list(data.get("edges", [])),
+            directed=bool(data.get("directed", False)),
         )
 
 
@@ -114,8 +243,10 @@ class CommunityHierarchy:
             ]
         ] = None,
         graph: Optional[Any] = None,
+        metadata: Optional[Dict[str, Any]] = None,
     ) -> None:
         self._graph = graph
+        self.metadata: Dict[str, Any] = dict(metadata or {})
         if communities is None:
             self._communities: Dict[str, HierarchicalCommunity] = {}
         elif isinstance(communities, (list, tuple, set)):
@@ -368,6 +499,7 @@ class CommunityHierarchy:
             "communities": {cid: c.to_dict() for cid, c in sorted_comms},
             "levels": list(self.levels),
             "max_level": self.max_level,
+            "metadata": dict(self.metadata),
         }
 
     @classmethod
@@ -384,7 +516,10 @@ class CommunityHierarchy:
                 cid: HierarchicalCommunity.from_dict(c_data)
                 for cid, c_data in raw_communities.items()
             }
-        return cls(communities=communities)
+        return cls(
+            communities=communities,
+            metadata=dict(data.get("metadata", {})),
+        )
 
     def to_json(self, indent: Optional[int] = None) -> str:
         """Serialize hierarchy to a JSON string."""
@@ -425,7 +560,7 @@ class CommunityHierarchyBuilder:
             return 1.0
         try:
             w = float(val)
-            if w != w:
+            if math.isnan(w):
                 return 1.0
             return max(0.0, w)
         except (ValueError, TypeError):
@@ -479,13 +614,19 @@ class CommunityHierarchyBuilder:
         self.threshold = threshold
         self.id_prefix = id_prefix
         self.config = kwargs
+        self._fallback_used = False
 
     def build(self, graph: Any) -> CommunityHierarchy:
         """Build hierarchical community structure from graph input."""
+        self._fallback_used = False
         nx_graph = self._to_networkx(graph)
 
         if nx_graph.number_of_nodes() == 0:
-            return CommunityHierarchy(communities={}, graph=nx_graph)
+            return CommunityHierarchy(
+                communities={},
+                graph=nx_graph,
+                metadata={"algorithm": self.algorithm, "fallback": False},
+            )
 
         if self.algorithm == "leiden":
             partitions = self._build_leiden_partitions(nx_graph)
@@ -499,6 +640,26 @@ class CommunityHierarchyBuilder:
 
     def _to_networkx(self, graph: Any) -> Union[nx.Graph, nx.DiGraph]:
         """Convert input graph into NetworkX Graph or DiGraph."""
+        node_map: Dict[str, Any] = {}
+
+        def register_node(raw_id: Any) -> str:
+            if raw_id is None:
+                return ""
+            sid = str(raw_id)
+            if not sid:
+                return ""
+            if sid in node_map and node_map[sid] != raw_id:
+                raise ValueError(
+                    f"Node identifier collision detected: distinct original "
+                    f"nodes {repr(node_map[sid])} "
+                    f"({type(node_map[sid]).__name__}) and {repr(raw_id)} "
+                    f"({type(raw_id).__name__}) both serialize to '{sid}'."
+                )
+            node_map[sid] = raw_id
+            return sid
+
+        weight_attr = self.weight or "weight"
+
         if isinstance(graph, (nx.Graph, nx.DiGraph)):
             is_directed = (
                 self.directed
@@ -507,22 +668,27 @@ class CommunityHierarchyBuilder:
             )
             out_graph = nx.DiGraph() if is_directed else nx.Graph()
             for n, data in graph.nodes(data=True):
-                out_graph.add_node(str(n), **data)
+                sn = register_node(n)
+                if sn:
+                    out_graph.add_node(sn, **data)
 
             is_multi = getattr(graph, "is_multigraph", lambda: False)()
             for u, v, data in graph.edges(data=True):
-                su, sv = str(u), str(v)
+                su = register_node(u)
+                sv = register_node(v)
+                if not su or not sv:
+                    continue
                 edge_data = dict(data)
-                w = self._clean_weight(edge_data.get("weight", 1.0))
-                edge_data["weight"] = w
+                w = self._clean_weight(edge_data.get(weight_attr, 1.0))
+                edge_data[weight_attr] = w
                 if (
                     (is_multi or not is_directed)
                     and out_graph.has_edge(su, sv)
                 ):
                     curr_w = self._clean_weight(
-                        out_graph[su][sv].get("weight", 1.0)
+                        out_graph[su][sv].get(weight_attr, 1.0)
                     )
-                    out_graph[su][sv]["weight"] = curr_w + w
+                    out_graph[su][sv][weight_attr] = curr_w + w
                 else:
                     out_graph.add_edge(su, sv, **edge_data)
             return out_graph
@@ -533,132 +699,168 @@ class CommunityHierarchyBuilder:
         if isinstance(graph, KnowledgeGraph):
             for entity in graph.entities:
                 if isinstance(entity, dict):
-                    eid = str(entity.get("id", ""))
+                    raw_id = entity.get("id", "")
+                    eid = register_node(raw_id)
                     if eid:
                         out_graph.add_node(eid, **entity)
                 else:
-                    eid = str(entity)
+                    eid = register_node(entity)
                     if eid:
                         out_graph.add_node(eid)
 
             for rel in graph.relationships:
                 if isinstance(rel, dict):
-                    src = str(rel.get("source", rel.get("source_id", "")))
-                    tgt = str(rel.get("target", rel.get("target_id", "")))
+                    src_raw = rel.get("source", rel.get("source_id", ""))
+                    tgt_raw = rel.get("target", rel.get("target_id", ""))
+                    src = register_node(src_raw)
+                    tgt = register_node(tgt_raw)
                     if src and tgt:
                         data = dict(rel)
-                        w = self._clean_weight(data.get("weight", 1.0))
-                        data["weight"] = w
+                        w = self._clean_weight(data.get(weight_attr, 1.0))
+                        data[weight_attr] = w
                         if out_graph.has_edge(src, tgt):
                             curr_w = self._clean_weight(
-                                out_graph[src][tgt].get("weight", 1.0)
+                                out_graph[src][tgt].get(weight_attr, 1.0)
                             )
-                            out_graph[src][tgt]["weight"] = curr_w + w
+                            out_graph[src][tgt][weight_attr] = curr_w + w
                         else:
                             out_graph.add_edge(src, tgt, **data)
                 elif isinstance(rel, (tuple, list)) and len(rel) >= 2:
-                    src, tgt = str(rel[0]), str(rel[1])
-                    if out_graph.has_edge(src, tgt):
-                        curr_w = self._clean_weight(
-                            out_graph[src][tgt].get("weight", 1.0)
+                    src = register_node(rel[0])
+                    tgt = register_node(rel[1])
+                    if src and tgt:
+                        w = self._clean_weight(
+                            rel[2]
+                            if len(rel) >= 3 and isinstance(rel[2], (int, float))
+                            else 1.0
                         )
-                        out_graph[src][tgt]["weight"] = curr_w + 1.0
-                    else:
-                        out_graph.add_edge(src, tgt, weight=1.0)
+                        if out_graph.has_edge(src, tgt):
+                            curr_w = self._clean_weight(
+                                out_graph[src][tgt].get(weight_attr, 1.0)
+                            )
+                            out_graph[src][tgt][weight_attr] = curr_w + w
+                        else:
+                            out_graph.add_edge(src, tgt, **{weight_attr: w})
             return out_graph
 
         if isinstance(graph, dict):
             if "entities" in graph or "relationships" in graph:
                 for entity in graph.get("entities", []):
                     if isinstance(entity, dict):
-                        eid = str(entity.get("id", ""))
+                        raw_id = entity.get("id", "")
+                        eid = register_node(raw_id)
                         if eid:
                             out_graph.add_node(eid, **entity)
                     else:
-                        eid = str(entity)
+                        eid = register_node(entity)
                         if eid:
                             out_graph.add_node(eid)
 
                 for rel in graph.get("relationships", []):
                     if isinstance(rel, dict):
-                        src = str(rel.get("source", rel.get("source_id", "")))
-                        tgt = str(rel.get("target", rel.get("target_id", "")))
+                        src_raw = rel.get("source", rel.get("source_id", ""))
+                        tgt_raw = rel.get("target", rel.get("target_id", ""))
+                        src = register_node(src_raw)
+                        tgt = register_node(tgt_raw)
                         if src and tgt:
                             data = dict(rel)
-                            w = self._clean_weight(data.get("weight", 1.0))
-                            data["weight"] = w
+                            w = self._clean_weight(data.get(weight_attr, 1.0))
+                            data[weight_attr] = w
                             if out_graph.has_edge(src, tgt):
                                 curr_w = self._clean_weight(
-                                    out_graph[src][tgt].get("weight", 1.0)
+                                    out_graph[src][tgt].get(weight_attr, 1.0)
                                 )
-                                out_graph[src][tgt]["weight"] = curr_w + w
+                                out_graph[src][tgt][weight_attr] = curr_w + w
                             else:
                                 out_graph.add_edge(src, tgt, **data)
                     elif isinstance(rel, (tuple, list)) and len(rel) >= 2:
-                        src, tgt = str(rel[0]), str(rel[1])
-                        if out_graph.has_edge(src, tgt):
-                            curr_w = self._clean_weight(
-                                out_graph[src][tgt].get("weight", 1.0)
+                        src = register_node(rel[0])
+                        tgt = register_node(rel[1])
+                        if src and tgt:
+                            w = self._clean_weight(
+                                rel[2]
+                                if len(rel) >= 3 and isinstance(rel[2], (int, float))
+                                else 1.0
                             )
-                            out_graph[src][tgt]["weight"] = curr_w + 1.0
-                        else:
-                            out_graph.add_edge(src, tgt, weight=1.0)
+                            if out_graph.has_edge(src, tgt):
+                                curr_w = self._clean_weight(
+                                    out_graph[src][tgt].get(weight_attr, 1.0)
+                                )
+                                out_graph[src][tgt][weight_attr] = curr_w + w
+                            else:
+                                out_graph.add_edge(src, tgt, **{weight_attr: w})
                 return out_graph
 
             if "nodes" in graph or "edges" in graph:
                 for n in graph.get("nodes", []):
                     if isinstance(n, dict):
-                        nid = str(n.get("id", ""))
+                        raw_id = n.get("id", "")
+                        nid = register_node(raw_id)
                         if nid:
                             out_graph.add_node(nid, **n)
                     else:
-                        nid = str(n)
+                        nid = register_node(n)
                         if nid:
                             out_graph.add_node(nid)
 
                 for e in graph.get("edges", []):
                     if isinstance(e, dict):
-                        src = str(e.get("source", e.get("source_id", "")))
-                        tgt = str(e.get("target", e.get("target_id", "")))
+                        src_raw = e.get("source", e.get("source_id", ""))
+                        tgt_raw = e.get("target", e.get("target_id", ""))
+                        src = register_node(src_raw)
+                        tgt = register_node(tgt_raw)
                         if src and tgt:
                             data = dict(e)
-                            w = self._clean_weight(data.get("weight", 1.0))
-                            data["weight"] = w
+                            w = self._clean_weight(data.get(weight_attr, 1.0))
+                            data[weight_attr] = w
                             if out_graph.has_edge(src, tgt):
                                 curr_w = self._clean_weight(
-                                    out_graph[src][tgt].get("weight", 1.0)
+                                    out_graph[src][tgt].get(weight_attr, 1.0)
                                 )
-                                out_graph[src][tgt]["weight"] = curr_w + w
+                                out_graph[src][tgt][weight_attr] = curr_w + w
                             else:
                                 out_graph.add_edge(src, tgt, **data)
                     elif isinstance(e, (tuple, list)) and len(e) >= 2:
-                        src, tgt = str(e[0]), str(e[1])
-                        if out_graph.has_edge(src, tgt):
-                            curr_w = self._clean_weight(
-                                out_graph[src][tgt].get("weight", 1.0)
+                        src = register_node(e[0])
+                        tgt = register_node(e[1])
+                        if src and tgt:
+                            w = self._clean_weight(
+                                e[2]
+                                if len(e) >= 3 and isinstance(e[2], (int, float))
+                                else 1.0
                             )
-                            out_graph[src][tgt]["weight"] = curr_w + 1.0
-                        else:
-                            out_graph.add_edge(src, tgt, weight=1.0)
+                            if out_graph.has_edge(src, tgt):
+                                curr_w = self._clean_weight(
+                                    out_graph[src][tgt].get(weight_attr, 1.0)
+                                )
+                                out_graph[src][tgt][weight_attr] = curr_w + w
+                            else:
+                                out_graph.add_edge(src, tgt, **{weight_attr: w})
                 return out_graph
 
             for node, nbrs in graph.items():
-                node_id = str(node)
+                node_id = register_node(node)
+                if not node_id:
+                    continue
                 out_graph.add_node(node_id)
                 if isinstance(nbrs, (list, set, tuple)):
                     for nbr in nbrs:
-                        nbr_id = str(nbr)
+                        nbr_id = register_node(nbr)
+                        if not nbr_id:
+                            continue
                         if out_graph.has_edge(node_id, nbr_id):
                             curr_w = self._clean_weight(
                                 out_graph[node_id][nbr_id].get(
-                                    "weight", 1.0
+                                    weight_attr, 1.0
                                 )
                             )
-                            out_graph[node_id][nbr_id]["weight"] = (
+                            out_graph[node_id][nbr_id][weight_attr] = (
                                 curr_w + 1.0
                             )
                         else:
-                            out_graph.add_edge(node_id, nbr_id, weight=1.0)
+                            out_graph.add_edge(
+                                node_id, nbr_id, **{weight_attr: 1.0}
+                            )
             return out_graph
 
         raise TypeError(f"Unsupported graph input type: {type(graph)}")
@@ -682,6 +884,206 @@ class CommunityHierarchyBuilder:
 
         return refined
 
+    def _leiden_communities_native(
+        self,
+        G: Union[nx.Graph, nx.DiGraph],
+        resolution: float = 1.0,
+        seed: Optional[int] = None,
+        weight: Optional[str] = "weight",
+        max_iter: int = 20,
+    ) -> List[Set[Any]]:
+        """Native Leiden community detection with local moving and refinement."""
+        nodes = list(G.nodes())
+        n_nodes = len(nodes)
+        if n_nodes <= 1:
+            return [set(nodes)]
+
+        rng = random.Random(seed)
+        strengths: Dict[Any, float] = {}
+        total_weight = 0.0
+        adj: Dict[Any, Dict[Any, float]] = {n: {} for n in nodes}
+
+        for u in nodes:
+            u_strength = 0.0
+            nbrs = set(G.successors(u) if G.is_directed() else G.neighbors(u))
+            if G.is_directed():
+                nbrs.update(G.predecessors(u))
+            for v in nbrs:
+                w = 0.0
+                if G.has_edge(u, v):
+                    w += self._clean_weight(
+                        G[u][v].get(weight or "weight", 1.0)
+                    )
+                if G.is_directed() and G.has_edge(v, u):
+                    w += self._clean_weight(
+                        G[v][u].get(weight or "weight", 1.0)
+                    )
+                adj[u][v] = w
+                u_strength += w
+            strengths[u] = u_strength
+            total_weight += u_strength
+
+        m2 = total_weight
+        if m2 <= 0.0:
+            return [{n} for n in nodes]
+
+        node_to_comm: Dict[Any, int] = {n: i for i, n in enumerate(nodes)}
+        comm_to_nodes: Dict[int, Set[Any]] = {
+            i: {n} for i, n in enumerate(nodes)
+        }
+        comm_tot: Dict[int, float] = {
+            i: strengths[n] for i, n in enumerate(nodes)
+        }
+
+        improved = True
+        iteration = 0
+        while improved and iteration < max_iter:
+            improved = False
+            iteration += 1
+            shuffled = list(nodes)
+            rng.shuffle(shuffled)
+
+            for u in shuffled:
+                curr_c = node_to_comm[u]
+                k_u = strengths[u]
+
+                comm_weights: Dict[int, float] = defaultdict(float)
+                for v, w in adj[u].items():
+                    comm_weights[node_to_comm[v]] += w
+
+                k_u_curr = comm_weights.get(curr_c, 0.0)
+                best_c = curr_c
+                best_gain = 0.0
+
+                for cand_c, k_u_cand in comm_weights.items():
+                    if cand_c == curr_c:
+                        continue
+                    tot_cand = comm_tot[cand_c]
+                    tot_curr = comm_tot[curr_c]
+                    gain = (k_u_cand - k_u_curr) / m2 - (
+                        resolution * k_u * (tot_cand - (tot_curr - k_u))
+                    ) / (m2 * m2)
+                    if gain > best_gain:
+                        best_gain = gain
+                        best_c = cand_c
+
+                if best_c != curr_c and best_gain > 1e-8:
+                    comm_to_nodes[curr_c].remove(u)
+                    comm_tot[curr_c] -= k_u
+                    if not comm_to_nodes[curr_c]:
+                        del comm_to_nodes[curr_c]
+                        del comm_tot[curr_c]
+
+                    node_to_comm[u] = best_c
+                    comm_to_nodes[best_c].add(u)
+                    comm_tot[best_c] += k_u
+                    improved = True
+
+        refined_comms: List[Set[Any]] = []
+        for c_id, c_nodes in comm_to_nodes.items():
+            if len(c_nodes) <= 1:
+                refined_comms.append(set(c_nodes))
+                continue
+
+            sub_c_to_nodes: Dict[int, Set[Any]] = {}
+            sub_node_to_c: Dict[Any, int] = {}
+            for idx, u in enumerate(c_nodes):
+                sub_c_to_nodes[idx] = {u}
+                sub_node_to_c[u] = idx
+
+            for u in c_nodes:
+                curr_sub = sub_node_to_c[u]
+                k_u = strengths[u]
+
+                sub_weights: Dict[int, float] = defaultdict(float)
+                for v, w in adj[u].items():
+                    if v in c_nodes:
+                        sub_weights[sub_node_to_c[v]] += w
+
+                best_sub = curr_sub
+                best_sub_gain = 0.0
+                for cand_sub, k_u_cand in sub_weights.items():
+                    if cand_sub == curr_sub:
+                        continue
+                    tot_cand = sum(
+                        strengths[x] for x in sub_c_to_nodes[cand_sub]
+                    )
+                    tot_curr = sum(
+                        strengths[x] for x in sub_c_to_nodes[curr_sub]
+                    )
+                    gain = (
+                        k_u_cand - sub_weights.get(curr_sub, 0.0)
+                    ) / m2 - (
+                        resolution * k_u * (tot_cand - (tot_curr - k_u))
+                    ) / (m2 * m2)
+                    if gain > best_sub_gain:
+                        best_sub_gain = gain
+                        best_sub = cand_sub
+
+                if best_sub != curr_sub and best_sub_gain > 1e-8:
+                    sub_c_to_nodes[curr_sub].remove(u)
+                    if not sub_c_to_nodes[curr_sub]:
+                        del sub_c_to_nodes[curr_sub]
+                    sub_node_to_c[u] = best_sub
+                    sub_c_to_nodes[best_sub].add(u)
+
+            for s_nodes in sub_c_to_nodes.values():
+                if s_nodes:
+                    refined_comms.append(set(s_nodes))
+
+        return refined_comms
+
+    def _detect_leiden_communities(
+        self,
+        G: Union[nx.Graph, nx.DiGraph],
+        resolution: float = 1.0,
+        weight: Optional[str] = "weight",
+    ) -> List[Set[Any]]:
+        """Detect communities using Leiden with optional C library fallback."""
+        weight_key = weight or "weight"
+        try:
+            import igraph as ig
+            import leidenalg
+
+            nodes = list(G.nodes())
+            node_idx = {n: i for i, n in enumerate(nodes)}
+            ig_graph = ig.Graph(directed=G.is_directed())
+            ig_graph.add_vertices(len(nodes))
+            edges = []
+            weights = []
+            for u, v, data in G.edges(data=True):
+                edges.append((node_idx[u], node_idx[v]))
+                weights.append(
+                    self._clean_weight(data.get(weight_key, 1.0))
+                )
+
+            ig_graph.add_edges(edges)
+            if weights and weight is not None:
+                ig_graph.es["weight"] = weights
+
+            partition = leidenalg.find_partition(
+                ig_graph,
+                leidenalg.RBConfigurationVertexPartition,
+                weights="weight" if (weights and weight is not None) else None,
+                resolution_parameter=resolution,
+                seed=self.seed,
+            )
+            return [{nodes[idx] for idx in comm} for comm in partition]
+        except (ImportError, Exception):
+            pass
+
+        try:
+            from cdlib import algorithms
+
+            cd_comms = algorithms.leiden(G, weights=weight)
+            return [set(c) for c in cd_comms.communities]
+        except (ImportError, Exception):
+            pass
+
+        return self._leiden_communities_native(
+            G, resolution=resolution, seed=self.seed, weight=weight
+        )
+
     def _build_louvain_partitions(
         self, G: Union[nx.Graph, nx.DiGraph]
     ) -> List[List[Set[Any]]]:
@@ -691,49 +1093,12 @@ class CommunityHierarchyBuilder:
         if G.number_of_nodes() == 1:
             return [[set(G.nodes())]]
 
-        if isinstance(self.resolution, (list, tuple)):
-            resolution = float(self.resolution[0]) if self.resolution else 1.0
-        else:
-            resolution = float(self.resolution)
-
-        try:
-            raw_partitions = list(
-                nx_comm.louvain_partitions(
-                    G,
-                    weight=self.weight,
-                    resolution=resolution,
-                    threshold=self.threshold,
-                    seed=self.seed,
-                )
-            )
-        except Exception as e:
-            logger.warning(
-                f"Louvain partitioning failed: {e}. Using singleton fallback."
-            )
-            raw_partitions = [[{n} for n in G.nodes()]]
-
-        if not raw_partitions:
-            raw_partitions = [[{n} for n in G.nodes()]]
-
-        refined_partitions = [
-            self._refine_partition(G, p) for p in raw_partitions
-        ]
-        return refined_partitions
-
-    def _build_leiden_partitions(
-        self, G: Union[nx.Graph, nx.DiGraph]
-    ) -> List[List[Set[Any]]]:
-        """Generate multi-level coarsened partitions using Leiden."""
-        if G.number_of_nodes() == 0:
-            return []
-        if G.number_of_nodes() == 1:
-            return [[set(G.nodes())]]
-
         partitions: List[List[Set[Any]]] = []
+        weight_attr = self.weight or "weight"
         current_g = G.copy()
         for u, v in current_g.edges():
-            current_g[u][v]["weight"] = self._clean_weight(
-                current_g[u][v].get("weight", 1.0)
+            current_g[u][v][weight_attr] = self._clean_weight(
+                current_g[u][v].get(weight_attr, 1.0)
             )
 
         super_to_orig: Dict[Any, Set[Any]] = {n: {n} for n in G.nodes()}
@@ -750,14 +1115,28 @@ class CommunityHierarchyBuilder:
             else:
                 curr_res = float(self.resolution)
 
+            curr_weight = self.weight if level == 0 else weight_attr
+
             try:
                 raw_comms = nx_comm.louvain_communities(
                     current_g,
-                    weight=self.weight,
+                    weight=curr_weight,
                     resolution=curr_res,
+                    threshold=self.threshold,
                     seed=self.seed,
                 )
-            except Exception:
+            except (
+                ZeroDivisionError,
+                FloatingPointError,
+                RuntimeError,
+                nx.NetworkXError,
+            ) as e:
+                logger.warning(
+                    f"Louvain partitioning failed at level {level}: {e}. "
+                    f"Using singleton fallback. Traceback:\n"
+                    f"{traceback.format_exc()}"
+                )
+                self._fallback_used = True
                 raw_comms = [{n} for n in current_g.nodes()]
 
             refined_orig_comms: List[Set[Any]] = []
@@ -803,11 +1182,119 @@ class CommunityHierarchyBuilder:
                 sv = node_to_new_super[v]
                 if su == sv:
                     continue
-                w = self._clean_weight(data.get("weight", 1.0))
+                w = self._clean_weight(data.get(weight_attr, 1.0))
                 if next_g.has_edge(su, sv):
-                    next_g[su][sv]["weight"] += w
+                    next_g[su][sv][weight_attr] += w
                 else:
-                    next_g.add_edge(su, sv, weight=w)
+                    next_g.add_edge(su, sv, **{weight_attr: w})
+
+            if next_g.number_of_edges() == 0:
+                break
+
+            current_g = next_g
+            super_to_orig = new_super_to_orig
+
+        return partitions
+
+    def _build_leiden_partitions(
+        self, G: Union[nx.Graph, nx.DiGraph]
+    ) -> List[List[Set[Any]]]:
+        """Generate multi-level coarsened partitions using Leiden."""
+        if G.number_of_nodes() == 0:
+            return []
+        if G.number_of_nodes() == 1:
+            return [[set(G.nodes())]]
+
+        partitions: List[List[Set[Any]]] = []
+        weight_attr = self.weight or "weight"
+        current_g = G.copy()
+        for u, v in current_g.edges():
+            current_g[u][v][weight_attr] = self._clean_weight(
+                current_g[u][v].get(weight_attr, 1.0)
+            )
+
+        super_to_orig: Dict[Any, Set[Any]] = {n: {n} for n in G.nodes()}
+        level = 0
+
+        while True:
+            if self.max_levels is not None and level >= self.max_levels:
+                break
+
+            if isinstance(self.resolution, (list, tuple)):
+                curr_res = float(
+                    self.resolution[min(level, len(self.resolution) - 1)]
+                )
+            else:
+                curr_res = float(self.resolution)
+
+            curr_weight = self.weight if level == 0 else weight_attr
+
+            try:
+                raw_comms = self._detect_leiden_communities(
+                    current_g, resolution=curr_res, weight=curr_weight
+                )
+            except (
+                ZeroDivisionError,
+                FloatingPointError,
+                RuntimeError,
+                nx.NetworkXError,
+            ) as e:
+                logger.warning(
+                    f"Leiden community detection failed at level {level}: {e}. "
+                    f"Using singleton fallback. Traceback:\n"
+                    f"{traceback.format_exc()}"
+                )
+                self._fallback_used = True
+                raw_comms = [{n} for n in current_g.nodes()]
+
+            refined_orig_comms: List[Set[Any]] = []
+            for c in raw_comms:
+                orig_set: Set[Any] = set()
+                for sn in c:
+                    orig_set.update(super_to_orig[sn])
+                sub = G.subgraph(orig_set)
+                if G.is_directed():
+                    comps = list(nx.weakly_connected_components(sub))
+                else:
+                    comps = list(nx.connected_components(sub))
+                refined_orig_comms.extend(comps)
+
+            if partitions and (
+                set(frozenset(s) for s in refined_orig_comms)
+                == set(frozenset(s) for s in partitions[-1])
+                or len(refined_orig_comms) >= len(partitions[-1])
+            ):
+                break
+
+            partitions.append(refined_orig_comms)
+            level += 1
+
+            if (
+                len(refined_orig_comms) <= 1
+                or current_g.number_of_edges() == 0
+            ):
+                break
+
+            new_super_to_orig: Dict[int, Set[Any]] = {}
+            node_to_new_super: Dict[Any, int] = {}
+            for idx, comp in enumerate(refined_orig_comms):
+                new_super_to_orig[idx] = comp
+                for n in comp:
+                    node_to_new_super[n] = idx
+
+            next_g = nx.DiGraph() if G.is_directed() else nx.Graph()
+            next_g.add_nodes_from(range(len(refined_orig_comms)))
+
+            for u, v, data in G.edges(data=True):
+                su = node_to_new_super[u]
+                sv = node_to_new_super[v]
+                if su == sv:
+                    continue
+                w = self._clean_weight(data.get(weight_attr, 1.0))
+                if next_g.has_edge(su, sv):
+                    next_g[su][sv][weight_attr] += w
+                else:
+                    next_g.add_edge(su, sv, **{weight_attr: w})
 
             if next_g.number_of_edges() == 0:
                 break
@@ -843,6 +1330,9 @@ class CommunityHierarchyBuilder:
                 sub_size = len(entity_ids)
 
                 sub = G.subgraph(node_set)
+                canonical_edges = canonicalize_edges(
+                    sub.edges(data=True), directed=is_directed
+                )
                 internal_edges = sub.number_of_edges()
 
                 if is_directed:
@@ -875,6 +1365,8 @@ class CommunityHierarchyBuilder:
                     size=sub_size,
                     metrics=metrics,
                     content_hash="",
+                    edges=canonical_edges,
+                    directed=is_directed,
                 )
                 communities[comm_id] = comm
                 current_level_comms.append(comm)
@@ -899,7 +1391,6 @@ class CommunityHierarchyBuilder:
                         if node in node_to_parent
                     ]
                     if parent_votes:
-                        from collections import Counter
                         parent_id = Counter(parent_votes).most_common(1)[0][0]
                         child.parent_id = parent_id
                         if parent_id in communities:
@@ -909,7 +1400,19 @@ class CommunityHierarchyBuilder:
         for comm in communities.values():
             comm.child_ids.sort()
             comm.content_hash = compute_community_hash(
-                comm.level, comm.index, comm.entity_ids, comm.child_ids
+                comm.level,
+                comm.index,
+                comm.entity_ids,
+                comm.child_ids,
+                edges=comm.edges,
+                directed=is_directed,
             )
 
-        return CommunityHierarchy(communities=communities, graph=G)
+        metadata = {
+            "algorithm": self.algorithm,
+            "fallback": self._fallback_used,
+            "levels_count": len(partitions),
+        }
+        return CommunityHierarchy(
+            communities=communities, graph=G, metadata=metadata
+        )

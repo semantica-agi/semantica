@@ -923,6 +923,8 @@ def build_community_hierarchy(
             custom_method,
             graph,
             fallback_on_custom_error=fallback,
+            resolution=resolution,
+            seed=seed,
             **kwargs,
         )
         if result is not CUSTOM_METHOD_FELL_BACK:

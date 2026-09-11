@@ -730,3 +730,202 @@ class TestCommunityHierarchyEdgeCases:
 
         hierarchy = builder.build(g)
         assert not hierarchy.is_empty
+
+    def test_edge_weight_change_invalidates_content_hash(self):
+        g1 = nx.Graph()
+        g1.add_edge("a", "b", weight=1.0)
+        g1.add_edge("b", "c", weight=1.0)
+        g1.add_edge("a", "c", weight=1.0)
+
+        g2 = nx.Graph()
+        g2.add_edge("a", "b", weight=5.0)
+        g2.add_edge("b", "c", weight=1.0)
+        g2.add_edge("a", "c", weight=1.0)
+
+        builder = CommunityHierarchyBuilder(algorithm="louvain", seed=42)
+        h1 = builder.build(g1)
+        h2 = builder.build(g2)
+
+        c1 = h1.get_community_for_node("a", level=0)
+        c2 = h2.get_community_for_node("a", level=0)
+        assert c1 is not None and c2 is not None
+        assert c1.entity_ids == c2.entity_ids
+        assert c1.content_hash != c2.content_hash
+
+    def test_edge_topology_change_invalidates_content_hash(self):
+        g1 = nx.Graph()
+        g1.add_edge("a", "b")
+        g1.add_edge("b", "c")
+        g1.add_edge("a", "c")
+
+        g2 = nx.Graph()
+        g2.add_edge("a", "b")
+        g2.add_edge("b", "c")
+
+        builder = CommunityHierarchyBuilder(algorithm="louvain", seed=42)
+        h1 = builder.build(g1)
+        h2 = builder.build(g2)
+
+        c1 = h1.get_community_for_node("a", level=0)
+        c2 = h2.get_community_for_node("a", level=0)
+        assert c1 is not None and c2 is not None
+        assert c1.entity_ids == c2.entity_ids
+        assert c1.content_hash != c2.content_hash
+
+    def test_node_identifier_collision_networkx_raises(self):
+        g = nx.Graph()
+        g.add_node(1)
+        g.add_node("1")
+        g.add_edge(1, 2)
+
+        builder = CommunityHierarchyBuilder(algorithm="louvain", seed=42)
+        with pytest.raises(ValueError, match="collision detected"):
+            builder.build(g)
+
+    def test_node_identifier_collision_dict_entities_raises(self):
+        graph_dict = {
+            "entities": [{"id": 1}, {"id": "1"}],
+            "relationships": [{"source": 1, "target": 2}],
+        }
+        builder = CommunityHierarchyBuilder(algorithm="louvain", seed=42)
+        with pytest.raises(ValueError, match="collision detected"):
+            builder.build(graph_dict)
+
+    def test_node_identifier_collision_adjacency_dict_raises(self):
+        adj_dict = {
+            1: [2],
+            "1": [3],
+        }
+        builder = CommunityHierarchyBuilder(algorithm="louvain", seed=42)
+        with pytest.raises(ValueError, match="collision detected"):
+            builder.build(adj_dict)
+
+    def test_louvain_multi_resolution_list(self):
+        g = nx.karate_club_graph()
+        builder = CommunityHierarchyBuilder(
+            algorithm="louvain",
+            resolution=[3.0, 1.0, 0.3],
+            seed=42,
+        )
+        hierarchy = builder.build(g)
+        assert len(hierarchy.levels) >= 1
+        assert hierarchy.metadata.get("algorithm") == "louvain"
+        assert hierarchy.metadata.get("fallback") is False
+
+    def test_custom_method_receives_resolution_and_seed(self):
+        captured_kwargs = {}
+
+        def dummy_custom(graph, **kwargs):
+            captured_kwargs.update(kwargs)
+            return CommunityHierarchy(communities={}, graph=graph)
+
+        method_registry.register(
+            "community_hierarchy", "test_custom_method_args", dummy_custom
+        )
+
+        g = nx.path_graph(3)
+        res = build_community_hierarchy(
+            g,
+            method="test_custom_method_args",
+            resolution=2.75,
+            seed=999,
+        )
+        assert isinstance(res, CommunityHierarchy)
+        assert captured_kwargs.get("resolution") == 2.75
+        assert captured_kwargs.get("seed") == 999
+
+    def test_hierarchy_metadata_to_dict_and_from_dict(self):
+        c0 = HierarchicalCommunity(
+            id="c_0_0", level=0, index=0, entity_ids=["a", "b"]
+        )
+        hierarchy = CommunityHierarchy(
+            [c0], metadata={"algorithm": "leiden", "fallback": False}
+        )
+        d = hierarchy.to_dict()
+        assert d["metadata"] == {"algorithm": "leiden", "fallback": False}
+        restored = CommunityHierarchy.from_dict(d)
+        assert restored.metadata == {"algorithm": "leiden", "fallback": False}
+
+    def test_canonicalize_edges_idempotency_and_no_nested_attributes(self):
+        from semantica.kg.community_hierarchy import canonicalize_edges
+
+        raw = [("a", "b", {"weight": 2.5, "label": "FRIEND"})]
+        c1 = canonicalize_edges(raw)
+        c2 = canonicalize_edges(c1)
+        c3 = canonicalize_edges(c2)
+
+        assert c1 == c2 == c3
+        assert "attributes" in c1[0]
+        assert "attributes" not in c1[0]["attributes"]
+        assert c1[0]["attributes"]["weight"] == 2.5
+        assert c1[0]["attributes"]["label"] == "FRIEND"
+
+    def test_directed_edge_endpoints_orientation_preserved(self):
+        g = nx.DiGraph()
+        nx.add_cycle(g, ["z", "a", "b"])
+
+        builder = CommunityHierarchyBuilder(algorithm="louvain", seed=42)
+        h = builder.build(g)
+        c = h.get_community_for_node("z", level=0)
+        assert c is not None
+        assert c.directed is True
+
+        edge_pairs = [(e["source"], e["target"]) for e in c.edges]
+        assert ("z", "a") in edge_pairs
+        assert ("a", "b") in edge_pairs
+        assert ("b", "z") in edge_pairs
+        assert ("a", "z") not in edge_pairs
+
+        d = c.to_dict()
+        assert d["directed"] is True
+        c_restored = HierarchicalCommunity.from_dict(d)
+        assert c_restored.edges == c.edges
+        assert c_restored.directed is True
+
+    def test_node_collision_in_relationships_without_entities_raises(self):
+        g = {
+            "relationships": [
+                {"source": 1, "target": 2},
+                {"source": "1", "target": 3},
+            ]
+        }
+        builder = CommunityHierarchyBuilder(seed=42)
+        with pytest.raises(ValueError, match="collision detected"):
+            builder.build(g)
+
+    def test_node_collision_in_adjacency_neighbors_raises(self):
+        adj = {1: [2], 3: ["2"]}
+        builder = CommunityHierarchyBuilder(seed=42)
+        with pytest.raises(ValueError, match="collision detected"):
+            builder.build(adj)
+
+    def test_builder_fallback_flag_resets_on_subsequent_builds(self):
+        builder = CommunityHierarchyBuilder(algorithm="louvain", seed=42)
+
+        g_fail = nx.Graph()
+        g_fail.add_edge("a", "b", weight=0.0)
+        h1 = builder.build(g_fail)
+        assert h1.metadata.get("fallback") is True
+
+        g_ok = nx.karate_club_graph()
+        h2 = builder.build(g_ok)
+        assert h2.metadata.get("fallback") is False
+
+    def test_custom_weight_attribute_name_preserved(self):
+        g = nx.Graph()
+        g.add_edge("a", "b", score=10.0)
+        g.add_edge("b", "c", score=10.0)
+        g.add_edge("a", "c", score=10.0)
+        g.add_edge("c", "d", score=0.1)
+        g.add_edge("d", "e", score=10.0)
+        g.add_edge("e", "f", score=10.0)
+        g.add_edge("d", "f", score=10.0)
+
+        builder = CommunityHierarchyBuilder(
+            algorithm="louvain", weight="score", seed=42
+        )
+        h = builder.build(g)
+        c0 = h.get_community_for_node("a", level=0)
+        assert c0 is not None
+        assert all("score" in e["attributes"] for e in c0.edges)
+        assert all("weight" not in e["attributes"] for e in c0.edges)
