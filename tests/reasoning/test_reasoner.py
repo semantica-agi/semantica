@@ -1,5 +1,7 @@
 import unittest
-from semantica.reasoning.reasoner import Reasoner, Rule, RuleType, Fact, InferenceResult
+
+from semantica.reasoning.reasoner import Reasoner, Rule
+
 
 class TestReasoner(unittest.TestCase):
     def setUp(self):
@@ -257,6 +259,151 @@ class TestReasoner(unittest.TestCase):
         result = reasoner._match_pattern("Person(?x)", "Person(John)", {})
         self.assertIsNotNone(result)
         self.assertEqual(result["x"], "John")
+
+
+# ---------------------------------------------------------------------------
+# Pure rule-matching helper (Task 1 of the truth maintenance plan): legacy
+# parity tests plus the dedicated helper entry points in
+# semantica.reasoning._rule_matching.
+# ---------------------------------------------------------------------------
+
+class TestRuleMatchingHelpers(unittest.TestCase):
+    """Legacy parity for the extracted pure matching functions."""
+
+    def _matched(self, conditions, conclusion, facts):
+        reasoner = Reasoner()
+        for fact in facts:
+            reasoner.add_fact(fact)
+        rule = Rule(
+            rule_id="r", name="r", conditions=conditions, conclusion=conclusion
+        )
+        return reasoner._match_rule(rule)
+
+    def test_whitespace_constants_match(self):
+        """Constants containing spaces must still match a single variable."""
+        matched = self._matched(
+            ["founded_by(?person, ?org)"],
+            "is_founder(?person, ?org)",
+            ["founded_by(Steve Jobs, Apple)"],
+        )
+        self.assertEqual(len(matched), 1)
+        conclusion, matched_facts, bindings = matched[0]
+        self.assertEqual(conclusion, "is_founder(Steve Jobs, Apple)")
+        self.assertEqual(matched_facts, ["founded_by(Steve Jobs, Apple)"])
+        self.assertEqual(bindings, {"person": "Steve Jobs", "org": "Apple"})
+
+    def test_repeated_variable_requires_equal_values(self):
+        """Pair(?x, ?x) must not match Pair(a, b) but must match Pair(a, a)."""
+        matched = self._matched(
+            ["Pair(?x, ?x)"], "Same(?x)", ["Pair(a, b)", "Pair(a, a)"]
+        )
+        self.assertEqual(len(matched), 1)
+        self.assertEqual(matched[0][0], "Same(a)")
+
+    def test_prebound_variable_carries_across_conditions(self):
+        """A variable bound in an earlier condition must constrain later ones."""
+        matched = self._matched(
+            ["Person(?x)", "Parent(?x, ?y)"],
+            "Child(?y, ?x)",
+            ["Person(John)", "Parent(John, Jane)", "Parent(Mary, Eve)"],
+        )
+        self.assertEqual(len(matched), 1)
+        self.assertEqual(matched[0][0], "Child(Jane, John)")
+
+    def test_three_condition_chain(self):
+        """Three accumulating conditions must produce full binding tuples."""
+        matched = self._matched(
+            ["A(?x)", "B(?x)", "C(?x, ?y)"],
+            "D(?x, ?y)",
+            ["A(a)", "B(a)", "C(a, b)", "B(z)"],
+        )
+        self.assertEqual(len(matched), 1)
+        conclusion, matched_facts, bindings = matched[0]
+        self.assertEqual(conclusion, "D(a, b)")
+        self.assertEqual(matched_facts, ["A(a)", "B(a)", "C(a, b)"])
+        self.assertEqual(bindings, {"x": "a", "y": "b"})
+
+    def test_variable_prefix_is_token_aware(self):
+        """Binding ?x must never rewrite the ?xy placeholder (prefix safety)."""
+        matched = self._matched(
+            ["P(?x, ?xy)"], "Q(?x, ?xy)", ["P(a, b)"]
+        )
+        self.assertEqual(len(matched), 1)
+        self.assertEqual(matched[0][0], "Q(a, b)")
+        self.assertEqual(matched[0][2], {"x": "a", "xy": "b"})
+
+    def test_unbound_placeholders_stay_verbatim(self):
+        """Substituting a subset of variables must leave others untouched."""
+        reasoner = Reasoner()
+        result = reasoner._substitute("Q(?x, ?xy)", {"x": "a"})
+        self.assertEqual(result, "Q(a, ?xy)")
+
+    def test_rule_without_conditions_matches_nothing(self):
+        """A rule with an empty conditions list must produce no matches."""
+        reasoner = Reasoner()
+        rule = Rule(rule_id="r", name="r", conditions=[], conclusion="Ready()")
+        self.assertEqual(reasoner._match_rule(rule), [])
+
+
+from semantica.reasoning import _rule_matching
+
+
+class TestPureMatchingModule(unittest.TestCase):
+    """Direct entry points of the extracted pure helper module."""
+
+    def test_substitute_variables(self):
+        self.assertEqual(
+            _rule_matching.substitute_variables("Q(?x, ?y)", {"x": "a", "y": "b"}),
+            "Q(a, b)",
+        )
+
+    def test_substitute_variables_prefix_safe(self):
+        self.assertEqual(
+            _rule_matching.substitute_variables("Q(?x, ?xy)", {"x": "a"}),
+            "Q(a, ?xy)",
+        )
+
+    def test_match_pattern_returns_bindings(self):
+        bindings = _rule_matching.match_pattern(
+            "P(?x, ?y)", "P(a, b)", {}, logger=Reasoner().logger
+        )
+        self.assertEqual(bindings, {"x": "a", "y": "b"})
+
+    def test_match_pattern_binding_conflict(self):
+        bindings = _rule_matching.match_pattern(
+            "P(?x, ?y)", "P(a, a)", {"x": "b"}, logger=Reasoner().logger
+        )
+        self.assertIsNone(bindings)
+
+    def test_match_rule_pure(self):
+        matched = _rule_matching.match_rule(
+            ["A(?x)", "B(?x)"],
+            "C(?x)",
+            ["A(a)", "B(a)", "B(z)"],
+            pattern_matcher=_rule_matching.match_pattern,
+            substituter=_rule_matching.substitute_variables,
+        )
+        self.assertEqual(len(matched), 1)
+        conclusion, matched_facts, bindings = matched[0]
+        self.assertEqual(conclusion, "C(a)")
+        self.assertEqual(matched_facts, ["A(a)", "B(a)"])
+        self.assertEqual(bindings, {"x": "a"})
+
+    def test_match_rule_empty_conditions(self):
+        matched = _rule_matching.match_rule(
+            [], "C()", [], pattern_matcher=None, substituter=None
+        )
+        self.assertEqual(matched, [])
+
+
+def test_match_rule_keeps_pattern_override(monkeypatch):
+    from semantica.reasoning import Reasoner, Rule
+
+    reasoner = Reasoner()
+    reasoner.add_fact("A(a)")
+    rule = Rule("r", "r", ["A(?x)"], "B(?x)")
+    monkeypatch.setattr(reasoner, "_match_pattern", lambda *args: None)
+    assert reasoner._match_rule(rule) == []
 
 
 if __name__ == "__main__":
