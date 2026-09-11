@@ -14,18 +14,27 @@ Optional dependency
     :class:`LookerConnector` raises a clear ``ImportError`` naming the
     ``ingest-looker`` extra at instantiation time.
 
-Validate once, then constrain the transport
+Validate the endpoint once, then constrain the transport
     ``looker_sdk.init40`` builds ``RequestsTransport`` internally, so the
     repository's per-request ``request_with_ssrf_guard`` hook is not
-    reachable.  Instead the connector resolves the effective ``base_url``
-    from a constructed ``ApiSettings`` object, validates it, then passes
-    that *same* object to ``init40`` so the validated value is the
-    connected value.  Four compensating controls are applied:
+    reachable.  The connector instead resolves the effective ``base_url``
+    from a constructed ``ApiSettings`` object, validates it, and passes
+    that *same* object to ``init40``.  The binding mechanism is the
+    ``read_config`` override on that object, which the SDK consults for
+    every login.  Five compensating controls are applied:
 
-    1. the client is asserted to be bound to the validated ``base_url``;
-    2. ``https`` is required unless ``allow_private_ips`` is enabled;
+    1. ``https`` is required unless ``allow_private_ips`` is enabled;
+    2. TLS verification is forced on, so ``LOOKERSDK_VERIFY_SSL`` or the
+       ini file cannot downgrade the validated connection;
     3. the SDK session's redirect cap is set to zero;
-    4. proxy environment trust is disabled.
+    4. proxy environment trust is disabled;
+    5. connections are pinned to the addresses resolved during validation,
+       closing the DNS-rebinding window between validation and dial.
+
+    A post-construction check also compares the client's resolved
+    ``base_url`` with the validated one.  The current SDK returns the same
+    ``ApiSettings`` object, so that check guards against future drift
+    rather than being a security control.
 
 Credentials are injected through the ``ApiSettings`` object rather than
 by mutating ``os.environ``, so no secret becomes process-global.
@@ -71,12 +80,17 @@ import os
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from typing import Any, Dict, List, Mapping, Optional, Sequence
-from urllib.parse import urlparse, urlunparse
+from urllib.parse import urlparse
 
 from ..utils.exceptions import ProcessingError, ValidationError
 from ..utils.logging import get_logger
 from ..utils.progress_tracker import get_progress_tracker
-from .ssrf import parse_bool, validate_url_for_request
+from .ssrf import (
+    _make_pinned_adapter,
+    _resolve_pinned_ips,
+    parse_bool,
+    validate_url_for_request,
+)
 
 # ---------------------------------------------------------------------------
 # Optional-dependency guard — mirrors the pattern in salesforce_ingestor.
@@ -138,28 +152,18 @@ def _scrub_url_userinfo(value: str) -> str:
     Returns:
         The URL with any userinfo removed.
     """
-    parsed = urlparse(value)
-    if "@" not in (parsed.netloc or ""):
+    if "@" not in value:
         return value
-    host = parsed.hostname or ""
-    if ":" in host:  # IPv6 literal
-        host = f"[{host}]"
-    try:
-        port = parsed.port
-    except ValueError:
-        # A malformed port must not turn metadata normalization into a crash.
-        port = None
-    netloc = f"{host}:{port}" if port else host
-    return urlunparse(
-        (
-            parsed.scheme,
-            netloc,
-            parsed.path,
-            parsed.params,
-            parsed.query,
-            parsed.fragment,
-        )
-    )
+    head, _, tail = value.rpartition("@")
+    # Strip only when the '@' terminates an authority userinfo section.  A
+    # path separator before it means the '@' is ordinary path content, and
+    # urlparse cannot be used here because it leaves userinfo outside
+    # ``netloc`` for scheme-less and scp-style remotes.
+    authority_start = head.find("://")
+    authority_start = 0 if authority_start == -1 else authority_start + 3
+    if "/" in head[authority_start:]:
+        return value
+    return value[:authority_start] + tail
 
 
 # ---------------------------------------------------------------------------
@@ -200,6 +204,19 @@ class LookerData:
 
 # Values that reach the normalizer as plain mappings never pass through a
 # record allowlist, so secret-named keys are dropped explicitly as well.
+# Named arguments of LookerConnector: a config dict carrying any of these
+# must not be re-forwarded as a keyword or the call raises TypeError.
+_CONNECTOR_ARGUMENT_NAMES = frozenset(
+    {
+        "allow_private_ips",
+        "base_url",
+        "client_id",
+        "client_secret",
+        "config_file",
+        "section",
+    }
+)
+
 _SECRET_FIELD_NAMES = frozenset(
     {
         "deploy_secret",
@@ -833,6 +850,37 @@ class LookerConnector:
                 "send credentials over an unverified connection."
             )
         session.verify = True
+        self._pin_session(session)
+
+    def _pin_session(self, session: Any) -> None:
+        """Pin connections to the addresses resolved during validation.
+
+        The endpoint is validated once at construction, but the SDK resolves
+        the hostname again at request time, which reopens a DNS-rebinding
+        window.  Mounting a pinning adapter connects only to the addresses
+        validated here, while the hostname still supplies TLS identity.
+
+        Raises:
+            ValidationError: If the endpoint no longer resolves to a
+                permitted address.
+        """
+        pinned_ips = _resolve_pinned_ips(
+            self._validated_base_url, allow_private_ips=self.allow_private_ips
+        )
+        if not pinned_ips:
+            return
+        parsed = urlparse(self._validated_base_url)
+        adapter = _make_pinned_adapter(pinned_ips, parsed.hostname or "")
+        adapter._semantica_pinned = True
+        session.mount("http://", adapter)
+        session.mount("https://", adapter)
+        port = parsed.port
+        default_port = 443 if parsed.scheme == "https" else 80
+        session.headers["Host"] = (
+            parsed.hostname or ""
+            if port in (None, default_port)
+            else f"{parsed.hostname}:{port}"
+        )
 
     @staticmethod
     def _transport_session(client: Any) -> Optional[Any]:
@@ -1038,7 +1086,11 @@ class LookerIngestor:
             config_file=config_file,
             section=section,
             allow_private_ips=allow_private_ips,
-            **self.config,
+            **{
+                key: value
+                for key, value in self.config.items()
+                if key not in _CONNECTOR_ARGUMENT_NAMES
+            },
         )
 
         # Progress tracker — consistent with all other ingestors.

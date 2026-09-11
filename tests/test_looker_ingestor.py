@@ -1516,3 +1516,58 @@ class TestLookerConnectorTransportHardening:
             f"{PUBLIC_BASE_URL}/api/4.0/looks", {}, None, None, None
         )
         assert settings["proxies"] == {}
+
+    def test_connections_are_pinned_to_the_validated_address(self):
+        session = requests.Session()
+
+        self._connect_with_real_session(session)
+
+        adapter = session.adapters.get("https://")
+        assert getattr(adapter, "_semantica_pinned", False) is True
+
+
+# ---------------------------------------------------------------------------
+# TestLookerHardeningRegressions — defects found in code review
+# ---------------------------------------------------------------------------
+
+
+class TestLookerHardeningRegressions:
+    """Regressions for review findings: redaction and config forwarding."""
+
+    def test_userinfo_is_scrubbed_without_a_scheme(self):
+        """Credentials in a scheme-less remote must not survive."""
+        from semantica.ingest.looker_ingestor import _scrub_url_userinfo
+
+        assert (
+            _scrub_url_userinfo("oauth2:glpat-TOKEN@gitlab.example.com/org/r.git")
+            == "gitlab.example.com/org/r.git"
+        )
+        assert (
+            _scrub_url_userinfo("git@github.com:org/repo.git")
+            == "github.com:org/repo.git"
+        )
+        assert _scrub_url_userinfo("https://user:pw@example.com/r.git") == (
+            "https://example.com/r.git"
+        )
+
+    def test_userinfo_in_path_is_not_treated_as_credentials(self):
+        from semantica.ingest.looker_ingestor import _scrub_url_userinfo
+
+        assert (
+            _scrub_url_userinfo("https://example.com/path@file")
+            == "https://example.com/path@file"
+        )
+
+    @requires_looker_sdk
+    def test_ingestor_config_dict_does_not_collide_with_named_arguments(self):
+        """A config dict naming a connector parameter must not raise."""
+        from semantica.ingest.looker_ingestor import LookerConnector, LookerIngestor
+
+        ingestor = LookerIngestor(
+            base_url=PUBLIC_BASE_URL,
+            client_id=CLIENT_ID,
+            client_secret=CLIENT_SECRET,
+            config={"allow_private_ips": True},
+        )
+
+        assert isinstance(ingestor.connector, LookerConnector)
