@@ -929,8 +929,13 @@ def build_community_hierarchy(
             return result
 
     try:
+        algo = (
+            "louvain"
+            if method.lower().strip() == "default"
+            else method.lower().strip()
+        )
         builder = CommunityHierarchyBuilder(
-            algorithm=method,
+            algorithm=algo,
             resolution=resolution,
             seed=seed,
             **kwargs,

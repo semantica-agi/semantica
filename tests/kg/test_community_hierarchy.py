@@ -560,9 +560,11 @@ class TestIntegrationAndRegistry:
     def test_algorithm_registry_integration(self):
         cls_louvain = algorithm_registry.get("community_hierarchy", "louvain")
         cls_leiden = algorithm_registry.get("community_hierarchy", "leiden")
+        cls_default = algorithm_registry.get("community_hierarchy", "default")
 
         assert cls_louvain is CommunityHierarchyBuilder
         assert cls_leiden is CommunityHierarchyBuilder
+        assert cls_default is CommunityHierarchyBuilder
 
         inst_louvain = algorithm_registry.create_instance(
             "community_hierarchy", "louvain", seed=42
@@ -575,3 +577,156 @@ class TestIntegrationAndRegistry:
         )
         assert isinstance(inst_leiden, CommunityHierarchyBuilder)
         assert inst_leiden.algorithm == "leiden"
+
+        inst_default = algorithm_registry.create_instance(
+            "community_hierarchy", "default", seed=42
+        )
+        assert isinstance(inst_default, CommunityHierarchyBuilder)
+        assert inst_default.algorithm == "louvain"
+
+    def test_build_community_hierarchy_default_method(self):
+        g = nx.karate_club_graph()
+        h_default = build_community_hierarchy(g, method="default", seed=42)
+        assert isinstance(h_default, CommunityHierarchy)
+        assert not h_default.is_empty
+
+
+# ---------------------------------------------------------------------------
+# Extended Edge Case & Robustness Tests
+# ---------------------------------------------------------------------------
+
+class TestCommunityHierarchyEdgeCases:
+    """Rigorous robustness tests for edge cases and input variants."""
+
+    def test_entity_and_child_ids_deduplication(self):
+        comm = HierarchicalCommunity(
+            id="c_0_0",
+            level=0,
+            index=0,
+            entity_ids=["b", "a", "b", "a"],
+            child_ids=["c_prev_1", "c_prev_1"],
+        )
+        assert comm.entity_ids == ["a", "b"]
+        assert comm.size == 2
+        assert comm.child_ids == ["c_prev_1"]
+
+    def test_multigraph_parallel_edges_weight_aggregation(self):
+        mg = nx.MultiGraph()
+        mg.add_edge("a", "b", weight=2.0)
+        mg.add_edge("a", "b", weight=3.0)
+        mg.add_edge("b", "c", weight=1.0)
+
+        builder = CommunityHierarchyBuilder(algorithm="louvain", seed=42)
+        converted = builder._to_networkx(mg)
+        assert converted.get_edge_data("a", "b")["weight"] == 5.0
+        assert converted.get_edge_data("b", "c")["weight"] == 1.0
+
+        hierarchy = builder.build(mg)
+        assert not hierarchy.is_empty
+
+    def test_multidigraph_parallel_edges_weight_aggregation(self):
+        mdg = nx.MultiDiGraph()
+        mdg.add_edge("x", "y", weight=1.5)
+        mdg.add_edge("x", "y", weight=2.5)
+
+        builder = CommunityHierarchyBuilder(
+            algorithm="louvain", directed=True, seed=42
+        )
+        converted = builder._to_networkx(mdg)
+        assert converted.is_directed()
+        assert converted.get_edge_data("x", "y")["weight"] == 4.0
+
+    def test_empty_and_invalid_resolution_handling(self):
+        builder_empty = CommunityHierarchyBuilder(resolution=[])
+        assert builder_empty.resolution == [1.0]
+
+        with pytest.raises(ValueError, match="Resolution.*must be positive"):
+            CommunityHierarchyBuilder(resolution=0.0)
+
+        with pytest.raises(ValueError, match="Resolution.*must be positive"):
+            CommunityHierarchyBuilder(resolution=[1.0, -0.5])
+
+    def test_invalid_max_levels_handling(self):
+        with pytest.raises(ValueError, match="max_levels.*positive"):
+            CommunityHierarchyBuilder(max_levels=0)
+
+        with pytest.raises(ValueError, match="max_levels.*positive"):
+            CommunityHierarchyBuilder(max_levels=-2)
+
+    def test_leiden_multi_resolution_list(self):
+        g = nx.erdos_renyi_graph(30, 0.15, seed=42)
+        builder = CommunityHierarchyBuilder(
+            algorithm="leiden", resolution=[1.5, 0.8], seed=42
+        )
+        hierarchy = builder.build(g)
+        assert not hierarchy.is_empty
+        assert hierarchy.max_level >= 0
+
+    def test_get_subgraph_adjacency_dict(self):
+        adj = {
+            "node_1": ["node_2"],
+            "node_2": ["node_1", "node_3"],
+            "node_3": ["node_2"],
+        }
+        c = HierarchicalCommunity(
+            id="c_0_0", level=0, index=0, entity_ids=["node_1", "node_2"]
+        )
+        hierarchy = CommunityHierarchy([c])
+        sub = hierarchy.get_subgraph("c_0_0", graph=adj)
+        assert isinstance(sub, dict)
+        assert set(sub.keys()) == {"node_1", "node_2"}
+        assert sub["node_1"] == ["node_2"]
+        assert sub["node_2"] == ["node_1"]
+
+    def test_get_subgraph_source_id_target_id(self):
+        kg = KnowledgeGraph(
+            entities=[{"id": "e1"}, {"id": "e2"}, {"id": "e3"}],
+            relationships=[
+                {"source_id": "e1", "target_id": "e2", "type": "KNOWS"},
+                {"source_id": "e2", "target_id": "e3", "type": "KNOWS"},
+            ],
+        )
+        c = HierarchicalCommunity(
+            id="c_0_0", level=0, index=0, entity_ids=["e1", "e2"]
+        )
+        hierarchy = CommunityHierarchy([c])
+        sub = hierarchy.get_subgraph("c_0_0", graph=kg)
+        assert isinstance(sub, KnowledgeGraph)
+        assert len(sub.entities) == 2
+        assert len(sub.relationships) == 1
+        assert sub.relationships[0]["source_id"] == "e1"
+
+    def test_get_community_for_node_lowest_available_level(self):
+        c = HierarchicalCommunity(
+            id="c_2_0", level=2, index=0, entity_ids=["alpha", "beta"]
+        )
+        hierarchy = CommunityHierarchy([c])
+        matched = hierarchy.get_community_for_node("alpha", level=None)
+        assert matched is not None
+        assert matched.id == "c_2_0"
+
+    def test_from_dict_with_communities_as_list(self):
+        c = HierarchicalCommunity(
+            id="c_0_0", level=0, index=0, entity_ids=["n1"]
+        )
+        data = {"communities": [c.to_dict()]}
+        restored = CommunityHierarchy.from_dict(data)
+        assert len(restored) == 1
+        assert "c_0_0" in restored
+
+    def test_edge_weight_sanitization(self):
+        g = nx.Graph()
+        g.add_edge("1", "2", weight="invalid")
+        g.add_edge("2", "3", weight=-5.0)
+        g.add_edge("3", "4", weight=float("nan"))
+        g.add_edge("4", "5", weight=None)
+
+        builder = CommunityHierarchyBuilder(algorithm="louvain", seed=42)
+        converted = builder._to_networkx(g)
+        assert converted.get_edge_data("1", "2")["weight"] == 1.0
+        assert converted.get_edge_data("2", "3")["weight"] == 0.0
+        assert converted.get_edge_data("3", "4")["weight"] == 1.0
+        assert converted.get_edge_data("4", "5")["weight"] == 1.0
+
+        hierarchy = builder.build(g)
+        assert not hierarchy.is_empty

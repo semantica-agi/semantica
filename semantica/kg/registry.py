@@ -240,7 +240,7 @@ class AlgorithmRegistry:
         if (
             algo is None and
             category == "community_hierarchy" and
-            name in ("louvain", "leiden")
+            name in ("louvain", "leiden", "default")
         ):
             from .community_hierarchy import CommunityHierarchyBuilder
             return CommunityHierarchyBuilder
@@ -268,7 +268,8 @@ class AlgorithmRegistry:
             raise TypeError(f"Algorithm {name} has no implementation class registered")
         
         if category == "community_hierarchy":
-            kwargs.setdefault("algorithm", name)
+            algo_name = "louvain" if name == "default" else name
+            kwargs.setdefault("algorithm", algo_name)
         return algorithm_class(**kwargs)
     
     def list_category(self, category: str) -> List[str]:
@@ -498,6 +499,28 @@ class AlgorithmRegistry:
         )
 
         # Hierarchical community detection
+        self.register(
+            "community_hierarchy",
+            "default",
+            None,
+            metadata={
+                "description": (
+                    "Default hierarchical community detection (Louvain)"
+                ),
+                "parameters": [
+                    "resolution", "seed", "threshold", "max_levels"
+                ],
+                "complexity": "O(V log V + E)",
+                "quality": "High",
+                "use_case": "Hierarchical GraphRAG clustering",
+            },
+            capabilities=[
+                "multi_level",
+                "coarsening",
+                "deterministic",
+                "indexed_hierarchy",
+            ],
+        )
         self.register(
             "community_hierarchy",
             "louvain",

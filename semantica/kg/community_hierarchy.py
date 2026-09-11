@@ -30,8 +30,8 @@ def compute_community_hash(
     payload = {
         "level": level,
         "index": index,
-        "entity_ids": sorted(str(e) for e in entity_ids),
-        "child_ids": sorted(str(c) for c in (child_ids or [])),
+        "entity_ids": sorted(set(str(e) for e in entity_ids)),
+        "child_ids": sorted(set(str(c) for c in (child_ids or []))),
     }
     dumped = json.dumps(payload, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(dumped.encode("utf-8")).hexdigest()
@@ -53,12 +53,12 @@ class HierarchicalCommunity:
 
     def __post_init__(self) -> None:
         if self.entity_ids:
-            self.entity_ids = sorted(str(e) for e in self.entity_ids)
+            self.entity_ids = sorted(set(str(e) for e in self.entity_ids))
         else:
             self.entity_ids = []
 
         if self.child_ids:
-            self.child_ids = sorted(str(c) for c in self.child_ids)
+            self.child_ids = sorted(set(str(c) for c in self.child_ids))
         else:
             self.child_ids = []
 
@@ -118,7 +118,7 @@ class CommunityHierarchy:
         self._graph = graph
         if communities is None:
             self._communities: Dict[str, HierarchicalCommunity] = {}
-        elif isinstance(communities, list):
+        elif isinstance(communities, (list, tuple, set)):
             self._communities = {c.id: c for c in communities}
         elif isinstance(communities, dict):
             self._communities = dict(communities)
@@ -230,11 +230,11 @@ class CommunityHierarchy:
         """
         Look up community containing a node at a given level in O(1) time.
 
-        If level is None, defaults to level 0 (finest level).
+        If level is None, defaults to the lowest level available (usually 0).
         """
         if self.is_empty:
             return None
-        target_level = 0 if level is None else level
+        target_level = min(self.levels) if level is None else level
         comm_id = self._node_to_community.get((str(node_id), target_level))
         if comm_id is None:
             return None
@@ -272,12 +272,22 @@ class CommunityHierarchy:
         if isinstance(target_graph, KnowledgeGraph):
             sub_entities = [
                 e for e in target_graph.entities
-                if str(e.get("id", "")) in node_set
+                if (
+                    str(e.get("id", "")) if isinstance(e, dict) else str(e)
+                ) in node_set
             ]
             sub_relationships = [
                 r for r in target_graph.relationships
-                if str(r.get("source", "")) in node_set
-                and str(r.get("target", "")) in node_set
+                if (
+                    str(r.get("source", r.get("source_id", "")))
+                    if isinstance(r, dict)
+                    else str(r[0])
+                ) in node_set
+                and (
+                    str(r.get("target", r.get("target_id", "")))
+                    if isinstance(r, dict)
+                    else str(r[1])
+                ) in node_set
             ]
             return KnowledgeGraph(
                 entities=sub_entities,
@@ -296,12 +306,12 @@ class CommunityHierarchy:
                 sub_relationships = [
                     r for r in target_graph.get("relationships", [])
                     if (
-                        str(r.get("source", ""))
+                        str(r.get("source", r.get("source_id", "")))
                         if isinstance(r, dict)
                         else str(r[0])
                     ) in node_set
                     and (
-                        str(r.get("target", ""))
+                        str(r.get("target", r.get("target_id", "")))
                         if isinstance(r, dict)
                         else str(r[1])
                     ) in node_set
@@ -321,17 +331,30 @@ class CommunityHierarchy:
                 sub_edges = [
                     e for e in target_graph.get("edges", [])
                     if (
-                        str(e.get("source", ""))
+                        str(e.get("source", e.get("source_id", "")))
                         if isinstance(e, dict)
                         else str(e[0])
                     ) in node_set
                     and (
-                        str(e.get("target", ""))
+                        str(e.get("target", e.get("target_id", "")))
                         if isinstance(e, dict)
                         else str(e[1])
                     ) in node_set
                 ]
                 return {"nodes": sub_nodes, "edges": sub_edges}
+
+            # Adjacency dict format: {node: [neighbors, ...]}
+            sub_adj: Dict[str, Any] = {}
+            for node, nbrs in target_graph.items():
+                node_str = str(node)
+                if node_str in node_set:
+                    if isinstance(nbrs, (list, set, tuple)):
+                        sub_adj[node_str] = [
+                            str(nbr) for nbr in nbrs if str(nbr) in node_set
+                        ]
+                    else:
+                        sub_adj[node_str] = nbrs
+            return sub_adj
 
         raise TypeError(f"Unsupported graph type: {type(target_graph)}")
 
@@ -351,10 +374,16 @@ class CommunityHierarchy:
     def from_dict(cls, data: Dict[str, Any]) -> "CommunityHierarchy":
         """Instantiate hierarchy from a dictionary."""
         raw_communities = data.get("communities", {})
-        communities = {
-            cid: HierarchicalCommunity.from_dict(c_data)
-            for cid, c_data in raw_communities.items()
-        }
+        if isinstance(raw_communities, list):
+            communities = {
+                str(c_data["id"]): HierarchicalCommunity.from_dict(c_data)
+                for c_data in raw_communities
+            }
+        else:
+            communities = {
+                cid: HierarchicalCommunity.from_dict(c_data)
+                for cid, c_data in raw_communities.items()
+            }
         return cls(communities=communities)
 
     def to_json(self, indent: Optional[int] = None) -> str:
@@ -389,6 +418,19 @@ class CommunityHierarchy:
 class CommunityHierarchyBuilder:
     """Multi-level hierarchy builder supporting Louvain and Leiden."""
 
+    @staticmethod
+    def _clean_weight(val: Any) -> float:
+        """Sanitize edge weights to non-negative floats."""
+        if val is None:
+            return 1.0
+        try:
+            w = float(val)
+            if w != w:
+                return 1.0
+            return max(0.0, w)
+        except (ValueError, TypeError):
+            return 1.0
+
     def __init__(
         self,
         algorithm: str = "louvain",
@@ -401,18 +443,40 @@ class CommunityHierarchyBuilder:
         id_prefix: str = "c_",
         **kwargs: Any,
     ) -> None:
-        self.algorithm = algorithm.lower().strip()
-        if self.algorithm not in ("louvain", "leiden"):
+        algo_norm = algorithm.lower().strip()
+        if algo_norm in ("louvain", "default"):
+            self.algorithm = "louvain"
+        elif algo_norm == "leiden":
+            self.algorithm = "leiden"
+        else:
             raise ValueError(
                 f"Unsupported algorithm '{algorithm}'. "
                 f"Supported algorithms: 'louvain', 'leiden'"
             )
-        self.resolution = resolution
+
+        if isinstance(resolution, (list, tuple)):
+            if len(resolution) == 0:
+                self.resolution: Union[float, List[float]] = [1.0]
+            else:
+                for r in resolution:
+                    if float(r) <= 0:
+                        raise ValueError(
+                            "Resolution values must be positive (> 0)"
+                        )
+                self.resolution = [float(r) for r in resolution]
+        else:
+            if float(resolution) <= 0:
+                raise ValueError("Resolution must be positive (> 0)")
+            self.resolution = float(resolution)
+
+        if max_levels is not None and max_levels <= 0:
+            raise ValueError("max_levels must be a positive integer (> 0)")
+        self.max_levels = max_levels
+
         self.seed = seed
         self.directed = directed
         self.weight = weight
         self.threshold = threshold
-        self.max_levels = max_levels
         self.id_prefix = id_prefix
         self.config = kwargs
 
@@ -444,8 +508,23 @@ class CommunityHierarchyBuilder:
             out_graph = nx.DiGraph() if is_directed else nx.Graph()
             for n, data in graph.nodes(data=True):
                 out_graph.add_node(str(n), **data)
+
+            is_multi = getattr(graph, "is_multigraph", lambda: False)()
             for u, v, data in graph.edges(data=True):
-                out_graph.add_edge(str(u), str(v), **data)
+                su, sv = str(u), str(v)
+                edge_data = dict(data)
+                w = self._clean_weight(edge_data.get("weight", 1.0))
+                edge_data["weight"] = w
+                if (
+                    (is_multi or not is_directed)
+                    and out_graph.has_edge(su, sv)
+                ):
+                    curr_w = self._clean_weight(
+                        out_graph[su][sv].get("weight", 1.0)
+                    )
+                    out_graph[su][sv]["weight"] = curr_w + w
+                else:
+                    out_graph.add_edge(su, sv, **edge_data)
             return out_graph
 
         is_directed = self.directed if self.directed is not None else False
@@ -468,10 +547,24 @@ class CommunityHierarchyBuilder:
                     tgt = str(rel.get("target", rel.get("target_id", "")))
                     if src and tgt:
                         data = dict(rel)
-                        data["weight"] = float(data.get("weight", 1.0))
-                        out_graph.add_edge(src, tgt, **data)
+                        w = self._clean_weight(data.get("weight", 1.0))
+                        data["weight"] = w
+                        if out_graph.has_edge(src, tgt):
+                            curr_w = self._clean_weight(
+                                out_graph[src][tgt].get("weight", 1.0)
+                            )
+                            out_graph[src][tgt]["weight"] = curr_w + w
+                        else:
+                            out_graph.add_edge(src, tgt, **data)
                 elif isinstance(rel, (tuple, list)) and len(rel) >= 2:
-                    out_graph.add_edge(str(rel[0]), str(rel[1]), weight=1.0)
+                    src, tgt = str(rel[0]), str(rel[1])
+                    if out_graph.has_edge(src, tgt):
+                        curr_w = self._clean_weight(
+                            out_graph[src][tgt].get("weight", 1.0)
+                        )
+                        out_graph[src][tgt]["weight"] = curr_w + 1.0
+                    else:
+                        out_graph.add_edge(src, tgt, weight=1.0)
             return out_graph
 
         if isinstance(graph, dict):
@@ -492,12 +585,24 @@ class CommunityHierarchyBuilder:
                         tgt = str(rel.get("target", rel.get("target_id", "")))
                         if src and tgt:
                             data = dict(rel)
-                            data["weight"] = float(data.get("weight", 1.0))
-                            out_graph.add_edge(src, tgt, **data)
+                            w = self._clean_weight(data.get("weight", 1.0))
+                            data["weight"] = w
+                            if out_graph.has_edge(src, tgt):
+                                curr_w = self._clean_weight(
+                                    out_graph[src][tgt].get("weight", 1.0)
+                                )
+                                out_graph[src][tgt]["weight"] = curr_w + w
+                            else:
+                                out_graph.add_edge(src, tgt, **data)
                     elif isinstance(rel, (tuple, list)) and len(rel) >= 2:
-                        out_graph.add_edge(
-                            str(rel[0]), str(rel[1]), weight=1.0
-                        )
+                        src, tgt = str(rel[0]), str(rel[1])
+                        if out_graph.has_edge(src, tgt):
+                            curr_w = self._clean_weight(
+                                out_graph[src][tgt].get("weight", 1.0)
+                            )
+                            out_graph[src][tgt]["weight"] = curr_w + 1.0
+                        else:
+                            out_graph.add_edge(src, tgt, weight=1.0)
                 return out_graph
 
             if "nodes" in graph or "edges" in graph:
@@ -517,10 +622,24 @@ class CommunityHierarchyBuilder:
                         tgt = str(e.get("target", e.get("target_id", "")))
                         if src and tgt:
                             data = dict(e)
-                            data["weight"] = float(data.get("weight", 1.0))
-                            out_graph.add_edge(src, tgt, **data)
+                            w = self._clean_weight(data.get("weight", 1.0))
+                            data["weight"] = w
+                            if out_graph.has_edge(src, tgt):
+                                curr_w = self._clean_weight(
+                                    out_graph[src][tgt].get("weight", 1.0)
+                                )
+                                out_graph[src][tgt]["weight"] = curr_w + w
+                            else:
+                                out_graph.add_edge(src, tgt, **data)
                     elif isinstance(e, (tuple, list)) and len(e) >= 2:
-                        out_graph.add_edge(str(e[0]), str(e[1]), weight=1.0)
+                        src, tgt = str(e[0]), str(e[1])
+                        if out_graph.has_edge(src, tgt):
+                            curr_w = self._clean_weight(
+                                out_graph[src][tgt].get("weight", 1.0)
+                            )
+                            out_graph[src][tgt]["weight"] = curr_w + 1.0
+                        else:
+                            out_graph.add_edge(src, tgt, weight=1.0)
                 return out_graph
 
             for node, nbrs in graph.items():
@@ -528,7 +647,18 @@ class CommunityHierarchyBuilder:
                 out_graph.add_node(node_id)
                 if isinstance(nbrs, (list, set, tuple)):
                     for nbr in nbrs:
-                        out_graph.add_edge(node_id, str(nbr), weight=1.0)
+                        nbr_id = str(nbr)
+                        if out_graph.has_edge(node_id, nbr_id):
+                            curr_w = self._clean_weight(
+                                out_graph[node_id][nbr_id].get(
+                                    "weight", 1.0
+                                )
+                            )
+                            out_graph[node_id][nbr_id]["weight"] = (
+                                curr_w + 1.0
+                            )
+                        else:
+                            out_graph.add_edge(node_id, nbr_id, weight=1.0)
             return out_graph
 
         raise TypeError(f"Unsupported graph input type: {type(graph)}")
@@ -561,11 +691,10 @@ class CommunityHierarchyBuilder:
         if G.number_of_nodes() == 1:
             return [[set(G.nodes())]]
 
-        resolution = (
-            self.resolution[0]
-            if isinstance(self.resolution, (list, tuple))
-            else self.resolution
-        )
+        if isinstance(self.resolution, (list, tuple)):
+            resolution = float(self.resolution[0]) if self.resolution else 1.0
+        else:
+            resolution = float(self.resolution)
 
         try:
             raw_partitions = list(
@@ -600,17 +729,12 @@ class CommunityHierarchyBuilder:
         if G.number_of_nodes() == 1:
             return [[set(G.nodes())]]
 
-        resolution = (
-            self.resolution[0]
-            if isinstance(self.resolution, (list, tuple))
-            else self.resolution
-        )
-
         partitions: List[List[Set[Any]]] = []
         current_g = G.copy()
         for u, v in current_g.edges():
-            if "weight" not in current_g[u][v]:
-                current_g[u][v]["weight"] = 1.0
+            current_g[u][v]["weight"] = self._clean_weight(
+                current_g[u][v].get("weight", 1.0)
+            )
 
         super_to_orig: Dict[Any, Set[Any]] = {n: {n} for n in G.nodes()}
         level = 0
@@ -619,11 +743,18 @@ class CommunityHierarchyBuilder:
             if self.max_levels is not None and level >= self.max_levels:
                 break
 
+            if isinstance(self.resolution, (list, tuple)):
+                curr_res = float(
+                    self.resolution[min(level, len(self.resolution) - 1)]
+                )
+            else:
+                curr_res = float(self.resolution)
+
             try:
                 raw_comms = nx_comm.louvain_communities(
                     current_g,
                     weight=self.weight,
-                    resolution=resolution,
+                    resolution=curr_res,
                     seed=self.seed,
                 )
             except Exception:
@@ -641,7 +772,11 @@ class CommunityHierarchyBuilder:
                     comps = list(nx.connected_components(sub))
                 refined_orig_comms.extend(comps)
 
-            if partitions and len(refined_orig_comms) == len(partitions[-1]):
+            if partitions and (
+                set(frozenset(s) for s in refined_orig_comms)
+                == set(frozenset(s) for s in partitions[-1])
+                or len(refined_orig_comms) >= len(partitions[-1])
+            ):
                 break
 
             partitions.append(refined_orig_comms)
@@ -668,7 +803,7 @@ class CommunityHierarchyBuilder:
                 sv = node_to_new_super[v]
                 if su == sv:
                     continue
-                w = data.get("weight", 1.0)
+                w = self._clean_weight(data.get("weight", 1.0))
                 if next_g.has_edge(su, sv):
                     next_g[su][sv]["weight"] += w
                 else:
@@ -693,9 +828,13 @@ class CommunityHierarchyBuilder:
         is_directed = G.is_directed()
 
         for level_idx, raw_level in enumerate(partitions):
-            sorted_raw = sorted(
-                raw_level, key=lambda nodes: sorted(str(n) for n in nodes)
-            )
+            sorted_raw = [
+                s
+                for s in sorted(
+                    raw_level, key=lambda nodes: sorted(str(n) for n in nodes)
+                )
+                if s
+            ]
             current_level_comms: List[HierarchicalCommunity] = []
 
             for c_idx, node_set in enumerate(sorted_raw):
@@ -711,20 +850,11 @@ class CommunityHierarchyBuilder:
                         G.in_degree(n) + G.out_degree(n) for n in sub.nodes
                     )
                     external_edges = total_incident - 2 * internal_edges
-                    density = (
-                        internal_edges / (sub_size * (sub_size - 1))
-                        if sub_size > 1
-                        else 0.0
-                    )
                 else:
                     total_degree = sum(G.degree(n) for n in sub.nodes)
                     external_edges = total_degree - 2 * internal_edges
-                    density = (
-                        (2.0 * internal_edges) / (sub_size * (sub_size - 1))
-                        if sub_size > 1
-                        else 0.0
-                    )
 
+                density = float(nx.density(sub))
                 denom = 2.0 * internal_edges + external_edges
                 conductance = (external_edges / denom) if denom > 0 else 0.0
 
@@ -763,10 +893,17 @@ class CommunityHierarchyBuilder:
 
             for child in children:
                 if child.entity_ids:
-                    parent_id = node_to_parent.get(child.entity_ids[0])
-                    child.parent_id = parent_id
-                    if parent_id is not None and parent_id in communities:
-                        communities[parent_id].child_ids.append(child.id)
+                    parent_votes = [
+                        node_to_parent[node]
+                        for node in child.entity_ids
+                        if node in node_to_parent
+                    ]
+                    if parent_votes:
+                        from collections import Counter
+                        parent_id = Counter(parent_votes).most_common(1)[0][0]
+                        child.parent_id = parent_id
+                        if parent_id in communities:
+                            communities[parent_id].child_ids.append(child.id)
 
         # Finalize child ordering and deterministic content hashes
         for comm in communities.values():
