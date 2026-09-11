@@ -63,6 +63,8 @@ def test_dedup_pairs_use_frontend_shape():
     for item in payload["duplicates"]:
         assert _extract_id(item.get("entity_a")), f"entity_a id missing in {item}"
         assert _extract_id(item.get("entity_b")), f"entity_b id missing in {item}"
+        assert "similarity" in item, f"similarity key missing in {item}"
+        assert item["similarity"] == item["similarity_score"], f"similarity diverged in {item}"
         assert _parse_score(item) > 0, f"score is 0 in {item}"
 
 
@@ -80,3 +82,28 @@ def test_dedup_pair_ids_reference_graph_nodes():
     for item in response.json()["duplicates"]:
         assert _extract_id(item.get("entity_a")) in node_ids
         assert _extract_id(item.get("entity_b")) in node_ids
+
+
+def test_dedup_merge_round_trip():
+    """Ids from a dedup pair must drive a successful merge.
+
+    Covers the reported failure end to end: before the fix the pairs
+    carried no frontend-facing ids, so a merge built from them POSTed
+    empty ids and failed with 404 ``Primary node '' not found``.
+    """
+    with _client_with_duplicates() as client:
+        scan = client.post("/api/enrich/dedup", json={"threshold": 0.5})
+        assert scan.status_code == 200, scan.text
+        assert scan.json()["duplicates"], "expected at least one flagged pair"
+        first = scan.json()["duplicates"][0]
+        primary_id = _extract_id(first.get("entity_a"))
+        duplicate_id = _extract_id(first.get("entity_b"))
+        assert primary_id and duplicate_id, f"pair ids missing in {first}"
+
+        merge = client.post(
+            "/api/enrich/merge",
+            json={"primary_id": primary_id, "duplicate_ids": [duplicate_id]},
+        )
+
+    assert merge.status_code == 200, merge.text
+    assert merge.json()["removed_ids"] == [duplicate_id]
