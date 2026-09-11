@@ -144,7 +144,12 @@ def _scrub_url_userinfo(value: str) -> str:
     host = parsed.hostname or ""
     if ":" in host:  # IPv6 literal
         host = f"[{host}]"
-    netloc = f"{host}:{parsed.port}" if parsed.port else host
+    try:
+        port = parsed.port
+    except ValueError:
+        # A malformed port must not turn metadata normalization into a crash.
+        port = None
+    netloc = f"{host}:{port}" if port else host
     return urlunparse(
         (
             parsed.scheme,
@@ -192,6 +197,18 @@ class LookerData:
 # Only keys listed here survive normalization.  Secret-adjacent SDK fields
 # (git_password, deploy_secret, password, pdt_password, device_token) are
 # deliberately absent, so they cannot reach LookerData, documents, or logs.
+
+# Values that reach the normalizer as plain mappings never pass through a
+# record allowlist, so secret-named keys are dropped explicitly as well.
+_SECRET_FIELD_NAMES = frozenset(
+    {
+        "deploy_secret",
+        "device_token",
+        "git_password",
+        "password",
+        "pdt_password",
+    }
+)
 
 _EXPLORE_FIELD_FIELDS = frozenset(
     {
@@ -258,6 +275,7 @@ _EXPLORE_FIELD_FIELDS = frozenset(
         "value_format_name",
         "view",
         "view_label",
+        "view_name",
         "week_start_day",
     }
 )
@@ -284,6 +302,7 @@ _EXPLORE_JOIN_FIELDS = frozenset(
 _NESTED_EXTRA_FIELDS = frozenset(
     {
         "certification_status",
+        "joins",
         "condition",
         "dependency_status",
         "details",
@@ -616,6 +635,11 @@ class LookerConnector:
         # values must live on ``read_config`` — assigning attributes alone
         # would not reach the OAuth2 exchange.
         settings.base_url = effective_base_url
+        # `verify_ssl` comes from LOOKERSDK_VERIFY_SSL / the ini file and would
+        # otherwise let an environment detail silently turn the enforced https
+        # requirement into an unverified connection carrying the client secret.
+        if not self.allow_private_ips:
+            settings.verify_ssl = True
         base_read_config = settings.read_config
 
         def _effective_read_config() -> Dict[str, Any]:
@@ -626,6 +650,8 @@ class LookerConnector:
                 data["client_id"] = effective_client_id
             if effective_client_secret:
                 data["client_secret"] = effective_client_secret
+            if not self.allow_private_ips:
+                data["verify_ssl"] = True
             return data
 
         settings.read_config = _effective_read_config  # type: ignore[method-assign]
@@ -703,14 +729,18 @@ class LookerConnector:
             )
             raise ProcessingError(
                 f"Failed to load Looker SDK settings: {type(exc).__name__}"
-            ) from exc
+            ) from None
 
     @staticmethod
     def _raw_read_config(settings: Any) -> Dict[str, Any]:
         """Read the SDK's resolved config without applying our overrides."""
         try:
             data = settings.read_config()
-        except Exception:  # noqa: BLE001 - config read is best-effort here
+        except Exception as exc:  # noqa: BLE001 - config read is best-effort here
+            # Without the config we cannot detect an endpoint conflict, so
+            # surface the cause instead of failing later as "missing
+            # credentials".
+            _logger.debug("Could not read Looker SDK config: %s", type(exc).__name__)
             return {}
         if isinstance(data, Mapping):
             return dict(data)
@@ -764,6 +794,11 @@ class LookerConnector:
                 "Looker base_url must use https unless allow_private_ips is "
                 f"enabled. Got scheme {parsed.scheme!r}."
             )
+        if parsed.username or parsed.password:
+            raise ValidationError(
+                "Looker base_url must not embed userinfo credentials; pass "
+                "them as client_id/client_secret instead."
+            )
         validate_url_for_request(base_url, allow_private_ips=self.allow_private_ips)
         return base_url
 
@@ -792,6 +827,12 @@ class LookerConnector:
             )
         session.max_redirects = 0
         session.trust_env = False
+        if session.verify is False:
+            raise ProcessingError(
+                "Looker SDK session has TLS verification disabled; refusing to "
+                "send credentials over an unverified connection."
+            )
+        session.verify = True
 
     @staticmethod
     def _transport_session(client: Any) -> Optional[Any]:
@@ -854,7 +895,7 @@ class LookerConnector:
             )
             raise ProcessingError(
                 f"Failed to initialise Looker client: {type(exc).__name__}"
-            ) from exc
+            ) from None
 
         resolved = self._client_base_url(client)
         if _normalize_url(resolved or "") != _normalize_url(self._validated_base_url):
@@ -1154,7 +1195,7 @@ class LookerIngestor:
                 )
                 raise ProcessingError(
                     f"Looker {sdk_method} failed: {type(exc).__name__}"
-                ) from exc
+                ) from None
 
             records = self._to_records(raw or [], content_type)
             data = LookerData(
@@ -1176,6 +1217,21 @@ class LookerIngestor:
                 data.row_count,
             )
             return data
+        except (ValidationError, ProcessingError):
+            self.progress_tracker.stop_tracking(
+                tracking_id,
+                status="failed",
+                message=f"Failed to read Looker {content_type} metadata",
+            )
+            raise
+        except Exception as exc:  # noqa: BLE001 - finalized then re-raised
+            self.progress_tracker.stop_tracking(
+                tracking_id, status="failed", message=type(exc).__name__
+            )
+            self.logger.error(
+                "Failed to ingest Looker %s: %s", content_type, type(exc).__name__
+            )
+            raise
         finally:
             if not already_connected:
                 self.connector.disconnect()
@@ -1242,7 +1298,13 @@ class LookerIngestor:
         if isinstance(value, date):
             return value.isoformat()
         if isinstance(value, Mapping):
-            return {key: self._normalize_value(item) for key, item in value.items()}
+            # Route through _normalize_field so credential-bearing URLs are
+            # scrubbed, and drop secret-named keys, at every depth.
+            return {
+                key: self._normalize_field(key, item)
+                for key, item in value.items()
+                if key not in _SECRET_FIELD_NAMES
+            }
         if isinstance(value, (list, tuple, set, frozenset)):
             return [self._normalize_value(item) for item in value]
         if self._is_model_like(value):
@@ -1344,7 +1406,9 @@ class LookerIngestor:
             project = row.get("project_name") or "unknown"
             name = row.get("name") or index
             return f"looker:lookml_model:{project}.{name}"
-        identifier = row.get("id", index)
+        identifier = row.get("id")
+        if identifier is None or identifier == "":
+            identifier = index
         return f"looker:{content_type}:{identifier}"
 
     def _document_metadata(

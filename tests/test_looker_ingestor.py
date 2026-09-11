@@ -25,7 +25,6 @@ not at the repository root, so no test here may require DNS resolution.
 from __future__ import annotations
 
 import json
-import logging
 import os
 import unittest
 from datetime import datetime, timezone
@@ -1186,6 +1185,8 @@ class TestLookerIngestorNormalization:
         assert record["name"] == "ecommerce"
         assert record["project_name"] == "shop"
         assert record["explores"][0]["name"] == "orders"
+        assert record["explores"][0]["view_name"] == "orders"
+        assert record["explores"][0]["joins"][0]["name"] == "users"
         assert record["explores"][0]["fields"][0]["sql"] == "${TABLE}.total"
         assert "device_token" not in record
         json.dumps(record)
@@ -1435,17 +1436,8 @@ class TestLookerConnectorSecretLogging(unittest.TestCase):
                     data = getattr(ingestor, method_name)()
                     ingestor.export_as_documents(data)
 
-                # The client is mocked, so emit the single info-level record
-                # the real transport logs (HTTP method and path only) to keep
-                # the SDK transport capture non-vacuous.
-                with self.assertLogs(TRANSPORT_LOGGER, level="DEBUG") as transport_logs:
-                    logging.getLogger(TRANSPORT_LOGGER).info(
-                        "GET(%s)", "/api/4.0/looks"
-                    )
-
-        captured = "\n".join(connector_logs.output + transport_logs.output)
+        captured = "\n".join(connector_logs.output)
         assert connector_logs.output, "expected connector log records"
-        assert transport_logs.output, "expected transport log records"
 
         for secret in (CLIENT_SECRET, ACCESS_TOKEN, *SECRET_FIELD_VALUES.values()):
             assert secret not in captured
