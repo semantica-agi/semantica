@@ -48,8 +48,7 @@ class AirflowData:
     ingested_at: datetime = field(default_factory=datetime.now)
 
     def to_documents(self) -> List[Dict[str, Any]]:
-        """Convert Airflow metadata into GraphBuilder-friendly
-        document dicts."""
+        """Convert Airflow metadata into GraphBuilder-friendly document dicts."""
 
         documents: List[Dict[str, Any]] = []
 
@@ -87,18 +86,22 @@ class AirflowData:
             if not dag_id or not upstream or not downstream:
                 continue
 
+            upstream_id = f"airflow:task:{dag_id}:{upstream}"
+            downstream_id = f"airflow:task:{dag_id}:{downstream}"
+
             documents.append(
                 {
-                    "id": (
-                        f"airflow:dependency:{dag_id}:"
-                        f"{upstream}:{downstream}"
-                    ),
+                    "id": (f"airflow:dependency:{dag_id}:" f"{upstream}:{downstream}"),
                     "name": f"{upstream} -> {downstream}",
                     "type": "airflow_dependency",
+                    "source": upstream_id,
+                    "target": downstream_id,
                     "dag_id": dag_id,
                     "upstream_task_id": upstream,
                     "downstream_task_id": downstream,
-                    "source": self.source,
+                    "metadata": {
+                        "airflow_source": self.source,
+                    },
                 }
             )
 
@@ -167,15 +170,15 @@ class AirflowConnector:
         url = self.api_url(path)
         kwargs.setdefault("timeout", self.timeout)
 
-        response = request_with_ssrf_guard(
-            method,
-            url,
-            session=self.session,
-            allow_private_ips=self.allow_private_ips,
-            **kwargs,
-        )
-
         try:
+            response = request_with_ssrf_guard(
+                method,
+                url,
+                session=self.session,
+                allow_private_ips=self.allow_private_ips,
+                allow_private_ips_on_redirect=False,
+                **kwargs,
+            )
             response.raise_for_status()
         except requests.exceptions.RequestException as exc:
             raise ProcessingError(
@@ -234,9 +237,7 @@ class AirflowIngestor:
             self.connector = connector
         else:
             if not base_url:
-                raise ValidationError(
-                    "Provide either an AirflowConnector or base_url."
-                )
+                raise ValidationError("Provide either an AirflowConnector or base_url.")
 
             self.connector = AirflowConnector(
                 base_url,
@@ -257,9 +258,7 @@ class AirflowIngestor:
         """Fetch all DAG metadata using Airflow REST API pagination."""
 
         if limit <= 0:
-            raise ValidationError(
-                "Airflow DAG page limit must be greater than zero."
-            )
+            raise ValidationError("Airflow DAG page limit must be greater than zero.")
 
         dags: List[Dict[str, Any]] = []
         offset = 0
@@ -291,10 +290,10 @@ class AirflowIngestor:
 
             offset += len(page)
 
-            if isinstance(total_entries, int) and offset >= total_entries:
-                break
-
-            if len(page) < limit:
+            if isinstance(total_entries, int):
+                if offset >= total_entries:
+                    break
+            elif len(page) < limit:
                 break
 
         return dags
@@ -347,11 +346,7 @@ class AirflowIngestor:
 
             downstream_task_ids = task.get("downstream_task_ids") or []
 
-            if (
-                not dag_id
-                or not task_id
-                or not isinstance(downstream_task_ids, list)
-            ):
+            if not dag_id or not task_id or not isinstance(downstream_task_ids, list):
                 continue
 
             for downstream_task_id in downstream_task_ids:
@@ -390,11 +385,7 @@ class AirflowIngestor:
 
         if dag_ids is not None:
             requested = set(dag_ids)
-            dags = [
-                dag
-                for dag in dags
-                if str(dag.get("dag_id") or "") in requested
-            ]
+            dags = [dag for dag in dags if str(dag.get("dag_id") or "") in requested]
 
         if not include_paused:
             dags = [dag for dag in dags if not bool(dag.get("is_paused"))]

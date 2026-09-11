@@ -8,6 +8,7 @@ from semantica.ingest.airflow_ingestor import (
     AirflowData,
     AirflowIngestor,
 )
+from semantica.kg import GraphBuilder
 from semantica.utils.exceptions import ProcessingError, ValidationError
 
 
@@ -62,9 +63,7 @@ class TestAirflowConnector:
             token="token-value",
         )
 
-        assert (
-            connector.session.headers["Authorization"] == "Bearer token-value"
-        )
+        assert connector.session.headers["Authorization"] == "Bearer token-value"
 
         connector.close()
 
@@ -73,10 +72,7 @@ class TestAirflowConnector:
             "https://airflow.example.com",
         )
 
-        assert (
-            connector.api_url("dags")
-            == "https://airflow.example.com/api/v1/dags"
-        )
+        assert connector.api_url("dags") == "https://airflow.example.com/api/v1/dags"
 
         connector.close()
 
@@ -104,8 +100,35 @@ class TestAirflowConnector:
             "https://airflow.example.com/api/v1/dags",
             session=connector.session,
             allow_private_ips=False,
+            allow_private_ips_on_redirect=False,
             params={"limit": 10},
             timeout=15,
+        )
+
+        connector.close()
+
+    @patch("semantica.ingest.airflow_ingestor.request_with_ssrf_guard")
+    def test_request_allows_private_origin_but_blocks_private_redirects(
+        self,
+        mock_guard,
+    ):
+        response = make_response({"dags": []})
+        mock_guard.return_value = response
+
+        connector = AirflowConnector(
+            "http://10.0.0.20:8080",
+            allow_private_ips=True,
+        )
+
+        connector.request("GET", "dags")
+
+        mock_guard.assert_called_once_with(
+            "GET",
+            "http://10.0.0.20:8080/api/v1/dags",
+            session=connector.session,
+            allow_private_ips=True,
+            allow_private_ips_on_redirect=False,
+            timeout=30,
         )
 
         connector.close()
@@ -127,6 +150,50 @@ class TestAirflowConnector:
             match="Airflow API request failed",
         ):
             connector.request("GET", "dags")
+
+        connector.close()
+
+    @patch("semantica.ingest.airflow_ingestor.request_with_ssrf_guard")
+    def test_request_converts_timeout_error(self, mock_guard):
+        mock_guard.side_effect = requests.exceptions.Timeout("timed out")
+
+        connector = AirflowConnector(
+            "https://airflow.example.com",
+        )
+
+        with pytest.raises(
+            ProcessingError,
+            match="Airflow API request failed",
+        ) as exc_info:
+            connector.request("GET", "dags")
+
+        assert isinstance(
+            exc_info.value.__cause__,
+            requests.exceptions.Timeout,
+        )
+
+        connector.close()
+
+    @patch("semantica.ingest.airflow_ingestor.request_with_ssrf_guard")
+    def test_request_converts_connection_error(self, mock_guard):
+        mock_guard.side_effect = requests.exceptions.ConnectionError(
+            "connection failed"
+        )
+
+        connector = AirflowConnector(
+            "https://airflow.example.com",
+        )
+
+        with pytest.raises(
+            ProcessingError,
+            match="Airflow API request failed",
+        ) as exc_info:
+            connector.request("GET", "dags")
+
+        assert isinstance(
+            exc_info.value.__cause__,
+            requests.exceptions.ConnectionError,
+        )
 
         connector.close()
 
@@ -218,6 +285,69 @@ class TestAirflowIngestor:
                 "offset": 2,
             },
         )
+
+    def test_list_dags_continues_when_server_caps_page_size(self):
+        connector = MagicMock(spec=AirflowConnector)
+
+        connector.get_json.side_effect = [
+            {
+                "dags": [
+                    {"dag_id": "dag_one"},
+                    {"dag_id": "dag_two"},
+                ],
+                "total_entries": 4,
+            },
+            {
+                "dags": [
+                    {"dag_id": "dag_three"},
+                    {"dag_id": "dag_four"},
+                ],
+                "total_entries": 4,
+            },
+        ]
+
+        ingestor = AirflowIngestor(connector=connector)
+
+        dags = ingestor.list_dags(limit=100)
+
+        assert [dag["dag_id"] for dag in dags] == [
+            "dag_one",
+            "dag_two",
+            "dag_three",
+            "dag_four",
+        ]
+
+        assert connector.get_json.call_count == 2
+        connector.get_json.assert_any_call(
+            "dags",
+            params={
+                "limit": 100,
+                "offset": 0,
+            },
+        )
+        connector.get_json.assert_any_call(
+            "dags",
+            params={
+                "limit": 100,
+                "offset": 2,
+            },
+        )
+
+    def test_list_dags_stops_on_short_page_without_total_entries(self):
+        connector = MagicMock(spec=AirflowConnector)
+
+        connector.get_json.return_value = {
+            "dags": [
+                {"dag_id": "dag_one"},
+            ],
+        }
+
+        ingestor = AirflowIngestor(connector=connector)
+
+        dags = ingestor.list_dags(limit=100)
+
+        assert dags == [{"dag_id": "dag_one"}]
+        assert connector.get_json.call_count == 1
 
     def test_list_dags_rejects_invalid_limit(self):
         connector = MagicMock(spec=AirflowConnector)
@@ -460,7 +590,11 @@ class TestAirflowData:
                 {
                     "dag_id": "pipeline",
                     "task_id": "extract",
-                }
+                },
+                {
+                    "dag_id": "pipeline",
+                    "task_id": "load",
+                },
             ],
             dependencies=[
                 {
@@ -474,7 +608,7 @@ class TestAirflowData:
 
         documents = data.to_documents()
 
-        assert len(documents) == 3
+        assert len(documents) == 4
 
         assert documents[0]["id"] == "airflow:dag:pipeline"
         assert documents[0]["type"] == "airflow_dag"
@@ -482,10 +616,59 @@ class TestAirflowData:
         assert documents[1]["id"] == "airflow:task:pipeline:extract"
         assert documents[1]["type"] == "airflow_task"
 
-        assert documents[2]["id"] == "airflow:dependency:pipeline:extract:load"
-        assert documents[2]["type"] == "airflow_dependency"
+        assert documents[2]["id"] == "airflow:task:pipeline:load"
+        assert documents[2]["type"] == "airflow_task"
 
-        assert all(
-            document["source"] == "https://airflow.example.com/"
-            for document in documents
+        dependency = documents[3]
+
+        assert dependency["id"] == "airflow:dependency:pipeline:extract:load"
+        assert dependency["type"] == "airflow_dependency"
+        assert dependency["source"] == "airflow:task:pipeline:extract"
+        assert dependency["target"] == "airflow:task:pipeline:load"
+        assert dependency["metadata"] == {
+            "airflow_source": "https://airflow.example.com/",
+        }
+
+    def test_dependency_documents_build_graph_relationships(self):
+        data = AirflowData(
+            dags=[],
+            tasks=[
+                {
+                    "dag_id": "pipeline",
+                    "task_id": "extract",
+                },
+                {
+                    "dag_id": "pipeline",
+                    "task_id": "load",
+                },
+            ],
+            dependencies=[
+                {
+                    "dag_id": "pipeline",
+                    "upstream_task_id": "extract",
+                    "downstream_task_id": "load",
+                }
+            ],
+            source="https://airflow.example.com/",
         )
+
+        documents = data.to_documents()
+
+        builder = GraphBuilder()
+        entities = []
+        relationships = []
+
+        for document in documents:
+            builder._process_item(
+                document,
+                entities,
+                relationships,
+            )
+
+        assert len(relationships) == 1
+
+        relationship = relationships[0]
+
+        assert relationship["source"] == "airflow:task:pipeline:extract"
+        assert relationship["target"] == "airflow:task:pipeline:load"
+        assert relationship["type"] == "airflow_dependency"
