@@ -88,13 +88,11 @@ from .ssrf import parse_bool, validate_url_for_request
 # ---------------------------------------------------------------------------
 try:
     import looker_sdk
-    from looker_sdk.error import SDKError
     from looker_sdk.rtl import api_settings
 
     LOOKER_AVAILABLE = True
 except (ImportError, OSError):
     looker_sdk = None  # type: ignore[assignment]
-    SDKError = None  # type: ignore[assignment,misc]
     api_settings = None  # type: ignore[assignment]
     LOOKER_AVAILABLE = False
 
@@ -572,6 +570,9 @@ class LookerConnector:
         self.section: Optional[str] = section
 
         self._client: Optional[Any] = None
+        # Endpoint validated at construction time, reused so the SSRF host
+        # check (which resolves DNS) runs at most once per connector.
+        self._validated_base_url: Optional[str] = None
 
         # Fail fast on an explicit endpoint before any SDK object exists:
         # a conflicting environment value must never silently win (AE2),
@@ -631,7 +632,10 @@ class LookerConnector:
         self._settings = settings
 
         self._validate_auth()
-        self._validated_base_url = self._validate_endpoint(effective_base_url)
+        # An explicit endpoint was already validated above and always wins
+        # the resolution order, so it is never validated twice.
+        if self._validated_base_url is None:
+            self._validated_base_url = self._validate_endpoint(effective_base_url)
 
         self.logger.debug(
             "Looker connector initialised (base_url=%s, allow_private_ips=%s)",
@@ -669,7 +673,7 @@ class LookerConnector:
                 "than binding the client to an unvalidated host."
             )
 
-        self._validate_endpoint(self._explicit_base_url)
+        self._validated_base_url = self._validate_endpoint(self._explicit_base_url)
 
     def _build_settings(self) -> Any:
         """Construct the SDK ``ApiSettings`` used to bind the client.
@@ -780,7 +784,7 @@ class LookerConnector:
             ProcessingError: If the client exposes no transport session,
                 because the compensating controls could not be applied.
         """
-        session = getattr(getattr(client, "transport", None), "session", None)
+        session = self._transport_session(client)
         if session is None:
             raise ProcessingError(
                 "Looker SDK client exposes no transport session; refusing to "
@@ -789,9 +793,14 @@ class LookerConnector:
         session.max_redirects = 0
         session.trust_env = False
 
+    @staticmethod
+    def _transport_session(client: Any) -> Optional[Any]:
+        """Return the SDK transport's HTTP session, if it exposes one."""
+        return getattr(getattr(client, "transport", None), "session", None)
+
     def _close_client(self, client: Any) -> None:
         """Best-effort close of a client that must not be used."""
-        session = getattr(getattr(client, "transport", None), "session", None)
+        session = self._transport_session(client)
         if session is None:
             return
         try:
@@ -1174,14 +1183,7 @@ class LookerIngestor:
     @staticmethod
     def _derive_columns(records: List[Dict[str, Any]]) -> List[str]:
         """Return the ordered union of keys present across *records*."""
-        columns: List[str] = []
-        seen = set()
-        for record in records:
-            for key in record:
-                if key not in seen:
-                    seen.add(key)
-                    columns.append(key)
-        return columns
+        return list(dict.fromkeys(key for record in records for key in record))
 
     # ------------------------------------------------------------------
     # Deep normalizer
@@ -1231,14 +1233,12 @@ class LookerIngestor:
         """Recursively convert *value* into JSON-serializable primitives.
 
         SDK ``Model`` objects become filtered dictionaries, sequences
-        become lists, and datetimes become ISO 8601 strings.
+        become lists, and dates/datetimes become ISO 8601 strings.
         """
         if value is None or isinstance(value, (str, int, float, bool)):
             return value
         if isinstance(value, enum.Enum):
             return value.value
-        if isinstance(value, datetime):
-            return value.isoformat()
         if isinstance(value, date):
             return value.isoformat()
         if isinstance(value, Mapping):
@@ -1246,17 +1246,8 @@ class LookerIngestor:
         if isinstance(value, (list, tuple, set, frozenset)):
             return [self._normalize_value(item) for item in value]
         if self._is_model_like(value):
-            return self._normalize_nested(value)
+            return self._normalize_record(value, _NESTED_RETAINED_FIELDS)
         return str(value)
-
-    def _normalize_nested(self, value: Any) -> Dict[str, Any]:
-        """Normalize a nested SDK ``Model`` using the shared allowlist."""
-        data = self._record_mapping(value)
-        return {
-            key: self._normalize_field(key, item)
-            for key, item in data.items()
-            if key in _NESTED_RETAINED_FIELDS
-        }
 
     @staticmethod
     def _is_model_like(value: Any) -> bool:
