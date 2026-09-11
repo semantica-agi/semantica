@@ -227,8 +227,9 @@ namespaced id and parent model reference:
 #         "id": "looker:lookml_model:ecommerce.orders:explore:order_items",
 #         "name": "order_items",
 #         "label": "Order Items",
-#         "view_name": "order_items",
+#         "group_label": "Order Items",
 #         "description": None,
+#         "hidden": False,
 #         "parent_model": "ecommerce.orders"
 #       }
 #     ],
@@ -256,16 +257,26 @@ plain dictionaries or lists, and `datetime` values become ISO 8601 strings.
 The connector validates the user-supplied endpoint before any client is
 constructed, then binds the client to that exact validated `base_url` — if the
 SDK resolves a different host from the environment or config file, it fails
-closed instead of connecting. It also refuses to follow redirects, does not
-trust proxy environment variables, and requires `https` unless
-`allow_private_ips` is explicitly enabled.
+closed instead of connecting.
+
+It also routes every outbound request through the same SSRF validation the
+repository's other connectors use, so the OAuth login and each metadata read
+are checked individually rather than only at construction. Connections are
+pinned to the addresses resolved during validation, so a DNS rebind between
+validation and dial cannot redirect them. Requests must use `https` unless
+`allow_private_ips` is explicitly enabled, TLS certificate verification is
+forced on (so `LOOKERSDK_VERIFY_SSL` or a `looker.ini` cannot downgrade it),
+redirects are not followed, and proxy environment variables are not trusted.
+The SDK's error-documentation lookup (a separate, unguarded `requests.get` it
+performs on a non-2xx response) is disabled so a failed request cannot open a
+second egress path.
 
 Record normalization projects every SDK object through an explicit allowlist of
 retained fields. Secret-adjacent fields such as `Project.git_password`,
 `Project.deploy_secret`, `Dashboard.password`, `Dashboard.pdt_password`, and
 `LookmlModel.device_token` are dropped, and any `user:password@` userinfo in
-`Project.git_remote_url` is scrubbed. Documents carry no `base_url` or
-credentials.
+`Project.git_remote_url` is scrubbed (a URL whose userinfo cannot be rewritten
+safely is redacted wholesale). Documents carry no `base_url` or credentials.
 
 
 ## See Also

@@ -8,8 +8,9 @@ Test structure mirrors ``tests/test_redshift_ingestor.py`` and
 ``tests/test_salesforce_ingestor.py``:
 
   - an autouse fixture injects a ``looker_sdk`` stub into ``sys.modules``
-    when the real SDK is absent, so the module-level optional-dependency
-    guard is exercised in both environments;
+    when the real SDK is absent, so tests that reference the symbol can
+    still run; the module-level optional-dependency guard has already run
+    at import time, so this fixture cannot change ``LOOKER_AVAILABLE``;
   - an autouse fixture clears ``LOOKERSDK_*`` variables so a developer's
     live configuration can never leak into a test;
   - tests that need the real ``ApiSettings``/``init40`` implementation are
@@ -28,7 +29,7 @@ import json
 import os
 import unittest
 from datetime import datetime, timezone
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import MagicMock, Mock, call, patch
 
 import pytest
 import requests
@@ -88,7 +89,14 @@ _LOOKER_ENV_KEYS = (
 
 @pytest.fixture(autouse=True)
 def _mock_looker_sdk_if_needed():
-    """Inject a minimal ``looker_sdk`` stub when the SDK is not installed."""
+    """Expose a minimal ``looker_sdk`` stub when the SDK is not installed.
+
+    The stub is installed in ``sys.modules`` for the duration of each test,
+    but ``semantica.ingest.looker_ingestor`` has already evaluated its
+    module-level import guard by then, so this fixture does **not** exercise
+    that guard — it only keeps ``looker_sdk`` importable for tests that
+    reference the module object directly.
+    """
     if not LOOKER_SDK_AVAILABLE:
         stub = MagicMock()
         stub.error.SDKError = type("SDKError", (Exception,), {})
@@ -1042,10 +1050,7 @@ class TestLookerIngestorNormalization:
                 "name": "model",
                 "project_name": "proj",
                 "explores": [
-                    _Nested(
-                        name="orders",
-                        fields=[_Nested(name="total", sql="SELECT 1")],
-                    )
+                    _Nested(name="orders", label="Orders", group_label="Commerce")
                 ],
             }
         ]
@@ -1054,8 +1059,11 @@ class TestLookerIngestorNormalization:
         data = ingestor.ingest_lookml_models()
         record = data.data[0]
 
-        assert record["explores"][0]["name"] == "orders"
-        assert record["explores"][0]["fields"][0]["sql"] == "SELECT 1"
+        assert record["explores"][0] == {
+            "name": "orders",
+            "label": "Orders",
+            "group_label": "Commerce",
+        }
         json.dumps(record)
 
     def test_secret_fields_absent_from_plain_dict_records(self):
@@ -1156,18 +1164,12 @@ class TestLookerIngestorNormalization:
     def test_lookml_model_explores_are_nested_with_parent_identity(self):
         from looker_sdk.sdk.api40 import models as sdk_models
 
-        explore = sdk_models.LookmlModelExplore(
-            id="explore-hash",
+        explore = sdk_models.LookmlModelNavExplore(
             name="orders",
             label="Orders",
-            view_name="orders",
-            fields=[
-                sdk_models.LookmlModelExploreField(
-                    name="total", type="measure", sql="${TABLE}.total"
-                )
-            ],
-            joins=[sdk_models.LookmlModelExploreJoins(name="users", from_="users")],
+            description="Order facts",
             hidden=False,
+            group_label="Commerce",
         )
         model = sdk_models.LookmlModel(
             name="ecommerce",
@@ -1184,10 +1186,15 @@ class TestLookerIngestorNormalization:
 
         assert record["name"] == "ecommerce"
         assert record["project_name"] == "shop"
-        assert record["explores"][0]["name"] == "orders"
-        assert record["explores"][0]["view_name"] == "orders"
-        assert record["explores"][0]["joins"][0]["name"] == "users"
-        assert record["explores"][0]["fields"][0]["sql"] == "${TABLE}.total"
+        # ``all_lookml_models()`` yields ``LookmlModelNavExplore`` records: only
+        # the navigation fields exist, and ``group_label`` must survive.
+        assert record["explores"][0] == {
+            "name": "orders",
+            "description": "Order facts",
+            "label": "Orders",
+            "hidden": False,
+            "group_label": "Commerce",
+        }
         assert "device_token" not in record
         json.dumps(record)
 
@@ -1210,7 +1217,13 @@ class TestLookerIngestorExport:
                     "project_name": "shop",
                     "label": "Ecommerce",
                     "explores": [
-                        {"name": "orders", "label": "Orders", "view_name": "orders"}
+                        {
+                            "name": "orders",
+                            "label": "Orders",
+                            "description": "Order facts",
+                            "hidden": False,
+                            "group_label": "Commerce",
+                        }
                     ],
                 }
             ],
@@ -1304,6 +1317,12 @@ class TestLookerIngestorExport:
             "looker:lookml_model:shop.ecommerce:explore:orders"
         )
         assert metadata["explores"][0]["name"] == "orders"
+        assert metadata["explores"][0]["label"] == "Orders"
+        assert metadata["explores"][0]["description"] == "Order facts"
+        assert metadata["explores"][0]["hidden"] is False
+        assert metadata["explores"][0]["group_label"] == "Commerce"
+        assert metadata["explores"][0]["parent_model"] == "shop.ecommerce"
+        assert "view_name" not in metadata["explores"][0]
 
     def test_full_export_is_json_serializable(self):
         from semantica.ingest.looker_ingestor import LookerData
@@ -1334,15 +1353,12 @@ class TestLookerIngestorExport:
             name="ecommerce",
             project_name="shop",
             explores=[
-                sdk_models.LookmlModelExplore(
-                    id="hash",
+                sdk_models.LookmlModelNavExplore(
                     name="orders",
-                    fields=[
-                        sdk_models.LookmlModelExploreField(
-                            name="total", type="measure", sql="${TABLE}.total"
-                        )
-                    ],
+                    label="Orders",
+                    description="Order facts",
                     hidden=False,
+                    group_label="Commerce",
                 )
             ],
         )
@@ -1452,11 +1468,11 @@ class TestLookerConnectorSecretLogging(unittest.TestCase):
 class TestLookerConnectorTransportHardening:
     """The SDK session must not follow redirects or trust proxy env vars."""
 
-    def _connect_with_real_session(self, session):
+    def _connect_with_real_session(self, session, base_url: str = PUBLIC_BASE_URL):
         """Connect a LookerConnector whose client carries *session*."""
         from semantica.ingest.looker_ingestor import LookerConnector
 
-        client = _make_mock_client()
+        client = _make_mock_client(base_url=base_url)
         client.transport.session = session
 
         with patch(
@@ -1464,7 +1480,7 @@ class TestLookerConnectorTransportHardening:
             return_value=client,
         ):
             connector = LookerConnector(
-                base_url=PUBLIC_BASE_URL,
+                base_url=base_url,
                 client_id=CLIENT_ID,
                 client_secret=CLIENT_SECRET,
             )
@@ -1525,6 +1541,95 @@ class TestLookerConnectorTransportHardening:
         adapter = session.adapters.get("https://")
         assert getattr(adapter, "_semantica_pinned", False) is True
 
+    def test_metadata_read_is_routed_through_the_ssrf_validator(self):
+        """AE1 — every SDK request must pass the repository SSRF validator.
+
+        The SDK's ``all_looks`` is wired to issue a real request through the
+        session that ``connect()`` hardens.  With the validator patched to
+        raise, the read must fail *before* the pinned transport is reached.
+        """
+        from semantica.ingest.looker_ingestor import LookerIngestor
+        from semantica.utils.exceptions import ValidationError
+
+        target = f"{PUBLIC_BASE_URL}/api/4.0/looks"
+        session = requests.Session()
+        client = _make_mock_client()
+        client.transport.session = session
+
+        class _RecordingAdapter(BaseAdapter):
+            """Pinned-transport stand-in that never dials the network."""
+
+            def __init__(self):
+                self.seen = []
+
+            def send(self, request, **kwargs):
+                self.seen.append(request.url)
+                response = requests.Response()
+                response.status_code = 200
+                response.url = request.url
+                response.request = request
+                response._content = b"[]"
+                return response
+
+            def close(self):
+                pass
+
+        delegate = _RecordingAdapter()
+
+        def _all_looks(**_kwargs):
+            session.get(target)
+            return []
+
+        client.all_looks.side_effect = _all_looks
+
+        with (
+            patch(
+                "semantica.ingest.looker_ingestor.looker_sdk.init40",
+                return_value=client,
+            ),
+            patch(
+                "semantica.ingest.looker_ingestor._make_pinned_adapter",
+                return_value=delegate,
+            ),
+        ):
+            ingestor = LookerIngestor(
+                base_url=PUBLIC_BASE_URL,
+                client_id=CLIENT_ID,
+                client_secret=CLIENT_SECRET,
+            )
+
+            with patch(
+                "semantica.ingest.looker_ingestor.validate_url_for_request",
+                side_effect=ValidationError("blocked by the test double"),
+            ):
+                with pytest.raises(ValidationError):
+                    ingestor.ingest_looks()
+
+        # The validator raised before the pinned adapter was reached.
+        assert delegate.seen == []
+
+    @pytest.mark.parametrize(
+        ("base_url", "expected_host"),
+        [
+            ("https://[2001:db8::1]", "[2001:db8::1]"),
+            ("https://[2001:db8::1]:8443", "[2001:db8::1]:8443"),
+        ],
+    )
+    def test_ipv6_host_header_is_bracketed(self, base_url, expected_host):
+        """AE4 — the pinned session's Host header is a valid authority."""
+        session = requests.Session()
+
+        with (
+            patch("semantica.ingest.looker_ingestor.validate_url_for_request"),
+            patch(
+                "semantica.ingest.looker_ingestor._resolve_pinned_ips",
+                return_value=["2001:db8::1"],
+            ),
+        ):
+            self._connect_with_real_session(session, base_url=base_url)
+
+        assert session.headers["Host"] == expected_host
+
 
 # ---------------------------------------------------------------------------
 # TestLookerHardeningRegressions — defects found in code review
@@ -1558,6 +1663,73 @@ class TestLookerHardeningRegressions:
             == "https://example.com/path@file"
         )
 
+    def test_userinfo_is_scrubbed_when_an_at_sign_follows_the_authority(self):
+        """The deciding '@' must be the one inside the authority section."""
+        from semantica.ingest.looker_ingestor import _scrub_url_userinfo
+
+        assert _scrub_url_userinfo("https://user:pw@example.com/path@file") == (
+            "https://example.com/path@file"
+        )
+        assert (
+            _scrub_url_userinfo(
+                "https://oauth2:glpat-SECRET@gitlab.example.com/org/repo.git"
+                "?ref=user@example.com"
+            )
+            == "https://gitlab.example.com/org/repo.git?ref=user@example.com"
+        )
+
+    def test_ipv6_authority_userinfo_is_scrubbed(self):
+        from semantica.ingest.looker_ingestor import _scrub_url_userinfo
+
+        assert (
+            _scrub_url_userinfo("https://user:pw@[::1]:8080/x")
+            == "https://[::1]:8080/x"
+        )
+
+    def test_ambiguous_password_containing_a_slash_fails_closed(self):
+        """A password containing '/' defeats the authority split."""
+        from semantica.ingest.looker_ingestor import (
+            _REDACTED_URL,
+            _scrub_url_userinfo,
+        )
+
+        assert _scrub_url_userinfo("https://user:pa/ss@host/repo.git") == (
+            _REDACTED_URL
+        )
+        # A later '@' in the path must not rescue the earlier userinfo.
+        assert (
+            _scrub_url_userinfo(
+                "https://alice:s3cr3t@git.example.com/groups/dev@example.com/repo.git"
+            )
+            == "https://git.example.com/groups/dev@example.com/repo.git"
+        )
+        assert (
+            _scrub_url_userinfo("https://user:pw@host/repo.git?x=@y")
+            == "https://host/repo.git?x=@y"
+        )
+
+    def test_host_port_authority_is_not_treated_as_userinfo(self):
+        from semantica.ingest.looker_ingestor import _scrub_url_userinfo
+
+        assert (
+            _scrub_url_userinfo("https://example.com:8443/path@file")
+            == "https://example.com:8443/path@file"
+        )
+        assert (
+            _scrub_url_userinfo("https://[::1]:8080/path@file")
+            == "https://[::1]:8080/path@file"
+        )
+
+    def test_guard_adapter_pinned_marker_is_derived_and_read_only(self):
+        """``_semantica_pinned`` is derived from the delegate, not cached."""
+        from semantica.ingest.looker_ingestor import _SSRFGuardAdapter
+
+        adapter = _SSRFGuardAdapter(allow_private_ips=False)
+
+        assert adapter._semantica_pinned is False
+        with pytest.raises(AttributeError):
+            adapter._semantica_pinned = True
+
     @requires_looker_sdk
     def test_ingestor_config_dict_does_not_collide_with_named_arguments(self):
         """A config dict naming a connector parameter must not raise."""
@@ -1571,3 +1743,328 @@ class TestLookerHardeningRegressions:
         )
 
         assert isinstance(ingestor.connector, LookerConnector)
+
+    @requires_looker_sdk
+    def test_env_conflict_message_does_not_leak_userinfo(self):
+        from semantica.ingest.looker_ingestor import LookerConnector
+        from semantica.utils.exceptions import ValidationError
+
+        env_url = "https://envuser:ENVSECRET@looker.example.com"
+        with patch.dict(os.environ, {"LOOKERSDK_BASE_URL": env_url}):
+            with pytest.raises(ValidationError) as exc_info:
+                LookerConnector(
+                    base_url=PUBLIC_BASE_URL,
+                    client_id=CLIENT_ID,
+                    client_secret=CLIENT_SECRET,
+                )
+
+        message = str(exc_info.value)
+        assert "ENVSECRET" not in message
+        assert "envuser" not in message
+
+    @requires_looker_sdk
+    def test_ini_conflict_message_does_not_leak_userinfo(self):
+        from semantica.ingest.looker_ingestor import LookerConnector
+        from semantica.utils.exceptions import ValidationError
+
+        raw_config = {"base_url": "https://iniuser:INISECRET@other.example.com"}
+
+        with patch.object(LookerConnector, "_raw_read_config", return_value=raw_config):
+            with pytest.raises(ValidationError) as exc_info:
+                LookerConnector(
+                    base_url=PUBLIC_BASE_URL,
+                    client_id=CLIENT_ID,
+                    client_secret=CLIENT_SECRET,
+                )
+
+        message = str(exc_info.value)
+        assert "INISECRET" not in message
+        assert "iniuser" not in message
+
+
+# ---------------------------------------------------------------------------
+# TestLookerIngestorConfigForwarding — config keys reach the connector
+# ---------------------------------------------------------------------------
+
+
+class TestLookerIngestorConfigForwarding:
+    """A ``config`` value for a named connector argument must reach it.
+
+    ``_CONNECTOR_ARGUMENT_NAMES`` keeps those keys out of the forwarded
+    ``**kwargs`` (so the call cannot collide), which means the ingestor must
+    resolve each one explicitly instead of silently dropping it.
+    """
+
+    @pytest.mark.parametrize(
+        ("key", "value"),
+        [
+            ("base_url", PUBLIC_BASE_URL),
+            ("client_id", "config-client-id"),
+            ("client_secret", "config-client-secret"),
+            ("config_file", "custom.ini"),
+            ("section", "production"),
+        ],
+    )
+    def test_config_value_reaches_the_connector(self, key, value):
+        from semantica.ingest.looker_ingestor import LookerIngestor
+
+        with patch(
+            "semantica.ingest.looker_ingestor.LookerConnector"
+        ) as mock_connector:
+            LookerIngestor(config={key: value})
+
+        assert mock_connector.call_args.kwargs[key] == value
+
+    def test_named_argument_wins_over_config_value(self):
+        from semantica.ingest.looker_ingestor import LookerIngestor
+
+        with patch(
+            "semantica.ingest.looker_ingestor.LookerConnector"
+        ) as mock_connector:
+            LookerIngestor(
+                base_url=PUBLIC_BASE_URL,
+                config={"base_url": "https://config.example.com"},
+            )
+
+        assert mock_connector.call_args.kwargs["base_url"] == PUBLIC_BASE_URL
+
+
+# ---------------------------------------------------------------------------
+# TestLookerIngestorMalformedRecords — SDK data problems fail safely
+# ---------------------------------------------------------------------------
+
+
+class TestLookerIngestorMalformedRecords:
+    """Malformed SDK records must use the documented exception types."""
+
+    def test_unsupported_record_type_raises_processing_error(self):
+        from semantica.utils.exceptions import ProcessingError
+
+        client = MagicMock()
+        client.all_looks.return_value = [42]
+        ingestor = _make_ingestor(client)
+
+        with pytest.raises(ProcessingError) as exc_info:
+            ingestor.ingest_looks()
+
+        assert "Unsupported Looker record type: int" in str(exc_info.value)
+
+    def test_record_conversion_failure_is_chained(self):
+        from semantica.utils.exceptions import ProcessingError
+
+        class _Unconvertible:
+            __slots__ = ()
+
+            def items(self):
+                raise RuntimeError("boom")
+
+            def keys(self):
+                raise RuntimeError("boom")
+
+        client = MagicMock()
+        client.all_looks.return_value = [_Unconvertible()]
+        ingestor = _make_ingestor(client)
+
+        with pytest.raises(ProcessingError) as exc_info:
+            ingestor.ingest_looks()
+
+        assert isinstance(exc_info.value.__cause__, RuntimeError)
+        assert "Unsupported Looker record type: _Unconvertible" in str(exc_info.value)
+
+    def test_non_mapping_row_raises_documented_validation_error(self):
+        from semantica.ingest.looker_ingestor import LookerData
+        from semantica.utils.exceptions import ValidationError
+
+        ingestor = _make_ingestor(MagicMock())
+        data = LookerData(data=["oops"], row_count=1, columns=[], content_type="look")
+
+        with pytest.raises(ValidationError) as exc_info:
+            ingestor.export_as_documents(data)
+
+        assert "str" in str(exc_info.value)
+
+    def test_non_iterable_explores_degrades_safely(self):
+        from semantica.ingest.looker_ingestor import LookerData
+
+        ingestor = _make_ingestor(MagicMock())
+        data = LookerData(
+            data=[{"name": "model", "project_name": "proj", "explores": 5}],
+            row_count=1,
+            columns=[],
+            content_type="lookml_model",
+        )
+
+        documents = ingestor.export_as_documents(data)
+
+        metadata = documents[0]["metadata"]
+        assert metadata["explores"] == []
+        assert metadata["explore_count"] == 0
+
+
+# ---------------------------------------------------------------------------
+# TestLookerIngestorOptionForwarding — **options reach the SDK method
+# ---------------------------------------------------------------------------
+
+
+class TestLookerIngestorOptionForwarding:
+    """Each read's documented ``**options`` must reach the SDK call."""
+
+    _READS = [
+        ("ingest_looks", "all_looks"),
+        ("ingest_dashboards", "all_dashboards"),
+        ("ingest_lookml_models", "all_lookml_models"),
+        ("ingest_folders", "all_folders"),
+        ("ingest_projects", "all_projects"),
+    ]
+
+    @pytest.mark.parametrize(("method_name", "sdk_method"), _READS)
+    def test_options_are_forwarded_to_the_sdk_method(self, method_name, sdk_method):
+        client = MagicMock()
+        getattr(client, sdk_method).return_value = []
+        ingestor = _make_ingestor(client)
+
+        getattr(ingestor, method_name)(fields="id,title", limit=5, offset=10)
+
+        assert getattr(client, sdk_method).call_args == call(
+            fields="id,title", limit=5, offset=10
+        )
+
+    @pytest.mark.parametrize(("method_name", "sdk_method"), _READS)
+    def test_no_options_sends_no_keyword_arguments(self, method_name, sdk_method):
+        client = MagicMock()
+        getattr(client, sdk_method).return_value = []
+        ingestor = _make_ingestor(client)
+
+        getattr(ingestor, method_name)()
+
+        assert getattr(client, sdk_method).call_args == call()
+
+
+# ---------------------------------------------------------------------------
+# TestLookerIngestorConfigOptIn — AE2/AE3 config allow_private_ips resolution
+# ---------------------------------------------------------------------------
+
+
+@requires_looker_sdk
+class TestLookerIngestorConfigOptIn:
+    """``config={"allow_private_ips": True}`` must reach the connector."""
+
+    @pytest.mark.parametrize("kwargs", [{}, {"allow_private_ips": False}])
+    def test_config_opt_in_wins_when_named_argument_is_left_at_default(self, kwargs):
+        """AE2/AE3 — the config entry wins while the named arg is unset."""
+        from semantica.ingest.looker_ingestor import LookerIngestor
+
+        ingestor = LookerIngestor(
+            base_url=PRIVATE_BASE_URL,
+            client_id=CLIENT_ID,
+            client_secret=CLIENT_SECRET,
+            config={"allow_private_ips": True},
+            **kwargs,
+        )
+
+        assert ingestor.connector.allow_private_ips is True
+
+    def test_config_value_wins_over_a_non_default_named_argument(self):
+        """The connector's config-wins precedence, parsed with parse_bool."""
+        from semantica.ingest.looker_ingestor import LookerIngestor
+
+        ingestor = LookerIngestor(
+            base_url=PUBLIC_BASE_URL,
+            client_id=CLIENT_ID,
+            client_secret=CLIENT_SECRET,
+            allow_private_ips=True,
+            config={"allow_private_ips": "0"},
+        )
+
+        assert ingestor.connector.allow_private_ips is False
+
+
+# ---------------------------------------------------------------------------
+# TestLookerConnectorErrorDocEgress — the SDK's error-doc fetch is neutralised
+# ---------------------------------------------------------------------------
+
+
+@requires_looker_sdk
+class TestLookerConnectorErrorDocEgress:
+    """The SDK's error-documentation lookup must not make its own requests.
+
+    ``looker_sdk.error.ErrorDocHelper.get_index`` performs a bare
+    ``requests.get`` (fresh session, ``trust_env=True``, no timeout, no
+    redirect cap, no SSRF validation) whenever the API returns a non-2xx
+    response.  ``connect()`` disables it, so a failing API call still raises
+    the normal SDK error without opening a second, unguarded egress path.
+    """
+
+    def _connected_connector(self):
+        from semantica.ingest.looker_ingestor import LookerConnector
+
+        client = _make_mock_client()
+        with patch(
+            "semantica.ingest.looker_ingestor.looker_sdk.init40",
+            return_value=client,
+        ):
+            connector = LookerConnector(
+                base_url=PUBLIC_BASE_URL,
+                client_id=CLIENT_ID,
+                client_secret=CLIENT_SECRET,
+            )
+            connector.connect()
+        return connector
+
+    def test_error_doc_lookup_makes_no_network_call(self):
+        import looker_sdk.error as sdk_error
+
+        self._connected_connector()
+
+        helper = sdk_error.ErrorDocHelper()
+        documentation_url = "https://docs.looker.com/r/err/4.0/404/notfound"
+        with patch.object(
+            sdk_error.requests, "get", side_effect=AssertionError("network egress")
+        ) as mock_get:
+            error_doc_url, error_doc = helper.parse_and_lookup(documentation_url)
+
+        mock_get.assert_not_called()
+        # No index was fetched, so no per-code document URL was resolved
+        # either: the helper falls back to its base URL and the inline
+        # "no documentation" message.
+        assert error_doc_url == helper.ERROR_CODES_URL
+        assert "No documentation found" in error_doc
+
+    def test_non_2xx_response_raises_the_normal_sdk_error(self):
+        import looker_sdk.error as sdk_error
+        from looker_sdk.rtl import api_methods
+
+        self._connected_connector()
+
+        documentation_url = "https://docs.looker.com/r/err/4.0/404/notfound"
+
+        class _Auth:
+            class settings:  # noqa: N801 - mirrors the SDK settings shape
+                base_url = PUBLIC_BASE_URL
+
+        class _Response:
+            ok = False
+            encoding = "utf-8"
+            value = b'{"message": "not found"}'
+
+        def _deserialize(*, data, structure):
+            return sdk_error.SDKError(
+                message="not found", documentation_url=documentation_url
+            )
+
+        methods = api_methods.APIMethods(
+            auth=_Auth(),
+            deserialize=_deserialize,
+            serialize=MagicMock(),
+            transport=MagicMock(),
+            api_version="4.0",
+        )
+
+        with patch.object(
+            sdk_error.requests, "get", side_effect=AssertionError("network egress")
+        ) as mock_get:
+            with pytest.raises(sdk_error.SDKError) as exc_info:
+                methods._return(_Response(), structure=sdk_error.SDKError)
+
+        mock_get.assert_not_called()
+        assert "No documentation found" in exc_info.value.error_doc

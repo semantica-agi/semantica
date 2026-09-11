@@ -14,22 +14,33 @@ Optional dependency
     :class:`LookerConnector` raises a clear ``ImportError`` naming the
     ``ingest-looker`` extra at instantiation time.
 
-Validate the endpoint once, then constrain the transport
+Validate the endpoint once and guard every request
     ``looker_sdk.init40`` builds ``RequestsTransport`` internally, so the
-    repository's per-request ``request_with_ssrf_guard`` hook is not
-    reachable.  The connector instead resolves the effective ``base_url``
-    from a constructed ``ApiSettings`` object, validates it, and passes
-    that *same* object to ``init40``.  The binding mechanism is the
+    repository's ``request_with_ssrf_guard`` hook cannot wrap the SDK's
+    calls.  The connector resolves the effective ``base_url`` from a
+    constructed ``ApiSettings`` object, validates it, and passes that
+    *same* object to ``init40``.  The binding mechanism is the
     ``read_config`` override on that object, which the SDK consults for
-    every login.  Five compensating controls are applied:
+    every login.  ``connect()`` then mounts a validating adapter on the
+    SDK session — the choke point every API request (including the lazy
+    OAuth login) passes through — so each outbound URL is checked with
+    ``validate_url_for_request`` before it is sent.  The controls applied
+    are:
 
     1. ``https`` is required unless ``allow_private_ips`` is enabled;
     2. TLS verification is forced on, so ``LOOKERSDK_VERIFY_SSL`` or the
        ini file cannot downgrade the validated connection;
     3. the SDK session's redirect cap is set to zero;
     4. proxy environment trust is disabled;
-    5. connections are pinned to the addresses resolved during validation,
+    5. every request URL is re-validated by the mounted guard adapter;
+    6. connections are pinned to the addresses resolved during validation,
        closing the DNS-rebinding window between validation and dial.
+
+    The guard covers the SDK's own session.  The SDK's error-documentation
+    helper is a second, separate egress path (a bare ``requests.get`` with
+    no validation, timeout, redirect cap, or proxy opt-out), so
+    ``connect()`` also disables it explicitly; see
+    :meth:`LookerConnector._disable_error_doc_lookup`.
 
     A post-construction check also compares the client's resolved
     ``base_url`` with the validated one.  The current SDK returns the same
@@ -82,10 +93,13 @@ from datetime import date, datetime
 from typing import Any, Dict, List, Mapping, Optional, Sequence
 from urllib.parse import urlparse
 
+import requests
+
 from ..utils.exceptions import ProcessingError, ValidationError
 from ..utils.logging import get_logger
 from ..utils.progress_tracker import get_progress_tracker
 from .ssrf import (
+    _format_host_header,
     _make_pinned_adapter,
     _resolve_pinned_ips,
     parse_bool,
@@ -140,30 +154,76 @@ def _normalize_url(value: str) -> str:
     return (value or "").strip().rstrip("/")
 
 
+# Returned in place of a remote URL that cannot be safely rewritten: it may
+# be ``user:password`` userinfo whose password contains a ``/``.
+_REDACTED_URL = "[redacted-looker-remote-url]"
+
+
+def _authority_is_host(authority: str) -> bool:
+    """Return True when *authority* is unambiguously a host, not userinfo.
+
+    A ``host:port`` authority is only distinguishable from
+    ``user:password`` by the port being numeric; a bracketed ``[...]``
+    literal is always an IPv6 host.
+    """
+    if authority.startswith("["):
+        return True
+    _, separator, port = authority.rpartition(":")
+    return bool(separator) and port.isdigit()
+
+
 def _scrub_url_userinfo(value: str) -> str:
     """Strip ``user:password@`` userinfo from *value*.
 
     ``Project.git_remote_url`` may embed credentials.  Keep the host and
     path so the metadata stays useful, but never the userinfo.
 
+    The deciding ``@`` is the one inside the authority section, not
+    necessarily the last ``@`` in the string: a path or query may contain
+    an ``@`` of its own (``https://user:pw@example.com/path@file``).  The
+    authority is therefore delimited first — an optional ``scheme://``,
+    then everything up to the first ``/``, ``?`` or ``#`` — and only that
+    slice is rewritten.
+
+    A value whose authority has no ``@`` but whose text contains one is
+    ambiguous: it may be ``https://user:pa/ss@host/repo.git``, where the
+    password contains the ``/`` that ends the authority.  That cannot be
+    rewritten safely, so it fails closed to :data:`_REDACTED_URL` — unless
+    the authority is a plain host or a numeric ``host:port``
+    (``https://example.com/path@file``), where the ``@`` is ordinary
+    content.
+
     Args:
         value: Remote URL that may contain userinfo.
 
     Returns:
-        The URL with any userinfo removed.
+        The URL with any userinfo removed, or :data:`_REDACTED_URL` when the
+        safe rewrite is ambiguous.
     """
     if "@" not in value:
         return value
-    head, _, tail = value.rpartition("@")
-    # Strip only when the '@' terminates an authority userinfo section.  A
-    # path separator before it means the '@' is ordinary path content, and
-    # urlparse cannot be used here because it leaves userinfo outside
-    # ``netloc`` for scheme-less and scp-style remotes.
-    authority_start = head.find("://")
-    authority_start = 0 if authority_start == -1 else authority_start + 3
-    if "/" in head[authority_start:]:
+
+    scheme_index = value.find("://")
+    authority_start = 0 if scheme_index == -1 else scheme_index + 3
+    authority_end = len(value)
+    for separator in ("/", "?", "#"):
+        index = value.find(separator, authority_start)
+        if index != -1:
+            authority_end = min(authority_end, index)
+
+    authority = value[authority_start:authority_end]
+    if "@" in authority:
+        return (
+            value[:authority_start]
+            + authority.rpartition("@")[2]
+            + value[authority_end:]
+        )
+    # No '@' in the authority, yet the value has one.  Ordinary content
+    # after a host is left alone; the ambiguous `user:password` shape fails
+    # closed.
+    if ":" not in authority or _authority_is_host(authority):
         return value
-    return value[:authority_start] + tail
+    return _REDACTED_URL
 
 
 # ---------------------------------------------------------------------------
@@ -227,92 +287,18 @@ _SECRET_FIELD_NAMES = frozenset(
     }
 )
 
-_EXPLORE_FIELD_FIELDS = frozenset(
+# ``all_lookml_models()`` nests ``LookmlModelNavExplore`` records: the only
+# fields the navigation object carries are the ones below.  ``view_name``,
+# ``joins``, and ``fields`` belong to ``LookmlModelExplore``, which only the
+# deferred ``lookml_model_explore`` endpoint returns and this connector never
+# calls.
+_EXPLORE_NAV_FIELDS = frozenset(
     {
-        "align",
-        "available_custom_timeframes",
-        "can_filter",
-        "can_time_filter",
-        "category",
-        "convert_tz",
-        "datatype",
-        "default_filter_value",
         "description",
-        "dimension_group",
-        "drill_fields",
-        "dynamic",
-        "enumerations",
-        "error",
-        "field_group_label",
-        "field_group_variant",
-        "fill_style",
-        "filters",
-        "fiscal_month_offset",
-        "has_allowed_values",
-        "has_drills_metadata",
+        "group_label",
         "hidden",
-        "is_filter",
-        "is_fiscal",
-        "is_numeric",
-        "is_timeframe",
         "label",
-        "label_from_parameter",
-        "label_short",
-        "links",
-        "lookml_link",
-        "map_layer",
-        "measure",
         "name",
-        "original_view",
-        "parameter",
-        "period_over_period_params",
-        "permanent",
-        "primary_key",
-        "project_name",
-        "requires_refresh_on_sort",
-        "scope",
-        "sortable",
-        "source_file",
-        "source_file_path",
-        "sql",
-        "sql_case",
-        "strict_value_format",
-        "suggest_dimension",
-        "suggest_explore",
-        "suggestable",
-        "suggestions",
-        "synonyms",
-        "tags",
-        "time_interval",
-        "timeframe_labels",
-        "times_used",
-        "type",
-        "user_attribute_filter_types",
-        "value_format",
-        "value_format_name",
-        "view",
-        "view_label",
-        "view_name",
-        "week_start_day",
-    }
-)
-
-_EXPLORE_JOIN_FIELDS = frozenset(
-    {
-        "dependent_fields",
-        "fields",
-        "foreign_key",
-        "from",
-        "from_",
-        "name",
-        "outer_only",
-        "relationship",
-        "required_joins",
-        "sql_foreign_key",
-        "sql_on",
-        "sql_table_name",
-        "type",
-        "view_label",
     }
 )
 
@@ -500,14 +486,12 @@ _RETAINED_FIELDS: Dict[str, frozenset] = {
     ),
 }
 
-# Nested SDK models (Explores, fields, joins, folders, and so on) are
-# filtered against the union of every top-level allowlist plus the
-# Explore-specific field sets.
+# Nested SDK models (Explores, folders, and so on) are filtered against the
+# union of every top-level allowlist plus the nested-only field sets.
 _NESTED_RETAINED_FIELDS = frozenset(
     set().union(
         *(_RETAINED_FIELDS.values()),
-        _EXPLORE_FIELD_FIELDS,
-        _EXPLORE_JOIN_FIELDS,
+        _EXPLORE_NAV_FIELDS,
         _NESTED_EXTRA_FIELDS,
     )
 )
@@ -531,6 +515,61 @@ _ID_METADATA_KEYS: Dict[str, str] = {
 
 
 # ---------------------------------------------------------------------------
+# SSRF guard adapter — mounted on the SDK session by connect()
+# ---------------------------------------------------------------------------
+
+
+class _SSRFGuardAdapter(requests.adapters.HTTPAdapter):
+    """Validate every request URL, then send it through the pinned delegate.
+
+    ``looker_sdk.init40`` builds its own transport inside the SDK, so the
+    repository's ``request_with_ssrf_guard`` helper cannot wrap the SDK's
+    calls.  Mounting this adapter on the SDK session puts the same
+    per-request ``validate_url_for_request`` check on the single choke
+    point every request — the OAuth login and all five metadata reads —
+    passes through.
+
+    When addresses were resolved for pinning, ``send`` delegates to the
+    repository's pinned adapter so the connection still targets those
+    addresses and the hostname still supplies TLS identity.  The
+    ``_semantica_pinned`` marker is exposed in that case.
+    """
+
+    def __init__(
+        self,
+        *,
+        allow_private_ips: bool,
+        pinned_adapter: Optional[requests.adapters.HTTPAdapter] = None,
+    ) -> None:
+        super().__init__()
+        self._allow_private_ips = allow_private_ips
+        self._pinned_adapter = pinned_adapter
+
+    @property
+    def _semantica_pinned(self) -> bool:
+        """Whether a pinning delegate is mounted beneath this adapter.
+
+        Derived from the delegate itself rather than cached, so the marker
+        read by :func:`~semantica.ingest.ssrf._apply_connection_pin` cannot
+        drift from the state it describes.
+        """
+        return self._pinned_adapter is not None
+
+    def send(self, request: Any, **kwargs: Any) -> Any:
+        """Validate *request* and send it through the pinned delegate."""
+        validate_url_for_request(request.url, allow_private_ips=self._allow_private_ips)
+        if self._pinned_adapter is not None:
+            return self._pinned_adapter.send(request, **kwargs)
+        return super().send(request, **kwargs)
+
+    def close(self) -> None:
+        """Close the pinned delegate, then this adapter."""
+        if self._pinned_adapter is not None:
+            self._pinned_adapter.close()
+        super().close()
+
+
+# ---------------------------------------------------------------------------
 # LookerConnector
 # ---------------------------------------------------------------------------
 
@@ -547,7 +586,8 @@ class LookerConnector:
     * Resolves the effective endpoint once, validates the scheme and the
       SSRF contract, and binds the client to that exact value (KTD2/KTD4).
     * Disables redirect following and proxy environment trust on the SDK
-      session, and never mutates ``os.environ``.
+      session and mounts a per-request SSRF guard that also pins the
+      connection; never mutates ``os.environ``.
     * Exposes :meth:`connect`, :meth:`disconnect`, and
       :meth:`test_connection`, plus the context-manager protocol.
 
@@ -628,9 +668,10 @@ class LookerConnector:
             ):
                 raise ValidationError(
                     "Looker base_url from the environment or config file "
-                    f"({configured_base_url!r}) conflicts with the explicit "
-                    f"'base_url' ({self._explicit_base_url!r}); refusing to "
-                    "connect rather than binding the client to an "
+                    f"({_scrub_url_userinfo(configured_base_url)!r}) conflicts "
+                    "with the explicit 'base_url' "
+                    f"({_scrub_url_userinfo(self._explicit_base_url)!r}); "
+                    "refusing to connect rather than binding the client to an "
                     "unvalidated host."
                 )
 
@@ -711,9 +752,11 @@ class LookerConnector:
         ):
             raise ValidationError(
                 "LOOKERSDK_BASE_URL "
-                f"({env_base_url!r}) conflicts with the explicit 'base_url' "
-                f"({self._explicit_base_url!r}); refusing to connect rather "
-                "than binding the client to an unvalidated host."
+                f"({_scrub_url_userinfo(env_base_url)!r}) conflicts with the "
+                f"explicit 'base_url' "
+                f"({_scrub_url_userinfo(self._explicit_base_url)!r}); "
+                "refusing to connect rather than binding the client to an "
+                "unvalidated host."
             )
 
         self._validated_base_url = self._validate_endpoint(self._explicit_base_url)
@@ -827,7 +870,12 @@ class LookerConnector:
         return value if isinstance(value, str) else None
 
     def _apply_transport_controls(self, client: Any) -> None:
-        """Disable redirect following and proxy trust on the SDK session.
+        """Apply the compensating controls to the SDK client's transport.
+
+        Disables redirect following and proxy trust on the SDK session,
+        forces TLS verification, pins connections to the validated
+        addresses, and disables the SDK's separate error-documentation
+        fetch.
 
         Args:
             client: A constructed ``Looker40SDK`` instance.
@@ -851,35 +899,95 @@ class LookerConnector:
             )
         session.verify = True
         self._pin_session(session)
+        self._disable_error_doc_lookup()
+
+    @staticmethod
+    def _disable_error_doc_lookup() -> None:
+        """Stop the SDK's error helper from making its own network calls.
+
+        On a non-2xx API response the SDK builds an ``ErrorDocHelper`` and
+        looks up its error codes at ``ERROR_CODES_URL`` through a bare
+        module-level ``requests.get`` — a fresh session with
+        ``trust_env=True``, no timeout, no redirect cap, no SSRF validation,
+        and no pin.  That is a second egress path beside the guarded SDK
+        session, so it is disabled here.
+
+        The override is deliberately installed on the SDK *class* rather
+        than the instance: the helper is constructed deep inside the SDK
+        with no injection point, and a per-call class override leaves the
+        unguarded, untimed, proxy-honouring request reachable.  Overriding
+        ``ErrorDocHelper.get_index`` to return ``None`` makes ``lookup()``
+        take its ``KeyError`` branch and skip the second fetch entirely.
+        SDK internals are not a stable contract, so every access is
+        defensive; when it cannot be applied the fact is logged at debug.
+        """
+        try:
+            import looker_sdk.error as looker_error
+        except Exception as exc:  # noqa: BLE001 - SDK internals may move
+            _logger.debug(
+                "Could not import looker_sdk.error to disable error-doc lookup: %s",
+                type(exc).__name__,
+            )
+            return
+
+        helper = getattr(looker_error, "ErrorDocHelper", None)
+        if helper is None or not callable(getattr(helper, "get_index", None)):
+            _logger.debug(
+                "looker_sdk.error exposes no ErrorDocHelper.get_index; "
+                "error-doc lookup could not be disabled."
+            )
+            return
+
+        def _no_error_doc_index(self: Any, url: Any = None) -> None:
+            """Return without fetching; the SDK uses its inline fallback."""
+            return None
+
+        try:
+            helper.get_index = _no_error_doc_index  # type: ignore[method-assign]
+        except Exception as exc:  # noqa: BLE001 - SDK internals may move
+            _logger.debug(
+                "Could not disable Looker error-doc lookup: %s",
+                type(exc).__name__,
+            )
 
     def _pin_session(self, session: Any) -> None:
-        """Pin connections to the addresses resolved during validation.
+        """Guard every request and pin connections to validated addresses.
 
         The endpoint is validated once at construction, but the SDK resolves
         the hostname again at request time, which reopens a DNS-rebinding
-        window.  Mounting a pinning adapter connects only to the addresses
+        window and lets any later request (including the lazy OAuth login)
+        reach an address that was never validated.  The mounted adapter
+        re-validates every request URL by calling
+        ``validate_url_for_request``; when addresses were resolved it then
+        delegates to a pinning adapter that connects only to the addresses
         validated here, while the hostname still supplies TLS identity.
 
         Raises:
             ValidationError: If the endpoint no longer resolves to a
                 permitted address.
         """
+        parsed = urlparse(self._validated_base_url)
         pinned_ips = _resolve_pinned_ips(
             self._validated_base_url, allow_private_ips=self.allow_private_ips
         )
-        if not pinned_ips:
-            return
-        parsed = urlparse(self._validated_base_url)
-        adapter = _make_pinned_adapter(pinned_ips, parsed.hostname or "")
-        adapter._semantica_pinned = True
+        pinned_adapter: Optional[requests.adapters.HTTPAdapter] = None
+        if pinned_ips:
+            pinned_adapter = _make_pinned_adapter(pinned_ips, parsed.hostname or "")
+            pinned_adapter._semantica_pinned = True
+
+        # The guard is what gets mounted for both schemes; pinning rides
+        # beneath it so the validated addresses are still dialed.
+        adapter = _SSRFGuardAdapter(
+            allow_private_ips=self.allow_private_ips,
+            pinned_adapter=pinned_adapter,
+        )
         session.mount("http://", adapter)
         session.mount("https://", adapter)
-        port = parsed.port
-        default_port = 443 if parsed.scheme == "https" else 80
-        session.headers["Host"] = (
-            parsed.hostname or ""
-            if port in (None, default_port)
-            else f"{parsed.hostname}:{port}"
+
+        if not pinned_ips:
+            return
+        session.headers["Host"] = _format_host_header(
+            parsed.hostname or "", parsed.port, parsed.scheme
         )
 
     @staticmethod
@@ -1038,10 +1146,17 @@ class LookerIngestor:
         config_file: Path to a ``looker.ini`` file.
         section: Section inside *config_file*.
         allow_private_ips: Opt into private endpoints and non-``https``
-            schemes. Defaults to ``False``.
+            schemes. Defaults to ``False``. When ``config`` (or ``**kwargs``)
+            carries ``allow_private_ips``, that value wins and is parsed with
+            :func:`~semantica.ingest.ssrf.parse_bool`, mirroring
+            :class:`LookerConnector`.
         connector: An existing :class:`LookerConnector` to reuse.
         config: Optional extra configuration dict forwarded to the
-            connector.
+            connector. A value here for any named connector argument that was
+            not supplied explicitly (``base_url``, ``client_id``,
+            ``client_secret``, ``config_file``, ``section``) is resolved from
+            the config, and ``allow_private_ips`` follows the config-wins
+            precedence described above.
         **kwargs: Additional keyword arguments merged into ``config``.
 
     Raises:
@@ -1079,13 +1194,32 @@ class LookerIngestor:
         self.config: Dict[str, Any] = dict(config or {})
         self.config.update(kwargs)
 
+        # KTD3 — config wins when it carries the key, matching
+        # LookerConnector, and the value is parsed the same way so a string
+        # such as "0" cannot silently enable private access.  The key stays
+        # excluded from the forwarded kwargs so the connector call cannot
+        # collide with the named argument.
+        resolved_allow_private_ips = parse_bool(
+            self.config.get("allow_private_ips", allow_private_ips),
+            default=False,
+        )
+
+        # The remaining named connector arguments are also excluded from the
+        # forwarded kwargs, so a config-supplied value must be resolved
+        # explicitly (an explicitly supplied argument always wins).
+        resolved_base_url = base_url or self.config.get("base_url")
+        resolved_client_id = client_id or self.config.get("client_id")
+        resolved_client_secret = client_secret or self.config.get("client_secret")
+        resolved_config_file = config_file or self.config.get("config_file")
+        resolved_section = section or self.config.get("section")
+
         self.connector: LookerConnector = connector or LookerConnector(
-            base_url=base_url,
-            client_id=client_id,
-            client_secret=client_secret,
-            config_file=config_file,
-            section=section,
-            allow_private_ips=allow_private_ips,
+            base_url=resolved_base_url,
+            client_id=resolved_client_id,
+            client_secret=resolved_client_secret,
+            config_file=resolved_config_file,
+            section=resolved_section,
+            allow_private_ips=resolved_allow_private_ips,
             **{
                 key: value
                 for key, value in self.config.items()
@@ -1310,8 +1444,8 @@ class LookerIngestor:
             A list of normalized dictionaries.
 
         Raises:
-            ValidationError: If *content_type* has no allowlist, or a
-                record is not a mapping-like object.
+            ValidationError: If *content_type* has no allowlist.
+            ProcessingError: If a record is not a mapping-like object.
         """
         if content_type not in _RETAINED_FIELDS:
             raise ValidationError(f"Unsupported Looker content type: {content_type!r}.")
@@ -1342,6 +1476,11 @@ class LookerIngestor:
 
         SDK ``Model`` objects become filtered dictionaries, sequences
         become lists, and dates/datetimes become ISO 8601 strings.
+
+        The recursion assumes an acyclic value graph: a Looker JSON
+        response is a tree, so there is no depth or cycle guard here.  A
+        hand-built cyclic object would exhaust the interpreter stack and
+        raise ``RecursionError``.
         """
         if value is None or isinstance(value, (str, int, float, bool)):
             return value
@@ -1379,28 +1518,32 @@ class LookerIngestor:
         :meth:`_normalize_value`.
 
         Raises:
-            ValidationError: If *record* is not mapping-like.
+            ProcessingError: If *record* is not mapping-like.  A record the
+                SDK returned in an unexpected shape is a data problem, not
+                misconfiguration, so it is chained from the conversion
+                failure when one occurred.
         """
         if isinstance(record, Mapping):
             return dict(record)
+        last_error: Optional[BaseException] = None
         items = getattr(record, "items", None)
         if callable(items):
             try:
                 return dict(items())
-            except Exception:  # noqa: BLE001 - fall through to keys()
-                pass
+            except Exception as exc:  # noqa: BLE001 - fall through to keys()
+                last_error = exc
         keys = getattr(record, "keys", None)
         if callable(keys):
             try:
                 return {str(key): record[key] for key in keys()}
-            except Exception:  # noqa: BLE001 - fall through to __dict__
-                pass
+            except Exception as exc:  # noqa: BLE001 - fall through to __dict__
+                last_error = exc
         data = getattr(record, "__dict__", None)
         if isinstance(data, dict):
             return dict(data)
-        raise ValidationError(
+        raise ProcessingError(
             f"Unsupported Looker record type: {type(record).__name__}"
-        )
+        ) from last_error
 
     # ------------------------------------------------------------------
     # Document export
@@ -1426,7 +1569,10 @@ class LookerIngestor:
             A list of document dictionaries.
 
         Raises:
-            ValidationError: If ``data.content_type`` is unsupported.
+            ValidationError: If ``data.content_type`` is unsupported, or a
+                row is not a mapping.  A row the SDK returned in an
+                unexpected shape cannot be projected, so the failure names
+                the offending type instead of leaking an ``AttributeError``.
         """
         if data.content_type not in _RETAINED_FIELDS:
             raise ValidationError(
@@ -1435,6 +1581,11 @@ class LookerIngestor:
 
         documents: List[Dict[str, Any]] = []
         for index, row in enumerate(data.data):
+            if not isinstance(row, Mapping):
+                raise ValidationError(
+                    "Looker document export requires mapping records; got "
+                    f"{type(row).__name__} at index {index}."
+                )
             document_id = self._document_id(row, data.content_type, index)
             documents.append(
                 {
@@ -1498,8 +1649,11 @@ class LookerIngestor:
     ) -> List[Dict[str, Any]]:
         """Nest Explore summaries inside their parent model document.
 
-        Explores carry no parent reference of their own, so the parent
-        project/model name is composed into every nested id.
+        Only the ``LookmlModelNavExplore`` fields exist for an
+        ``all_lookml_models()`` read; ``view_name``/``joins``/``fields``
+        belong to the deferred ``lookml_model_explore`` endpoint.  Explores
+        carry no parent reference of their own, so the parent project/model
+        name is composed into every nested id.
         """
         nested: List[Dict[str, Any]] = []
         if not isinstance(explores, (list, tuple)):
@@ -1513,8 +1667,9 @@ class LookerIngestor:
                     "id": f"{document_id}:explore:{explore_name}",
                     "name": explore_name,
                     "label": explore.get("label"),
-                    "view_name": explore.get("view_name"),
+                    "group_label": explore.get("group_label"),
                     "description": explore.get("description"),
+                    "hidden": explore.get("hidden"),
                     "parent_model": f"{project}.{model}",
                 }
             )
@@ -1536,10 +1691,15 @@ class LookerIngestor:
                 parts.append(folder_name)
 
         if content_type == "lookml_model":
-            for explore in row.get("explores") or []:
+            explores = row.get("explores")
+            # A malformed record (e.g. ``explores: 5``) must degrade to no
+            # explore text instead of raising ``TypeError``.
+            if not isinstance(explores, (list, tuple)):
+                return " ".join(parts)
+            for explore in explores:
                 if not isinstance(explore, Mapping):
                     continue
-                for field_name in ("label", "name", "description", "view_name"):
+                for field_name in ("label", "name", "description", "group_label"):
                     value = explore.get(field_name)
                     if isinstance(value, str) and value:
                         parts.append(value)
