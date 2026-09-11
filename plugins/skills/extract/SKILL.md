@@ -21,8 +21,8 @@ Run the full extraction pipeline. Usage: `/semantica:extract [file_path | "inlin
 **2. Clear the result cache** to prevent cross-invocation pollution:
 
 ```python
-from semantica.semantic_extract.cache import _result_cache
-_result_cache.clear()
+from semantica.semantic_extract.cache import extraction_cache
+extraction_cache.clear()
 ```
 
 **3. Run the full pipeline:**

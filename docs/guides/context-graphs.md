@@ -489,7 +489,7 @@ context2.load("agent_state/")
 
 ## Common Pitfalls
 
-**Duplicate entities.** Adding "APT-29", "APT29", and "Cozy Bear" as separate nodes fragments the graph when they should be one entity. Use consistent naming conventions upfront, or use `detect_duplicates()` and `EntityMerger` from the [Deduplication](deduplication) guide to merge them after ingestion.
+**Duplicate entities.** Adding "APT-29", "APT29", and "Cozy Bear" as separate nodes fragments the graph when they should be one entity. Use consistent naming conventions upfront, or use `detect_duplicates()` and `EntityMerger` from the [Deduplication](/guides/deduplication) guide to merge them after ingestion.
 
 **Inconsistent naming conventions.** Mixing "ThreatActor", "threat_actor", and "Threat-Actor" as node types breaks queries that filter by type. Pick one convention and enforce it across all data sources.
 
@@ -706,8 +706,8 @@ for n in stress_reach:
 
 - [Graph Analytics](/guides/graph-analytics) — centrality rankings, community detection, node embeddings, and link prediction on a populated `ContextGraph`
 - [Decision Intelligence](/guides/decision-intelligence) — recording decisions as typed nodes, causal chain analysis, precedent search, and policy enforcement
-- [Ingest](ingest) — loading data from PDFs, APIs, databases, STIX bundles, and RSS feeds into the graph
-- [Deduplication](deduplication) — detecting and merging near-duplicate nodes before insertion to prevent graph fragmentation
-- [Reasoning](reasoning) — temporal interval algebra (Allen relations), forward/backward chaining, and SPARQL over the knowledge graph
-- [Ontology Management](ontology) — deriving formal OWL ontologies from `graph.to_dict()` for downstream reasoning engines
+- [Ingest](/guides/ingest) — loading data from PDFs, APIs, databases, STIX bundles, and RSS feeds into the graph
+- [Deduplication](/guides/deduplication) — detecting and merging near-duplicate nodes before insertion to prevent graph fragmentation
+- [Reasoning](/guides/reasoning) — temporal interval algebra (Allen relations), forward/backward chaining, and SPARQL over the knowledge graph
+- [Ontology Management](/guides/ontology) — deriving formal OWL ontologies from `graph.to_dict()` for downstream reasoning engines
 - [Context Module Reference](../reference/context) — full API for `AgentContext`, `ContextGraph`, `ContextNode`, `ContextEdge`

@@ -661,7 +661,7 @@ print("Total memories: {}".format(s.get("total_items", 0)))
 - [Decision Intelligence](/guides/decision-intelligence) — Recording decisions as graph nodes with causal chains and policy gating.
 - [Multi-Agent Systems](/guides/multi-agent) — Coordinating multiple agents through a shared `AgentContext` and save/load handoffs.
 - [LLM Integrations](/guides/llm-integrations) — Configuring the LLM provider passed to `query_with_reasoning()`.
-- [Deduplication Guide](deduplication) — Full reference for `DuplicateDetector`, `EntityMerger`, similarity methods, and cluster strategies.
-- [Ontology Management](ontology) — Generate and validate OWL ontologies from the knowledge graph; export to Turtle, OWL/XML, JSON-LD.
+- [Deduplication Guide](/guides/deduplication) — Full reference for `DuplicateDetector`, `EntityMerger`, similarity methods, and cluster strategies.
+- [Ontology Management](/guides/ontology) — Generate and validate OWL ontologies from the knowledge graph; export to Turtle, OWL/XML, JSON-LD.
 - [Context Module Reference](../reference/context) — Full API: `AgentContext`, `AgentMemory`, `MemoryItem`, `ContextRetriever`.
 - [Vector Store Reference](../reference/vector_store) — FAISS, Qdrant, pgvector, Pinecone backends.

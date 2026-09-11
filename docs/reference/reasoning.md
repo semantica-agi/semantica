@@ -31,7 +31,7 @@ icon: "microchip"
 
 ## Which Engine Should I Use?
 
-- [Reasoner](#reasoner-forwardbackward-chaining) — IF/THEN rules, forward and backward chaining. **Start here**: covers 90% of use cases. No query language required.
+- [Reasoner](#reasoner-forward/backward-chaining) — IF/THEN rules, forward and backward chaining. **Start here**: covers 90% of use cases. No query language required.
 - [GraphReasoner](#graphreasoner) — Natural language queries over a knowledge graph via LLM. No SPARQL or rules: just ask a question.
 - [DatalogReasoner](#datalogreasoner) — Recursive Horn clause rules with guaranteed termination. Use for complex multi-hop transitive rules.
 - [ReteEngine](#reteengine) — Rete pattern matching for high-frequency inference. Use when you need to match many facts against many rules simultaneously.
@@ -483,6 +483,6 @@ step.confidence     # float
 </Warning>
 
 - [Knowledge Graph](/reference/kg) — The knowledge graph being reasoned over.
-- [Ontology](ontology) — Ontology axioms and SHACL constraints for logical reasoning.
+- [Ontology](/reference/ontology) — Ontology axioms and SHACL constraints for logical reasoning.
 - [Triplet Store](/reference/triplet_store) — RDF backend for SPARQL-based reasoning.
 - [Context](/reference/context) — Reasoning integrated into agent decision intelligence.

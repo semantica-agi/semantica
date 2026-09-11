@@ -586,5 +586,5 @@ normalized = normalize_text("Apple Inc.", method="expand_suffixes")
 
 - [Parse](/reference/parse) — Parse documents before normalization.
 - [Split](/reference/split) — Chunk normalized text for embedding.
-- [Deduplication](deduplication) — Resolve duplicate entities after normalization.
-- [Pipeline](pipeline) — Include normalization as a named pipeline step.
+- [Deduplication](/reference/deduplication) — Resolve duplicate entities after normalization.
+- [Pipeline](/reference/pipeline) — Include normalization as a named pipeline step.

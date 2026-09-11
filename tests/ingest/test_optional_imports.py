@@ -272,3 +272,78 @@ else:
     assert "ConfigurationError" in result.stdout
     assert "Salesforce ingestion" in result.stdout
     assert "simple-salesforce" in result.stdout
+
+
+def test_redshift_package_imports_without_sdk() -> None:
+    """``import semantica.ingest`` must not eagerly pull in redshift_connector."""
+    result = _run_python_with_blocked_modules(
+        """
+from semantica.ingest import FileIngestor, ingest_file
+print(FileIngestor.__name__, callable(ingest_file))
+""",
+        ("redshift_connector",),
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "FileIngestor True" in result.stdout
+
+
+def test_redshift_data_importable_without_sdk() -> None:
+    """``RedshiftData`` is a plain dataclass — no SDK needed to import it."""
+    result = _run_python_with_blocked_modules(
+        """
+from semantica.ingest import RedshiftData
+print(RedshiftData.__name__)
+""",
+        ("redshift_connector",),
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "RedshiftData" in result.stdout
+
+
+def test_redshift_ingestor_probe_fails_without_sdk() -> None:
+    """``from semantica.ingest import RedshiftIngestor`` must raise ``ImportError``
+    when ``redshift_connector`` is absent."""
+    result = _run_python_with_blocked_modules(
+        """
+try:
+    from semantica.ingest import RedshiftIngestor
+    has_redshift = True
+except ImportError:
+    has_redshift = False
+
+assert not has_redshift, (
+    "Expected RedshiftIngestor import to fail without redshift-connector"
+)
+print("RedshiftIngestor probe passed")
+""",
+        ("redshift_connector",),
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "RedshiftIngestor probe passed" in result.stdout
+
+
+def test_redshift_connector_reports_missing_dep_with_install_hint() -> None:
+    """Constructing ``RedshiftConnector`` without the SDK must raise ``ImportError``
+    with a message that names the ``db-redshift`` extra."""
+    result = _run_python_with_blocked_modules(
+        """
+from semantica.ingest.redshift_ingestor import RedshiftConnector
+
+try:
+    RedshiftConnector()
+except ImportError as exc:
+    print(type(exc).__name__, exc)
+else:
+    raise SystemExit(
+        "expected RedshiftConnector() to fail without redshift-connector"
+    )
+""",
+        ("redshift_connector",),
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "ImportError" in result.stdout
+    assert "db-redshift" in result.stdout

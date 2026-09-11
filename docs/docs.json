@@ -107,7 +107,8 @@
               "integrations/docling",
               "integrations/snowflake",
               "integrations/databricks",
-              "integrations/salesforce"
+              "integrations/salesforce",
+              "integrations/redshift"
             ]
           },
           {
