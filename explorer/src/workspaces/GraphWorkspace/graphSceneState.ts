@@ -23,6 +23,7 @@ import { getSemanticNodeColor } from "./graphColorLegend";
 import { classifyEntityShape } from "./graphEntityShape";
 import { computeGraphAnalyticsBase } from "./graphAnalytics";
 import type {
+  FocusedUnavailableReason,
   GraphDistanceBucketCounts,
   GraphDisplayMeta,
   GraphDisplayStateSnapshot,
@@ -32,6 +33,7 @@ import type {
   GraphInteractionState,
   GraphSelectedNodeKind,
   GraphViewMode,
+  GroupedViewUnavailableReason,
 } from "./types";
 
 const MAX_FOCUS_NEIGHBORS = GRAPH_THEME.focus.maxNeighbors;
@@ -576,7 +578,7 @@ function createEmptyDisplayState(
     selectedNodeKind: selectedNodeId ? "unavailable" : "none",
     canActivateFocused: false,
     resolvedFocusedNodeId: null,
-    focusedUnavailableReason: selectedNodeId ? "Selected item is not available in the current graph." : null,
+    focusedUnavailableReason: selectedNodeId ? { code: "not-in-graph" } : null,
   };
 }
 
@@ -622,7 +624,10 @@ export function resolveGroupedDisplayNodeId(
   return resolvedNodeId;
 }
 
-export function checkGroupedViewAvailability(): { available: boolean; reason: string | null } {
+export function checkGroupedViewAvailability(): {
+  available: boolean;
+  reason: GroupedViewUnavailableReason | null;
+} {
   const base = computeGraphAnalyticsBase(graph, {
     computeCommunities: true,
     computeCentrality: false,
@@ -630,7 +635,7 @@ export function checkGroupedViewAvailability(): { available: boolean; reason: st
   const available = base.communitiesByNode.size > 0;
   return {
     available,
-    reason: available ? null : "Grouped view is unavailable until communities can be detected.",
+    reason: available ? null : { code: "communities-undetected" },
   };
 }
 
@@ -682,10 +687,10 @@ export function resolveGroupedDisplayStateSnapshot(
   selectedNodeId: string,
   options?: {
     groupedViewAvailable?: boolean;
-    groupedViewReason?: string | null;
+    groupedViewReason?: GroupedViewUnavailableReason | null;
     selectedNodeKind?: GraphSelectedNodeKind;
     resolvedFocusedNodeId?: string | null;
-    focusedUnavailableReason?: string | null;
+    focusedUnavailableReason?: FocusedUnavailableReason | null;
   },
 ): GraphDisplayStateSnapshot {
   const displayState = createEmptyDisplayState(selectedNodeId, true);
@@ -714,12 +719,14 @@ export function resolveGroupedDisplayStateSnapshot(
   return displayState;
 }
 
-function validateGroupedDisplayGraph(grouped: Graph<NodeAttributes, EdgeAttributes>): string | null {
+function validateGroupedDisplayGraph(
+  grouped: Graph<NodeAttributes, EdgeAttributes>,
+): GroupedViewUnavailableReason | null {
   if (grouped.order === 0) {
-    return "Grouped view is unavailable because no community nodes could be created.";
+    return { code: "community-nodes-missing" };
   }
 
-  let invalidReason: string | null = null;
+  let invalidReason: GroupedViewUnavailableReason | null = null;
   grouped.forEachNode((nodeId, attrs) => {
     if (invalidReason) {
       return;
@@ -727,7 +734,7 @@ function validateGroupedDisplayGraph(grouped: Graph<NodeAttributes, EdgeAttribut
 
     const nodeAttrs = attrs as NodeAttributes;
     if (!Number.isFinite(Number(nodeAttrs.x)) || !Number.isFinite(Number(nodeAttrs.y))) {
-      invalidReason = `Grouped node ${nodeId} has invalid coordinates.`;
+      invalidReason = { code: "invalid-community-layout", nodeId };
     }
   });
 
@@ -741,7 +748,7 @@ function validateGroupedDisplayGraph(grouped: Graph<NodeAttributes, EdgeAttribut
     }
 
     if (!grouped.hasNode(sourceId) || !grouped.hasNode(targetId)) {
-      invalidReason = `Grouped edge ${edgeId} references a missing grouped node.`;
+      invalidReason = { code: "missing-grouped-node", edgeId };
     }
   });
 
@@ -2207,7 +2214,7 @@ function buildCommunityGroupedGraph(): GraphDisplayResult {
   const state = createEmptyDisplayState("", true);
   state.groupedViewAvailable = base.communitiesByNode.size > 0;
   if (base.communitiesByNode.size === 0) {
-    state.groupedViewReason = "Grouped view is unavailable until communities can be detected.";
+    state.groupedViewReason = { code: "communities-undetected" };
     return { graph: aggregateDisplayGraph(graph), state, meta: MIRRORED_DISPLAY_META };
   }
 
@@ -2484,10 +2491,10 @@ export function resolveDisplayStateSnapshot(
     aggregationEnabled?: boolean;
     collapsedNeighborhoodNodeIds?: Iterable<string>;
     groupedViewAvailable?: boolean;
-    groupedViewReason?: string | null;
+    groupedViewReason?: GroupedViewUnavailableReason | null;
     selectedNodeKind?: GraphSelectedNodeKind;
     resolvedFocusedNodeId?: string | null;
-    focusedUnavailableReason?: string | null;
+    focusedUnavailableReason?: FocusedUnavailableReason | null;
   },
 ): GraphDisplayStateSnapshot {
   const aggregationEnabled = options?.aggregationEnabled ?? true;
@@ -2506,7 +2513,7 @@ export function resolveDisplayStateSnapshot(
     computeCentrality: false,
   }).communitiesByNode.size > 0;
   displayState.groupedViewReason = options?.groupedViewReason
-    ?? (displayState.groupedViewAvailable ? null : "Grouped view is unavailable until communities can be detected.");
+    ?? (displayState.groupedViewAvailable ? null : { code: "communities-undetected" });
 
   if (!selectedNodeId || !graph.hasNode(selectedNodeId)) {
     return displayState;

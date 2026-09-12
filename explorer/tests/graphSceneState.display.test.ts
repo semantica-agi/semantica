@@ -1060,7 +1060,7 @@ test("resolveGroupedDisplayStateSnapshot maps selected base node to community in
 test("checkGroupedViewAvailability returns unavailable on empty graph", () => {
   const result = checkGroupedViewAvailability();
   assert.equal(result.available, false);
-  assert.ok(typeof result.reason === "string" && result.reason.length > 0);
+  assert.equal(result.reason?.code, "communities-undetected");
 });
 
 test("checkGroupedViewAvailability returns available when communities exist", () => {
