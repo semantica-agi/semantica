@@ -59,6 +59,7 @@ class MethodRegistry:
         "community": {},
         "connectivity": {},
         "temporal": {},
+        "community_hierarchy": {},
     }
 
     @classmethod
@@ -177,7 +178,8 @@ class AlgorithmRegistry:
             "path_finding": {},
             "link_prediction": {},
             "centrality": {},
-            "community_detection": {}
+            "community_detection": {},
+            "community_hierarchy": {},
         }
         self._metadata = {}
         self._capabilities = {}
@@ -234,7 +236,15 @@ class AlgorithmRegistry:
         Returns:
             Algorithm class or None if not found
         """
-        return self._algorithms.get(category, {}).get(name)
+        algo = self._algorithms.get(category, {}).get(name)
+        if (
+            algo is None and
+            category == "community_hierarchy" and
+            name in ("louvain", "leiden", "default")
+        ):
+            from .community_hierarchy import CommunityHierarchyBuilder
+            return CommunityHierarchyBuilder
+        return algo
     
     def create_instance(self, category: str, name: str, **kwargs) -> Any:
         """
@@ -253,10 +263,13 @@ class AlgorithmRegistry:
         """
         if name not in self._algorithms.get(category, {}):
             raise ValueError(f"Algorithm {name} not found in category {category}")
-        algorithm_class = self._algorithms[category][name]
+        algorithm_class = self.get(category, name)
         if algorithm_class is None:
             raise TypeError(f"Algorithm {name} has no implementation class registered")
         
+        if category == "community_hierarchy":
+            algo_name = "louvain" if name == "default" else name
+            kwargs.setdefault("algorithm", algo_name)
         return algorithm_class(**kwargs)
     
     def list_category(self, category: str) -> List[str]:
@@ -483,6 +496,76 @@ class AlgorithmRegistry:
                 "use_case": "Fast community detection"
             },
             capabilities=["iterative_labeling", "convergence_detection"]
+        )
+
+        # Hierarchical community detection
+        self.register(
+            "community_hierarchy",
+            "default",
+            None,
+            metadata={
+                "description": (
+                    "Default hierarchical community detection (Louvain)"
+                ),
+                "parameters": [
+                    "resolution", "seed", "threshold", "max_levels"
+                ],
+                "complexity": "O(V log V + E)",
+                "quality": "High",
+                "use_case": "Hierarchical GraphRAG clustering",
+            },
+            capabilities=[
+                "multi_level",
+                "coarsening",
+                "deterministic",
+                "indexed_hierarchy",
+            ],
+        )
+        self.register(
+            "community_hierarchy",
+            "louvain",
+            None,
+            metadata={
+                "description": (
+                    "Multi-level Louvain hierarchical community detection"
+                ),
+                "parameters": [
+                    "resolution", "seed", "threshold", "max_levels"
+                ],
+                "complexity": "O(V log V + E)",
+                "quality": "High",
+                "use_case": "Hierarchical GraphRAG clustering",
+            },
+            capabilities=[
+                "multi_level",
+                "coarsening",
+                "deterministic",
+                "indexed_hierarchy",
+            ],
+        )
+        self.register(
+            "community_hierarchy",
+            "leiden",
+            None,
+            metadata={
+                "description": (
+                    "Multi-level Leiden hierarchical community detection "
+                    "with refinement"
+                ),
+                "parameters": ["resolution", "seed", "max_levels"],
+                "complexity": "O(V log V + E)",
+                "quality": "High",
+                "use_case": (
+                    "Hierarchical GraphRAG clustering with guaranteed "
+                    "connectivity"
+                ),
+            },
+            capabilities=[
+                "multi_level",
+                "refinement",
+                "deterministic",
+                "indexed_hierarchy",
+            ],
         )
 
 
