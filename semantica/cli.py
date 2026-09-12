@@ -328,8 +328,30 @@ def _run_build(cli_ctx: CLIContext, sources: Sequence[str]) -> None:
 
     stats = result.get("statistics", {}) if isinstance(result, dict) else {}
     processed = stats.get("sources_processed")
+
+    # A source count alone does not mean anything was built: with no pipeline
+    # configured the default pipeline passes its input through untouched, so
+    # every source is "processed" and the graph stays empty. Reporting success
+    # there hid the failure completely (#1352).
+    graph = result.get("knowledge_graph", {}) if isinstance(result, dict) else {}
+    entity_count = len(graph.get("entities") or [])
+    relationship_count = len(graph.get("relationships") or [])
+
+    if processed and not entity_count and not relationship_count:
+        raise click.ClickException(
+            f"{processed} source(s) processed but the knowledge graph is empty "
+            "— no entities or relationships were extracted. This usually means "
+            "no pipeline was configured, so the sources were read but never "
+            "parsed or extracted. Supply a pipeline with --config, or use "
+            "'semantica extract' to check the sources yield entities."
+        )
+
     if processed is not None:
-        _ok(cli_ctx, f"Knowledge base built — {processed} source(s) processed.")
+        _ok(
+            cli_ctx,
+            f"Knowledge base built — {processed} source(s) processed, "
+            f"{entity_count} entities, {relationship_count} relationships.",
+        )
     else:
         _ok(cli_ctx, "Knowledge base build completed.")
 
