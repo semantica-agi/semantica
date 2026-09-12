@@ -8,6 +8,8 @@ stale ones — the exact opposite of the contract.
 
 from datetime import datetime, timedelta, timezone
 
+import pytest
+
 from semantica.context import AgentContext, ContextGraph
 from semantica.vector_store import VectorStore
 
@@ -57,4 +59,17 @@ def test_forget_days_old_boundary_keeps_everything_recent():
     )
 
     assert ctx.forget(days_old=90) == 0
+    assert ctx.get_memory(fresh_id) is not None
+
+
+def test_forget_negative_days_old_is_rejected():
+    """A negative age would build a future cutoff and wipe recent memories."""
+    ctx = _context()
+    fresh_id = ctx._memory.store(
+        "fresh memory",
+        timestamp=datetime.now(timezone.utc),
+    )
+
+    with pytest.raises(ValueError, match="days_old must be non-negative"):
+        ctx.forget(days_old=-1)
     assert ctx.get_memory(fresh_id) is not None

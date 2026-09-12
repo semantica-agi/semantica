@@ -690,6 +690,8 @@ class AgentContext:
         if days_old:
             from datetime import datetime, timedelta, timezone
 
+            if days_old < 0:
+                raise ValueError("days_old must be non-negative")
             filter_dict["end_date"] = (
                 datetime.now(timezone.utc) - timedelta(days=days_old)
             ).isoformat()
