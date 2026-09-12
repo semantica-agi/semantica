@@ -58,6 +58,12 @@ class Config:
         self._configs["optimization"] = {
             "enable_cache": True,
             "cache_size": 1000,
+            "cache_ttl": 3600,
+            # Cache backend: "memory" (default, in-process) or "sqlite"
+            # (persistent, survives restarts). cache_path is the sqlite file
+            # location; None lets the caller pick a default.
+            "cache_backend": "memory",
+            "cache_path": None,
             "max_workers": 8,
             "enable_batching": True,
             "batch_size": 10,
@@ -106,9 +112,41 @@ class Config:
                     self._configs[provider] = {}
                 self._configs[provider]["api_key"] = api_key
 
+        # Optimization / cache settings from the environment. This lets users
+        # opt into persistent caching without a config file — e.g.
+        # SEMANTICA_CACHE_BACKEND=sqlite SEMANTICA_CACHE_PATH=~/.cache/sem.db
+        opt = self._configs.setdefault("optimization", {})
+        env_str_opts = {
+            "SEMANTICA_CACHE_BACKEND": "cache_backend",
+            "SEMANTICA_CACHE_PATH": "cache_path",
+        }
+        for env_key, opt_key in env_str_opts.items():
+            val = os.getenv(env_key)
+            if val:
+                opt[opt_key] = val
+        env_int_opts = {
+            "SEMANTICA_CACHE_TTL": "cache_ttl",
+            "SEMANTICA_CACHE_SIZE": "cache_size",
+        }
+        for env_key, opt_key in env_int_opts.items():
+            val = os.getenv(env_key)
+            if val is not None:
+                try:
+                    opt[opt_key] = int(val)
+                except ValueError:
+                    self.logger.warning(f"Ignoring non-integer {env_key}={val!r}")
+        enable = os.getenv("SEMANTICA_CACHE_ENABLED")
+        if enable is not None:
+            opt["enable_cache"] = enable.strip().lower() in {"1", "true", "yes", "on"}
+
     def set_provider(self, name: str, **config):
         """Set provider config programmatically."""
         self._configs[name] = config
+
+    def set_optimization(self, **options):
+        """Set optimization/cache config programmatically (e.g. cache_backend,
+        cache_path, cache_ttl, cache_size, enable_cache)."""
+        self._configs.setdefault("optimization", {}).update(options)
 
     def get_provider_config(self, name: str) -> Dict:
         """Get provider configuration."""
