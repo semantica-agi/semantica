@@ -119,9 +119,9 @@ from semantica.semantic_extract import (
     NamedEntityRecognizer,
     RelationExtractor,
 )
-from semantica.semantic_extract.cache import _result_cache
+from semantica.semantic_extract.cache import extraction_cache
 
-_result_cache.clear()  # prevent cross-invocation cache pollution
+extraction_cache.clear()  # prevent cross-invocation cache pollution
 
 text = open(file_path).read()
 

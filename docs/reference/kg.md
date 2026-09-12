@@ -477,7 +477,7 @@ kg:
 
 - [Graph Store](/reference/graph_store) — Persist graphs in Neo4j, FalkorDB, or Apache AGE.
 - [Semantic Extract](/reference/semantic_extract) — Source of entities and relationships fed to GraphBuilder.
-- [Visualization](visualization) — Visualize knowledge graphs interactively.
+- [Visualization](/reference/visualization) — Visualize knowledge graphs interactively.
 - [Conflicts](/reference/conflicts) — Conflict detection and resolution.
 
 ### Cookbooks

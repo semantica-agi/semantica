@@ -440,4 +440,4 @@ result = calculate_similarity(entity_a, entity_b, method="drug_name")
 - [Conflicts](/reference/conflicts) — Detect value conflicts between non-duplicate entities.
 - [Knowledge Graph](/reference/kg) — GraphBuilder uses deduplication during construction.
 - [Normalize](/reference/normalize) — Normalize entity names before deduplication.
-- [Provenance](provenance) — Track merged entity lineage.
+- [Provenance](/reference/provenance) — Track merged entity lineage.

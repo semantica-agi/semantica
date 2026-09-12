@@ -321,7 +321,7 @@ export SEMANTICA_SEED_MERGE_STRATEGY=seed_first
   **Use YAML configuration for production deployments.** Hard-coding source paths in Python scripts makes environment-switching (dev → staging → prod) fragile. Declare sources in `config.yaml` under the `seed:` key and override paths with `SEMANTICA_SEED_DATA_DIR`. This way, the same code runs in every environment.
 </Tip>
 
-- [Ingest](ingest) — Load unstructured data alongside seed data.
+- [Ingest](/reference/ingest) — Load unstructured data alongside seed data.
 - [Knowledge Graph](/reference/kg) — The target graph that seed data populates.
-- [Deduplication](deduplication) — Handle duplicates during seed-extracted merge.
-- [Pipeline](pipeline) — Incorporate seed loading as a named pipeline step.
+- [Deduplication](/reference/deduplication) — Handle duplicates during seed-extracted merge.
+- [Pipeline](/reference/pipeline) — Incorporate seed loading as a named pipeline step.

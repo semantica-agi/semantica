@@ -304,9 +304,13 @@ class TestSnowflakeIngestor:
 
         ingestor.ingest_table("CUSTOMERS", limit=100)
 
-        # Verify LIMIT clause in query
+        # Verify LIMIT clause in query — the implementation uses bind parameters
+        # (%s) rather than literal interpolation, so check for the LIMIT keyword
+        # and that the param value was passed separately.
         executed_query = mock_cursor.execute.call_args[0][0]
-        assert "LIMIT 100" in executed_query
+        assert "LIMIT" in executed_query
+        executed_params = mock_cursor.execute.call_args[0][1]
+        assert 100 in executed_params
 
     @patch("semantica.ingest.snowflake_ingestor.SNOWFLAKE_AVAILABLE", True)
     @patch("semantica.ingest.snowflake_ingestor.snowflake")

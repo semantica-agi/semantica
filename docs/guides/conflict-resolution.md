@@ -65,7 +65,7 @@ flowchart TD
     G --> H[SHACL Validation]
 ```
 
-1. **Deduplication** — Merge duplicate nodes so each entity has exactly one canonical record. Conflict resolution operates on a single canonical entity; you must identify it before comparing what different sources say about it. See [Deduplication](deduplication).
+1. **Deduplication** — Merge duplicate nodes so each entity has exactly one canonical record. Conflict resolution operates on a single canonical entity; you must identify it before comparing what different sources say about it. See [Deduplication](/guides/deduplication).
 2. **Conflict Detection** — Call `detect_entity_conflicts()` to surface all property disagreements at once, or `detect_value_conflicts()` to target a specific property.
 3. **Resolution** — For each conflict, apply a strategy (`CREDIBILITY_WEIGHTED`, `MOST_RECENT`, `VOTING`, etc.) or route it for expert review (`EXPERT_REVIEW`).
 4. **Persist Canonical Values** — Write resolved values back to your canonical entities or graph store. See [Persisting resolved values](#persisting-resolved-values).
@@ -696,8 +696,8 @@ Calling `set_resolution_rule()` for every entity-property pair just to apply the
 
 ## Related Guides
 
-- [Deduplication](deduplication) — remove duplicate nodes before running conflict detection
-- [Provenance](provenance) — track which source each resolved value came from, and verify the audit trail cryptographically
+- [Deduplication](/guides/deduplication) — remove duplicate nodes before running conflict detection
+- [Provenance](/guides/provenance) — track which source each resolved value came from, and verify the audit trail cryptographically
 - [SHACL Validation](/guides/shacl-validation) — enforce structural constraints after conflicts are resolved
 - [Change Management](/guides/change-management) — snapshot the graph before and after conflict resolution runs
-- [Ontology Management](ontology) — align entity types to a shared vocabulary to reduce type conflicts at the schema level
+- [Ontology Management](/guides/ontology) — align entity types to a shared vocabulary to reduce type conflicts at the schema level

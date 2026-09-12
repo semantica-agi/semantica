@@ -504,7 +504,7 @@ else:
 ## Related Guides
 
 - [SHACL Validation](/guides/shacl-validation) — generate W3C SHACL constraint shapes from your ontology and validate live graph data against them
-- [Reasoning & Rules](reasoning) — apply forward/backward-chaining rules over your ontology to derive new facts
-- [Export & Serialization](export) — export graphs to RDF, GraphML, CSV, and Neo4j Cypher
+- [Reasoning & Rules](/guides/reasoning) — apply forward/backward-chaining rules over your ontology to derive new facts
+- [Export & Serialization](/guides/export) — export graphs to RDF, GraphML, CSV, and Neo4j Cypher
 - [Semantic Extraction](/guides/semantic-extraction) — extract entities and relationships that feed ontology generation
 - [Context Graphs](/guides/context-graphs) — the knowledge graph that ontology generation reads from

@@ -251,6 +251,10 @@ _LAZY_EXPORTS: Dict[str, Tuple[str, str]] = {
     "SalesforceIngestor": (".salesforce_ingestor", "SalesforceIngestor"),
     "SalesforceData": (".salesforce_ingestor", "SalesforceData"),
     "SalesforceConnector": (".salesforce_ingestor", "SalesforceConnector"),
+    # Redshift ingestion
+    "RedshiftIngestor": (".redshift_ingestor", "RedshiftIngestor"),
+    "RedshiftData": (".redshift_ingestor", "RedshiftData"),
+    "RedshiftConnector": (".redshift_ingestor", "RedshiftConnector"),
 }
 
 _OPTIONAL_DEPENDENCY_MESSAGES = {
@@ -298,6 +302,10 @@ _OPTIONAL_DEPENDENCY_MESSAGES = {
         "Install it with: "
         "pip install \"semantica[ingest-airflow]\""
     ),
+    ".redshift_ingestor": (
+        "Redshift ingestion requires optional dependency 'redshift-connector'. "
+        "Install it with: pip install 'semantica[db-redshift]'"
+    ),
 }
 
 
@@ -316,7 +324,14 @@ def __getattr__(name: str) -> Any:
             missing_name is None
             or any(
                 pkg in missing_name
-                for pkg in ("git", "bs4", "pyarrow", "simple_salesforce", "lxml")
+                for pkg in (
+                    "git",
+                    "bs4",
+                    "pyarrow",
+                    "simple_salesforce",
+                    "lxml",
+                    "redshift_connector",
+                )
             )
         ):
             raise ImportError(message) from exc
@@ -354,6 +369,15 @@ def __getattr__(name: str) -> Any:
         "SalesforceConnector",
     }:
         if not getattr(module, "SALESFORCE_AVAILABLE", True):
+            message = _OPTIONAL_DEPENDENCY_MESSAGES.get(module_name)
+            if message:
+                raise ImportError(message)
+
+    if module_name == ".redshift_ingestor" and name in {
+        "RedshiftIngestor",
+        "RedshiftConnector",
+    }:
+        if not getattr(module, "REDSHIFT_AVAILABLE", True):
             message = _OPTIONAL_DEPENDENCY_MESSAGES.get(module_name)
             if message:
                 raise ImportError(message)
@@ -431,10 +455,6 @@ __all__ = [
     "SAPIngestor",
     "SAPODataEntity",
     "SAPODataConnector",
-    # Apache Airflow ingestion
-    "AirflowIngestor",
-    "AirflowData",
-    "AirflowConnector",
     # Databricks ingestion
     "DatabricksIngestor",
     "DatabricksData",
@@ -452,6 +472,10 @@ __all__ = [
     "SalesforceIngestor",
     "SalesforceData",
     "SalesforceConnector",
+    # Redshift ingestion
+    "RedshiftIngestor",
+    "RedshiftData",
+    "RedshiftConnector",
     # Registry and Methods
     "MethodRegistry",
     "method_registry",
