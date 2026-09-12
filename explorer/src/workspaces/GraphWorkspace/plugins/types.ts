@@ -14,7 +14,7 @@ import type {
   GraphLoadSummary,
   GraphSelectedNodeState,
   GraphTemporalState,
-  GraphViewMode,
+  GraphLayoutViewMode,
 } from "../types";
 
 export type { GraphTemporalState } from "../types";
@@ -31,7 +31,8 @@ export type GraphPluginActionRequest =
   | { type: "fitView" }
   | { type: "focusNode"; nodeId: string }
   | { type: "selectNode"; nodeId: string }
-  | { type: "setViewMode"; viewMode: GraphViewMode }
+  | { type: "setViewMode"; viewMode: GraphLayoutViewMode }
+  | { type: "enterLocalGraph"; nodeId: string }
   | { type: "collapseNeighborhood" }
   | { type: "expandNeighborhood" }
   | { type: "toggleEffect"; effect: GraphEffectToggle }
