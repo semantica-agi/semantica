@@ -37,6 +37,29 @@ _STRIP_BODY_ON_REDIRECT = frozenset({301, 302, 303})
 _DEFAULT_PORTS = {"http": 80, "https": 443}
 
 
+def _format_host_header(hostname: str, port: Optional[int], scheme: str) -> str:
+    """Render the HTTP ``Host`` authority for *hostname*:*port*.
+
+    ``urlparse`` strips the brackets from an IPv6 literal, but a valid HTTP
+    authority requires them (RFC 3986 section 3.2.2), so the literal is
+    re-bracketed here. The port is omitted when it is absent or already the
+    scheme's default (``_DEFAULT_PORTS.get(scheme, 80)``).
+
+    Args:
+        hostname: Host without brackets (as returned by ``urlparse``).
+        port: Explicit port, or ``None`` when the URL carries none.
+        scheme: URL scheme used to look up the default port.
+
+    Returns:
+        The value for the ``Host`` header.
+    """
+    host = hostname
+    if ":" in host and not host.startswith("["):
+        host = f"[{host}]"
+    default_port = _DEFAULT_PORTS.get(scheme, 80)
+    return host if port in (None, default_port) else f"{host}:{port}"
+
+
 def _should_strip_auth(old_url: str, new_url: str) -> bool:
     """Decide whether credentials must not follow a redirect.
 
@@ -422,12 +445,8 @@ def _apply_connection_pin(
 
     parsed = urlparse(url)
     if pinned_ips:
-        port = parsed.port
-        default_port = _DEFAULT_PORTS.get(parsed.scheme, 80)
-        host_header = (
-            parsed.hostname
-            if port in (None, default_port)
-            else f"{parsed.hostname}:{port}"
+        host_header = _format_host_header(
+            parsed.hostname or "", parsed.port, parsed.scheme
         )
         adapter = _make_pinned_adapter(pinned_ips, parsed.hostname or "")
         adapter._semantica_pinned = True

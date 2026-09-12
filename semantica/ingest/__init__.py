@@ -251,6 +251,10 @@ _LAZY_EXPORTS: Dict[str, Tuple[str, str]] = {
     "RedshiftIngestor": (".redshift_ingestor", "RedshiftIngestor"),
     "RedshiftData": (".redshift_ingestor", "RedshiftData"),
     "RedshiftConnector": (".redshift_ingestor", "RedshiftConnector"),
+    # Looker ingestion
+    "LookerIngestor": (".looker_ingestor", "LookerIngestor"),
+    "LookerData": (".looker_ingestor", "LookerData"),
+    "LookerConnector": (".looker_ingestor", "LookerConnector"),
 }
 
 _OPTIONAL_DEPENDENCY_MESSAGES = {
@@ -297,6 +301,10 @@ _OPTIONAL_DEPENDENCY_MESSAGES = {
         "Redshift ingestion requires optional dependency 'redshift-connector'. "
         "Install it with: pip install 'semantica[db-redshift]'"
     ),
+    ".looker_ingestor": (
+        "Looker ingestion requires optional dependency 'looker-sdk'. "
+        "Install it with: pip install 'semantica[ingest-looker]'"
+    ),
 }
 
 
@@ -322,6 +330,7 @@ def __getattr__(name: str) -> Any:
                     "simple_salesforce",
                     "lxml",
                     "redshift_connector",
+                    "looker_sdk",
                 )
             )
         ):
@@ -369,6 +378,15 @@ def __getattr__(name: str) -> Any:
         "RedshiftConnector",
     }:
         if not getattr(module, "REDSHIFT_AVAILABLE", True):
+            message = _OPTIONAL_DEPENDENCY_MESSAGES.get(module_name)
+            if message:
+                raise ImportError(message)
+
+    if module_name == ".looker_ingestor" and name in {
+        "LookerIngestor",
+        "LookerConnector",
+    }:
+        if not getattr(module, "LOOKER_AVAILABLE", True):
             message = _OPTIONAL_DEPENDENCY_MESSAGES.get(module_name)
             if message:
                 raise ImportError(message)
@@ -467,6 +485,10 @@ __all__ = [
     "RedshiftIngestor",
     "RedshiftData",
     "RedshiftConnector",
+    # Looker ingestion
+    "LookerIngestor",
+    "LookerData",
+    "LookerConnector",
     # Registry and Methods
     "MethodRegistry",
     "method_registry",
