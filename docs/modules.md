@@ -506,7 +506,7 @@ summary = evaluate(cases, evaluators=["levenshtein"])
 print(summary.total, summary.passed, summary.pass_rate)
 ```
 
-**Public API:** `evaluate(cases, evaluators, config=None)`, `list_evaluators()`, `get_evaluator(name)`, and the `EvalMetric` / `CaseResult` / `EvalSummary` result types. See the [Evals reference](/reference/evals).
+**Public API:** `evaluate(cases, evaluators, config=None)`, `evaluate_repeated(cases, evaluators, config=None, target_fn=None, runs=10)` for repeated sampling over nondeterministic targets, `list_evaluators()`, `get_evaluator(name)`, and the `EvalMetric` / `CaseResult` / `EvalSummary` / `SampleStats` / `RepeatedCaseResult` / `RepeatedSummary` result types. See the [Evals reference](/reference/evals).
 
 ### Core
 

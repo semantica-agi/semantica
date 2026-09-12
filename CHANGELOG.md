@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Repeated sampling for nondeterministic evals (#1545)**
+  - New `evaluate_repeated(cases, evaluators, config=None, target_fn=None, runs=10)` in `semantica.evals`: reruns `target_fn` per case `n` times and aggregates per-evaluator `SampleStats` — `n`, `passes`, `errors`, `pass_rate`, `mean_score`, `stddev`, and the observed `any_passed` (pass@n) / `all_passed` (pass^n). Verdicts classify each case as `stable_pass` / `flaky` / `stable_fail` / `error`, with a `RepeatedSummary` over the suite
+  - Nondeterminism stays in `target_fn`; evaluators remain pure. A case with a non-null static `actual` and `runs > 1` raises `ValueError` up front; an `actual` of `None` is treated as absent, matching `evaluate()`. Objective config applies per run and the same objective gates the aggregate `pass_rate` via `SampleStats.objective_passed`. `evaluate()` is untouched; new result types (`SampleStats`, `RepeatedCaseResult`, `RepeatedSummary`) are exported additively
+  - New `tests/evals/test_repeater.py`
+
 - **Schema-guided extraction validation** (#1510) by @Besokus
   - New `SchemaValidator` (`semantica.semantic_extract`, lazy export): a deterministic sibling of `ExtractionValidator` that checks extraction output for *conformance to a domain ontology* — an axis orthogonal to `ExtractionValidator`'s confidence checks. It mirrors the same interface (`validate_entities()` / `validate_relations()` returning `ValidationResult`, batch-aware), so the two compose back-to-back
   - Entity labels must be concepts in the schema; relation predicates must be in the schema and satisfy their `domain` / `range`. Violations are reported in `ValidationResult.errors` with counts in `metrics` and `score` = conformance ratio; `filter_by_schema()` / `filter_relations_by_schema()` return the conforming subset (mirroring `filter_by_confidence`). No LLM required
