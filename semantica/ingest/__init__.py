@@ -251,6 +251,10 @@ _LAZY_EXPORTS: Dict[str, Tuple[str, str]] = {
     "RedshiftIngestor": (".redshift_ingestor", "RedshiftIngestor"),
     "RedshiftData": (".redshift_ingestor", "RedshiftData"),
     "RedshiftConnector": (".redshift_ingestor", "RedshiftConnector"),
+    # Power BI ingestion
+    "PowerBIIngestor": (".powerbi_ingestor", "PowerBIIngestor"),
+    "PowerBIData": (".powerbi_ingestor", "PowerBIData"),
+    "PowerBIConnector": (".powerbi_ingestor", "PowerBIConnector"),
 }
 
 _OPTIONAL_DEPENDENCY_MESSAGES = {
@@ -467,6 +471,10 @@ __all__ = [
     "RedshiftIngestor",
     "RedshiftData",
     "RedshiftConnector",
+    # Power BI ingestion
+    "PowerBIIngestor",
+    "PowerBIData",
+    "PowerBIConnector",
     # Registry and Methods
     "MethodRegistry",
     "method_registry",
