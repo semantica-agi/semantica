@@ -230,6 +230,10 @@ _LAZY_EXPORTS: Dict[str, Tuple[str, str]] = {
     "SAPIngestor": (".sap_ingestor", "SAPIngestor"),
     "SAPODataEntity": (".sap_ingestor", "SAPODataEntity"),
     "SAPODataConnector": (".sap_ingestor", "SAPODataConnector"),
+    # Apache Airflow ingestion
+    "AirflowIngestor": (".airflow_ingestor", "AirflowIngestor"),
+    "AirflowData": (".airflow_ingestor", "AirflowData"),
+    "AirflowConnector": (".airflow_ingestor", "AirflowConnector"),
     # Databricks ingestion
     "DatabricksIngestor": (".databricks_ingestor", "DatabricksIngestor"),
     "DatabricksData": (".databricks_ingestor", "DatabricksData"),
@@ -292,6 +296,11 @@ _OPTIONAL_DEPENDENCY_MESSAGES = {
     ".salesforce_ingestor": (
         "Salesforce ingestion requires optional dependency 'simple-salesforce'. "
         "Install it with: pip install 'semantica[db-salesforce]'"
+    ),
+    ".airflow_ingestor": (
+        "Apache Airflow ingestion requires optional dependency 'requests'. "
+        "Install it with: "
+        "pip install \"semantica[ingest-airflow]\""
     ),
     ".redshift_ingestor": (
         "Redshift ingestion requires optional dependency 'redshift-connector'. "

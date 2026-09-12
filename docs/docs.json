@@ -108,6 +108,7 @@
               "integrations/snowflake",
               "integrations/databricks",
               "integrations/salesforce",
+              "integrations/airflow",
               "integrations/redshift"
             ]
           },
