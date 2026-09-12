@@ -17,6 +17,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - New `ExtractionSchema` (`semantica.semantic_extract`, lazy export): a lightweight, read-only view over a domain ontology (allowed concepts + predicates with optional `domain` / `range`). Reuses the project's existing OWL ontology representation rather than a parallel type — build one from a `generate_ontology`-style dict (`ExtractionSchema.from_ontology`) or an OWL/Turtle file/string (`ExtractionSchema.from_owl`, via the existing `rdflib` dependency). An empty `domain`/`range` means unconstrained, matching OWL
   - Implements the deterministic core of ontology-based information extraction (OBIE; Wimalasuriya & Dou, 2010). No new runtime dependencies
   - New `tests/semantic_extract/test_schema_validator.py`
+- **Schema bootstrap** (#1510) by @pkupt
+  - New `bootstrap_schema` (`semantica.ontology`): induces a draft domain ontology from a sample of extracted `{entities, relationships}` so you can ratify it by hand and then use it (via `SchemaValidator`) to gate future extraction. Complements `SchemaValidator`: where the validator *constrains* output against an existing ontology, bootstrap *induces* the draft from data
+  - Threads the existing `min_occurrences` frequency gate through as a class- and predicate-level filter: types/predicates seen fewer times are omitted from the draft — not just entity-type (class) inference
+  - Never auto-applies: returns `draft: True` plus a Turtle serialization for human review, per the OBIE/ontology-learning convention that frequency alone yields proposals, not final ontologies
+  - New `tests/test_bootstrap_schema.py`
 
 ## [0.7.0] - 2026-09-07
 
