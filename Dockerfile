@@ -45,16 +45,24 @@ WORKDIR /app
 # packages (Trivy library/semantica alerts #6151-#6162, all CVE-2026-*):
 # perl-base (7 CVEs across perl core, Storable, Archive::Tar and IO::Compress
 # - all fixed by the same upstream perl source upload), libpcre2-8-0 (2 CVEs),
-# libsqlite3-0 (2 CVEs, FTS5), and gzip (1 CVE, LZH decompression). Pin each
-# to its exact fixed version via --only-upgrade instead of a blanket
-# `apt-get upgrade`, which would break build reproducibility (terrascan
-# AC_DOCKER_0052, see the OpenSSL note above) and pull in unrelated bumps.
+# libsqlite3-0 (2 CVEs, FTS5), and gzip (1 CVE, LZH decompression).
+#
+# --only-upgrade scopes this to just the 4 named packages instead of a
+# blanket `apt-get upgrade` (terrascan AC_DOCKER_0052, see the OpenSSL note
+# above), but deliberately WITHOUT a `pkg=version` pin like the setuptools
+# pin below: unlike PyPI, Debian's live mirrors only ever serve the current
+# point release of a package, not every historical one. A pin to today's
+# fixed version (e.g. perl-base=5.40.1-6+deb13u1) would 404 the day Debian
+# ships deb13u2 and break every build that hits this layer - CI, Cloud
+# Build, and local Compose alike. Leaving the version unpinned means apt
+# always resolves to whatever trixie-security currently has, which is
+# guaranteed >= today's fixed version since security repos never regress.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends --only-upgrade \
-        perl-base=5.40.1-6+deb13u1 \
-        libpcre2-8-0=10.46-1~deb13u2 \
-        libsqlite3-0=3.46.1-7+deb13u2 \
-        gzip=1.13-1+deb13u1 \
+        perl-base \
+        libpcre2-8-0 \
+        libsqlite3-0 \
+        gzip \
     && rm -rf /var/lib/apt/lists/*
 
 RUN groupadd --system semantica \
