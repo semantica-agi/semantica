@@ -41,6 +41,22 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
+# Debian trixie-security already ships fixed builds for these base-image OS
+# packages (Trivy library/semantica alerts #6151-#6162, all CVE-2026-*):
+# perl-base (7 CVEs across perl core, Storable, Archive::Tar and IO::Compress
+# - all fixed by the same upstream perl source upload), libpcre2-8-0 (2 CVEs),
+# libsqlite3-0 (2 CVEs, FTS5), and gzip (1 CVE, LZH decompression). Pin each
+# to its exact fixed version via --only-upgrade instead of a blanket
+# `apt-get upgrade`, which would break build reproducibility (terrascan
+# AC_DOCKER_0052, see the OpenSSL note above) and pull in unrelated bumps.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends --only-upgrade \
+        perl-base=5.40.1-6+deb13u1 \
+        libpcre2-8-0=10.46-1~deb13u2 \
+        libsqlite3-0=3.46.1-7+deb13u2 \
+        gzip=1.13-1+deb13u1 \
+    && rm -rf /var/lib/apt/lists/*
+
 RUN groupadd --system semantica \
     && useradd --system --gid semantica --home-dir /app --shell /usr/sbin/nologin semantica
 
