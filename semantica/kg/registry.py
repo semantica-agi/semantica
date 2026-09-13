@@ -60,6 +60,7 @@ class MethodRegistry:
         "connectivity": {},
         "temporal": {},
         "community_hierarchy": {},
+        "community_summary": {},
     }
 
     @classmethod
@@ -68,7 +69,9 @@ class MethodRegistry:
         Register a custom KG method.
 
         Args:
-            task: Task type ("build", "analyze", "resolve", "validate", "centrality", "community", "connectivity", "temporal")
+            task: Task type ("build", "analyze", "resolve", "validate",
+                "centrality", "community", "connectivity", "temporal",
+                "community_hierarchy", "community_summary")
             name: Method name
             method_func: Method function
         """
@@ -82,7 +85,9 @@ class MethodRegistry:
         Get method by task and name.
 
         Args:
-            task: Task type ("build", "analyze", "resolve", "validate", "centrality", "community", "connectivity", "temporal")
+            task: Task type ("build", "analyze", "resolve", "validate",
+                "centrality", "community", "connectivity", "temporal",
+                "community_hierarchy", "community_summary")
             name: Method name
 
         Returns:
@@ -111,7 +116,10 @@ class MethodRegistry:
         Unregister a method.
 
         Args:
-            task: Task type ("build", "analyze", "resolve", "validate", "conflict", "centrality", "community", "connectivity", "deduplicate", "temporal")
+            task: Task type ("build", "analyze", "resolve", "validate",
+                "conflict", "centrality", "community", "connectivity",
+                "deduplicate", "temporal", "community_hierarchy",
+                "community_summary")
             name: Method name
         """
         if task in cls._methods and name in cls._methods[task]:
@@ -180,6 +188,7 @@ class AlgorithmRegistry:
             "centrality": {},
             "community_detection": {},
             "community_hierarchy": {},
+            "community_summary": {},
         }
         self._metadata = {}
         self._capabilities = {}
@@ -244,6 +253,13 @@ class AlgorithmRegistry:
         ):
             from .community_hierarchy import CommunityHierarchyBuilder
             return CommunityHierarchyBuilder
+        if (
+            algo is None and
+            category == "community_summary" and
+            name in ("default", "summarizer", "llm")
+        ):
+            from .community_summarizer import CommunitySummarizer
+            return CommunitySummarizer
         return algo
     
     def create_instance(self, category: str, name: str, **kwargs) -> Any:
@@ -567,6 +583,33 @@ class AlgorithmRegistry:
                 "indexed_hierarchy",
             ],
         )
+
+        # Hierarchical community summarization
+        for name, desc in [
+            ("default", "Default hierarchical community summarizer"),
+            ("summarizer", "GraphRAG community summarizer engine"),
+            ("llm", "LLM-driven community summarizer"),
+        ]:
+            self.register(
+                "community_summary",
+                name,
+                None,
+                metadata={
+                    "description": desc,
+                    "parameters": ["llm", "max_tokens", "cache_dir"],
+                    "complexity": "O(V + E)",
+                    "quality": "High",
+                    "use_case": (
+                        "Hierarchical GraphRAG global summarization"
+                    ),
+                },
+                capabilities=[
+                    "structured_output",
+                    "centrality_budgeting",
+                    "sha256_caching",
+                    "hierarchical_synthesis",
+                ],
+            )
 
 
 # Global algorithm registry

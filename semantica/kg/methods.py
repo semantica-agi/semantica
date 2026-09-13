@@ -146,6 +146,7 @@ from ..utils.custom_methods import CUSTOM_METHOD_FELL_BACK, call_custom_method
 from .centrality_calculator import CentralityCalculator
 from .community_detector import CommunityDetector
 from .community_hierarchy import CommunityHierarchy, CommunityHierarchyBuilder
+from .community_summarizer import CommunityReport, CommunitySummarizer
 from .config import kg_config
 from .connectivity_analyzer import ConnectivityAnalyzer
 from .entity_resolver import EntityResolver
@@ -956,6 +957,143 @@ method_registry.register(
 )
 method_registry.register(
     "community_hierarchy", "leiden", build_community_hierarchy
+)
+
+
+def summarize_community(
+    community: Any,
+    graph: Optional[Any] = None,
+    llm: Optional[Any] = None,
+    method: str = "default",
+    max_tokens: int = 4000,
+    text_chunks: Optional[List[Any]] = None,
+    **kwargs: Any,
+) -> CommunityReport:
+    """
+    Generate a structured summary report for a knowledge graph community.
+
+    Args:
+        community: HierarchicalCommunity or dict representation
+        graph: Optional backing graph or CommunityHierarchy
+        llm: LLM provider instance, structured client, or callable
+        method: Community summary method ("default", "summarizer", "llm")
+        max_tokens: Maximum context token budget
+        text_chunks: Optional source text chunks or evidence
+        **kwargs: Extra options passed to CommunitySummarizer
+
+    Returns:
+        CommunityReport instance
+    """
+    custom_method = method_registry.get("community_summary", method)
+    if custom_method and custom_method is not summarize_community:
+        fallback = kwargs.pop("fallback_on_custom_error", False)
+        result = call_custom_method(
+            logger,
+            method,
+            custom_method,
+            community,
+            graph=graph,
+            llm=llm,
+            fallback_on_custom_error=fallback,
+            max_tokens=max_tokens,
+            text_chunks=text_chunks,
+            **kwargs,
+        )
+        if result is not CUSTOM_METHOD_FELL_BACK:
+            return result
+
+    try:
+        summarizer = CommunitySummarizer(
+            llm=llm, max_tokens=max_tokens, **kwargs
+        )
+        return summarizer.summarize_community(
+            community,
+            graph=graph,
+            max_tokens=max_tokens,
+            text_chunks=text_chunks,
+            **kwargs,
+        )
+    except Exception as e:
+        logger.error(f"Failed to summarize community: {e}")
+        raise
+
+
+def summarize_hierarchy(
+    hierarchy: Any,
+    graph: Optional[Any] = None,
+    llm: Optional[Any] = None,
+    method: str = "default",
+    max_tokens: int = 4000,
+    levels: Optional[List[int]] = None,
+    text_chunks: Optional[List[Any]] = None,
+    **kwargs: Any,
+) -> Dict[str, CommunityReport]:
+    """
+    Synthesize community reports bottom-up across a multi-level hierarchy.
+
+    Args:
+        hierarchy: CommunityHierarchy instance
+        graph: Optional backing graph
+        llm: LLM provider instance, structured client, or callable
+        method: Community summary method ("default", "summarizer", "llm")
+        max_tokens: Maximum context token budget
+        levels: Optional subset of hierarchy levels to summarize
+        text_chunks: Optional source text chunks or evidence
+        **kwargs: Extra options passed to CommunitySummarizer
+
+    Returns:
+        Dictionary mapping community IDs to CommunityReport objects
+    """
+    custom_method = method_registry.get("community_summary", method)
+    if custom_method and custom_method not in (
+        summarize_community,
+        summarize_hierarchy,
+    ):
+        fallback = kwargs.pop("fallback_on_custom_error", False)
+        result = call_custom_method(
+            logger,
+            method,
+            custom_method,
+            hierarchy,
+            graph=graph,
+            llm=llm,
+            fallback_on_custom_error=fallback,
+            max_tokens=max_tokens,
+            levels=levels,
+            text_chunks=text_chunks,
+            **kwargs,
+        )
+        if result is not CUSTOM_METHOD_FELL_BACK:
+            return result
+
+    try:
+        summarizer = CommunitySummarizer(
+            llm=llm, max_tokens=max_tokens, **kwargs
+        )
+        return summarizer.summarize_hierarchy(
+            hierarchy,
+            graph=graph,
+            levels=levels,
+            max_tokens=max_tokens,
+            text_chunks=text_chunks,
+            **kwargs,
+        )
+    except Exception as e:
+        logger.error(f"Failed to summarize hierarchy: {e}")
+        raise
+
+
+method_registry.register(
+    "community_summary", "default", summarize_community
+)
+method_registry.register(
+    "community_summary", "summarizer", summarize_community
+)
+method_registry.register(
+    "community_summary", "llm", summarize_community
+)
+method_registry.register(
+    "community_summary", "hierarchy", summarize_hierarchy
 )
 
 
