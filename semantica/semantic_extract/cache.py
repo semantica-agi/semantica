@@ -25,6 +25,7 @@ License: MIT
 """
 
 import os
+import stat
 import time
 import hashlib
 import json
@@ -162,17 +163,34 @@ class SqliteCacheBackend(CacheBackend):
     fresh process (CI job, notebook kernel, batch worker, extraction
     subprocess) reuses previous results instead of re-paying every LLM call.
 
-    Security: values are serialized with ``serializer`` (``pickle`` by default),
-    so a persistent cache file is deserialized back into the process on read.
-    Point ``db_path`` at a **trusted, per-user, private** location. A newly
-    created database file is chmod'd to ``0o600`` and an existing file owned by
-    a different user is rejected (the caller then falls back to in-memory).
-    Provide ``serializer`` / ``deserializer`` (e.g. ``json``) to avoid pickle.
+    **Trust model (read before enabling).** The database file is deserialized
+    back into this process on every read, and the default ``serializer`` is
+    ``pickle`` — so a cache file an attacker can influence is a code-execution
+    vector. Therefore:
+
+    - ``db_path`` MUST point at a **trusted, per-user, private** location.
+    - The file may hold **sensitive extraction results** in the clear.
+    - The default ``pickle`` serializer must only be used with a trusted file;
+      pass ``serializer`` / ``deserializer`` (e.g. ``json``) for untrusted or
+      shared locations.
+
+    To enforce this the backend creates the file **atomically** with ``0o600``
+    (``O_CREAT | O_EXCL``, no validate-then-open window) and, when reusing an
+    existing file, rejects symlinks, non-regular files, and files owned by
+    another user — raising so the caller falls back to the in-memory backend.
 
     Concurrency/reliability: TTL and LRU (by last access) mirror
     :class:`InMemoryBackend`. A ``busy_timeout`` plus bounded retry handles
-    cross-process lock contention, and all sqlite errors are contained — reads
-    degrade to a miss and writes to a skipped update, never aborting extraction.
+    cross-process lock contention; every sqlite failure rolls back within the
+    same lock scope and is contained — reads degrade to a miss and writes to a
+    skipped update, never aborting extraction.
+
+    Cache-key invalidation is owned by :class:`ExtractionCache`: the key is a
+    SHA-256 over the input text and parameters (provider, model, generation
+    params, ...), so changing any of them yields a different key and old entries
+    are simply bypassed rather than served stale — including after a model
+    upgrade. There is no schema-version stamp; if a serialized value's shape
+    changes incompatibly, point ``cache_path`` at a fresh file (or ``clear()``).
     """
 
     def __init__(
@@ -194,16 +212,15 @@ class SqliteCacheBackend(CacheBackend):
         self._lock = threading.Lock()
         self.logger = get_logger("extraction_cache.sqlite")
 
-        # Normalize the path exactly once so directory creation, ownership
-        # checks and sqlite3.connect() all use the same expanded absolute path
-        # (a "~/..." path must be expanded before it reaches sqlite).
         if db_path == ":memory:":
             self.db_path = ":memory:"
         else:
-            resolved = Path(db_path).expanduser().resolve()
-            self.db_path = str(resolved)
-            resolved.parent.mkdir(parents=True, exist_ok=True)
-            self._reject_unsafe_existing_file(resolved)
+            # Expand "~" and make absolute exactly once (a "~/..." path must be
+            # expanded before it reaches sqlite). Do NOT resolve() — that would
+            # follow a symlinked final component we specifically want to reject.
+            self.db_path = os.path.abspath(os.path.expanduser(db_path))
+            os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
+            self._create_or_validate_secure_file(self.db_path)
 
         self._conn = sqlite3.connect(
             self.db_path, check_same_thread=False, timeout=self._busy_timeout
@@ -223,90 +240,134 @@ class SqliteCacheBackend(CacheBackend):
             "  PRIMARY KEY (namespace, key)"
             ")"
         )
+        # Index supporting the LRU eviction scan (ORDER BY last_access per ns).
+        self._conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_cache_lru "
+            "ON cache (namespace, last_access)"
+        )
         self._conn.commit()
 
-        if self.db_path != ":memory:":
-            try:  # best-effort: keep the cache file private to this user
-                os.chmod(self.db_path, 0o600)
-            except OSError:
-                pass
+    def _create_or_validate_secure_file(self, path: str) -> None:
+        """Create the db file atomically with ``0o600``, or validate an existing one.
 
-    @staticmethod
-    def _reject_unsafe_existing_file(path: Path) -> None:
-        """Refuse a pre-existing db owned by another user (POSIX).
-
-        A persistent cache is deserialized back into the process, so reusing a
-        file another user could have crafted is a code-execution risk. Raising
-        here makes the caller fall back to the in-memory backend.
+        Using ``O_CREAT | O_EXCL`` closes the TOCTOU/permission window of a
+        validate-then-open-then-chmod sequence: a fresh file exists with private
+        permissions from the very first moment. An existing file is only reused
+        if it is a regular (non-symlink) file owned by the current user.
         """
-        if not path.exists() or not hasattr(os, "getuid"):
-            return
         try:
-            owner = path.stat().st_uid
-        except OSError:
-            return
-        if owner != os.getuid():  # type: ignore[attr-defined]
+            fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+            os.close(fd)
+            return  # freshly created, private
+        except FileExistsError:
+            pass  # fall through to validate the existing file
+
+        try:
+            info = os.lstat(path)  # lstat: do not follow a symlinked final path
+        except OSError as exc:
+            raise PermissionError(f"Cannot stat cache database {path}: {exc}")
+
+        if stat.S_ISLNK(info.st_mode):
+            raise PermissionError(f"Refusing to use symlinked cache database: {path}")
+        if not stat.S_ISREG(info.st_mode):
+            raise PermissionError(f"Cache database is not a regular file: {path}")
+        if hasattr(os, "getuid") and info.st_uid != os.getuid():  # POSIX only
             raise PermissionError(
                 f"Refusing to use cache database owned by another user: {path}"
             )
 
-    def _safe_rollback(self) -> None:
+    def _rollback_locked(self) -> None:
+        """Roll back the current transaction. Caller MUST hold ``self._lock``
+        so a later request cannot commit over a failed one on the shared conn."""
         try:
             self._conn.rollback()
         except sqlite3.Error:
             pass
 
+    def _write_locked(self, operation: Callable[[sqlite3.Connection], None]) -> bool:
+        """Run a write ``operation`` + commit under the lock, rolling back within
+        the same lock scope on failure. Retries on 'database is locked' with
+        bounded backoff (sleeping outside the lock). Returns success."""
+        last_exc: Optional[sqlite3.Error] = None
+        for attempt in range(self._max_retries):
+            retryable = False
+            with self._lock:
+                try:
+                    operation(self._conn)
+                    self._conn.commit()
+                    return True
+                except sqlite3.OperationalError as exc:
+                    self._rollback_locked()
+                    last_exc = exc
+                    retryable = "locked" in str(exc).lower()
+                except sqlite3.Error as exc:
+                    self._rollback_locked()
+                    last_exc = exc
+            if not retryable or attempt == self._max_retries - 1:
+                break
+            time.sleep(self._retry_backoff * (2**attempt))
+        self.logger.warning(f"sqlite cache write failed (skipped): {last_exc}")
+        return False
+
     def get(self, namespace: str, key: str) -> Optional[Any]:
         now = time.time()
-        try:
-            with self._lock:
+        with self._lock:
+            try:
                 row = self._conn.execute(
                     "SELECT value, expires_at FROM cache WHERE namespace=? AND key=?",
                     (namespace, key),
                 ).fetchone()
-                if row is None:
-                    return None
-                value_blob, expires_at = row
-                if expires_at is not None and expires_at < now:
+            except sqlite3.Error as exc:
+                self._rollback_locked()
+                self.logger.warning(f"sqlite cache read failed (miss): {exc}")
+                return None
+            if row is None:
+                return None
+            value_blob, expires_at = row
+            # ttl=0 -> expires_at == now: treat as expired (use <=), matching the
+            # in-memory backend.
+            if expires_at is not None and expires_at <= now:
+                try:
                     self._conn.execute(
                         "DELETE FROM cache WHERE namespace=? AND key=?",
                         (namespace, key),
                     )
                     self._conn.commit()
-                    return None
-        except sqlite3.Error as exc:
-            self.logger.warning(f"sqlite cache read failed (miss): {exc}")
-            return None
+                except sqlite3.Error as exc:
+                    self._rollback_locked()
+                    self.logger.warning(f"sqlite expired-entry cleanup failed: {exc}")
+                return None
 
-        # Deserialize BEFORE bumping last_access: a corrupt/incompatible row must
-        # not stay "recently used" (which would keep it from being evicted).
+        # Deserialize OUTSIDE the lock but BEFORE bumping last_access: a
+        # corrupt/incompatible row must not stay "recently used" (which would
+        # keep it from being evicted), and must be dropped.
         try:
             value = self._deserialize(value_blob)
         except Exception as exc:
             self.logger.warning(
                 f"Failed to deserialize cached value; dropping row: {exc}"
             )
-            try:
-                with self._lock:
+            with self._lock:
+                try:
                     self._conn.execute(
                         "DELETE FROM cache WHERE namespace=? AND key=?",
                         (namespace, key),
                     )
                     self._conn.commit()
-            except sqlite3.Error:
-                self._safe_rollback()
+                except sqlite3.Error:
+                    self._rollback_locked()
             return None
 
-        try:
-            with self._lock:
+        with self._lock:
+            try:
                 self._conn.execute(
                     "UPDATE cache SET last_access=? WHERE namespace=? AND key=?",
                     (now, namespace, key),
                 )
                 self._conn.commit()
-        except sqlite3.Error as exc:  # non-fatal: value is already in hand
-            self.logger.debug(f"sqlite last_access update failed: {exc}")
-            self._safe_rollback()
+            except sqlite3.Error as exc:  # non-fatal: value is already in hand
+                self._rollback_locked()
+                self.logger.debug(f"sqlite last_access update failed: {exc}")
         return value
 
     def set(self, namespace: str, key: str, value: Any, ttl: Optional[int]) -> None:
@@ -320,67 +381,50 @@ class SqliteCacheBackend(CacheBackend):
             self.logger.warning(f"Failed to serialize value for caching: {exc}")
             return
 
-        for attempt in range(self._max_retries):
-            try:
-                with self._lock:
-                    self._conn.execute(
-                        "INSERT INTO cache (namespace, key, value, expires_at, last_access) "
-                        "VALUES (?, ?, ?, ?, ?) "
-                        "ON CONFLICT(namespace, key) DO UPDATE SET "
-                        "  value=excluded.value,"
-                        "  expires_at=excluded.expires_at,"
-                        "  last_access=excluded.last_access",
-                        (namespace, key, blob, expires_at, now),
-                    )
-                    count = self._conn.execute(
-                        "SELECT COUNT(*) FROM cache WHERE namespace=?", (namespace,)
-                    ).fetchone()[0]
-                    if count > self.max_size:
-                        self._conn.execute(
-                            "DELETE FROM cache WHERE rowid IN ("
-                            "  SELECT rowid FROM cache WHERE namespace=? "
-                            "  ORDER BY last_access ASC LIMIT ?"
-                            ")",
-                            (namespace, count - self.max_size),
-                        )
-                    self._conn.commit()
-                return
-            except sqlite3.OperationalError as exc:
-                self._safe_rollback()
-                if "locked" in str(exc).lower() and attempt < self._max_retries - 1:
-                    time.sleep(self._retry_backoff * (2**attempt))
-                    continue
-                self.logger.warning(f"sqlite cache write failed (skipped): {exc}")
-                return
-            except sqlite3.Error as exc:
-                self._safe_rollback()
-                self.logger.warning(f"sqlite cache write failed (skipped): {exc}")
-                return
+        def operation(conn: sqlite3.Connection) -> None:
+            conn.execute(
+                "INSERT INTO cache (namespace, key, value, expires_at, last_access) "
+                "VALUES (?, ?, ?, ?, ?) "
+                "ON CONFLICT(namespace, key) DO UPDATE SET "
+                "  value=excluded.value,"
+                "  expires_at=excluded.expires_at,"
+                "  last_access=excluded.last_access",
+                (namespace, key, blob, expires_at, now),
+            )
+            count = conn.execute(
+                "SELECT COUNT(*) FROM cache WHERE namespace=?", (namespace,)
+            ).fetchone()[0]
+            if count > self.max_size:
+                conn.execute(
+                    "DELETE FROM cache WHERE rowid IN ("
+                    "  SELECT rowid FROM cache WHERE namespace=? "
+                    "  ORDER BY last_access ASC LIMIT ?"
+                    ")",
+                    (namespace, count - self.max_size),
+                )
+
+        self._write_locked(operation)
 
     def clear(self, namespace: Optional[str] = None) -> None:
-        try:
-            with self._lock:
-                if namespace is None:
-                    self._conn.execute("DELETE FROM cache")
-                else:
-                    self._conn.execute(
-                        "DELETE FROM cache WHERE namespace=?", (namespace,)
-                    )
-                self._conn.commit()
-        except sqlite3.Error as exc:
-            self.logger.warning(f"sqlite cache clear failed: {exc}")
-            self._safe_rollback()
+        def operation(conn: sqlite3.Connection) -> None:
+            if namespace is None:
+                conn.execute("DELETE FROM cache")
+            else:
+                conn.execute("DELETE FROM cache WHERE namespace=?", (namespace,))
+
+        self._write_locked(operation)
 
     def stats(self, namespace: str) -> Dict[str, int]:
-        try:
-            with self._lock:
+        with self._lock:
+            try:
                 row = self._conn.execute(
                     "SELECT COUNT(*) FROM cache WHERE namespace=?", (namespace,)
                 ).fetchone()
-            size = int(row[0]) if row else 0
-        except sqlite3.Error as exc:
-            self.logger.warning(f"sqlite cache stats failed: {exc}")
-            size = 0
+                size = int(row[0]) if row else 0
+            except sqlite3.Error as exc:
+                self._rollback_locked()
+                self.logger.warning(f"sqlite cache stats failed: {exc}")
+                size = 0
         return {"size": size, "max_size": self.max_size}
 
     def close(self) -> None:
@@ -443,14 +487,25 @@ class ExtractionCache:
         Note: Sensitive parameters like 'api_key' are excluded from the cache key
         to prevent security risks and ensure cache sharing where appropriate.
         """
-        # Filter out sensitive keys
+        # Filter out sensitive keys. Exact-match (not substring) so legitimate
+        # params such as "max_tokens" are never dropped.
         sensitive_keys = {
             "api_key",
+            "apikey",
+            "api_secret",
             "token",
+            "access_token",
+            "refresh_token",
+            "session_token",
+            "bearer_token",
             "password",
             "secret",
+            "client_secret",
+            "private_key",
             "auth",
             "authorization",
+            "credential",
+            "credentials",
         }
         filtered_params = {
             k: v for k, v in params.items() if k.lower() not in sensitive_keys

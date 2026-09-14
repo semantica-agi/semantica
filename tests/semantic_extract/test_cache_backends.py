@@ -5,8 +5,12 @@ from __future__ import annotations
 import json
 import multiprocessing as mp
 import os
+import sqlite3
+import stat
 import subprocess
 import sys
+
+import pytest
 
 from semantica.semantic_extract import (
     CacheBackend,
@@ -277,6 +281,69 @@ def test_sqlite_concurrent_workers_share_one_file(tmp_path):
         assert reader.size(ns) == 20
         assert reader.get(ns, "k5") == {"v": 5}
     reader.close()
+
+
+# ---------------------------------------------------------------------------
+# Security & reliability of the persistent file
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.skipif(not hasattr(os, "getuid"), reason="POSIX permissions only")
+def test_sqlite_new_db_created_private(tmp_path):
+    path = _db(tmp_path)
+    backend = SqliteCacheBackend(path)
+    mode = stat.S_IMODE(os.stat(path).st_mode)
+    assert mode == 0o600  # created 0o600 atomically, no widen-then-chmod window
+    backend.close()
+
+
+@pytest.mark.skipif(not hasattr(os, "symlink"), reason="symlinks unavailable")
+def test_sqlite_rejects_symlinked_db(tmp_path):
+    target = tmp_path / "target.sqlite3"
+    target.write_bytes(b"")
+    link = tmp_path / "link.sqlite3"
+    os.symlink(target, link)
+    with pytest.raises(PermissionError):
+        SqliteCacheBackend(str(link))
+
+
+def test_sqlite_write_error_is_contained(tmp_path):
+    # A sqlite failure on write must be rolled back and swallowed (skipped
+    # update), never propagated into the caller.
+    backend = SqliteCacheBackend(_db(tmp_path))
+
+    class _BoomConn:
+        def __init__(self):
+            self.rolled_back = False
+
+        def execute(self, *a, **k):
+            raise sqlite3.OperationalError("boom")
+
+        def commit(self):
+            raise AssertionError("commit must not run after a failed op")
+
+        def rollback(self):
+            self.rolled_back = True
+
+    boom = _BoomConn()
+    backend._conn = boom
+    backend.set("entities", "k", "v", ttl=None)  # must not raise
+    assert boom.rolled_back  # rollback happened (inside the lock scope)
+    assert backend.get("entities", "k") is None  # read failure -> miss
+
+
+def test_sqlite_read_error_is_contained(tmp_path):
+    backend = SqliteCacheBackend(_db(tmp_path))
+
+    class _BoomConn:
+        def execute(self, *a, **k):
+            raise sqlite3.OperationalError("boom")
+
+        def rollback(self):
+            pass
+
+    backend._conn = _BoomConn()
+    assert backend.get("entities", "k") is None  # miss, no crash
 
 
 # ---------------------------------------------------------------------------
