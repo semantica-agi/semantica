@@ -301,16 +301,20 @@ def _run_build(cli_ctx: CLIContext, sources: Sequence[str]) -> None:
         return
 
     framework = _get_framework(cli_ctx)
+    # Every build call is kept: the multi-source progress loop below calls
+    # build_knowledge_base once per file, and keeping only the last result
+    # would make the empty-graph check and the reported counts reflect one
+    # file instead of the whole build.
+    results: List[Dict[str, Any]] = []
     if cli_ctx.quiet or cli_ctx.json_output:
-        result = framework.build_knowledge_base(sources=list(sources))
+        results.append(framework.build_knowledge_base(sources=list(sources)))
     elif len(sources) == 1:
         with console.status(
             f"[{_DIM}]Building knowledge base from {Path(sources[0]).name}…[/{_DIM}]",
             spinner="dots",
         ):
-            result = framework.build_knowledge_base(sources=list(sources))
+            results.append(framework.build_knowledge_base(sources=list(sources)))
     elif not cli_ctx.json_output:
-        result: Dict[str, Any] = {}
         with Progress(
             SpinnerColumn(),
             TextColumn("[{task.description}]", style=_DIM),
@@ -323,21 +327,27 @@ def _run_build(cli_ctx: CLIContext, sources: Sequence[str]) -> None:
             task = progress.add_task("waiting", total=len(sources))
             for src in sources:
                 progress.update(task, description=Path(src).name)
-                result = framework.build_knowledge_base(sources=[src])
+                results.append(framework.build_knowledge_base(sources=[src]))
                 progress.advance(task)
 
-    stats = result.get("statistics", {}) if isinstance(result, dict) else {}
-    processed = stats.get("sources_processed")
+    results = [r for r in results if isinstance(r, dict)]
+    processed_counts = [
+        r.get("statistics", {}).get("sources_processed") for r in results
+    ]
+    processed_counts = [c for c in processed_counts if c is not None]
+    processed = sum(processed_counts) if processed_counts else None
 
     # A source count alone does not mean anything was built: with no pipeline
     # configured the default pipeline passes its input through untouched, so
     # every source is "processed" and the graph stays empty. Reporting success
-    # there hid the failure completely (#1352).
-    graph = result.get("knowledge_graph", {}) if isinstance(result, dict) else {}
-    entity_count = len(graph.get("entities") or [])
-    relationship_count = len(graph.get("relationships") or [])
+    # there hid the failure completely (#1352). Only results that actually
+    # carry a knowledge_graph are judged; a result without one is not evidence
+    # of an empty graph.
+    graphs = [r["knowledge_graph"] or {} for r in results if "knowledge_graph" in r]
+    entity_count = sum(len(g.get("entities") or []) for g in graphs)
+    relationship_count = sum(len(g.get("relationships") or []) for g in graphs)
 
-    if processed and not entity_count and not relationship_count:
+    if graphs and processed and not entity_count and not relationship_count:
         raise click.ClickException(
             f"{processed} source(s) processed but the knowledge graph is empty "
             "— no entities or relationships were extracted. This usually means "
