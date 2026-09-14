@@ -27,7 +27,7 @@ from semantica.llms import Groq, OpenAI, LiteLLM, HuggingFaceLLM
 | `HuggingFaceLLM` | Local HuggingFace Transformers | None (local) |
 
 <Tip>
-  **Anthropic, Gemini, Ollama, DeepSeek, Azure, Bedrock, Cohere, and 90+ others** are all available via `LiteLLM` using their model-string prefix. See the [LiteLLM section](#litellm-100-providers) below.
+  **Anthropic, Gemini, Ollama, DeepSeek, Azure, Bedrock, Cohere, and 90+ others** are all available via `LiteLLM` using their model-string prefix. See the [LiteLLM section](#litellm-100+-providers) below.
 </Tip>
 
 ## What You Get
@@ -441,5 +441,5 @@ extractor = NERExtractor(
 
 - [Semantic Extract](/reference/semantic_extract) — Use LLMs for NER and relation extraction.
 - [Agno Integration](../integrations/agno) — LLM providers in Agno multi-agent teams.
-- [Reasoning](reasoning) — LLM-backed deductive and abductive reasoning.
+- [Reasoning](/reference/reasoning) — LLM-backed deductive and abductive reasoning.
 - [Context](/reference/context) — GraphRAG uses LLMs for reasoning over knowledge graphs.

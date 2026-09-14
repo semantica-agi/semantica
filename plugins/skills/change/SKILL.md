@@ -1,38 +1,80 @@
 ---
 name: change
-description: Track and inspect graph changes, diffs, temporal updates, and the impact of new data on Semantica knowledge graphs.
+description: Inspect graph changes over time and ontology version diffs in Semantica. Uses ContextGraph.state_at for point-in-time graph state and change_management.VersionManager for ontology versioning.
 ---
 
 # /semantica:change
 
-Inspect changes over time and evaluate updates. Usage: `/semantica:change <task> [args]`
+Track what changed. Usage: `/semantica:change <task> [args]`
 
-`$ARGUMENTS` = task + optional node, time window, or filter.
+> Two distinct mechanisms cover this, and they are **not** interchangeable:
+>
+> | Question | Tool |
+> | --- | --- |
+> | "What did the *graph* look like on date X?" | `ContextGraph.state_at()` |
+> | "What changed between *ontology* versions?" | `change_management.VersionManager` |
 
 ---
 
-## `diff [--from <ts>] [--to <ts>] [--node <id>]`
-
-Compute graph diffs between two snapshots.
+## `graph-at <timestamp>` — point-in-time graph state
 
 ```python
-from semantica.provenance.change_tracker import ChangeTracker
+import os
 from semantica.context import ContextGraph
 
-tracker = ChangeTracker()
-diff = tracker.compute_diff(from_ts=from_ts, to_ts=to_ts, node_id=node_id)
+graph = ContextGraph()
+graph.load_from_file(os.path.expanduser("~/.semantica/kg.json"))   # load_from_file does not expand ~
+
+snapshot = graph.state_at("2026-06-01")      # str | int | float | datetime
 ```
 
-Output: added/removed nodes and edges, attribute changes, and impact summary.
+Diff two moments by comparing node IDs — `state_at()["nodes"]` is a list of
+dicts (unhashable), so compare the `id` fields, not the dicts themselves:
+
+```python
+before = graph.state_at("2026-06-01")
+after  = graph.state_at("2026-09-01")
+before_ids = {n["id"] for n in before["nodes"]}
+after_ids  = {n["id"] for n in after["nodes"]}
+added = after_ids - before_ids
+```
+
+For richer temporal work (scrubbing, evolution, temporal patterns) use
+`/semantica:temporal`, which wraps the same layer.
 
 ---
 
-## `history <node_id> [--limit N]`
+## `node-history <node_id>` — who touched this node
 
-Show the change history for a node or relationship.
+Node-level history is provenance, not change management:
 
 ```python
-history = tracker.get_node_history(node_id=node_id, limit=limit)
+import os
+from semantica.provenance import ProvenanceManager
+
+db_path = os.path.expanduser("~/.semantica/prov.db")   # storage_path is passed to
+os.makedirs(os.path.dirname(db_path), exist_ok=True)   # sqlite3.connect() unexpanded
+pm = ProvenanceManager(storage_path=db_path)
+history = pm.revision_history(node_id)
+log     = pm.audit_log(since="2026-01-01")
 ```
 
-Return: revisions, timestamps, authors, and summary comments.
+---
+
+## `versions` / `diff <v1> <v2>` — ontology versioning
+
+```python
+from semantica.change_management import VersionManager
+
+vm = VersionManager()
+vm.create_version("1.1.0", ontology)
+vm.list_versions()
+vm.get_latest_version()
+
+delta = vm.compare_versions("1.0.0", "1.1.0")
+delta = vm.diff_ontologies(base_ontology, target_ontology)
+migrated = vm.migrate_ontology("1.0.0", "1.1.0", ontology)
+```
+
+`TemporalVersionManager` and `OntologyVersionManager` are also exported for
+time-scoped and ontology-specific variants.

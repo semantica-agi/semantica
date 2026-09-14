@@ -664,6 +664,6 @@ results = context.find_precedents("APT29 infrastructure attribution", limit=5)
 
 - [Context Graphs](/guides/context-graphs) — how `ContextGraph` stores decision nodes and causal edges
 - [Distance Intelligence](/guides/distance-intelligence) — `trace_decision_causality()` annotates causal chains with confidence decay and distance bands
-- [Provenance](provenance) — W3C PROV-O audit trail that wraps decision records in standards-compliant provenance
+- [Provenance](/guides/provenance) — W3C PROV-O audit trail that wraps decision records in standards-compliant provenance
 - [MCP Server](/guides/mcp-server) — expose decision recording and precedent search to LLM agents via the `record_decision` and `find_precedents` tools
 - [Change Management](/guides/change-management) — checkpoint decision state with `flush_checkpoint()` for versioned snapshots

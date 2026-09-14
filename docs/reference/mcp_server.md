@@ -495,5 +495,5 @@ The MCP server exposes three readable resources:
 
 - [Context](/reference/context) — The ContextGraph that the MCP server operates on.
 - [Semantic Extract](/reference/semantic_extract) — NER and relation extraction powering the MCP tools.
-- [Reasoning](reasoning) — Forward-chaining engine behind run_reasoning.
+- [Reasoning](/reference/reasoning) — Forward-chaining engine behind run_reasoning.
 - [Agno Integration](../integrations/agno) — Use Semantica inside Agno multi-agent teams.

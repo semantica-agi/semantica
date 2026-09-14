@@ -594,3 +594,55 @@ method_registry.register("entity", "custom_method", custom_entity_extraction)
 # Use custom method
 from semantica.semantic_extract import NERExtractor
 extractor = NERExtractor(method="custom_method")
+```
+
+## Result Caching
+
+Extraction results are cached (keyed by a stable SHA-256 over the input text and
+generation parameters — `provider`, `model`, `temperature`, `seed`, ... — with
+sensitive keys such as `api_key` excluded). The default cache is in-memory
+(LRU + TTL) and lives only for the process.
+
+### Persistent cache (sqlite)
+
+An optional persistent backend keeps results across process restarts, so a
+fresh process (CI job, notebook kernel, batch worker) reuses prior results
+instead of re-paying the LLM. Select it via config, environment, or at runtime:
+
+```python
+from semantica.semantic_extract import configure_cache
+
+# Runtime (rebuilds the global cache in place):
+configure_cache(backend="sqlite", path="~/.cache/semantica/extract.sqlite3")
+```
+
+```bash
+# Environment (applied at import time):
+export SEMANTICA_CACHE_BACKEND=sqlite
+export SEMANTICA_CACHE_PATH=~/.cache/semantica/extract.sqlite3
+# also: SEMANTICA_CACHE_TTL, SEMANTICA_CACHE_SIZE, SEMANTICA_CACHE_ENABLED
+```
+
+If the persistent backend cannot be constructed, it degrades gracefully to the
+in-memory default — extraction never fails because of a cache misconfiguration.
+
+### ⚠️ Persistent cache trust model
+
+The sqlite file is deserialized back into the process on every read, and the
+**default serializer is `pickle`**. Treat the cache file as executable input:
+
+- `cache_path` / `SEMANTICA_CACHE_PATH` **must** point at a **trusted,
+  user-private** location. The default (`$XDG_CACHE_HOME` or `~/.cache`,
+  created `0o700`; the db file created `0o600`) satisfies this.
+- The cache may contain **sensitive extraction results** in the clear.
+- The default `pickle` serializer must only be used with a trusted cache file.
+  For untrusted or shared locations, pass a non-executable serializer
+  (e.g. `json`) when constructing `SqliteCacheBackend`.
+
+For safety the backend creates the file atomically with `0o600` and refuses an
+existing path that is a symlink, a non-regular file, or owned by another user
+(falling back to the in-memory cache).
+
+Cache-key invalidation is automatic: because provider/model/generation
+parameters are part of the key, changing any of them (e.g. a model upgrade)
+produces a different key and old entries are bypassed rather than served stale.

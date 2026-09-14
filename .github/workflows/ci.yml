@@ -120,6 +120,7 @@ jobs:
           print('semantica', semantica.__version__, 'core installed and importable')
           "
           pytest -q tests/test_issue_1513_slim_core.py
+          pytest -q tests/test_docs_check.py
       - name: Install Explorer backend test dependencies
         run: |
           # Run the deterministic backend path before the all-extras CI
