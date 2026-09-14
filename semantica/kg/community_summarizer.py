@@ -260,10 +260,19 @@ class CommunityReport:
             norm_findings = []
             for item in self.findings:
                 if isinstance(item, dict):
-                    norm_findings.append(
-                        {str(k): v for k, v in item.items()}
-                    )
-                else:
+                    entry = {str(k): v for k, v in item.items()}
+                    if "summary" in entry:
+                        entry["summary"] = (
+                            "" if entry["summary"] is None else str(entry["summary"])
+                        )
+                    if "explanation" in entry:
+                        entry["explanation"] = (
+                            ""
+                            if entry["explanation"] is None
+                            else str(entry["explanation"])
+                        )
+                    norm_findings.append(entry)
+                elif item is not None:
                     norm_findings.append(
                         {"summary": str(item), "explanation": ""}
                     )
@@ -309,19 +318,22 @@ class CommunityReport:
             dict(item) if isinstance(item, dict) else item
             for item in data.get("findings", [])
         ]
+        level_val = data.get("level")
+        impact_val = data.get("impact_rating")
+        rank_val = data.get("rank")
         return cls(
             community_id=str(data.get("community_id", "")),
-            level=int(data.get("level", 0)),
+            level=int(level_val) if level_val is not None else 0,
             title=str(data.get("title", "")),
             summary=str(data.get("summary", "")),
             findings=findings,
-            impact_rating=float(data.get("impact_rating", 5.0)),
+            impact_rating=float(impact_val) if impact_val is not None else 5.0,
             rating_explanation=str(data.get("rating_explanation", "")),
             member_entities=list(data.get("member_entities", [])),
             content_hash=str(data.get("content_hash", "")),
             sub_communities=list(data.get("sub_communities", [])),
             parent_id=parent_id,
-            rank=float(data.get("rank", 0.0)),
+            rank=float(rank_val) if rank_val is not None else 0.0,
             embedding=embedding,
             metadata=dict(data.get("metadata", {})),
         )

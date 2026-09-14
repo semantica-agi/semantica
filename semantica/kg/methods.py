@@ -1095,6 +1095,26 @@ method_registry.register(
 method_registry.register(
     "community_summary", "hierarchy", summarize_hierarchy
 )
+method_registry.register(
+    "global_retrieval", "default", lambda *a, **kw: global_search(*a, **kw)
+)
+method_registry.register(
+    "drift_search", "default", lambda *a, **kw: drift_search(*a, **kw)
+)
+
+
+def global_search(query: str, **kwargs: Any) -> Any:
+    """Execute global hierarchical GraphRAG query search."""
+    from ..context.methods import retrieve_global
+
+    return retrieve_global(query, **kwargs)
+
+
+def drift_search(query: str, **kwargs: Any) -> Any:
+    """Execute DRIFT hybrid global-local search."""
+    from ..context.methods import retrieve_drift
+
+    return retrieve_drift(query, **kwargs)
 
 
 # Helper functions

@@ -61,6 +61,8 @@ class MethodRegistry:
         "temporal": {},
         "community_hierarchy": {},
         "community_summary": {},
+        "global_retrieval": {},
+        "drift_search": {},
     }
 
     @classmethod
@@ -189,6 +191,8 @@ class AlgorithmRegistry:
             "community_detection": {},
             "community_hierarchy": {},
             "community_summary": {},
+            "global_retrieval": {},
+            "drift_search": {},
         }
         self._metadata = {}
         self._capabilities = {}
@@ -234,7 +238,7 @@ class AlgorithmRegistry:
         if capabilities:
             self._capabilities[(category, name)] = capabilities
     
-    def get(self, category: str, name: str) -> Optional[type]:
+    def get(self, category: str, name: str = "default") -> Optional[type]:
         """
         Get algorithm class by category and name.
         
@@ -260,9 +264,23 @@ class AlgorithmRegistry:
         ):
             from .community_summarizer import CommunitySummarizer
             return CommunitySummarizer
+        if (
+            algo is None and
+            category == "global_retrieval" and
+            name in ("default", "global", "map_reduce")
+        ):
+            from ..context.global_retriever import GlobalGraphRetriever
+            return GlobalGraphRetriever
+        if (
+            algo is None and
+            category == "drift_search" and
+            name in ("default", "drift", "hybrid")
+        ):
+            from ..context.drift_search import DriftSearchEngine
+            return DriftSearchEngine
         return algo
     
-    def create_instance(self, category: str, name: str, **kwargs) -> Any:
+    def create_instance(self, category: str, name: str = "default", **kwargs) -> Any:
         """
         Create an instance of an algorithm.
         
@@ -277,10 +295,10 @@ class AlgorithmRegistry:
         Raises:
             ValueError: If algorithm not found
         """
-        if name not in self._algorithms.get(category, {}):
-            raise ValueError(f"Algorithm {name} not found in category {category}")
         algorithm_class = self.get(category, name)
         if algorithm_class is None:
+            if name not in self._algorithms.get(category, {}):
+                raise ValueError(f"Algorithm {name} not found in category {category}")
             raise TypeError(f"Algorithm {name} has no implementation class registered")
         
         if category == "community_hierarchy":
@@ -609,6 +627,52 @@ class AlgorithmRegistry:
                     "sha256_caching",
                     "hierarchical_synthesis",
                 ],
+            )
+
+        # Global GraphRAG retrieval
+        global_meta = {
+            "description": "Global Map-Reduce query retrieval over reports",
+            "parameters": ["query", "reports", "hierarchy", "llm"],
+            "complexity": "O(C)",
+            "quality": "High",
+            "use_case": "Macro-level executive query answering",
+        }
+        global_caps = [
+            "map_reduce",
+            "level_promotion",
+            "token_budgeting",
+            "citations",
+        ]
+        for g_name in ("default", "global", "map_reduce"):
+            self.register(
+                "global_retrieval",
+                g_name,
+                None,
+                metadata=global_meta,
+                capabilities=global_caps,
+            )
+
+        # DRIFT hybrid search
+        drift_meta = {
+            "description": "DRIFT hybrid global-local search engine",
+            "parameters": ["query", "knowledge_graph", "reports", "llm"],
+            "complexity": "O(K + E)",
+            "quality": "High",
+            "use_case": "Directed reasoning and drift-pruned traversal",
+        }
+        drift_caps = [
+            "thematic_framing",
+            "directed_reasoning",
+            "drift_pruning",
+            "dual_attribution",
+        ]
+        for d_name in ("default", "drift", "hybrid"):
+            self.register(
+                "drift_search",
+                d_name,
+                None,
+                metadata=drift_meta,
+                capabilities=drift_caps,
             )
 
 
