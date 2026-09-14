@@ -3940,10 +3940,11 @@ numpy==2.4.6 \
     #   torchvision
     #   transformers
     #   umap-learn
-nvidia-cublas==13.1.1.3 \
-    --hash=sha256:37936a16db8fe4ac1f065c2139360608a543a09275cb1a1af612e08cfa065436 \
-    --hash=sha256:b6cdce694e47ff6aadf0a69df1cab6628d696f5ff56e8d16af50309d855fa20f \
-    --hash=sha256:b7a210458267ac818974c53038fbec2e969d5c99f305ab15c72522fa9f001dd5
+nvidia-cublas==13.7.0.27 \
+    --hash=sha256:15d3963ae9de7292348ced320c849ff27f76b0f433b81589e9eb87f5407841c9 \
+    --hash=sha256:39f240346a8bbc6c4f1e3100dcfa2c6d3fe353db513060329ef28cdd43c27f2f \
+    --hash=sha256:481adf76a6b7585a7a4cd5f53298589abe207415dd584887751b99baa85491d4 \
+    --hash=sha256:4cf58f2c8a4743a2717b0f5c51a90f0d93ada416d71eb3d96b17ca29b7af0106
     # via
     #   cuda-toolkit
     #   nvidia-cudnn-cu13
