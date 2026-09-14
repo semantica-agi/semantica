@@ -244,6 +244,7 @@ class EntityDetailResponse(BaseModel):
     entity_type: str
     definition: Optional[str] = None
     source_ontology: Optional[str] = None
+    owning_ontology: Optional[str] = None
     superclasses: List[str] = Field(default_factory=list)
     subclasses: List[str] = Field(default_factory=list)
     domain: List[str] = Field(default_factory=list)
@@ -812,6 +813,55 @@ def _node_belongs_to_ontology(
     # until it is registered or carries an explicit owner.
     local_name = nid[len(stem) + 1 :]
     return "#" not in local_name and "/" not in local_name
+
+
+def _resolve_owning_ontology(
+    node: Dict[str, Any],
+    known_ontology_uris: set[str],
+) -> Optional[str]:
+    """Return the one known ontology that owns this node, or None if none does.
+
+    The most specific (longest) match wins, so a nested vocabulary claims its
+    own terms instead of the parent absorbing them.
+
+    Kept agreeing with _node_belongs_to_ontology by construction — the same
+    three rules in the same order — but in one pass over the candidates rather
+    than one pass per candidate, each of which rescanned the whole set to find
+    the longest namespace. That made resolution quadratic in the number of
+    registered ontologies.
+    """
+    nid = str(node.get("id", ""))
+    if not nid:
+        return None
+
+    # An ontology node owns itself, ahead of any scheme_uri it may carry.
+    if nid in known_ontology_uris:
+        return nid
+
+    # An explicit owner is authoritative even when it is not registered:
+    # naming a different ontology by namespace guess would be worse than
+    # reporting the one the node itself points at.
+    explicit_owner = _node_source_ontology(node)
+    if explicit_owner:
+        return explicit_owner
+
+    longest_namespace: Optional[str] = None
+    for candidate in known_ontology_uris:
+        stem = candidate.rstrip("#/")
+        if not nid.startswith((stem + "#", stem + "/")):
+            continue
+        if longest_namespace is None or len(candidate) > len(longest_namespace):
+            longest_namespace = candidate
+    if longest_namespace is None:
+        return None
+
+    # Prefix ownership only extends to names minted directly in the namespace.
+    # A further delimiter marks a nested vocabulary, which stays unowned until
+    # it is registered or carries an explicit owner.
+    local_name = nid[len(longest_namespace.rstrip("#/")) + 1 :]
+    if "#" in local_name or "/" in local_name:
+        return None
+    return longest_namespace
 
 
 def _is_ontology_entity(node: Dict[str, Any]) -> bool:
@@ -1952,6 +2002,7 @@ async def get_ontology_graph(
 @router.get("/entity/{entity_uri:path}", response_model=EntityDetailResponse)
 async def get_entity_detail(
     entity_uri: str,
+    request: Request,
     session: GraphSession = Depends(get_session),
 ):
     node = await asyncio.to_thread(session.get_node, entity_uri)
@@ -1973,12 +2024,21 @@ async def get_entity_detail(
 
     all_nodes, _ = await asyncio.to_thread(session.get_nodes, skip=0, limit=999_999)
     instance_count = sum(1 for n in all_nodes if n.get("type") == entity_uri)
+    # Ownership must use the same candidate set as /graph, so it goes through the
+    # same helper rather than being derived from all_nodes above: that scan is
+    # capped at 999,999, and on a larger graph a truncated set would silently
+    # drop ontologies and make the two endpoints disagree about who owns a node.
+    # The helper iterates only the ontology node types, so it is not a full scan.
+    known_ontology_uris = await asyncio.to_thread(
+        _known_ontology_uris, session, _get_registry(request)
+    )
 
     return EntityDetailResponse(
         uri=entity_uri, label=label,
         type=ntype, entity_type=_classify_node_type(ntype),
         definition=definition,
         source_ontology=props.get("scheme_uri"),
+        owning_ontology=_resolve_owning_ontology(node, known_ontology_uris),
         superclasses=superclasses, subclasses=subclasses,
         domain=domain, range=range_,
         instance_count=instance_count, properties=props,

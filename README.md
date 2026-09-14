@@ -42,6 +42,8 @@ pip install semantica
 
 </div>
 
+[English](https://readme-i18n.com/semantica-agi/semantica?lang=en) · [Deutsch](https://readme-i18n.com/semantica-agi/semantica?lang=de) · [Français](https://readme-i18n.com/semantica-agi/semantica?lang=fr) · [Español](https://readme-i18n.com/semantica-agi/semantica?lang=es) · [Italiano](https://readme-i18n.com/semantica-agi/semantica?lang=it) · [Português](https://readme-i18n.com/semantica-agi/semantica?lang=pt) · [العربية](https://readme-i18n.com/semantica-agi/semantica?lang=ar) · [اردو](https://readme-i18n.com/semantica-agi/semantica?lang=ur) · [हिन्दी](https://readme-i18n.com/semantica-agi/semantica?lang=hi) · [中文](https://readme-i18n.com/semantica-agi/semantica?lang=zh) · [日本語](https://readme-i18n.com/semantica-agi/semantica?lang=ja) · [한국어](https://readme-i18n.com/semantica-agi/semantica?lang=ko)
+
 ---
 
 <div align="center">
@@ -62,16 +64,21 @@ pip install semantica
 
 ---
 
-Most AI agents run on embeddings, not meaning: similarity scores with no structure, no relationships, and no way to explain why a result came back. Semantica is the semantic/context layer underneath your LLM, vector store, and agent framework: a deterministic infrastructure layer (no LLM required for graph construction, reasoning, or provenance) that turns fragmented enterprise data into a structured, queryable Context Graph and knowledge graph, governed by ontologies and controlled vocabularies (OWL, SHACL, SKOS) so the meaning of your data is explicit, not just its embedding. Decision provenance and audit trails fall out of that structure as a property, not the product itself; in domains a regulator can question, that same structure just happens to double as a straight answer to "why."
+Most AI agents run on embeddings, not meaning: similarity scores with no structure, no relationships, and no way to explain why a result came back.
 
-> ⚠️ **System-level explainability, not foundation-model explainability.** Semantica does not expose or reconstruct what happens *inside* the LLM — its internal reasoning or chain-of-thought stays opaque, as it does for any external system. Semantica explains what's *outside* the model: the context and data fed in, the decision produced, its provenance, relevant relationships, applied policies, and the full execution trail.
+Semantica is the semantic/context layer underneath your LLM, vector store, and agent framework: deterministic infrastructure (no LLM required for graph construction, reasoning, or provenance; where an LLM is used, it's optional and vendor-neutral, every major provider supported, OpenAI, Anthropic, Gemini, and more, via `semantica.llms`) that turns fragmented enterprise data into a structured, queryable Context Graph and knowledge graph that carries the business context, not just the data structure. Ontologies and controlled vocabularies (OWL, SHACL, SKOS) make what an entity *means* to your business, its definitions, relationships, and rules, as explicit as the data itself, not just its embedding.
+
+Decision provenance and audit trails aren't the product. They fall out of that structure for free, and in domains a regulator can question, the same structure that makes your agent smarter also gives you a straight answer to "why."
+
+> [!NOTE]
+> **System-level explainability, not foundation-model explainability.** Semantica doesn't expose or reconstruct what happens *inside* the LLM: its internal reasoning stays opaque, like it does for any external system. Semantica explains what's *outside* the model: the context fed in, the decision produced, its provenance, relevant relationships, applied policies, and the full execution trail.
 
 **Who it's for:**
 
 - **AI/ML platform teams** shipping agents that make consequential decisions and need structured, queryable context, not just a vector index
-- **Data platform teams on Databricks or Snowflake** turning tables already in Unity Catalog or a warehouse into a governed, lineage-tracked knowledge graph, without exporting to a third-party SaaS
+- **Enterprise data teams on Databricks, Snowflake, or SAP** turning tables already in the lakehouse or warehouse into a governed, lineage-tracked knowledge graph, without exporting to a third-party SaaS
 - **Compliance, risk, and audit teams** who need a straight answer to "why did the AI do that?" in a format a regulator accepts
-- **Regulated enterprises** (finance, healthcare, legal, government, defense) that can't ship a black box or send their data to someone else's SaaS to get one
+- **Regulated enterprises** (finance, healthcare, legal, government, defense) that can't ship a black box or hand their data to someone else's SaaS to get one
 - **Platform and infra engineers** who want the KG, reasoning, and provenance stack self-hosted and swappable, not locked to one vendor's backend
 - **Data and knowledge engineers** building a KG from messy, multi-source data, where conflicting facts get flagged and duplicates get merged, not silently overwritten
 
@@ -83,15 +90,15 @@ Most AI agents run on embeddings, not meaning: similarity scores with no structu
 
 - **Context Graphs:** A structured, queryable graph of everything your agent knows, decides, and reasons about
 - **Decision Intelligence:** Every decision is a first-class object: traceable, searchable by precedent, and causally linked
-- **AI Governance & Ontology:** SHACL constraints, conflict detection, compliance rules, OWL generation, and SKOS vocabulary management with a visual editor
-- **Full Auditability:** W3C PROV-O provenance on every fact, with audit trails exportable to JSON, CSV, or RDF
-- **Deterministic Reasoning:** Forward chaining, Rete network, Datalog, and SPARQL with fully explainable paths, not black boxes
-- **Knowledge Pipeline:** Multi-source ingestion, entity-aware chunking, NER/relation/event extraction, and knowledge graph construction, with semantic deduplication and provenance-preserving merges throughout
-- **Enterprise Data Platforms:** Native connectors for Databricks (Unity Catalog + Delta Lake, PAT/OAuth M2M auth, catalog/schema/table/lineage introspection), Snowflake (warehouse/database/schema, key-pair and OAuth auth), and SAP OData (Business Partners, Sales Orders, OAuth2/Basic auth), so data already living in your lakehouse or warehouse becomes graph nodes with provenance, not another export/import hop
+- **AI Governance & Ontology:** SHACL constraints, conflict detection, compliance rules, OWL generation, and SKOS vocabularies, all with a visual editor
+- **Full Auditability:** W3C PROV-O provenance on every fact, exportable to JSON, CSV, or RDF
+- **Deterministic Reasoning:** Forward chaining, Rete network, Datalog, and SPARQL, with fully explainable paths, not black boxes
+- **Knowledge Pipeline:** Multi-source ingestion, entity-aware chunking, NER/relation/event extraction, and graph construction, with semantic dedup and provenance-preserving merges built in
+- **Enterprise Data Platforms:** Native connectors for Databricks (Unity Catalog + Delta Lake), Snowflake, and SAP OData, so data already in your lakehouse or warehouse becomes graph nodes with provenance, no export/import hop
 - **Graph Analytics:** Centrality, community detection, link prediction, and shortest-path queries over the graph you just built
-- **Polyglot Graph Storage:** Native RDF (embedded Oxigraph, Blazegraph, Apache Jena, Eclipse RDF4J via SPARQL) and Labeled Property Graphs (Neo4j, FalkorDB, Apache AGE, AWS Neptune via Cypher), plus vector stores, all swappable without touching your code
+- **Polyglot Graph Storage:** RDF (Oxigraph, Blazegraph, Jena, RDF4J) and Labeled Property Graphs (Neo4j, FalkorDB, AGE, Neptune), plus vector stores, all swappable without touching your code
 - **Visualization:** Explore any graph, ontology, or timeline in an interactive browser workbench
-- **Drop-in Integrations:** Native Agno, CrewAI, and LangChain support, a full-featured MCP server, a comprehensive CLI, a REST API, and plugins across major editors
+- **Drop-in Integrations:** Agno, CrewAI, and LangChain support, a full MCP server, a CLI, a REST API, and plugins across major editors
 
 ---
 
@@ -1480,16 +1487,6 @@ app = create_app(session=GraphSession(graph), agent_memory=memory)
 The Memories workspace is shown only when `agent_memory` is provided. Apply
 updates the supplied runtime object; it does not add disk persistence.
 
-## What's New in v0.7.0
-
-**Slim core dependencies: lightweight base install with granular optional extras** — `pip install semantica` now installs only 22 essential core dependencies, moving heavy packages into dedicated optional extras:
-- **Dramatically lighter and faster installation**: Core installation no longer pulls heavy machine learning or visualization packages by default.
-- **Granular extras**: Install only what your workload requires (`documents`, `embeddings-local`, `models-huggingface`, `nlp-spacy`, `viz`, `media`, `vectorstore-faiss`, `graph-embeddings`, `ingest-git`).
-- **Full backward compatibility**: `pip install "semantica[all]"` preserves the full bundled suite, while `semantica<0.7.0` remains a permanent escape hatch.
-- **Lazy parser construction & graceful fallbacks**: Document parsers can be constructed without extras and only raise actionable error hints upon calling `.parse()`; `XMLParser` automatically falls back to Python's standard library `xml.etree`.
-
----
-
 ## What's New in v0.6.8
 
 **Every release from here on is cryptographically signed** — the build now runs SLSA build-provenance attestation plus Sigstore signing, and `.sigstore.json` bundles ship alongside the wheel/sdist on every GitHub Release, closing the OpenSSF Scorecard Signed-Releases gap. Beyond that, this is a large fix-and-hardening release plus a batch of vector-store and LLM-provider additions:
@@ -1507,22 +1504,6 @@ Also fixes 35 correctness bugs (Python 3.9 install breakage, FAISS save/load met
 
 ---
 
-## Built for High-Stakes Domains
-
-Semantica is designed for environments where AI outputs must be explainable, auditable, and defensible, and where the data itself can't leave your infrastructure. Self-hostable with zero vendor lock-in, it's built as much for organizations handling confidential or classified data as for regulated industries chasing an audit trail:
-
-- **Finance:** Loan underwriting audit trails, fraud detection, AML compliance, regulatory risk knowledge graphs
-- **Healthcare:** Clinical decision support, drug interaction graphs, and patient safety audit trails
-- **Legal:** Evidence-backed research, contract analysis, case law reasoning, and privilege tracking
-- **Government & Defense:** Policy decision records, classified information governance, and regulatory reporting, fully self-hosted with no data leaving your perimeter
-- **Law Enforcement:** Case linkage, evidence provenance chains, and investigative knowledge graphs that hold up under legal scrutiny
-- **Cybersecurity:** Threat attribution, incident response timelines, and IOC provenance tracking
-- **Autonomous Systems:** Decision logs, safety validation, and explainable AI for certification
-
-> ⚠️ **This is system-level explainability, not foundation-model explainability.** Semantica does not expose, reconstruct, or explain what happens *inside* the LLM/foundation model — its internal reasoning or chain-of-thought stays opaque, as it does for any external system. What Semantica explains is *outside* the model: the context and data fed in, the decision produced, its provenance, the relevant relationships, the policies applied, and the full execution trail. In short, Semantica explains and audits what the AI system did, not the LLM's private internal reasoning.
-
----
-
 ## Installation
 
 ```bash
@@ -1530,7 +1511,7 @@ pip install semantica             # lightweight core (22 essential dependencies)
 pip install "semantica[all]"      # full bundled behavior with all extras
 ```
 
-> **Note for upgrades from <0.7.0**: In Semantica 0.7.0+, heavy machine learning, NLP, visualization, and document dependencies were moved into optional extras to make core installation significantly lighter and faster. If you want the previous bundled installation, install with `pip install "semantica[all]"` or pin `semantica<0.7.0`.
+> **Note:** Heavy machine learning, NLP, visualization, and document dependencies live in optional extras to keep core installation lightweight and fast. If you want the previous bundled installation, install with `pip install "semantica[all]"`.
 
 ```bash
 # Granular Extras

@@ -226,7 +226,7 @@ result = build_knowledge_base(sources=["doc.pdf"], method="fast")
   Use `Semantica` and `LifecycleManager` only when building a long-running application (e.g. a FastAPI service) that needs ordered startup, health checks, and graceful shutdown. For scripts and notebooks, use individual modules directly.
 </Tip>
 
-- [Pipeline](pipeline) — Pipeline execution and step orchestration.
+- [Pipeline](/reference/pipeline) — Pipeline execution and step orchestration.
 - [Utils](/reference/utils) — Shared utilities used by Core internally.
 - [Getting Started](../getting-started) — Learn the basics before using Core.
 - [LLMs](/reference/llms) — Configure LLM providers via ConfigManager.

@@ -615,7 +615,7 @@ fig.write_html("out.html")   # manual export
 ## Related Guides
 
 - [Context Graphs](/guides/context-graphs) — `graph.to_dict()` is the primary input for `KGVisualizer`
-- [Ontology Management](ontology) — `OntologyVisualizer` renders ontologies produced by `OntologyGenerator`
+- [Ontology Management](/guides/ontology) — `OntologyVisualizer` renders ontologies produced by `OntologyGenerator`
 - [Change Management](/guides/change-management) — `TemporalVersionManager` snapshots feed `visualize_metrics_evolution()` and `visualize_snapshot_comparison()`
 - [Graph Analytics](/guides/graph-analytics) — centrality scores, community dicts, and connectivity results that feed the `AnalyticsVisualizer`
-- [Export & Serialization](export) — export the same graph to GraphML, GEXF, or DOT for Gephi and Graphviz
+- [Export & Serialization](/guides/export) — export the same graph to GraphML, GEXF, or DOT for Gephi and Graphviz
