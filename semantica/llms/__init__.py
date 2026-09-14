@@ -15,6 +15,7 @@ Supported Providers:
     - Ollama: Local models served through Ollama
     - DeepSeek: DeepSeek's OpenAI-compatible API
     - Novita: Novita AI's OpenAI-compatible API
+    - AtlasCloud: Atlas Cloud's OpenAI-compatible API
 
 Example Usage:
     >>> from semantica.llms import Groq, OpenAI, HuggingFaceLLM, LiteLLM, Anthropic
@@ -70,6 +71,7 @@ from .anthropic import Anthropic
 from .gemini import Gemini
 from .ollama import Ollama
 from .deepseek import DeepSeek
+from .atlascloud import AtlasCloud
 from .novita import Novita
 
 __all__ = [
@@ -82,4 +84,5 @@ __all__ = [
     "Ollama",
     "DeepSeek",
     "Novita",
+    "AtlasCloud",
 ]

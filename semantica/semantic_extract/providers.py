@@ -1417,6 +1417,96 @@ class NovitaProvider(BaseProvider):
             raise ProcessingError(f"Failed to parse JSON from Novita response: {e}")
 
 
+class AtlasCloudProvider(BaseProvider):
+    """Atlas Cloud provider implementation - OpenAI-compatible API."""
+
+    def __init__(
+        self,
+        api_key: Optional[str] = None,
+        model: str = "deepseek-ai/deepseek-v3.2",
+        **kwargs,
+    ):
+        """Initialize Atlas Cloud provider."""
+        super().__init__(**kwargs)
+        self.api_key = api_key or config.get_api_key("atlascloud")
+        self.model = model
+        self.base_url = "https://api.atlascloud.ai/v1"
+        self.client = None
+        self._init_client()
+
+    def _init_client(self):
+        try:
+            from openai import OpenAI
+
+            if self.api_key:
+                self.client = OpenAI(api_key=self.api_key, base_url=self.base_url)
+        except (ImportError, OSError):
+            self.client = None
+            self.logger.warning(
+                "openai library not installed. "
+                "Install with: pip install semantica[llm-openai]"
+            )
+
+    def is_available(self) -> bool:
+        return self.client is not None
+
+    def generate(self, prompt: str, **kwargs) -> str:
+        if not self.client:
+            raise ProcessingError(
+                "Atlas Cloud client not initialized. "
+                "Set ATLASCLOUD_API_KEY or pass api_key."
+            )
+
+        create_kwargs = {
+            "model": kwargs.get("model", self.model),
+            "messages": [{"role": "user", "content": prompt}],
+        }
+        self._add_if_set(
+            create_kwargs,
+            kwargs,
+            "temperature",
+            "max_tokens",
+            "top_p",
+            "frequency_penalty",
+            "presence_penalty",
+            "seed",
+            "stop",
+            "user",
+        )
+
+        response = self.client.chat.completions.create(**create_kwargs)
+        return response.choices[0].message.content
+
+    def generate_structured(self, prompt: str, **kwargs) -> Union[dict, list]:
+        """Generate structured output."""
+        if not self.client:
+            raise ProcessingError("Atlas Cloud client not initialized.")
+
+        create_kwargs = {
+            "model": kwargs.get("model", self.model),
+            "messages": [{"role": "user", "content": prompt}],
+            "response_format": {"type": "json_object"},
+        }
+        self._add_if_set(
+            create_kwargs,
+            kwargs,
+            "temperature",
+            "max_tokens",
+            "top_p",
+            "frequency_penalty",
+            "presence_penalty",
+            "seed",
+            "stop",
+            "user",
+        )
+
+        response = self.client.chat.completions.create(**create_kwargs)
+        try:
+            return self._parse_json(response.choices[0].message.content)
+        except Exception as e:
+            raise ProcessingError(f"Failed to parse JSON from Atlas Cloud response: {e}")
+
+
 class HuggingFaceLLMProvider(BaseProvider):
     """HuggingFace transformers for LLM tasks."""
 
@@ -1837,6 +1927,7 @@ class ProviderPool:
             "huggingface_llm": HuggingFaceLLMProvider,
             "deepseek": DeepSeekProvider,
             "novita": NovitaProvider,
+            "atlascloud": AtlasCloudProvider,
         }
 
         provider_class = builtin.get(name.lower())
