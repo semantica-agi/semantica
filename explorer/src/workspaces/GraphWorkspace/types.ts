@@ -1,4 +1,17 @@
-export type GraphViewMode = "focused" | "full" | "grouped";
+export type GraphLayoutViewMode = "full" | "grouped";
+export type GraphViewMode = GraphLayoutViewMode | "focused";
+
+export type GroupedViewUnavailableReason =
+  | { code: "communities-undetected" }
+  | { code: "community-nodes-missing" }
+  | { code: "invalid-community-layout"; nodeId: string }
+  | { code: "missing-grouped-node"; edgeId: string };
+
+export type FocusedUnavailableReason =
+  | { code: "no-selection" }
+  | { code: "grouped-unresolvable" }
+  | { code: "not-in-graph" };
+
 export type GraphLayoutSource = "provided" | "carried" | "runtime";
 export type GraphLayoutState = "idle" | "bootstrapping" | "running" | "stabilized" | "interactive" | "failed";
 export type GraphLoadPhase =
@@ -73,14 +86,14 @@ export interface GraphInteractionState {
 export interface GraphDisplayStateSnapshot {
   aggregationEnabled: boolean;
   groupedViewAvailable: boolean;
-  groupedViewReason: string | null;
+  groupedViewReason: GroupedViewUnavailableReason | null;
   selectedRootNodeId: string | null;
   selectedVisibleNeighborIds: string[];
   selectedCollapsedNeighborIds: string[];
   selectedNodeKind: GraphSelectedNodeKind;
   canActivateFocused: boolean;
   resolvedFocusedNodeId: string | null;
-  focusedUnavailableReason: string | null;
+  focusedUnavailableReason: FocusedUnavailableReason | null;
 }
 
 export type GraphDisplayLayoutMode = "base" | "mirrored" | "owned";

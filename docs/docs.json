@@ -108,7 +108,8 @@
               "integrations/snowflake",
               "integrations/databricks",
               "integrations/salesforce",
-              "integrations/redshift"
+              "integrations/redshift",
+              "integrations/powerbi"
             ]
           },
           {
