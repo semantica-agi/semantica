@@ -36,6 +36,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Never auto-applies: returns `draft: True` plus a Turtle serialization for human review, per the OBIE/ontology-learning convention that frequency alone yields proposals, not final ontologies
   - New `tests/test_bootstrap_schema.py`
 
+### Fixed
+
+- **MCP `get_provenance` ignored the advertised `entity_id` argument, so every schema-compliant call failed** (closes #1248) by @csy20 — `GET_PROVENANCE` requires `entity_id` and `tools/list` advertises that key, but `handle_get_provenance` only read `node_id` and always returned `{"error": "node_id is required", "provenance": []}`. The handler now reads `entity_id` first and still accepts `node_id` as a compatibility alias. New `tests/test_mcp_package_get_provenance.py`
+
 ## [0.7.0] - 2026-09-07
 
 ### Changed
