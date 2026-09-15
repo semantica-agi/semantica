@@ -145,6 +145,7 @@ from ..utils.logging import get_logger
 from ..utils.custom_methods import CUSTOM_METHOD_FELL_BACK, call_custom_method
 from .centrality_calculator import CentralityCalculator
 from .community_detector import CommunityDetector
+from .community_hierarchy import CommunityHierarchy, CommunityHierarchyBuilder
 from .config import kg_config
 from .connectivity_analyzer import ConnectivityAnalyzer
 from .entity_resolver import EntityResolver
@@ -889,6 +890,73 @@ def detect_communities_label_propagation(
     except Exception as e:
         logger.error(f"Failed to detect communities: {e}")
         raise
+
+
+def build_community_hierarchy(
+    graph: Any,
+    method: str = "louvain",
+    resolution: Union[float, List[float]] = 1.0,
+    seed: Optional[int] = 42,
+    **kwargs: Any,
+) -> CommunityHierarchy:
+    """
+    Build a multi-level community hierarchy from a knowledge graph.
+
+    Args:
+        graph: Input graph (NetworkX Graph/DiGraph, Semantica dict,
+            or KnowledgeGraph)
+        method: Community detection algorithm ("louvain" or "leiden",
+            default: "louvain")
+        resolution: Modularity resolution parameter or list of resolutions
+        seed: Random seed for deterministic reproducibility (default: 42)
+        **kwargs: Additional options passed to CommunityHierarchyBuilder
+
+    Returns:
+        CommunityHierarchy container
+    """
+    custom_method = method_registry.get("community_hierarchy", method)
+    if custom_method and custom_method is not build_community_hierarchy:
+        fallback = kwargs.pop("fallback_on_custom_error", False)
+        result = call_custom_method(
+            logger,
+            method,
+            custom_method,
+            graph,
+            fallback_on_custom_error=fallback,
+            resolution=resolution,
+            seed=seed,
+            **kwargs,
+        )
+        if result is not CUSTOM_METHOD_FELL_BACK:
+            return result
+
+    try:
+        algo = (
+            "louvain"
+            if method.lower().strip() == "default"
+            else method.lower().strip()
+        )
+        builder = CommunityHierarchyBuilder(
+            algorithm=algo,
+            resolution=resolution,
+            seed=seed,
+            **kwargs,
+        )
+        return builder.build(graph)
+    except Exception as e:
+        logger.error(f"Failed to build community hierarchy: {e}")
+        raise
+
+
+method_registry.register(
+    "community_hierarchy", "default", build_community_hierarchy
+)
+method_registry.register(
+    "community_hierarchy", "louvain", build_community_hierarchy
+)
+method_registry.register(
+    "community_hierarchy", "leiden", build_community_hierarchy
+)
 
 
 # Helper functions
