@@ -109,6 +109,7 @@
               "integrations/databricks",
               "integrations/salesforce",
               "integrations/redshift",
+              "integrations/cassandra",
               "integrations/powerbi"
             ]
           },
