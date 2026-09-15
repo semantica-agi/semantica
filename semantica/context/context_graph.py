@@ -1046,6 +1046,12 @@ class ContextGraph:
                         "weight": edge.weight,
                         "hop": next_hop,
                     }
+                    # Expose the merged node metadata so consumers such as
+                    # support-aware retrieval can validate annotations on
+                    # neighbor attachments instead of dropping them blindly.
+                    entry_metadata: Dict[str, Any] = dict(node.properties or {})
+                    entry_metadata.update(node.metadata or {})
+                    entry["metadata"] = entry_metadata
                     if include_distance_metadata:
                         entry["distance_band"] = classify_path_distance(next_hop)
                         entry["confidence_decay"] = next_decay

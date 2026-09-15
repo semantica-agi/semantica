@@ -112,6 +112,7 @@ from .context_retriever import ContextRetriever, RetrievedContext, TemporalGraph
 from .decision_context import DecisionContext
 from .entity_linker import EntityLink, EntityLinker, LinkedEntity
 from .erasure import ErasureCoordinator, ErasureReceipt
+from .truth_maintenance_filter import TruthMaintenanceContextFilter
 
 # Decision tracking imports
 from .decision_models import (
@@ -146,6 +147,7 @@ __all__ = [
     "ContextRetriever",
     "RetrievedContext",
     "TemporalGraphRetriever",
+    "TruthMaintenanceContextFilter",
     # Cross-store erasure
     "ErasureCoordinator",
     "ErasureReceipt",

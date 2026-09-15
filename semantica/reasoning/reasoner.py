@@ -15,6 +15,9 @@ from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Union
 
 from ..utils.logging import get_logger
 from ..utils.progress_tracker import get_progress_tracker
+from ._rule_matching import match_pattern as _pure_match_pattern
+from ._rule_matching import match_rule as _pure_match_rule
+from ._rule_matching import substitute_variables as _pure_substitute_variables
 
 
 class RuleType(Enum):
@@ -28,21 +31,15 @@ class RuleType(Enum):
 def _substitute_variables(template: str, bindings: Dict[str, str]) -> str:
     """Substitute ``?var`` placeholders with their bound values, token-aware.
 
-    A naive ``str.replace(f"?{var}", value)`` corrupts placeholders that share
-    a prefix -- e.g. binding ``?x`` would also rewrite the ``?x`` inside ``?xy``.
-    We replace every ``?word`` token in a single regex pass so that only whole
-    variable names are matched (``\\w+`` never partially matches a longer name),
-    leaving unbound placeholders untouched.
+    Delegates to :func:`semantica.reasoning._rule_matching.substitute_variables`;
+    kept as a module-level wrapper because actions and other private symbol
+    consumers depend on this name. A naive ``str.replace(f"?{var}", value)``
+    corrupts placeholders that share a prefix -- e.g. binding ``?x`` would
+    also rewrite the ``?x`` inside ``?xy``. The shared helper replaces every
+    ``?word`` token in a single regex pass so that only whole variable names
+    are matched, leaving unbound placeholders untouched.
     """
-    if not bindings:
-        return template
-
-    def _replace(match: "re.Match") -> str:
-        var_name = match.group(1)
-        # Preserve unbound placeholders verbatim.
-        return str(bindings[var_name]) if var_name in bindings else match.group(0)
-
-    return re.sub(r"\?(\w+)", _replace, template)
+    return _pure_substitute_variables(template, bindings)
 
 
 def _canonicalize_activation_value(
@@ -778,6 +775,10 @@ class Reasoner:
         paired with the facts that satisfied each condition and the variable
         bindings that produced them.
 
+        Delegates to :func:`semantica.reasoning._rule_matching.match_rule`,
+        passing ``self._match_pattern`` and ``self._substitute`` so subclass
+        overrides of those hooks keep working.
+
         Returns:
             List of (conclusion, matched_facts, bindings) tuples, where
             matched_facts is the ordered list of facts bound to this rule's
@@ -786,77 +787,24 @@ class Reasoner:
         """
         if not rule.conditions:
             return []
-            
-        # self.facts is not mutated anywhere within this method, so sort it
-        # once here rather than re-sorting on every (bindings, condition)
-        # pair below -- sorted() was previously called once per inner-loop
-        # entry, which re-allocates and re-sorts the full fact set repeatedly
-        # and is a hot spot for larger fact sets.
-        sorted_facts = sorted(self.facts)
-        
-        # Each entry pairs a set of variable bindings with the facts that were
-        # matched to produce those bindings, so the facts survive alongside
-        # the bindings as conditions accumulate.
-        bindings_list: List[Tuple[Dict[str, str], List[str]]] = [({}, [])]
-        
-        for condition in rule.conditions:
-            new_bindings_list = []
-            for bindings, matched_facts in bindings_list:
-                for fact in sorted_facts:
-                    match_bindings = self._match_pattern(condition, fact, bindings)
-                    if match_bindings is not None:
-                        new_bindings_list.append((match_bindings, matched_facts + [fact]))
-            bindings_list = new_bindings_list
-            if not bindings_list:
-                break
-                
-        results = []
-        for bindings, matched_facts in bindings_list:
-            instantiated_conclusion = self._substitute(rule.conclusion, bindings)
-            results.append((instantiated_conclusion, matched_facts, bindings))
-            
-        return results
-        
-    def _match_pattern(self, pattern: str, fact: str, initial_bindings: Dict[str, str]) -> Optional[Dict[str, str]]:
-        """Match a pattern against a fact with initial bindings."""
-        # Split on ?var placeholders first, then escape only the literal segments.
-        # This avoids re.escape() mangling the surrounding parentheses and ?
-        # before the variable substitution step.
-        segments = re.split(r"(\?\w+)", pattern)
-        seen_vars: set = set()
-        p_regex = ""
-        for seg in segments:
-            if seg.startswith("?"):
-                var_name = seg[1:]
-                if var_name in initial_bindings:
-                    # Already bound — require the exact literal value
-                    p_regex += re.escape(initial_bindings[var_name])
-                elif var_name in seen_vars:
-                    # Same variable used twice — use a backreference
-                    p_regex += f"(?P={var_name})"
-                else:
-                    p_regex += f"(?P<{var_name}>.+?)"
-                    seen_vars.add(var_name)
-            else:
-                p_regex += re.escape(seg)
-        p_regex = f"^{p_regex}$"
 
-        # Simple regex-based matcher for patterns like "Person(?x)" and facts like "Person(John)"
-        
-        try:
-            match = re.match(p_regex, fact)
-            if match:
-                new_bindings = initial_bindings.copy()
-                for var, value in match.groupdict().items():
-                    if var in new_bindings and new_bindings[var] != value:
-                        return None  # Binding conflict
-                    new_bindings[var] = value
-                return new_bindings
-        except Exception as e:
-            self.logger.warning(f"Error matching pattern '{pattern}' (regex: '{p_regex}') against fact '{fact}': {e}")
-            
-        return None
-        
+        return _pure_match_rule(
+            rule.conditions,
+            rule.conclusion,
+            self.facts,
+            pattern_matcher=self._match_pattern,
+            substituter=self._substitute,
+        )
+
+    def _match_pattern(self, pattern: str, fact: str, initial_bindings: Dict[str, str]) -> Optional[Dict[str, str]]:
+        """Match a pattern against a fact with initial bindings.
+
+        Delegates to :func:`semantica.reasoning._rule_matching.match_pattern`;
+        kept as an instance method so subclasses and tests can override this
+        hook and have :meth:`_match_rule` pick the override up.
+        """
+        return _pure_match_pattern(pattern, fact, initial_bindings, logger=self.logger)
+
     def _substitute(self, pattern: str, bindings: Dict[str, str]) -> str:
         """Substitute variables in a pattern with bound values."""
         return _substitute_variables(pattern, bindings)
