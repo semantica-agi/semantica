@@ -285,6 +285,251 @@ class MilvusSearch:
         )
 
 
+# ---------------- Tri-representation primitives (Milvus 3.x) ----------------
+# bge-m3 三路召回基元（PRD-0004/ADR 0013，检索基元下沉 fork 定案）：
+# dense FLOAT_VECTOR + sparse SPARSE_FLOAT_VECTOR + ColBERT StructArray 多向量，
+# 一次建齐 schema。读写均走 pymilvus MilvusClient（3.x 原生路径）；旧 ORM
+# 单稠密路径（create_collection/add_vectors）保持不变、向后兼容。
+
+TRI_DENSE_FIELD = "vector"
+TRI_SPARSE_FIELD = "sparse"
+TRI_STRUCT_FIELD = "tokens"
+TRI_STRUCT_VECTOR_FIELD = "emb"
+TRI_METADATA_FIELD = "metadata"
+
+
+def build_tri_collection_schema(
+    dimension: int, colbert_dim: int, colbert_max_capacity: int = 512
+):
+    """Assemble the tri-representation collection schema (Milvus 3.x StructArray).
+
+    Fields: id VARCHAR(pk) / vector FLOAT_VECTOR(dim) / sparse SPARSE_FLOAT_VECTOR
+    / metadata JSON / tokens ARRAY<STRUCT{emb FLOAT_VECTOR(colbert_dim)}>.
+    Note: STRUCT fields land in schema._struct_fields and serialize under the
+    separate "struct_fields" key of schema.to_dict() (verified offline against
+    pymilvus 3.0.1 — schema.fields does not list them, which is expected).
+    """
+    if not MILVUS_AVAILABLE:
+        raise ProcessingError("Milvus not available. Install it with: pip install pymilvus")
+    from pymilvus import DataType
+    from pymilvus import MilvusClient as _PyMilvusClient
+
+    struct = _PyMilvusClient.create_struct_field_schema()
+    struct.add_field(TRI_STRUCT_VECTOR_FIELD, DataType.FLOAT_VECTOR, dim=colbert_dim)
+
+    schema = _PyMilvusClient.create_schema()
+    schema.add_field(
+        "id", DataType.VARCHAR, is_primary=True, auto_id=False, max_length=65535
+    )
+    schema.add_field(TRI_DENSE_FIELD, DataType.FLOAT_VECTOR, dim=dimension)
+    schema.add_field(TRI_SPARSE_FIELD, DataType.SPARSE_FLOAT_VECTOR)
+    schema.add_field(TRI_METADATA_FIELD, DataType.JSON)
+    schema.add_field(
+        TRI_STRUCT_FIELD,
+        DataType.ARRAY,
+        element_type=DataType.STRUCT,
+        struct_schema=struct,
+        max_capacity=colbert_max_capacity,
+    )
+    return schema
+
+
+def build_tri_index_params(dense_metric: str = "COSINE", colbert_metric: str = "MAX_SIM_COSINE"):
+    """Index plan for the three vector fields (dense IVF_FLAT / sparse inverted / StructArray subfield)."""
+    if not MILVUS_AVAILABLE:
+        raise ProcessingError("Milvus not available. Install it with: pip install pymilvus")
+    from pymilvus import MilvusClient as _PyMilvusClient
+
+    index_params = _PyMilvusClient.prepare_index_params()
+    index_params.add_index(
+        field_name=TRI_DENSE_FIELD, index_type="IVF_FLAT",
+        metric_type=dense_metric, params={"nlist": 1024},
+    )
+    index_params.add_index(
+        field_name=TRI_SPARSE_FIELD, index_type="SPARSE_INVERTED_INDEX", metric_type="IP",
+    )
+    index_params.add_index(
+        field_name=f"{TRI_STRUCT_FIELD}[{TRI_STRUCT_VECTOR_FIELD}]",
+        index_type="AUTOINDEX", metric_type=colbert_metric,
+    )
+    return index_params
+
+
+def create_tri_collection(
+    client,
+    collection_name: str,
+    dimension: int,
+    colbert_dim: Optional[int] = None,
+    colbert_max_capacity: int = 512,
+    dense_metric: str = "COSINE",
+    colbert_metric: str = "MAX_SIM_COSINE",
+):
+    """Create a tri-representation collection via a pymilvus MilvusClient.
+
+    Caller owns idempotency (drop first via drop_collection_if_exists for
+    batch re-ingestion); raises if the collection already exists.
+    """
+    schema = build_tri_collection_schema(
+        dimension, colbert_dim or dimension, colbert_max_capacity=colbert_max_capacity
+    )
+    index_params = build_tri_index_params(dense_metric=dense_metric, colbert_metric=colbert_metric)
+    client.create_collection(
+        collection_name=collection_name, schema=schema, index_params=index_params
+    )
+    return schema
+
+
+def drop_collection_if_exists(client, collection_name: str) -> bool:
+    """Drop a collection if present (idempotent re-ingestion cleanup). Returns whether dropped."""
+    if client.has_collection(collection_name):
+        client.drop_collection(collection_name)
+        return True
+    return False
+
+
+def insert_tri_vectors(
+    client,
+    collection_name: str,
+    dense,
+    sparse,
+    colbert,
+    metadata: Optional[List[Dict[str, Any]]] = None,
+    ids: Optional[List[str]] = None,
+    max_batch_bytes: int = 16 * 1024 * 1024,
+    max_batch_rows: int = 4096,
+) -> List[str]:
+    """Insert tri-representation rows (row-dict payload, MilvusClient.insert).
+
+    dense: list of vectors; sparse: list of {token_id: weight} dicts;
+    colbert: list of per-row token-vector arrays (np.ndarray or list[list[float]]).
+    Per-row metadata/colbert entries are stored as empty placeholders —
+    keeps the ColBERT backfill path open without a second re-ingest.
+
+    Payloads are split into batches so a single gRPC message stays under the
+    server's message-size ceiling: one full-document insert of 593 rows was
+    measured at 888MB (ColBERT tokens dominate) and rejected with
+    RESOURCE_EXHAUSTED (64MiB limit). Batches flush on max_batch_bytes
+    (estimate) or max_batch_rows, whichever comes first.
+    """
+    import uuid as _uuid
+
+    n = len(dense)
+    if not (len(sparse) == len(colbert) == n):
+        raise ValidationError(
+            f"dense/sparse/colbert lengths must match (got {n}/{len(sparse)}/{len(colbert)})"
+        )
+
+    def _vec(v) -> List[float]:
+        return v.tolist() if isinstance(v, np.ndarray) else [float(x) for x in v]
+
+    def _estimate_bytes(row: dict) -> int:
+        """Rough serialized-size estimate for a row (float32 for vector payloads)."""
+        size = 8
+        for key, val in row.items():
+            if key == TRI_DENSE_FIELD:
+                size += 4 * len(val)
+            elif key == TRI_SPARSE_FIELD:
+                size += 12 * len(val) + 16
+            elif key == TRI_STRUCT_FIELD:
+                size += 16 * len(val) + sum(4 * len(t[TRI_STRUCT_VECTOR_FIELD]) for t in val)
+            else:
+                size += len(str(val)) + 16
+        return size
+
+    rows = []
+    for i in range(n):
+        sp = sparse[i]
+        cb = colbert[i]
+        rows.append({
+            "id": ids[i] if ids else str(_uuid.uuid4()),
+            TRI_DENSE_FIELD: _vec(dense[i]),
+            TRI_SPARSE_FIELD: dict(sp) if sp is not None else {},
+            TRI_STRUCT_FIELD: (
+                [{TRI_STRUCT_VECTOR_FIELD: _vec(t)} for t in cb] if cb is not None else []
+            ),
+            TRI_METADATA_FIELD: (metadata[i] if metadata and metadata[i] is not None else {}),
+        })
+
+    inserted_ids: List[str] = []
+    batch: List[dict] = []
+    batch_bytes = 0
+
+    def _flush() -> None:
+        nonlocal batch, batch_bytes
+        if not batch:
+            return
+        client.insert(collection_name=collection_name, data=batch)
+        inserted_ids.extend(row["id"] for row in batch)
+        batch, batch_bytes = [], 0
+
+    for row in rows:
+        batch.append(row)
+        batch_bytes += _estimate_bytes(row)
+        if len(batch) >= max_batch_rows or batch_bytes >= max_batch_bytes:
+            _flush()
+    _flush()
+    return inserted_ids
+
+
+def search_tri_leg(
+    client,
+    collection_name: str,
+    leg: str,
+    query,
+    top_k: int = 6,
+    output_fields: Optional[List[str]] = None,
+) -> List[Dict[str, Any]]:
+    """Single-leg search against a tri-representation collection.
+
+    leg="dense":  query = dense vector (list/ndarray); COSINE, nprobe 16.
+    leg="sparse": query = {token_id: weight} dict; IP.
+    leg="colbert": query = token-vector array or a prebuilt pymilvus EmbeddingList;
+                  anns_field "tokens[emb]", MAX_SIM_COSINE.
+
+    Returns normalized hits: [{"id", "score", "metadata"}] (score = distance,
+    higher = more similar for COSINE/IP/MAX_SIM alike).
+    """
+    if leg == "dense":
+        vec = query.tolist() if isinstance(query, np.ndarray) else [float(x) for x in query]
+        data, anns_field, params = [vec], TRI_DENSE_FIELD, {
+            "metric_type": "COSINE", "params": {"nprobe": 16}}
+    elif leg == "sparse":
+        data, anns_field, params = [dict(query)], TRI_SPARSE_FIELD, {"metric_type": "IP"}
+    elif leg == "colbert":
+        data, anns_field, params = [_as_embedding_list(query)], (
+            f"{TRI_STRUCT_FIELD}[{TRI_STRUCT_VECTOR_FIELD}]"), {
+            "metric_type": "MAX_SIM_COSINE"}
+    else:
+        raise ValidationError(f"Unknown tri search leg: {leg!r} (dense|sparse|colbert)")
+
+    results = client.search(
+        collection_name=collection_name, data=data, anns_field=anns_field,
+        search_params=params, limit=top_k,
+        output_fields=output_fields or [TRI_METADATA_FIELD],
+    )
+    hits = results[0] if results else []
+    out: List[Dict[str, Any]] = []
+    for h in hits:
+        entity = h.get("entity") or {}
+        out.append({
+            "id": h.get("id"),
+            "score": float(h.get("distance", h.get("score", 0.0))),
+            "metadata": entity.get(TRI_METADATA_FIELD) or {},
+        })
+    return out
+
+
+def _as_embedding_list(query):
+    """Wrap ColBERT token vectors into a pymilvus EmbeddingList query object."""
+    from pymilvus.client.embedding_list import EmbeddingList
+
+    if isinstance(query, EmbeddingList):
+        return query
+    el = EmbeddingList()
+    el.add_batch(np.asarray(query, dtype=np.float32))
+    return el
+
+
 class MilvusStore:
     """
     Milvus store for vector storage and similarity search.
@@ -320,6 +565,7 @@ class MilvusStore:
         self.client: Optional[MilvusClient] = None
         self.collection: Optional[MilvusCollection] = None
         self.search_engine: Optional[MilvusSearch] = None
+        self._tri_client = None  # pymilvus MilvusClient（三表征路径，懒建）
 
         # Check Milvus availability
         if not MILVUS_AVAILABLE:
@@ -850,3 +1096,61 @@ class MilvusStore:
         except Exception as e:
             self.logger.warning(f"Failed to get stats: {str(e)}")
             return {"status": "unknown"}
+
+    # ---------------- Tri-representation API (Milvus 3.x MilvusClient path) ----------------
+
+    def _pymilvus_client(self):
+        """Lazily build a pymilvus MilvusClient from this store's host/port.
+
+        Coexists with the ORM alias connection (legacy single-dense path);
+        the tri path uses the 3.x-native MilvusClient API (StructArray schema,
+        row-dict insert, per-leg search).
+        """
+        if getattr(self, "_tri_client", None) is None:
+            from pymilvus import MilvusClient as _PyMilvusClient
+
+            self._tri_client = _PyMilvusClient(uri=f"http://{self.host}:{self.port}")
+        return self._tri_client
+
+    def create_tri_collection(
+        self, collection_name: str, dimension: int, colbert_dim: Optional[int] = None,
+        colbert_max_capacity: int = 512, **options,
+    ):
+        """Create a tri-representation collection (dense+sparse+ColBERT fields in one schema).
+
+        Backward-compatible addition: the legacy create_collection() single-dense
+        path is untouched. Idempotent re-ingestion callers should drop first via
+        drop_collection().
+        """
+        return create_tri_collection(
+            self._pymilvus_client(), collection_name, dimension,
+            colbert_dim=colbert_dim or dimension,
+            colbert_max_capacity=colbert_max_capacity, **options,
+        )
+
+    def drop_collection(self, collection_name: str) -> bool:
+        """Drop a collection if present (idempotent). MilvusClient path."""
+        return drop_collection_if_exists(self._pymilvus_client(), collection_name)
+
+    def insert_tri_vectors(self, dense, sparse, colbert, collection_name: str = "",
+                           metadata=None, ids=None, **options) -> List[str]:
+        """Insert tri-representation rows into the collection created via create_tri_collection."""
+        del options  # 与旧签名家族一致接收 kwargs（暂未使用）
+        name = collection_name or (self.collection.collection_name if self.collection else "")
+        if not name:
+            raise ProcessingError("Collection not initialized or collection_name missing")
+        return insert_tri_vectors(
+            self._pymilvus_client(), name, dense, sparse, colbert,
+            metadata=metadata, ids=ids,
+        )
+
+    def search_tri_leg(self, collection_name: str, leg: str, query, top_k: int = 6,
+                       **options) -> List[Dict[str, Any]]:
+        """Single-leg search (dense|sparse|colbert) against a tri collection."""
+        return search_tri_leg(
+            self._pymilvus_client(), collection_name, leg, query, top_k=top_k, **options
+        )
+
+    def load_tri_collection(self, collection_name: str) -> None:
+        """Load a tri collection into memory (search readiness; MilvusClient path)."""
+        self._pymilvus_client().load_collection(collection_name)

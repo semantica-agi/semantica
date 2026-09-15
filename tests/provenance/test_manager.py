@@ -1357,6 +1357,23 @@ class TestQualifiedExport:
         assert "qualifiedInvalidation" in ttl
         assert "Invalidation" in ttl
 
+    def test_export_prov_escapes_uri_unsafe_entity_ids(self):
+        """实体 id 含 URI 非法字符（合并留痕 merge:A|B、中文名）不得使序列化抛错。"""
+        prov_mgr = ProvenanceManager()
+        prov_mgr.track_entity(
+            "merge:Herb:三棱等份|Herb:三棱各等份", source="batch-b1",
+            metadata={"kind": "merge_audit"})
+        prov_mgr.track_entity("Formula:四物汤", source="doc1")
+
+        ttl = prov_mgr.export_prov(format="turtle")
+        # 原始非法字符不落到序列化文本，转义后为合法 URI（: / 保留，中文与 | 转义）
+        assert "|" not in ttl and "三棱" not in ttl
+        assert "merge:Herb:" in ttl and "%7C" in ttl and "%E4%B8%89" in ttl
+        import rdflib
+        g = rdflib.Graph()
+        g.parse(data=ttl, format="turtle")
+        assert len(g) > 0
+
 
 class TestTypedActivity:
     """Issue #825, Part B Tier 1 — typed Activity via ActivityRecord."""

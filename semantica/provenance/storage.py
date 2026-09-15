@@ -477,6 +477,8 @@ class SQLiteStorage(ProvenanceStorage):
         conn = sqlite3.connect(self.db_path)
         try:
             self._configure_connection(conn)
+            # 自愈：文件被外部替换/删除后，此连接面对的可能是一个无表的新库
+            self._ensure_schema(conn)
             conn.execute("BEGIN IMMEDIATE")
             yield conn
             conn.commit()
@@ -531,6 +533,7 @@ class SQLiteStorage(ProvenanceStorage):
         conn = sqlite3.connect(self.db_path)
         try:
             self._configure_connection(conn)
+            self._ensure_schema(conn)
             yield conn
         finally:
             conn.close()
@@ -564,27 +567,8 @@ class SQLiteStorage(ProvenanceStorage):
         ("bundle_id", "TEXT"),
     ]
 
-    def _migrate_schema(self, conn: sqlite3.Connection) -> None:
-        """Add any columns introduced after the table was first created to an
-        already-existing table (see _MIGRATION_COLUMNS)."""
-        cursor = conn.cursor()
-        cursor.execute("PRAGMA table_info(provenance)")
-        existing_columns = {row[1] for row in cursor.fetchall()}
-        for column_name, column_def in self._MIGRATION_COLUMNS:
-            if column_name not in existing_columns:
-                cursor.execute(
-                    f"ALTER TABLE provenance ADD COLUMN {column_name} {column_def}"
-                )
-
-    def _init_db(self) -> None:
-        """Create tables with W3C PROV-O compliant schema."""
-        conn = sqlite3.connect(self.db_path)
-        try:
-            self._configure_connection(conn)
-            cursor = conn.cursor()
-
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS provenance (
+    _CREATE_TABLE_SQL = """
+        CREATE TABLE IF NOT EXISTS provenance (
                     entity_id TEXT PRIMARY KEY,
                     entity_type TEXT NOT NULL,
                     activity_id TEXT NOT NULL,
@@ -625,58 +609,62 @@ class SQLiteStorage(ProvenanceStorage):
                     supersedes TEXT,
                     bundle_id TEXT
                 )
-            """)
+            """
 
-            # Add any columns missing from a table that already existed
-            # before these were introduced (see _MIGRATION_COLUMNS) — a no-op
-            # for a table that was just freshly created above.
+    _INDEX_DDL_SQLS: List[str] = [
+        "CREATE INDEX IF NOT EXISTS idx_entity_type ON provenance(entity_type)",
+        "CREATE INDEX IF NOT EXISTS idx_source_document ON provenance(source_document)",
+        "CREATE INDEX IF NOT EXISTS idx_parent_entity ON provenance(parent_entity_id)",
+        "CREATE INDEX IF NOT EXISTS idx_previous_version_id ON provenance(previous_version_id)",
+        "CREATE INDEX IF NOT EXISTS idx_derived_from_id ON provenance(derived_from_id)",
+        "CREATE INDEX IF NOT EXISTS idx_sequence_id ON provenance(sequence_id)",
+        "CREATE INDEX IF NOT EXISTS idx_invalidated ON provenance(invalidated)",
+        "CREATE INDEX IF NOT EXISTS idx_bundle_id ON provenance(bundle_id)",
+    ]
+
+    def _migrate_schema(self, conn: sqlite3.Connection) -> None:
+        """Add any columns introduced after the table was first created to an
+        already-existing table (see _MIGRATION_COLUMNS)."""
+        cursor = conn.cursor()
+        cursor.execute("PRAGMA table_info(provenance)")
+        existing_columns = {row[1] for row in cursor.fetchall()}
+        for column_name, column_def in self._MIGRATION_COLUMNS:
+            if column_name not in existing_columns:
+                cursor.execute(
+                    f"ALTER TABLE provenance ADD COLUMN {column_name} {column_def}"
+                )
+
+    def _ensure_schema(self, conn: sqlite3.Connection) -> None:
+        """幂等建表/自愈：任一连接建立后调用，保证 provenance 表存在。
+
+        根因：schema 只在构造时建一次，而每次操作都按 db_path 重开连接；
+        SQLite 遇到"文件不存在/已被删空"不报错而是静默新建空库，长驻进程
+        在文件被外部替换（备份恢复/目录重置/测试清理）后，所有后续操作都会
+        撞上 'no such table: provenance'。这里先以只读方式探测 sqlite_master，
+        缺表才重建；表已存在则只做幂等的缺列迁移，正常路径零额外写成本。
+        """
+        cursor = conn.cursor()
+        exists = cursor.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='provenance'"
+        ).fetchone()
+        if exists is None:
+            cursor.execute(self._CREATE_TABLE_SQL)
+            for ddl in self._INDEX_DDL_SQLS:
+                cursor.execute(ddl)
+            # 新表已含 _MIGRATION_COLUMNS 全部最新列，无需迁移
+        else:
             self._migrate_schema(conn)
 
-            # Create indexes for efficient querying
-            cursor.execute("""
-                CREATE INDEX IF NOT EXISTS idx_entity_type
-                ON provenance(entity_type)
-            """)
-
-            cursor.execute("""
-                CREATE INDEX IF NOT EXISTS idx_source_document
-                ON provenance(source_document)
-            """)
-
-            cursor.execute("""
-                CREATE INDEX IF NOT EXISTS idx_parent_entity
-                ON provenance(parent_entity_id)
-            """)
-
-            cursor.execute("""
-                CREATE INDEX IF NOT EXISTS idx_previous_version_id
-                ON provenance(previous_version_id)
-            """)
-
-            cursor.execute("""
-                CREATE INDEX IF NOT EXISTS idx_derived_from_id
-                ON provenance(derived_from_id)
-            """)
-
-            cursor.execute("""
-                CREATE INDEX IF NOT EXISTS idx_sequence_id
-                ON provenance(sequence_id)
-            """)
-
-            cursor.execute("""
-                CREATE INDEX IF NOT EXISTS idx_invalidated
-                ON provenance(invalidated)
-            """)
-
-            cursor.execute("""
-                CREATE INDEX IF NOT EXISTS idx_bundle_id
-                ON provenance(bundle_id)
-            """)
-
+    def _init_db(self) -> None:
+        """初始化连接并确保 schema（幂等，可重复调用）。"""
+        conn = sqlite3.connect(self.db_path)
+        try:
+            self._configure_connection(conn)
+            self._ensure_schema(conn)
             conn.commit()
         finally:
             conn.close()
-    
+
     def store(self, entry: ProvenanceEntry) -> None:
         """
         Store a provenance entry in SQLite database.
@@ -777,6 +765,7 @@ class SQLiteStorage(ProvenanceStorage):
         conn = sqlite3.connect(self.db_path)
         try:
             self._configure_connection(conn)
+            self._ensure_schema(conn)
             cursor = conn.cursor()
             if entity_type:
                 cursor.execute("""
@@ -975,6 +964,7 @@ class SQLiteStorage(ProvenanceStorage):
         conn = sqlite3.connect(self.db_path)
         try:
             self._configure_connection(conn)
+            self._ensure_schema(conn)
             cursor = conn.cursor()
             cursor.execute("SELECT COUNT(*) FROM provenance")
             count = cursor.fetchone()[0]

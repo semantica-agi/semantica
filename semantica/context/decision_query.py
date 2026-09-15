@@ -78,6 +78,7 @@ Production Use Cases:
 
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple, Union
+import json
 import numpy as np
 
 from ..embeddings import EmbeddingGenerator
@@ -386,8 +387,10 @@ class DecisionQuery:
 
         decisions = []
         for record in results:
-            decision_data = record.get("d") if isinstance(record, dict) else None
+            decision_data = self._node_props(record.get("d")) if isinstance(record, dict) else None
+
             if not isinstance(decision_data, dict):
+
                 decision_data = record if isinstance(record, dict) else {}
             decision = self._dict_to_decision(decision_data)
             
@@ -460,8 +463,10 @@ class DecisionQuery:
             
             decisions = []
             for record in results:
-                decision_data = record.get("d") if isinstance(record, dict) else None
+                decision_data = self._node_props(record.get("d")) if isinstance(record, dict) else None
+
                 if not isinstance(decision_data, dict):
+
                     decision_data = record if isinstance(record, dict) else {}
                 decisions.append(self._dict_to_decision(decision_data))
             
@@ -528,8 +533,10 @@ class DecisionQuery:
             
             decisions = []
             for record in results:
-                decision_data = record.get("d") if isinstance(record, dict) else None
+                decision_data = self._node_props(record.get("d")) if isinstance(record, dict) else None
+
                 if not isinstance(decision_data, dict):
+
                     decision_data = record if isinstance(record, dict) else {}
                 decisions.append(self._dict_to_decision(decision_data))
             
@@ -619,8 +626,10 @@ class DecisionQuery:
             
             decisions = []
             for record in results:
-                decision_data = record.get("d") if isinstance(record, dict) else None
+                decision_data = self._node_props(record.get("d")) if isinstance(record, dict) else None
+
                 if not isinstance(decision_data, dict):
+
                     decision_data = record if isinstance(record, dict) else {}
                 decisions.append(self._dict_to_decision(decision_data))
             
@@ -721,8 +730,10 @@ class DecisionQuery:
             
             decisions = []
             for record in results:
-                decision_data = record.get("d") if isinstance(record, dict) else None
+                decision_data = self._node_props(record.get("d")) if isinstance(record, dict) else None
+
                 if not isinstance(decision_data, dict):
+
                     decision_data = record if isinstance(record, dict) else {}
                 decision = self._dict_to_decision(decision_data)
                 decision.metadata["hop_count"] = record.get("hop_count", 0)
@@ -942,6 +953,15 @@ class DecisionQuery:
         if not decision_id:
             raise KeyError("decision_id")
 
+        # metadata is stored as a JSON string on property-graph stores
+        # (Neo4j property values cannot be maps) — deserialize transparently.
+        metadata = data.get("metadata", {})
+        if isinstance(metadata, str):
+            try:
+                metadata = json.loads(metadata)
+            except (TypeError, ValueError):
+                metadata = {"raw": metadata}
+
         return Decision(
             decision_id=decision_id,
             category=data.get("category", ""),
@@ -953,7 +973,7 @@ class DecisionQuery:
             decision_maker=data.get("decision_maker", ""),
             reasoning_embedding=data.get("reasoning_embedding"),
             node2vec_embedding=data.get("node2vec_embedding"),
-            metadata=data.get("metadata", {}),
+            metadata=metadata,
         )
     
     def _dict_to_exception(self, data: Dict[str, Any]) -> PolicyException:
@@ -1289,6 +1309,23 @@ class DecisionQuery:
         except Exception as e:
             self.logger.error(f"Failed to predict relationships: {e}")
             return []
+
+    @staticmethod
+    def _node_props(value: Any) -> Any:
+        """Convert driver node/relationship objects (e.g. neo4j.Node) to property dicts.
+
+        Property-graph drivers return hydrated graph objects for ``RETURN d``-style
+        queries, not plain dicts — normalize transparently; dicts and scalars pass through.
+        """
+        if isinstance(value, dict):
+            return value
+        items = getattr(value, "items", None)
+        if callable(items):
+            try:
+                return dict(value.items())
+            except Exception:
+                return value
+        return value
 
     def _extract_records(self, results: Any) -> List[Dict[str, Any]]:
         """Normalize execute_query result shapes to a list of record maps."""

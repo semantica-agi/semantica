@@ -104,11 +104,13 @@ from .provider_stores import (
 from .vector_embedding_manager import VectorEmbeddingManager
 from .registry import MethodRegistry, method_registry
 from .text_embedder import TextEmbedder
+from .text_reranker import TextReranker
 
 __all__ = [
     # Core Classes
     "EmbeddingGenerator",
     "TextEmbedder",
+    "TextReranker",
     # Provider stores
     "ProviderStore",
     "ProviderStoreFactory",

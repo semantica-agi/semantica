@@ -106,6 +106,7 @@ License: MIT
 
 
 from .centrality_calculator import CentralityCalculator
+from .canonical import AnchorResolver, AnchorResult
 from .community_detector import CommunityDetector
 from .config import KGConfig, kg_config
 from .connectivity_analyzer import ConnectivityAnalyzer
@@ -137,6 +138,8 @@ __all__ = [
     "GraphBuilder",
     "GraphBuilderWithProvenance",
     "EntityResolver",
+    "AnchorResolver",
+    "AnchorResult",
     "GraphAnalyzer",
     "GraphValidator",
     "TemporalGraphQuery",

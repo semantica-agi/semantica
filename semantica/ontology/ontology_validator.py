@@ -287,6 +287,35 @@ def _run_pyshacl(
         shacl_format=shacl_format,
     )
 
+
+def validate_shacl_graph(
+    data_graph_str: str,
+    shacl_str: str,
+    data_graph_format: str = "turtle",
+    shacl_format: str = "turtle",
+) -> SHACLValidationReport:
+    """Validate an RDF data graph against SHACL shapes (pyshacl).
+
+    Public entry point for SHACL validation with string-level (serialized) graphs.
+    Both the data graph and the shapes graph are provided as serialized strings
+    (e.g. Turtle), and the result is a structured SHACLValidationReport with
+    machine-readable violations/warnings/infos.
+
+    Args:
+        data_graph_str: Serialized data graph string.
+        shacl_str: Serialized SHACL shapes graph string.
+        data_graph_format: RDF format of data_graph_str (default "turtle").
+        shacl_format: RDF format of shacl_str (default "turtle").
+
+    Raises ImportError if pyshacl or rdflib are not installed.
+    """
+    return run_shacl_validation(
+        data_graph_str,
+        shacl_str,
+        data_graph_format=data_graph_format,
+        shacl_format=shacl_format,
+    )
+
 @dataclass
 class ValidationResult:
     """Result of an ontology validation operation."""

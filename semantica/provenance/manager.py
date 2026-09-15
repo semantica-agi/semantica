@@ -1261,7 +1261,12 @@ class ProvenanceManager:
         g.bind("ex", EX)
 
         def uri(entity_id: Any) -> URIRef:
-            return URIRef(EX[str(entity_id)])
+            # 实体 id 可能含 URI 非法字符（如去重合并留痕 merge:A|B、中文名），
+            # 直接拼接会使 rdflib 序列化抛错导致 PROV-O 导出整体失败；
+            # 按 RFC 3986 对 id 分段 percent-encode，保留 ":/" 维持可读性。
+            from urllib.parse import quote
+
+            return URIRef(EX[quote(str(entity_id), safe=":/")])
 
         for e in self.storage.retrieve_all():
             ent_uri = uri(e.entity_id)

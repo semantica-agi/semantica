@@ -46,6 +46,16 @@ except (ImportError, OSError):
     TextEmbedding = None
     FASTEMBED_AVAILABLE = False
 
+try:
+    # bge-m3 三表征（dense + 学习型 sparse + ColBERT 多向量）唯一可产出路径：
+    # sentence-transformers 只暴露 dense（BAAI/bge-m3 模型卡）。缺包时 flag 后端不可用。
+    from FlagEmbedding import BGEM3FlagModel
+
+    FLAGEMBEDDING_AVAILABLE = True
+except (ImportError, OSError):
+    FLAGEMBEDDING_AVAILABLE = False
+    BGEM3FlagModel = None
+
 
 class TextEmbedder:
     """
@@ -109,6 +119,7 @@ class TextEmbedder:
         # Initialize models (will be None if unavailable)
         self.model = None
         self.fastembed_model = None
+        self.flag_model = None
         self.embedding_dimension = None
 
         # Initialize progress tracker
@@ -127,6 +138,7 @@ class TextEmbedder:
         # Clear previous models to avoid conflicts when switching
         self.model = None
         self.fastembed_model = None
+        self.flag_model = None
         self.embedding_dimension = None
 
         if self.method == "fastembed":
@@ -161,6 +173,39 @@ class TextEmbedder:
                     "Install with: pip install 'semantica[embeddings-local]'. "
                     "Using fallback embedding method."
                 )
+        elif self.method == "flagembedding":
+            # BGEM3FlagModel：bge-m3 三表征加载路径（dense + sparse + ColBERT 一次前向）
+            if FLAGEMBEDDING_AVAILABLE:
+                try:
+                    self.flag_model = BGEM3FlagModel(
+                        self.model_name,
+                        use_fp16=self.config.get("use_fp16", False),
+                        devices=[self.device],
+                    )
+                    # 维度探针（dense，一次微型前向；与 fastembed 路径同口径）
+                    try:
+                        probe = self.flag_model.encode(["dim"], return_dense=True)
+                        self.embedding_dimension = int(
+                            np.asarray(probe["dense_vecs"][0]).shape[-1]
+                        )
+                    except Exception:
+                        self.embedding_dimension = self.config.get("dimension", 1024)
+                    self.logger.info(
+                        f"Loaded FlagEmbedding BGEM3 model: {self.model_name} "
+                        f"(device: {self.device}, dim: {self.embedding_dimension})"
+                    )
+                except Exception as e:
+                    self.logger.warning(
+                        f"Failed to load FlagEmbedding model '{self.model_name}': {e}. "
+                        "Using fallback embedding method."
+                    )
+                    self.flag_model = None
+            else:
+                self.logger.warning(
+                    "FlagEmbedding not available. "
+                    "Install with: pip install FlagEmbedding. "
+                    "Using fallback embedding method."
+                )
         else:
             # Default to sentence-transformers
             if SENTENCE_TRANSFORMERS_AVAILABLE:
@@ -183,7 +228,6 @@ class TextEmbedder:
                     "Install with: pip install 'semantica[embeddings-local]'. "
                     "Using fallback embedding method."
                 )
-        
         # If no model loaded, use fallback dimension
         if self.embedding_dimension is None:
             self.embedding_dimension = self.config.get("dimension", 128)
@@ -258,6 +302,11 @@ class TextEmbedder:
                     tracking_id, message="Using FastEmbed model..."
                 )
                 result = self._embed_with_fastembed(text, **options)
+            elif self.flag_model:
+                self.progress_tracker.update_tracking(
+                    tracking_id, message="Using FlagEmbedding dense output..."
+                )
+                result = self._embed_with_flag(text, **options)
             elif self.model:
                 self.progress_tracker.update_tracking(
                     tracking_id, message="Using sentence-transformers model..."
@@ -310,11 +359,11 @@ class TextEmbedder:
         high-quality semantic embeddings efficiently.
 
         Args:
-            text: Input text to embed
+            text: Input text
             **options: Options (unused for FastEmbed)
 
         Returns:
-            np.ndarray: Embedding vector from FastEmbed model
+            np.ndarray: Embedding vector from FastEmbed
         """
         embeddings = list(self.fastembed_model.embed([text]))
         if embeddings:
@@ -327,6 +376,104 @@ class TextEmbedder:
             return embedding
         else:
             raise ProcessingError("FastEmbed returned empty embedding")
+
+    def _embed_with_flag(self, text: str, **options) -> np.ndarray:
+        """
+        Embed text using the FlagEmbedding BGEM3 dense output.
+
+        Interface-compatible with the sentence-transformers path (dense only):
+        this keeps embed_text/embed_batch signatures and dimension semantics
+        unchanged for callers that only consume dense vectors. Sparse and
+        ColBERT outputs are exposed via embed_text_tri/embed_batch_tri.
+
+        Args:
+            text: Input text
+            **options: Options passed to encode()
+
+        Returns:
+            np.ndarray: Normalized dense embedding vector (bge-m3: 1024-dim)
+        """
+        out = self.flag_model.encode([text], return_dense=True)
+        return np.asarray(out["dense_vecs"][0], dtype=np.float32)
+
+    def _encode_tri(self, texts: List[str]) -> Dict[str, Any]:
+        """
+        One forward pass producing all three bge-m3 representations.
+
+        Args:
+            texts: Input texts
+
+        Returns:
+            dict with keys:
+                - dense: np.ndarray (n, dim), L2-normalized (BGEM3 default)
+                - sparse: list[dict] lexical weights ({token_id: weight})
+                - colbert: list[np.ndarray] per-text token vectors (n_tokens, dim)
+        """
+        out = self.flag_model.encode(
+            texts, return_dense=True, return_sparse=True, return_colbert_vecs=True
+        )
+        return {
+            "dense": np.atleast_2d(np.asarray(out["dense_vecs"], dtype=np.float32)),
+            "sparse": [dict(w) for w in out["lexical_weights"]],
+            "colbert": [np.asarray(v, dtype=np.float32) for v in out["colbert_vecs"]],
+        }
+
+    @property
+    def supports_tri_representation(self) -> bool:
+        """Whether this embedder can produce dense+sparse+ColBERT in one pass."""
+        return self.flag_model is not None
+
+    def embed_text_tri(self, text: str) -> Dict[str, Any]:
+        """
+        Generate the three bge-m3 representations for a single text.
+
+        Args:
+            text: Input text (non-empty)
+
+        Returns:
+            dict: {"dense": np.ndarray(dim,), "sparse": dict, "colbert": np.ndarray(n_tokens, dim)}
+
+        Raises:
+            ProcessingError: If text is empty or the backend cannot produce
+                tri-representations (requires method="flagembedding").
+        """
+        if not text or not text.strip():
+            raise ProcessingError("Text cannot be empty or whitespace-only")
+        if self.flag_model is None:
+            raise ProcessingError(
+                "Tri-representation output requires the FlagEmbedding backend "
+                f"(method='flagembedding', e.g. BAAI/bge-m3); active method: {self.get_method()}"
+            )
+        tri = self._encode_tri([text])
+        return {
+            "dense": tri["dense"][0],
+            "sparse": tri["sparse"][0],
+            "colbert": tri["colbert"][0],
+        }
+
+    def embed_batch_tri(self, texts: List[str]) -> Dict[str, Any]:
+        """
+        Generate the three bge-m3 representations for a batch of texts.
+
+        Args:
+            texts: Input texts (non-empty list)
+
+        Returns:
+            dict: {"dense": np.ndarray(n, dim), "sparse": list[dict],
+                   "colbert": list[np.ndarray(n_tokens_i, dim)]}
+
+        Raises:
+            ProcessingError: If texts is empty or the backend cannot produce
+                tri-representations (requires method="flagembedding").
+        """
+        if not texts:
+            raise ProcessingError("Text list cannot be empty")
+        if self.flag_model is None:
+            raise ProcessingError(
+                "Tri-representation output requires the FlagEmbedding backend "
+                f"(method='flagembedding', e.g. BAAI/bge-m3); active method: {self.get_method()}"
+            )
+        return self._encode_tri(list(texts))
 
     def _embed_fallback(self, text: str, **options) -> np.ndarray:
         """
@@ -407,6 +554,10 @@ class TextEmbedder:
                 norms[norms == 0] = 1  # Avoid division by zero
                 embeddings_array = embeddings_array / norms
             return embeddings_array
+        elif self.flag_model:
+            # FlagEmbedding batch dense output（接口与 sentence-transformers 路径一致）
+            out = self.flag_model.encode(list(texts), return_dense=True, **options)
+            return np.atleast_2d(np.asarray(out["dense_vecs"], dtype=np.float32))
         elif self.model:
             # Use model's efficient batch encoding
             embeddings = self.model.encode(
@@ -501,6 +652,8 @@ class TextEmbedder:
         """
         if self.fastembed_model:
             return "fastembed"
+        elif self.flag_model:
+            return "flagembedding"
         elif self.model:
             return "sentence_transformers"
         else:
@@ -530,7 +683,11 @@ class TextEmbedder:
         model_loaded = (
             self.fastembed_model is not None
             if method == "fastembed"
-            else (self.model is not None if method == "sentence_transformers" else False)
+            else (
+                self.flag_model is not None
+                if method == "flagembedding"
+                else (self.model is not None if method == "sentence_transformers" else False)
+            )
         )
 
         info = {
@@ -539,9 +696,10 @@ class TextEmbedder:
             "model_loaded": model_loaded,
             "dimension": self.get_embedding_dimension(),
             "normalize": self.normalize,
+            "supports_tri_representation": self.supports_tri_representation,
         }
 
-        if method == "sentence_transformers":
+        if method in ("sentence_transformers", "flagembedding"):
             info["device"] = self.device
 
         return info
