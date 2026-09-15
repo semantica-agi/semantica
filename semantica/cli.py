@@ -7,6 +7,7 @@ enabling users to interact with the framework via terminal commands.
 
 import json
 import os
+import re
 import sys
 import time
 
@@ -1263,6 +1264,74 @@ def _graph_store_facts(cli_ctx: CLIContext) -> List[str]:
     return facts
 
 
+def _graph_store_as_context(cli_ctx: CLIContext) -> Dict[str, List[Dict[str, Any]]]:
+    """Read the configured graph store into GraphReasoner's expected shape.
+
+    GraphReasoner._prepare_graph_context() reads a plain
+    ``{"entities": [...], "relationships": [...]}`` dict -- distinct from
+    both the raw GraphStore rows and the ``Label(arg)`` fact strings
+    ``_graph_store_facts()`` builds for the other engines.
+    """
+    gs = _get_graph_store(cli_ctx)
+    nodes = gs.get_nodes(limit=sys.maxsize)
+    relationships = gs.get_relationships(limit=sys.maxsize)
+    names: Dict[Any, Any] = {}
+    entities = []
+    for node in nodes:
+        props = node.get("properties") or {}
+        name = props.get("name") or props.get("id") or node.get("id")
+        names[node.get("id")] = name
+        labels = node.get("labels") or ["Entity"]
+        # Multiple labels are all real classifications (mirrors the one
+        # fact-per-label convention _graph_store_facts() uses); joining them
+        # keeps a node with e.g. ["Person", "Employee"] fully described
+        # instead of silently dropping every label but the first.
+        entities.append({
+            "id": name, "name": name, "type": "/".join(labels), "properties": props,
+        })
+    rel_out = []
+    for rel in relationships:
+        source = names.get(rel.get("start_node_id"), rel.get("start_node_id"))
+        target = names.get(rel.get("end_node_id"), rel.get("end_node_id"))
+        rel_out.append({
+            "source": source, "target": target,
+            "type": rel.get("type", "RELATED_TO"),
+            "properties": rel.get("properties") or {},
+        })
+    return {"entities": entities, "relationships": rel_out}
+
+
+def _lowercase_datalog_args(fact_str: str) -> str:
+    """Lowercase only a fact string's arguments, keeping the predicate's
+    case untouched.
+
+    DatalogReasoner reads a leading-uppercase *argument* as a variable
+    (constants must be lowercase), but places no such constraint on the
+    predicate. Lowercasing the whole string would still satisfy the
+    constant check but would break matching against Datalog rules written
+    against the graph's own label spelling, e.g. "Human(X) :- Person(X)."
+    expects a "Person(...)" fact, not "person(...)".
+    """
+    match = re.match(r'^([a-zA-Z0-9_]+)\((.*)\)$', fact_str.strip())
+    if not match:
+        return fact_str
+    predicate, args_str = match.groups()
+    args = [arg.strip().lower() for arg in args_str.split(',')]
+    return f"{predicate}({', '.join(args)})"
+
+
+def _run_reasoning_with_status(
+    cli_ctx: CLIContext, engine: str, fn: Callable[[], Dict[str, Any]]
+) -> Dict[str, Any]:
+    """Run a reasoning computation, showing a spinner unless output is quiet/JSON."""
+    if cli_ctx.quiet or cli_ctx.json_output:
+        return fn()
+    with console.status(
+        f"[{_DIM}]Running {engine} reasoning engine…[/{_DIM}]", spinner="dots"
+    ):
+        return fn()
+
+
 # ─── Output helpers ──────────────────────────────────────────────────────────
 
 
@@ -2306,59 +2375,124 @@ def reason(ctx: click.Context) -> None:
                                   "datalog", "sparql", "graph"]),
               default="rete", show_default=True)
 @click.option("--rules", default=None, type=click.Path(exists=True),
-              help="Custom rules file (YAML/Datalog/SPARQL).")
+              help="Custom rules file (YAML for rete, Datalog Horn clauses for datalog).")
+@click.option("--query", "query_text", default=None,
+              help="Natural-language question, required for --engine graph.")
 @click.option("--json", "local_json", is_flag=True, default=False)
 @click.pass_obj
 def reason_run(cli_ctx: CLIContext, engine: str, rules: Optional[str],
-               local_json: bool) -> None:
+               query_text: Optional[str], local_json: bool) -> None:
     """Execute a reasoning engine against the knowledge graph.
 
     \b
     Example:
       semantica reason run --engine rete --rules business-rules.yaml
+      semantica reason run --engine datalog --rules facts.dl
+      semantica reason run --engine graph --query "Who manages Bob?"
     """
     cli_ctx = _require_ctx(cli_ctx)
 
     def _action() -> None:
-        # Only the forward-chaining production-rule engines run through
-        # Reasoner.infer_facts(); the other engines take different inputs
-        # (SPARQL/Datalog queries, observations, premises) and are not wired
-        # to this command yet. Fail honestly instead of silently
-        # forward-chaining under another engine's name.
-        if engine not in ("rete", "forward-chain"):
-            hint = (" Use 'semantica reason query' for SPARQL/Datalog queries."
-                    if engine in ("sparql", "datalog") else "")
+        if engine in ("rete", "forward-chain"):
+            try:
+                from .reasoning import Reasoner
+                # Reasoner has no run() method (#1354); dispatch to its real
+                # API: facts from the configured graph store + rules from the
+                # optional --rules file into infer_facts().
+                r = Reasoner(engine=engine, config=cli_ctx.config.to_dict())
+                rule_defs = _load_rule_definitions(rules) if rules else None
+                facts = _graph_store_facts(cli_ctx)
+
+                def _infer() -> Dict[str, Any]:
+                    inferred = r.infer_facts(facts, rule_defs)
+                    return {
+                        "engine": engine,
+                        "facts": len(facts),
+                        "inferred_count": len(inferred),
+                        "inferred_facts": inferred,
+                    }
+
+                result = _run_reasoning_with_status(cli_ctx, engine, _infer)
+            except ImportError as exc:
+                raise click.ClickException(f"Reasoning module not available: {exc}") from exc
+
+        elif engine == "datalog":
+            try:
+                from .reasoning import DatalogReasoner
+                dr = DatalogReasoner(config=cli_ctx.config.to_dict())
+                for rule_def in (_load_rule_definitions(rules) if rules else []):
+                    dr.add_rule(rule_def)
+                # Datalog reads a leading-uppercase *argument* as a variable
+                # (see datalog_reasoner.py _is_variable(); predicate case is
+                # unconstrained), so graph-store facts like "Person(Alice)"
+                # need their arguments -- not the predicate -- lowercased to
+                # read as ground constants. Lowercasing the whole string
+                # would also break matching against rules written against
+                # the graph's own (typically title-case) label spelling,
+                # e.g. "Human(X) :- Person(X)."
+                fact_strings = [_lowercase_datalog_args(f) for f in _graph_store_facts(cli_ctx)]
+                for fact_str in fact_strings:
+                    dr.add_fact(fact_str)
+
+                def _infer() -> Dict[str, Any]:
+                    before = set(fact_strings)
+                    derived = dr.derive_all()
+                    inferred = [f for f in derived if f not in before]
+                    return {
+                        "engine": engine,
+                        "facts": len(fact_strings),
+                        "inferred_count": len(inferred),
+                        "inferred_facts": inferred,
+                    }
+
+                result = _run_reasoning_with_status(cli_ctx, engine, _infer)
+            except ImportError as exc:
+                raise click.ClickException(f"Reasoning module not available: {exc}") from exc
+
+        elif engine == "graph":
+            if not query_text:
+                raise click.ClickException(
+                    "Engine 'graph' requires --query \"<question>\".")
+            try:
+                from .reasoning import GraphReasoner
+                gr = GraphReasoner(config=cli_ctx.config.to_dict())
+                graph = _graph_store_as_context(cli_ctx)
+
+                def _infer() -> Dict[str, Any]:
+                    answer = gr.reason(graph, query_text)
+                    # GraphReasoner.reason() never raises on an LLM-side
+                    # failure (no provider configured, generation error) --
+                    # it returns a string starting with "Error" instead.
+                    # Surface that as a real command failure (non-zero exit)
+                    # rather than a successful result an automated caller
+                    # would read as a real answer.
+                    if answer.startswith("Error: LLM provider not initialized") or \
+                            answer.startswith("Error during reasoning:"):
+                        raise click.ClickException(answer)
+                    return {
+                        "engine": engine,
+                        "query": query_text,
+                        "facts": len(graph["entities"]) + len(graph["relationships"]),
+                        "answer": answer,
+                    }
+
+                result = _run_reasoning_with_status(cli_ctx, engine, _infer)
+            except ImportError as exc:
+                raise click.ClickException(f"Reasoning module not available: {exc}") from exc
+
+        else:
+            # sparql/deductive/abductive take inputs (triplet-store queries,
+            # premises, observations) this command doesn't wire up yet.
+            # SPARQLReasoner in particular has no query-execution path at
+            # all yet (execute_query() raises NotImplementedError), so
+            # there is nothing real to dispatch to. Fail honestly instead
+            # of silently forward-chaining under another engine's name.
+            hint = (" Use 'semantica reason query' for SPARQL queries."
+                    if engine == "sparql" else "")
             raise click.ClickException(
                 f"Engine '{engine}' is not wired to 'reason run' yet; "
-                f"supported engines: rete, forward-chain.{hint}")
-        try:
-            from .reasoning import Reasoner
-            # Reasoner has no run() method (#1354); dispatch to its real
-            # API: facts from the configured graph store + rules from the
-            # optional --rules file into infer_facts().
-            r = Reasoner(engine=engine, config=cli_ctx.config.to_dict())
-            rule_defs = _load_rule_definitions(rules) if rules else None
-            facts = _graph_store_facts(cli_ctx)
+                f"supported engines: rete, forward-chain, datalog, graph.{hint}")
 
-            def _infer() -> Dict[str, Any]:
-                inferred = r.infer_facts(facts, rule_defs)
-                return {
-                    "engine": engine,
-                    "facts": len(facts),
-                    "inferred_count": len(inferred),
-                    "inferred_facts": inferred,
-                }
-
-            if cli_ctx.quiet or cli_ctx.json_output:
-                result = _infer()
-            else:
-                with console.status(
-                    f"[{_DIM}]Running {engine} reasoning engine…[/{_DIM}]",
-                    spinner="dots",
-                ):
-                    result = _infer()
-        except ImportError as exc:
-            raise click.ClickException(f"Reasoning module not available: {exc}") from exc
         if _is_json(cli_ctx, local_json):
             _jecho(result if isinstance(result, dict) else {"result": str(result)})
         else:

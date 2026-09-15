@@ -906,6 +906,223 @@ class TestReason:
         assert "reason query" in result.output
         assert "Traceback" not in result.output
 
+    def test_run_rejects_unwired_deductive_and_abductive(self, runner):
+        # deductive/abductive still take inputs (premises/observations) this
+        # command doesn't wire up yet -- only sparql gets the "reason query"
+        # hint since the other two have no equivalent command to redirect to.
+        for engine in ("deductive", "abductive"):
+            result = runner.invoke(cli_module.main,
+                                   ["reason", "run", "--engine", engine])
+            assert result.exit_code != 0
+            assert "not wired" in result.output
+            assert "Traceback" not in result.output
+
+    def test_run_datalog_derives_facts_from_graph_store(self, runner, monkeypatch, tmp_path):
+        """--engine datalog should run DatalogReasoner.derive_all(), not infer_facts()."""
+        pytest.importorskip("numpy", reason="semantica.reasoning needs numpy")
+        # Predicate case matches the graph's own label/relationship-type
+        # spelling (title-case "Person", upper-case "MANAGES") -- only
+        # arguments get lowercased into Datalog constants, not predicates.
+        rules_file = tmp_path / "rules.dl"
+        rules_file.write_text(
+            "Human(X) :- Person(X).\n"
+            "Manager(X) :- MANAGES(X, Y).\n",
+            encoding="utf-8")
+
+        class _FakeStore:
+            def get_nodes(self, limit=None):
+                return [{"id": 1, "labels": ["Person"], "properties": {"name": "Alice"}},
+                        {"id": 2, "labels": ["Person", "Employee"], "properties": {"name": "Bob"}}]
+
+            def get_relationships(self, limit=None):
+                return [{"id": 9, "type": "MANAGES", "start_node_id": 1, "end_node_id": 2}]
+
+        monkeypatch.setattr(cli_module, "_get_graph_store", lambda ctx: _FakeStore())
+        result = runner.invoke(
+            cli_module.main,
+            ["--json", "reason", "run", "--engine", "datalog", "--rules", str(rules_file)],
+        )
+        _ok(result)
+        data = json.loads(result.output.strip())
+        assert data["engine"] == "datalog"
+        # Person(alice), Person(bob), Employee(bob), MANAGES(alice, bob)
+        assert data["facts"] == 4
+        assert "Human(alice)" in data["inferred_facts"]
+        assert "Human(bob)" in data["inferred_facts"]
+        assert "Manager(alice)" in data["inferred_facts"]
+        # Base facts must not be reported back as "inferred".
+        assert "Person(alice)" not in data["inferred_facts"]
+        assert data["inferred_count"] == len(data["inferred_facts"])
+
+    def test_run_datalog_lowercases_args_only_not_predicate(self):
+        """Regression for a case-mismatch bug: lowercasing the whole fact
+        string (not just its arguments) made facts like "person(alice)"
+        unmatchable by rules written against the graph's real label
+        spelling, e.g. "Human(X) :- Person(X)."."""
+        assert cli_module._lowercase_datalog_args("Person(Alice)") == "Person(alice)"
+        assert cli_module._lowercase_datalog_args(
+            "MANAGES(Alice, Bob)") == "MANAGES(alice, bob)"
+
+    def test_run_datalog_rejects_ifthen_rules_cleanly(self, runner, monkeypatch, tmp_path):
+        """A rete-style '--rules' file (IF/THEN) is not valid Datalog syntax;
+        it must surface as a clean error, not a Traceback."""
+        pytest.importorskip("numpy", reason="semantica.reasoning needs numpy")
+        rules_file = tmp_path / "rules.yaml"
+        rules_file.write_text("- IF Person(?x) THEN Human(?x)\n", encoding="utf-8")
+
+        class _EmptyStore:
+            def get_nodes(self, limit=None): return []
+            def get_relationships(self, limit=None): return []
+
+        monkeypatch.setattr(cli_module, "_get_graph_store", lambda ctx: _EmptyStore())
+        result = runner.invoke(
+            cli_module.main,
+            ["reason", "run", "--engine", "datalog", "--rules", str(rules_file)],
+        )
+        assert result.exit_code != 0
+        assert "Traceback" not in result.output
+
+    def test_run_datalog_no_rules_uses_empty_ruleset(self, runner, monkeypatch):
+        pytest.importorskip("numpy", reason="semantica.reasoning needs numpy")
+
+        class _FakeStore:
+            def get_nodes(self, limit=None):
+                return [{"id": 1, "labels": ["Person"], "properties": {"name": "Alice"}}]
+
+            def get_relationships(self, limit=None):
+                return []
+
+        monkeypatch.setattr(cli_module, "_get_graph_store", lambda ctx: _FakeStore())
+        result = runner.invoke(
+            cli_module.main, ["--json", "reason", "run", "--engine", "datalog"])
+        _ok(result)
+        data = json.loads(result.output.strip())
+        assert data["facts"] == 1
+        assert data["inferred_count"] == 0
+        assert data["inferred_facts"] == []
+
+    def test_run_graph_requires_query(self, runner, monkeypatch):
+        class _EmptyStore:
+            def get_nodes(self, limit=None): return []
+            def get_relationships(self, limit=None): return []
+
+        monkeypatch.setattr(cli_module, "_get_graph_store", lambda ctx: _EmptyStore())
+        result = runner.invoke(cli_module.main, ["reason", "run", "--engine", "graph"])
+        assert result.exit_code != 0
+        assert "--query" in result.output
+        assert "Traceback" not in result.output
+
+    def test_run_graph_dispatches_to_graph_reasoner(self, runner, monkeypatch, tmp_path):
+        """--engine graph should call GraphReasoner.reason(graph, query) and
+        surface its natural-language answer, not the facts-count shape.
+
+        Also regression-guards three context-building gaps: a node with
+        multiple labels must keep all of them (not just labels[0]), a
+        relationship's properties must reach GraphReasoner (not just its
+        source/target/type), and start_node_id/end_node_id must resolve to
+        the actual node names rather than leaking raw internal ids into the
+        graph context sent to the LLM.
+        """
+        pytest.importorskip("numpy", reason="semantica.reasoning needs numpy")
+
+        class _FakeStore:
+            def get_nodes(self, limit=None):
+                return [{"id": 1, "labels": ["Person", "Manager"], "properties": {"name": "Alice"}},
+                        {"id": 2, "labels": ["Person"], "properties": {"name": "Bob"}}]
+
+            def get_relationships(self, limit=None):
+                return [{"id": 9, "type": "MANAGES", "start_node_id": 1, "end_node_id": 2,
+                          "properties": {"since": "2020"}}]
+
+        monkeypatch.setattr(cli_module, "_get_graph_store", lambda ctx: _FakeStore())
+
+        class _FakeGraphReasoner:
+            def __init__(self, config=None, **kwargs):
+                pass
+
+            def reason(self, graph, query, **options):
+                assert graph["entities"][0]["name"] == "Alice"
+                assert graph["entities"][0]["type"] == "Person/Manager"
+                assert graph["relationships"][0]["type"] == "MANAGES"
+                assert graph["relationships"][0]["properties"] == {"since": "2020"}
+                # start_node_id/end_node_id (1, 2) must resolve to node
+                # names, not leak raw internal ids into the LLM's context.
+                assert graph["relationships"][0]["source"] == "Alice"
+                assert graph["relationships"][0]["target"] == "Bob"
+                assert query == "Who manages Bob?"
+                return "Alice manages Bob."
+
+        monkeypatch.setattr(
+            "semantica.reasoning.GraphReasoner", _FakeGraphReasoner, raising=False)
+        result = runner.invoke(
+            cli_module.main,
+            ["--json", "reason", "run", "--engine", "graph",
+             "--query", "Who manages Bob?"],
+        )
+        _ok(result)
+        data = json.loads(result.output.strip())
+        assert data["engine"] == "graph"
+        assert data["query"] == "Who manages Bob?"
+        assert data["answer"] == "Alice manages Bob."
+        assert data["facts"] == 3
+
+    def test_run_graph_surfaces_reasoner_failure_as_error(self, runner, monkeypatch):
+        """GraphReasoner.reason() never raises on an LLM-side failure -- it
+        returns a string starting with "Error" instead. reason run must
+        surface that as a real command failure, not exit 0 with a fake
+        "answer"."""
+        pytest.importorskip("numpy", reason="semantica.reasoning needs numpy")
+
+        class _EmptyStore:
+            def get_nodes(self, limit=None): return []
+            def get_relationships(self, limit=None): return []
+
+        monkeypatch.setattr(cli_module, "_get_graph_store", lambda ctx: _EmptyStore())
+
+        class _FailingGraphReasoner:
+            def __init__(self, config=None, **kwargs):
+                pass
+
+            def reason(self, graph, query, **options):
+                return "Error: LLM provider not initialized for GraphReasoner. Check your configuration."
+
+        monkeypatch.setattr(
+            "semantica.reasoning.GraphReasoner", _FailingGraphReasoner, raising=False)
+        result = runner.invoke(
+            cli_module.main, ["reason", "run", "--engine", "graph", "--query", "anything?"])
+        assert result.exit_code != 0
+        assert "LLM provider not initialized" in result.output
+        assert "Traceback" not in result.output
+
+    def test_run_graph_surfaces_generation_failure_as_error(self, runner, monkeypatch):
+        """The second GraphReasoner error path -- a generation-time failure
+        (e.g. provider initialized but the call itself fails) returns
+        "Error during reasoning: ..." rather than the "not initialized"
+        string. reason run must surface this as a real command failure too,
+        not just the first error string."""
+        pytest.importorskip("numpy", reason="semantica.reasoning needs numpy")
+
+        class _EmptyStore:
+            def get_nodes(self, limit=None): return []
+            def get_relationships(self, limit=None): return []
+
+        monkeypatch.setattr(cli_module, "_get_graph_store", lambda ctx: _EmptyStore())
+
+        class _FailingGraphReasoner:
+            def __init__(self, config=None, **kwargs):
+                pass
+
+            def reason(self, graph, query, **options):
+                return "Error during reasoning: connection timed out"
+
+        monkeypatch.setattr(
+            "semantica.reasoning.GraphReasoner", _FailingGraphReasoner, raising=False)
+        result = runner.invoke(
+            cli_module.main, ["reason", "run", "--engine", "graph", "--query", "anything?"])
+        assert result.exit_code != 0
+        assert "Error during reasoning" in result.output
+        assert "Traceback" not in result.output
+
     def test_load_rule_definitions_formats(self, tmp_path):
         yaml_list = tmp_path / "list.yaml"
         yaml_list.write_text('- IF A(?x) THEN B(?x)\n- IF B(?x) THEN C(?x)\n',
