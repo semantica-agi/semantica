@@ -263,7 +263,7 @@ FAISS, Pinecone, Weaviate, Qdrant, Milvus, PgVector, and in-memory. All backends
 
 <Accordion title="What LLM providers are supported?" icon="microchip">
 
-Groq, OpenAI, Anthropic, Google Gemini, Ollama (fully local), DeepSeek, Novita AI, LiteLLM (100+ models via a single interface), and any OpenAI-compatible gateway.
+Groq, OpenAI, Anthropic, Google Gemini, Ollama (fully local), DeepSeek, Novita AI, Atlas Cloud, LiteLLM (100+ models via a single interface), and any OpenAI-compatible gateway.
 
 </Accordion>
 

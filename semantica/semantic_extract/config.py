@@ -103,7 +103,15 @@ class Config:
     def _load_env_vars(self):
         """Load configuration from environment variables."""
         # Common environment variable patterns
-        providers = ["openai", "gemini", "groq", "anthropic", "ollama", "novita"]
+        providers = [
+            "openai",
+            "gemini",
+            "groq",
+            "anthropic",
+            "ollama",
+            "novita",
+            "atlascloud",
+        ]
         for provider in providers:
             env_key = f"{provider.upper()}_API_KEY"
             api_key = os.getenv(env_key)

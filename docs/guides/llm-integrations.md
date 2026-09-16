@@ -1,9 +1,9 @@
 ---
 title: "LLM Integrations"
-description: "Connect Semantica to Groq, OpenAI, Anthropic, HuggingFace, Novita AI, and 100+ LLM providers through a unified interface."
+description: "Connect Semantica to Groq, OpenAI, Anthropic, HuggingFace, Novita AI, Atlas Cloud, and 100+ LLM providers through a unified interface."
 ---
 
-Semantica exposes a unified provider interface — a single `.generate()` method — across Groq, OpenAI, Anthropic Claude, HuggingFace, Novita AI, and 100+ providers via LiteLLM. Use it when you need to swap providers for latency, accuracy, cost, or data-residency reasons without touching application code.
+Semantica exposes a unified provider interface — a single `.generate()` method — across Groq, OpenAI, Anthropic Claude, HuggingFace, Novita AI, Atlas Cloud, and 100+ providers via LiteLLM. Use it when you need to swap providers for latency, accuracy, cost, or data-residency reasons without touching application code.
 
 ## What Are LLM Integrations?
 
@@ -464,6 +464,46 @@ ner = NamedEntityRecognizer(
     methods=["llm"],
     provider="novita",
     llm_model="deepseek/deepseek-v3.2",
+)
+entities = ner.extract_entities(
+    "CVE-2024-3400 is exploited by UNC3886 targeting PAN-OS GlobalProtect."
+)
+for e in entities:
+    print("{} ({}) conf={:.2f}".format(e.text, e.label, e.confidence))
+```
+
+## Atlas Cloud — One Key Across 100+ Models
+
+**Atlas Cloud** is an OpenAI-compatible gateway that routes to models from OpenAI, Anthropic, Google, DeepSeek, Qwen, Moonshot and others behind a single key, so you can switch the extraction model without provisioning a new vendor account. `GET /v1/models` lists whatever the gateway currently serves.
+
+Install with `pip install "semantica[llm-atlascloud]"` (or `pip install openai`, since Atlas Cloud is accessed through the OpenAI client pointed at a different base URL).
+
+```python
+from semantica.llms import AtlasCloud
+
+llm = AtlasCloud(model="deepseek-ai/deepseek-v3.2", api_key="YOUR_ATLASCLOUD_KEY")
+# api_key falls back to the ATLASCLOUD_API_KEY environment variable
+
+if not llm.is_available():
+    raise RuntimeError("Atlas Cloud provider not configured - set ATLASCLOUD_API_KEY")
+
+response = llm.generate("Summarize the Basel III leverage ratio requirement.")
+
+data = llm.generate_structured(
+    "Extract drug names and dosages from: "
+    "Patient received warfarin 5mg daily, aspirin 75mg daily, metformin 500mg twice daily."
+)
+```
+
+Atlas Cloud is also reachable as a provider name string for the NER interface, without going through the `AtlasCloud` class directly:
+
+```python
+from semantica.semantic_extract import NamedEntityRecognizer
+
+ner = NamedEntityRecognizer(
+    methods=["llm"],
+    provider="atlascloud",
+    llm_model="deepseek-ai/deepseek-v3.2",
 )
 entities = ner.extract_entities(
     "CVE-2024-3400 is exploited by UNC3886 targeting PAN-OS GlobalProtect."
