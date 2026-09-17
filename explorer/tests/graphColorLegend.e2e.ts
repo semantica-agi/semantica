@@ -101,7 +101,9 @@ test("visible legend follows loaded data, reloads, focused views, and distance m
   await heatmap.click();
   await legend.waitFor();
   await assertLegendMatchesGraph(page);
-  await page.getByRole("button", { name: "Focused", exact: true }).click();
+  const focusButton = page.getByRole("button", { name: "Focus", exact: true });
+  assert.equal(await focusButton.isDisabled(), false, "Focus is enabled once a node is selected");
+  await focusButton.click();
   await legend.getByText("Document", { exact: true }).waitFor({ state: "hidden" });
   await assertLegendMatchesGraph(page, ["alice", "acme", "research"]);
   assert.equal(await legend.getByText("Researcher", { exact: true }).count(), 1);

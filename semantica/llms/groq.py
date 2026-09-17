@@ -4,7 +4,9 @@ Groq LLM Provider
 Wrapper for Groq API provider with clean interface.
 """
 
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional, Type, Union
+
+from pydantic import BaseModel
 
 from ..semantic_extract.providers import GroqProvider
 from ..utils.exceptions import ProcessingError
@@ -67,7 +69,7 @@ class Groq:
             )
         return self.provider.generate(prompt, **kwargs)
 
-    def generate_structured(self, prompt: str, **kwargs) -> Dict[str, Any]:
+    def generate_structured(self, prompt: str, **kwargs) -> Union[Dict[str, Any], List[Any]]:
         """
         Generate structured JSON output.
 
@@ -76,7 +78,8 @@ class Groq:
             **kwargs: Generation options
 
         Returns:
-            Parsed JSON response as dictionary
+            Parsed JSON response. A dict for a top-level JSON object, or a
+            list if the model returns a top-level JSON array.
 
         Raises:
             ProcessingError: If provider is not available or parsing fails
@@ -86,4 +89,28 @@ class Groq:
                 "Groq provider not available. Set GROQ_API_KEY or pass api_key."
             )
         return self.provider.generate_structured(prompt, **kwargs)
+
+    def generate_typed(
+        self, prompt: str, schema: Type[BaseModel], max_retries: int = 3, **kwargs
+    ) -> BaseModel:
+        """
+        Generate output validated against a Pydantic schema.
+
+        Args:
+            prompt: Input prompt text
+            schema: Pydantic model class to validate the output against
+            max_retries: Number of retries if validation fails (default: 3)
+            **kwargs: Generation options
+
+        Returns:
+            An instance of `schema`, populated from the model's response
+
+        Raises:
+            ProcessingError: If provider is not available or generation fails
+        """
+        if not self.is_available():
+            raise ProcessingError(
+                "Groq provider not available. Set GROQ_API_KEY or pass api_key."
+            )
+        return self.provider.generate_typed(prompt, schema, max_retries=max_retries, **kwargs)
 

@@ -1,6 +1,6 @@
 # Semantica Plugins (Community Guide)
 
-> **v0.4.0** — 17 domain skills · 3 agents · 8 platform plugins · Knowledge Explorer UI
+> **v0.4.0** — 17 domain skills · 3 agents · 9 platform plugins · Knowledge Explorer UI
 
 Semantica ships a shared plugin bundle under `plugins/` that works across every major AI coding assistant. Connect any supported platform to Semantica's knowledge graph engine for semantic extraction, decision intelligence, reasoning, provenance, ontology, and export workflows.
 
@@ -8,7 +8,7 @@ Semantica ships a shared plugin bundle under `plugins/` that works across every 
 
 ## Platform Plugins
 
-Semantica provides a dedicated plugin for each platform. Every plugin shares the same `skills/`, `agents/`, and `hooks/` bundle — only the manifest format differs.
+Semantica provides a dedicated plugin for each platform. Every plugin shares the same `skills/`, `agents/`, and `hooks/` bundle — only the manifest format differs. Exception: the pi plugin (`.pi-plugin/`) loads only the `skills/` bundle via the root `package.json` manifest; pi discovers skills natively and reaches agents/hooks workflows through them.
 
 | # | Platform | Plugin Folder | Setup |
 |---|----------|--------------|-------|
@@ -20,6 +20,7 @@ Semantica provides a dedicated plugin for each platform. Every plugin shares the
 | 6 | **Continue** | `.continue-plugin/` | `~/.continue/config.json` |
 | 7 | **OpenClaw** | `.openclaw-plugin/` | `mcporter.json` |
 | 8 | **VS Code** | `.vscode-plugin/` | `settings.json` MCP entry |
+| 9 | **pi** | `.pi-plugin/` | `pi install git:github.com/semantica-agi/semantica` (skills bundle) |
 
 ---
 
@@ -37,7 +38,8 @@ plugins/
 ├── .windsurf-plugin/    # Windsurf manifest + marketplace
 ├── .continue-plugin/    # Continue manifest + marketplace
 ├── .openclaw-plugin/    # OpenClaw manifest + marketplace
-└── .vscode-plugin/      # VS Code manifest + marketplace
+├── .vscode-plugin/      # VS Code manifest + marketplace
+└── .pi-plugin/          # pi package (skills bundle) + guide
 ```
 
 ### Skills (17)

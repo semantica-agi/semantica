@@ -371,69 +371,6 @@ class TestSimilarityCalculator:
 class TestSimilarityCalculatorEdgeCases:
     """Edge case tests for SimilarityCalculator."""
     
-    def test_zero_vectors(self):
-        """Test similarity calculations with zero vectors."""
-        calculator = SimilarityCalculator()
-        
-        zero_vec = [0.0, 0.0, 0.0]
-        normal_vec = [1.0, 0.0, 0.0]
-        
-        # Cosine similarity with zero vector
-        similarity = calculator.cosine_similarity(zero_vec, normal_vec)
-        assert similarity == 0.0
-        
-        # Euclidean distance with zero vector
-        distance = calculator.euclidean_distance(zero_vec, normal_vec)
-        assert distance == 1.0
-        
-        # Manhattan distance with zero vector
-        distance = calculator.manhattan_distance(zero_vec, normal_vec)
-        assert distance == 1.0
-    
-    def test_single_dimension_vectors(self):
-        """Test similarity calculations with single dimension vectors."""
-        calculator = SimilarityCalculator()
-        
-        vec1 = [1.0]
-        vec2 = [2.0]
-        
-        # Cosine similarity
-        similarity = calculator.cosine_similarity(vec1, vec2)
-        assert similarity == 1.0  # Same direction
-        
-        # Euclidean distance
-        distance = calculator.euclidean_distance(vec1, vec2)
-        assert distance == 1.0
-        
-        # Manhattan distance
-        distance = calculator.manhattan_distance(vec1, vec2)
-        assert distance == 1.0
-    
-    def test_negative_values(self):
-        """Test similarity calculations with negative values."""
-        calculator = SimilarityCalculator()
-        
-        vec1 = [1.0, -1.0]
-        vec2 = [-1.0, 1.0]
-        
-        # Cosine similarity (opposite directions)
-        similarity = calculator.cosine_similarity(vec1, vec2)
-        assert abs(similarity + 1.0) < 1e-10  # Should be -1
-        
-        # Euclidean distance
-        distance = calculator.euclidean_distance(vec1, vec2)
-        expected = np.sqrt((1-(-1))**2 + (-1-1)**2)
-        assert abs(distance - expected) < 1e-10
-        
-        # Manhattan distance
-        distance = calculator.manhattan_distance(vec1, vec2)
-        expected = abs(1-(-1)) + abs(-1-1)
-        assert distance == expected
-
-
-class TestSimilarityCalculatorEdgeCases:
-    """Edge case tests for SimilarityCalculator."""
-    
     def setup_method(self):
         """Set up test fixtures."""
         self.calculator = SimilarityCalculator()

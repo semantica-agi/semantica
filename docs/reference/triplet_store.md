@@ -561,7 +561,7 @@ for row in result.bindings:
     print(row)
 ```
 
-- [Export](export) — Export knowledge graphs to RDF formats.
-- [Ontology](ontology) — Load OWL ontologies and store as RDF triples.
-- [Reasoning](reasoning) — SPARQL-based property chain inference.
+- [Export](/reference/export) — Export knowledge graphs to RDF formats.
+- [Ontology](/reference/ontology) — Load OWL ontologies and store as RDF triples.
+- [Reasoning](/reference/reasoning) — SPARQL-based property chain inference.
 - [Graph Store](/reference/graph_store) — Property graph alternative for Cypher queries.

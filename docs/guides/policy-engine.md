@@ -132,7 +132,7 @@ The policy is now a node in the graph. It has a version string, a creation times
 
 ## Checking a decision for compliance
 
-`check_compliance` takes a `Decision` object and the policy ID and returns a boolean.
+`check_compliance` takes a `Decision` object and the policy ID and returns a boolean: `True` if the decision complies with the policy, `False` if it was evaluated and found non-compliant. If the check itself cannot be executed — for example, a rule value that cannot be compared against the decision's metadata — `check_compliance` raises `ProcessingError` instead of returning `False`.
 
 ```python
 from semantica.context import Decision
@@ -171,6 +171,23 @@ print(f"Compliant: {is_compliant}")
 ```
 
 The engine returns `False`. The decision has not been rejected — it has been flagged. What happens next depends on your workflow. In some organisations, a non-compliant result simply blocks the write to the authoritative graph. In others, it triggers an exception process where a human approver reviews the evidence and signs off.
+
+### When the check itself fails
+
+A returned `False` is always a verdict: the rules ran, and the decision did not satisfy them. That includes the case where the decision simply lacks the evidence a rule needs — a `min_`/`max_`/`required_` rule targeting a metadata field the decision does not carry counts as non-compliant by policy.
+
+The separate case is a rule that cannot be evaluated at all, for instance a `min_confidence` of `"high"` that cannot be compared against a numeric decision confidence. Rather than reporting that as non-compliance, `check_compliance` raises `ProcessingError`, so an evaluation bug can never masquerade as a policy violation. If you need failures reported separately from verdicts, wrap the call:
+
+```python
+from semantica.utils.exceptions import ProcessingError
+
+try:
+    is_compliant = engine.check_compliance(decision, policy_id)
+except ProcessingError as e:
+    # The rules could not be evaluated — an operational error,
+    # not a compliance verdict.
+    print(f"Compliance check failed: {e}")
+```
 
 ---
 
@@ -663,8 +680,8 @@ print("Policy updated to v2.4.0")
 ## Related Guides
 
 - [Decision Intelligence](/guides/decision-intelligence) — `record_decision()`, causal chains, and precedent search — the decisions that `check_compliance()` evaluates
-- [Reasoning & Rules](reasoning) — complement policy rules with formal inference for logical conflict detection
+- [Reasoning & Rules](/guides/reasoning) — complement policy rules with formal inference for logical conflict detection
 - [SHACL Validation](/guides/shacl-validation) — enforce structural constraints on policy nodes themselves
 - [Change Management](/guides/change-management) — version-snapshot the policy graph alongside the knowledge graph
-- [Provenance](provenance) — W3C PROV-O lineage for every policy decision and exception
+- [Provenance](/guides/provenance) — W3C PROV-O lineage for every policy decision and exception
 - [MCP Server](/guides/mcp-server) — expose `record_decision` and `find_precedents` as MCP tools for AI agents

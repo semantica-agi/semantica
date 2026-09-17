@@ -31,9 +31,31 @@ except ImportError:
 # ---------------------------------------------------------------------------
 
 @pytest.fixture(autouse=True)
-def _mock_simple_salesforce_if_needed():
-    """If simple-salesforce is absent, inject a minimal stub so imports work."""
-    if not SALESFORCE_LIB_AVAILABLE:
+def _mock_simple_salesforce_if_needed(request):
+    """If simple-salesforce is absent, inject a minimal stub so most tests work.
+
+    Design constraints:
+    1. Tests in ``TestImportBehaviourWithoutLib`` deliberately exercise the
+       production missing-dependency guard (``SALESFORCE_AVAILABLE=False``).
+       They must *not* receive the stub — the fixture skips its mocking for
+       those tests and lets the real unavailable state stand.
+
+    2. Every other test needs the stub so that imports and ``isinstance``
+       checks against Salesforce exception types work.
+
+    3. After each test that received the stub, any Salesforce symbols that
+       were lazily resolved and cached in ``semantica.ingest``'s globals must
+       be removed so the next test's availability check re-runs the real guard
+       rather than finding a stale mocked class.
+    """
+    # Detect whether this test belongs to the class that verifies genuine
+    # missing-dependency behaviour.  We check by class name rather than
+    # importing the class to avoid a circular reference.
+    _is_import_behaviour_test = (
+        getattr(request.node.cls, "__name__", "") == "TestImportBehaviourWithoutLib"
+    )
+
+    if not SALESFORCE_LIB_AVAILABLE and not _is_import_behaviour_test:
         sf_mod = MagicMock()
         sf_exc_mod = MagicMock()
 
@@ -73,6 +95,19 @@ def _mock_simple_salesforce_if_needed():
         sf_mod.Salesforce = MagicMock()
         sf_mod.exceptions = sf_exc_mod
 
+        # Snapshot the package-level cached Salesforce exports BEFORE running
+        # the test.  The lazy loader in semantica.ingest.__getattr__ permanently
+        # caches resolved names into globals().  If the test accesses them while
+        # the stub is active it will cache mocked classes; we must remove those
+        # entries at teardown so later tests (including the import-behaviour ones)
+        # re-run the real guard rather than finding a stale mocked class.
+        import semantica.ingest as _ingest_pkg
+        _SF_EXPORT_NAMES = ("SalesforceIngestor", "SalesforceConnector", "SalesforceData")
+        _cached_before = {
+            name: _ingest_pkg.__dict__.get(name)
+            for name in _SF_EXPORT_NAMES
+        }
+
         with patch.dict(
             "sys.modules",
             {
@@ -80,7 +115,24 @@ def _mock_simple_salesforce_if_needed():
                 "simple_salesforce.exceptions": sf_exc_mod,
             },
         ):
-            yield
+            # Also patch the module-level sentinel names that were set to None
+            # when salesforce_ingestor was first imported without the library.
+            # This ensures tests that import _SalesforceAuthenticationFailed
+            # directly from the module get the real stub class instead of None.
+            import semantica.ingest.salesforce_ingestor as _sf_ingestor_mod
+            with patch.object(_sf_ingestor_mod, "_SalesforceAuthenticationFailed", _SFAuthFailed), \
+                 patch.object(_sf_ingestor_mod, "_SalesforceError", _SFError), \
+                 patch.object(_sf_ingestor_mod, "SALESFORCE_AVAILABLE", True):
+                try:
+                    yield
+                finally:
+                    # Teardown: remove any Salesforce exports that were cached in
+                    # the package globals during the test so subsequent availability
+                    # checks re-run the real __getattr__ guard.  Runs in finally so
+                    # it executes even when the test raises (e.g. assertion failure).
+                    for name in _SF_EXPORT_NAMES:
+                        if _cached_before[name] is None:
+                            _ingest_pkg.__dict__.pop(name, None)
     else:
         yield
 
@@ -1029,9 +1081,22 @@ class TestImportBehaviourWithoutLib:
     def test_semantica_ingest_imports_cleanly_without_lib(self):
         """semantica.ingest imports successfully even without simple-salesforce."""
         import semantica.ingest as pkg  # noqa: F401 — import must not raise
-        assert hasattr(pkg, "SalesforceIngestor")
-        assert hasattr(pkg, "SalesforceConnector")
-        assert hasattr(pkg, "SalesforceData")
+
+        # The package-level __all__ always lists the Salesforce names regardless
+        # of whether the library is installed.
+        assert "SalesforceIngestor" in pkg.__all__
+        assert "SalesforceConnector" in pkg.__all__
+        assert "SalesforceData" in pkg.__all__
+
+        # SalesforceData has no SDK guard and is always importable.
+        from semantica.ingest import SalesforceData  # must not raise
+        assert SalesforceData.__name__ == "SalesforceData"
+
+        # Accessing SalesforceIngestor must fire the production missing-dep
+        # guard with the correct install hint — not silently succeed.
+        import semantica.ingest as _pkg
+        with pytest.raises(ImportError, match=r"semantica\[db-salesforce\]"):
+            _ = _pkg.SalesforceIngestor
 
     def test_all_contains_salesforce_names(self):
         """All three Salesforce symbols appear in semantica.ingest.__all__."""

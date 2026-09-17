@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import logging
 import os
+from typing import Any
 
 from ..schemas import (
     ANALYZE_DECISION_IMPACT,
@@ -69,8 +70,12 @@ def handle_record_decision(args: dict) -> dict:
                         cat = args.get("category", "")
                         if cat in graph._decision_index:
                             graph._decision_index[cat].discard(decision_id)
-                log.exception("save_to_file failed after record_decision; mutation rolled back")
-                return {"error": f"Mutation rolled back: could not persist graph: {save_exc}"}
+                log.exception(
+                    "save_to_file failed after record_decision; mutation rolled back"
+                )
+                return {
+                    "error": f"Mutation rolled back: could not persist graph: {save_exc}"
+                }
         return {
             "decision_id": decision_id,
             "status": "recorded",
@@ -82,6 +87,19 @@ def handle_record_decision(args: dict) -> dict:
         return {"error": str(exc)}
 
 
+def _get_decision_field(node: dict, field: str) -> Any:
+    """Safely extract a field from a node, checking nested metadata, properties, or root."""
+    if not isinstance(node, dict):
+        return None
+    metadata = node.get("metadata")
+    if isinstance(metadata, dict) and field in metadata:
+        return metadata[field]
+    properties = node.get("properties")
+    if isinstance(properties, dict) and field in properties:
+        return properties[field]
+    return node.get(field)
+
+
 def handle_query_decisions(args: dict) -> dict:
     """Query recorded decisions by natural language or structured filters."""
     query = args.get("query", "").strip()
@@ -91,15 +109,42 @@ def handle_query_decisions(args: dict) -> dict:
     try:
         graph = get_graph()
         if query:
-            results = graph.find_similar_decisions(query, max_results=limit)
+            # find_similar_decisions() sorts and truncates to max_results before
+            # returning, so when an outcome filter is also applied we must
+            # over-fetch first — otherwise a matching decision ranked just
+            # below the requested limit is silently dropped.
+            fetch_limit = limit * 5 if outcome_filter else limit
+            results = graph.find_similar_decisions(
+                query,
+                category=category or None,
+                max_results=fetch_limit,
+            )
             decisions = results if isinstance(results, list) else list(results)
+            if outcome_filter:
+                # Each result wraps the decision as {"decision": {...}, "similarity": ...},
+                # so the outcome must be read from the nested decision, not the wrapper.
+                decisions = [
+                    d
+                    for d in decisions
+                    if _get_decision_field(d.get("decision", d), "outcome")
+                    == outcome_filter
+                ]
+            decisions = decisions[:limit]
         else:
             nodes = graph.find_nodes(node_type="decision")
-            decisions = list(nodes)[:limit * 5]  # over-fetch for filtering
+            decisions = list(nodes)
             if category:
-                decisions = [d for d in decisions if d.get("category") == category]
+                decisions = [
+                    d
+                    for d in decisions
+                    if _get_decision_field(d, "category") == category
+                ]
             if outcome_filter:
-                decisions = [d for d in decisions if d.get("outcome") == outcome_filter]
+                decisions = [
+                    d
+                    for d in decisions
+                    if _get_decision_field(d, "outcome") == outcome_filter
+                ]
             decisions = decisions[:limit]
         return {"decisions": decisions, "count": len(decisions)}
     except Exception as exc:
@@ -142,6 +187,7 @@ def handle_get_causal_chain(args: dict) -> dict:
         graph = get_graph()
         try:
             from semantica.context.causal_analyzer import CausalChainAnalyzer
+
             analyzer = CausalChainAnalyzer(graph_store=graph)
             chain = analyzer.get_causal_chain(
                 decision_id, direction=direction, max_depth=max_depth
@@ -149,6 +195,7 @@ def handle_get_causal_chain(args: dict) -> dict:
         except (ImportError, AttributeError):
             if hasattr(graph, "get_causal_chain"):
                 import inspect
+
                 # Introspect the signature in its own try/except: only
                 # failure to introspect (ValueError/TypeError from
                 # inspect.signature itself, e.g. a C-extension callable)
@@ -165,8 +212,7 @@ def handle_get_causal_chain(args: dict) -> dict:
 
                 if params is not None:
                     has_var_kwargs = any(
-                        p.kind == inspect.Parameter.VAR_KEYWORD
-                        for p in params.values()
+                        p.kind == inspect.Parameter.VAR_KEYWORD for p in params.values()
                     )
                     if has_var_kwargs or (
                         "direction" in params and "max_depth" in params
@@ -211,8 +257,7 @@ def handle_get_causal_chain(args: dict) -> dict:
             else:
                 return {
                     "error": (
-                        "Causal chain analysis is not supported on this graph"
-                        " backend"
+                        "Causal chain analysis is not supported on this graph backend"
                     ),
                     "chain": [],
                 }

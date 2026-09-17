@@ -28,11 +28,12 @@ import { loadOntologyEntityOwner, loadOntologyGraph } from "./api";
 import type { OntologyGraphEdge, OntologyGraphNode } from "./api";
 import {
   classifyNodeType,
-  inferOntologyUri,
   isEditableEntityType,
   ONTOLOGY_MINIMAP_THEME,
+  resolveEditorOntology,
 } from "./ontologyEditorModel";
 import type { EditorEntityType, RegistryEntry } from "./ontologyEditorModel";
+import { clearEntitySelection, readOntologyUrlState, writeEntitySelection } from "./ontologyUrlState";
 
 type OntologyNodeData = {
   label?: string;
@@ -137,11 +138,7 @@ interface DraftDiff {
 }
 
 function requestedEntityUri(): string {
-  try {
-    return new URLSearchParams(window.location.search).get("ontologyEntity") || "";
-  } catch {
-    return "";
-  }
+  return readOntologyUrlState().entityUri || "";
 }
 
 function nodeLabel(node: OntologyGraphNode): string {
@@ -225,6 +222,7 @@ export function OntologyEditor() {
   const [flowInstance, setFlowInstance] = useState<ReactFlowInstance<OntologyNode, OntologyEdge> | null>(null);
   const [isLoadingGraph, setIsLoadingGraph] = useState(false);
   const [graphError, setGraphError] = useState("");
+  const [unownedEntity, setUnownedEntity] = useState("");
   const [draftDiff, setDraftDiff] = useState<DraftDiff>({
     added_classes: [],
     removed_classes: [],
@@ -250,11 +248,21 @@ export function OntologyEditor() {
         ? loadOntologyEntityOwner(requested).catch(() => undefined)
         : Promise.resolve(undefined),
     ])
-      .then(([entries, explicitOwner]: [RegistryEntry[], string | undefined]) => {
+      .then(([entries, ownerVerdict]: [RegistryEntry[], string | null | undefined]) => {
         if (cancelled) return;
         setRegistry(entries);
-        const inferredOntology = inferOntologyUri(entries, requested, explicitOwner);
-        setOntologyUri((current) => current || inferredOntology || entries[0]?.uri || "");
+        const resolution = resolveEditorOntology(entries, requested, ownerVerdict);
+        // The registry default is the right landing place for "no entity asked
+        // for", but not for "the backend says nothing owns the entity that was
+        // asked for" — that would open an arbitrary ontology whose graph
+        // excludes the entity, and report nothing about why.
+        if (resolution.status === "unowned") {
+          setUnownedEntity(resolution.entityUri);
+          return;
+        }
+        setUnownedEntity("");
+        const resolvedOntology = resolution.status === "resolved" ? resolution.uri : undefined;
+        setOntologyUri((current) => current || resolvedOntology || entries[0]?.uri || "");
       })
       .catch((error) => {
         console.error("Failed to load ontology registry:", error);
@@ -377,14 +385,7 @@ export function OntologyEditor() {
 
   const selectNode = useCallback((node: OntologyNode) => {
     setSelectedElement(node);
-    try {
-      const params = new URLSearchParams(window.location.search);
-      params.set("ontologyTab", "editor");
-      params.set("ontologyEntity", node.id);
-      window.history.replaceState(null, "", `?${params.toString()}`);
-    } catch {
-      // URL state is optional; the editor selection still works without it.
-    }
+    writeEntitySelection(node.id);
   }, []);
 
   const saveDraft = useCallback(async () => {
@@ -554,15 +555,8 @@ export function OntologyEditor() {
           onChange={(event) => {
             setOntologyUri(event.target.value);
             setSelectedElement(null);
-            try {
-              // Drop the previous ontology's entity from the URL, or a reload
-              // would resolve the stale ID and jump back to that ontology.
-              const params = new URLSearchParams(window.location.search);
-              params.delete("ontologyEntity");
-              window.history.replaceState(null, "", `?${params.toString()}`);
-            } catch {
-              // URL state is optional; switching ontologies still works.
-            }
+            setUnownedEntity("");
+            clearEntitySelection();
           }}
           style={selectStyle}
         >
@@ -633,7 +627,12 @@ export function OntologyEditor() {
           {!isLoadingGraph && graphError && (
             <div style={{ ...canvasMessageStyle, color: "#ff9a8d" }}>{graphError}</div>
           )}
-          {!isLoadingGraph && !graphError && ontologyUri && nodes.length === 0 && (
+          {!isLoadingGraph && !graphError && unownedEntity && (
+            <div style={{ ...canvasMessageStyle, color: "#f2b66d" }}>
+              No registered ontology owns {unownedEntity}. Pick an ontology above to start editing.
+            </div>
+          )}
+          {!isLoadingGraph && !graphError && !unownedEntity && ontologyUri && nodes.length === 0 && (
             <div style={canvasMessageStyle}>This ontology has no editable classes or properties.</div>
           )}
 
