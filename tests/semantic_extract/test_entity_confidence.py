@@ -34,9 +34,6 @@ def _fake_span(text, label, start, end, **extra):
     )
 
 
-def _fake_nlp(ents):
-    return lambda text: SimpleNamespace(ents=ents)
-
 
 class TestEntityModel(unittest.TestCase):
     def test_default_confidence_is_unknown(self):
@@ -51,12 +48,16 @@ class TestEntityModel(unittest.TestCase):
 
 class TestSpacyAdapter(unittest.TestCase):
     def test_span_without_score_reports_unavailable(self):
+        # _fake_span has neither .confidence nor .score, so confidence must be None.
         ents = [_fake_span("Apple Inc.", "ORG", 0, 10)]
+        # Patch run_spacy_text (the function extract_entities_ml actually calls)
+        # to return a Doc-like object directly, bypassing all spaCy I/O.
+        fake_doc = SimpleNamespace(ents=ents)
         with patch(
             "semantica.semantic_extract.methods.SPACY_AVAILABLE", True
         ), patch(
-            "semantica.semantic_extract.methods.load_spacy_model",
-            return_value=_fake_nlp(ents),
+            "semantica.semantic_extract.methods.run_spacy_text",
+            return_value=fake_doc,
         ):
             entities = extract_entities_ml("Apple Inc. was founded.")
 
@@ -68,15 +69,17 @@ class TestSpacyAdapter(unittest.TestCase):
         )
 
     def test_backend_provided_score_is_preserved(self):
+        # Spans with explicit scores; both must come through unchanged.
         ents = [
             _fake_span("Apple Inc.", "ORG", 0, 10, score=0.83),
             _fake_span("Steve Jobs", "PERSON", 26, 36, confidence=1.0),
         ]
+        fake_doc = SimpleNamespace(ents=ents)
         with patch(
             "semantica.semantic_extract.methods.SPACY_AVAILABLE", True
         ), patch(
-            "semantica.semantic_extract.methods.load_spacy_model",
-            return_value=_fake_nlp(ents),
+            "semantica.semantic_extract.methods.run_spacy_text",
+            return_value=fake_doc,
         ):
             entities = extract_entities_ml(
                 "Apple Inc. was founded by Steve Jobs."
@@ -192,13 +195,14 @@ class TestConfidenceFiltering(unittest.TestCase):
 class TestPipelineFillsUnknownConfidence(unittest.TestCase):
     def test_extract_emits_only_scored_entities(self):
         # The extract() pipeline scores unknown confidences before filtering,
-        # so consumers of extract() never see None
+        # so consumers of extract() never see None.
         ents = [_fake_span("Apple Inc.", "ORG", 0, 10)]
+        fake_doc = SimpleNamespace(ents=ents)
         with patch(
             "semantica.semantic_extract.methods.SPACY_AVAILABLE", True
         ), patch(
-            "semantica.semantic_extract.methods.load_spacy_model",
-            return_value=_fake_nlp(ents),
+            "semantica.semantic_extract.methods.run_spacy_text",
+            return_value=fake_doc,
         ):
             extractor = NERExtractor(method="ml")
             entities = extractor.extract("Apple Inc. was founded.")
@@ -213,11 +217,12 @@ class TestPipelineFillsUnknownConfidence(unittest.TestCase):
 
     def test_extract_preserves_measured_scores(self):
         ents = [_fake_span("Apple Inc.", "ORG", 0, 10, score=0.83)]
+        fake_doc = SimpleNamespace(ents=ents)
         with patch(
             "semantica.semantic_extract.methods.SPACY_AVAILABLE", True
         ), patch(
-            "semantica.semantic_extract.methods.load_spacy_model",
-            return_value=_fake_nlp(ents),
+            "semantica.semantic_extract.methods.run_spacy_text",
+            return_value=fake_doc,
         ):
             entities = NERExtractor(method="ml").extract(
                 "Apple Inc. was founded."

@@ -190,19 +190,23 @@ for entity in entities:
 
 ```python
 from semantica.semantic_extract import EntityClassifier, EntityConfidenceScorer
+from semantica.semantic_extract.types import Entity
 
 classifier = EntityClassifier()
 scorer = EntityConfidenceScorer()
 
-entity = {"text": "Apple Inc.", "type": "ORG"}
+entity = Entity(text="Apple Inc.", label="ORG", start_char=0, end_char=10)
 
 # Classify entity
-classification = classifier.classify(entity)
+classification = classifier.classify_entity_type(entity)
 print(f"Classification: {classification}")
 
-# Score confidence
-confidence = scorer.score(entity)
-print(f"Confidence: {confidence:.2f}")
+# Score confidence — score_entities() accepts a list and returns the same list
+# with confidence filled in for any entity that had confidence=None
+(scored,) = scorer.score_entities([entity])
+confidence = scored.confidence
+conf_str = f"{confidence:.2f}" if confidence is not None else "N/A"
+print(f"Confidence: {conf_str}")
 ```
 
 ## Relation Extraction
