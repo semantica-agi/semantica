@@ -857,6 +857,137 @@ for r in results:
 ```
 
 
+## Support-Aware Retrieval (`truth_filter`)
+
+Cached vector or memory content can outlive the evidence that originally
+supported it. `ContextRetriever.retrieve(..., truth_filter=...)` accepts an
+opt-in `TruthMaintenanceContextFilter` that removes candidates whose declared
+dependencies are no longer supported, **before** ranking, while the stored
+records themselves are never modified.
+
+The example below runs standalone with no model, database, or network —
+only `semantica` itself:
+
+```python
+from semantica.context import ContextRetriever, TruthMaintenanceContextFilter
+from semantica.reasoning import FactSupport, Rule, TruthMaintenanceSession
+
+# A tiny read-only store standing in for any real vector backend.
+class StaticVectorStore:
+    def __init__(self, rows):
+        self.rows = [dict(row) for row in rows]
+
+    def search(self, *, query, limit):
+        return self.rows[:limit]
+
+def annotated_row(identifier, fact, score, text):
+    """One record whose content depends on one live fact."""
+    return {
+        "id": identifier,
+        "score": score,
+        "content": text,
+        "metadata": {
+            "truth_maintenance": {
+                "schema_version": 1,
+                "session_id": "employment-session-1",
+                "required_facts": [fact],
+                "required_support_ids": [],
+            }
+        },
+    }
+
+rules = [
+    Rule(
+        rule_id="employment",
+        name="employment",
+        conditions=["Employed(?x)"],
+        conclusion="Eligible(?x)",
+    ),
+]
+session = TruthMaintenanceSession(rules=rules)
+session.apply(assertions=[FactSupport("v1", "Employed(Alice)")])
+
+store = StaticVectorStore([
+    annotated_row("cached", "Eligible(Alice)", 0.9, "Alice is eligible"),
+])
+retriever = ContextRetriever(vector_store=store, use_graph_expansion=False)
+gate = TruthMaintenanceContextFilter(session, session_id="employment-session-1")
+
+checked = retriever.retrieve("eligibility", truth_filter=gate)
+assert [result.content for result in checked] == ["Alice is eligible"]
+assert (
+    checked[0].metadata["truth_maintenance_validation"]["version"]
+    == session.version
+)
+
+# The supporting evidence is withdrawn. The vector record stays stored,
+# but it no longer reaches the caller through the checked retrieval.
+session.apply(retractions=["v1"])
+checked = retriever.retrieve("eligibility", truth_filter=gate)
+assert checked == []
+assert store.rows[0]["content"] == "Alice is eligible"  # record untouched
+```
+
+### Manual annotation semantics
+
+The filter only validates what the application explicitly wrote into store
+metadata. It never infers dependencies, and it never annotates records on
+your behalf:
+
+- Each candidate must carry `metadata["truth_maintenance"]` with exactly four
+  keys: `schema_version` (currently `1`), `session_id` (must equal the
+  filter's `session_id`), `required_facts`, and `required_support_ids`.
+  At least one fact or support ID must be declared.
+- A candidate is kept only if every entry of `required_facts` is in the
+  snapshot's `facts` **and** every entry of `required_support_ids` is in the
+  snapshot's active supports. Unannotated candidates and candidates with malformed annotations
+  are removed whole — a record ID or node ID is never a trust signal.
+
+### Source-specific citations
+
+Two records may assert the same conclusion but cite different sources.
+`required_support_ids` binds each record to the evidence it actually used, so
+withdrawing one support invalidates only the records citing it, while records
+backed by an alternative derivation or an explicit support are kept.
+
+### Graph bundles
+
+For candidates retrieved from a `ContextGraph`, the root record **and** every
+member of `related_entities` / `related_relationships` must carry the same
+annotation shape on their own `metadata`. If the root or any attachment is
+unsupported, the entire candidate is excluded — a result never keeps its prose
+while silently dropping a stale attachment.
+
+### Behavior details
+
+- Filtering happens before ranking and before the legacy merge: a
+  high-scoring stale record cannot crowd out valid lower-scoring records,
+  and dependency metadata survives merging.
+- Survivors are returned as deep copies stamped with
+  `metadata["truth_maintenance_validation"]` (`session_id`, `version`).
+  Original candidates and stored records are never modified.
+- Each call validates against one immutable snapshot; if the session commits
+  a new version while retrieval is in flight, `retrieve` raises
+  `ProcessingError` instead of returning mixed-version results.
+- Vector, memory, and graph sources are filtered in the same pass: construct
+  the retriever with `memory_store=` or `knowledge_graph=` and pass
+  `truth_filter=` to `retrieve`, or to the `search`, `vector_search`, and
+  `graph_search` delegates (they forward to `retrieve`). `memory_search`
+  bypasses `retrieve` and does **not** apply the filter — use `retrieve` when
+  memory results must be grounded.
+
+### Unsupported entry points
+
+`truth_filter` is intentionally **not** accepted on `AgentContext.retrieve`,
+`AgentContext.query_with_reasoning`, or `ContextRetriever.query_with_reasoning`
+— passing it there raises `ValidationError` immediately. Assemble the
+verified context yourself with `ContextRetriever.retrieve(...,
+truth_filter=...)` and feed it to the model.
+
+See [Truth Maintenance](/reference/truth_maintenance) for the session model
+behind the filter.
+
+
 ## Data Structures
 
 <AccordionGroup>

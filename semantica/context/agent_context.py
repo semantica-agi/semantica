@@ -74,6 +74,7 @@ Production Use Cases:
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple, Union
 
+from ..utils.exceptions import ValidationError
 from ..utils.helpers import classify_path_distance
 from ..utils.logging import get_logger
 from .agent_memory import AgentMemory
@@ -533,7 +534,8 @@ class AgentContext:
             include_relationships: Include relationships in results (default: False)
             expand_graph: Use graph expansion (default: True)
             deduplicate: Deduplicate results (default: True)
-            **kwargs: Additional filters (type, date_range, etc.)
+            **kwargs: Additional filters (type, date_range, etc.); ``truth_filter`` is
+                rejected here, use ``ContextRetriever.retrieve`` directly
 
         Returns:
             List of context dicts with content, score, source, and metadata
@@ -545,6 +547,14 @@ class AgentContext:
             >>> # Force vector-only retrieval
             >>> results = context.retrieve("Python", use_graph=False)
         """
+        if kwargs.get("truth_filter") is not None:
+            raise ValidationError(
+                "truth_filter is not supported on AgentContext.retrieve; use "
+                "ContextRetriever.retrieve(..., truth_filter=...) directly and "
+                "assemble the verified context yourself",
+                validation_context={"method": "AgentContext.retrieve"},
+            )
+
         # Auto-detect strategy
         if use_graph is None:
             use_graph = self.knowledge_graph is not None and self._retriever is not None
@@ -612,7 +622,8 @@ class AgentContext:
             llm_provider: LLM provider instance (from semantica.llms)
             max_results: Maximum context results to retrieve (default: 10)
             max_hops: Maximum graph traversal hops (default: 2)
-            **kwargs: Additional retrieval options
+            **kwargs: Additional retrieval options; ``truth_filter`` is rejected here,
+                use ``ContextRetriever.retrieve`` directly instead
 
         Returns:
             Dictionary with:
@@ -631,6 +642,17 @@ class AgentContext:
             ... )
             >>> print(result['response'])
         """
+        if kwargs.get("truth_filter") is not None:
+            raise ValidationError(
+                "truth_filter is not supported on "
+                "AgentContext.query_with_reasoning; use "
+                "ContextRetriever.retrieve(..., truth_filter=...) directly and "
+                "assemble the verified context before reasoning",
+                validation_context={
+                    "method": "AgentContext.query_with_reasoning"
+                },
+            )
+
         if not self._retriever:
             # Fallback if retriever not available
             return {
