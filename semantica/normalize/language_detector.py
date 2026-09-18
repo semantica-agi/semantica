@@ -96,9 +96,9 @@ class LanguageDetector:
         Args:
             **config: Configuration options:
                 - default_language: Language code returned when no detection
-                  was performed or detection failed (default:
-                  ``UNKNOWN_LANGUAGE``, i.e. ``"unknown"``). Set to a language
-                  code such as ``"en"`` to assume that language instead.
+                  was performed or detection failed (default: ``"en"``).
+                  Set to ``UNKNOWN_LANGUAGE`` (``"unknown"``) to get an
+                  explicit out-of-band signal instead of assuming a language.
                 - min_confidence: Minimum confidence threshold (default: 0.5)
                 - min_text_length: Minimum stripped-text length required to run
                   detection (default: 10). Inputs shorter than this return the
@@ -108,7 +108,7 @@ class LanguageDetector:
         """
         self.logger = get_logger("language_detector")
         self.config = config
-        self.default_language = config.get("default_language", UNKNOWN_LANGUAGE)
+        self.default_language = config.get("default_language", "en")
         self.min_confidence = config.get("min_confidence", 0.5)
         self.min_text_length = self._normalize_min_text_length(
             config.get("min_text_length", DEFAULT_MIN_TEXT_LENGTH),
@@ -200,7 +200,7 @@ class LanguageDetector:
         Note:
             Inputs whose stripped length is below ``min_text_length``
             (default: 10) never reach the underlying detector; the configured
-            ``default_language`` (``"unknown"`` unless overridden) is returned
+            ``default_language`` (``"en"`` unless overridden) is returned
             as a fallback. The same fallback is returned if detection fails.
         """
         return self.detect_multiple(text, top_n=1, **options)[0][0]

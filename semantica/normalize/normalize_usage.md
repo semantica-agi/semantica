@@ -461,9 +461,10 @@ language = detector.detect("Bonjour le monde")
 Inputs whose stripped length is below `min_text_length` (default: 10) are not
 detected; the configured `default_language` is returned as a fallback (with a
 `0.0` confidence in the confidence-returning APIs). The fallback defaults to
-`"unknown"` so it can never be mistaken for a detected language — set
-`default_language="en"` to assume English instead. Lower the threshold for
-language mixes where short inputs carry enough signal, e.g. CJK text:
+`"en"` (backward-compatible). Pass `default_language="unknown"` to get an
+explicit out-of-band signal that is distinct from every ISO language code.
+Lower the threshold for language mixes where short inputs carry enough signal,
+e.g. CJK text:
 
 ```python
 from semantica.normalize import LanguageDetector

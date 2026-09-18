@@ -440,7 +440,7 @@ utf8_text = handle_encoding(raw_bytes, operation="convert")
     ```
 
     <Note>
-      `detect()` skips detection on text shorter than `min_text_length` (default: 10 stripped characters) and returns the `default_language` instead. That fallback is `"unknown"` — the detector reports that it did not look rather than guessing a language. Both are configurable, per instance or per call:
+      `detect()` skips detection on text shorter than `min_text_length` (default: 10 stripped characters) and returns the `default_language` instead. The fallback defaults to `"en"` (backward-compatible). Pass `default_language=UNKNOWN_LANGUAGE` to get an explicit `"unknown"` signal that is distinct from every ISO language code. Both `default_language` and `min_text_length` are configurable, per instance or per call:
 
       ```python
       # Lower the threshold for CJK, where 10 characters is far more than needed
@@ -450,8 +450,8 @@ utf8_text = handle_encoding(raw_bytes, operation="convert")
       # Per-call override
       LanguageDetector().detect("短いテキスト", min_text_length=4)   # → "ja"
 
-      # Opt back into assuming a language on text too short to examine
-      LanguageDetector(default_language="en").detect("Hi")          # → "en"
+      # Opt into an unambiguous out-of-band sentinel instead of the "en" default
+      LanguageDetector(default_language="unknown").detect("Hi")     # → "unknown"
       ```
     </Note>
 
