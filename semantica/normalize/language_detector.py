@@ -11,7 +11,7 @@ Key Features:
     - Batch processing
     - Top N language detection
     - Language code to name mapping
-    - Configurable minimum text length with an "unknown" fallback
+    - Configurable minimum text length and fallback language
 
 Main Classes:
     - LanguageDetector: Language detection coordinator
@@ -77,7 +77,7 @@ class LanguageDetector:
         - Batch processing
         - Top N language detection
         - Language code to name mapping
-        - Configurable minimum text length with an "unknown" fallback
+        - Configurable minimum text length and fallback language
 
     Example Usage:
         >>> detector = LanguageDetector()
