@@ -149,11 +149,14 @@ class AgnoKGToolkit(_ToolkitBase):  # type: ignore[misc]
         """
         try:
             raw = self._ner.extract_entities(text) or []
+            def _conf(val: Any) -> float:
+                return round(float(val), 4) if val is not None else 1.0
+
             entities = [
                 {
                     "name": getattr(e, "name", str(e)),
                     "type": getattr(e, "type", ""),
-                    "confidence": round(float(getattr(e, "confidence", 1.0)), 4),
+                    "confidence": _conf(getattr(e, "confidence", None)),
                 }
                 for e in raw
             ]

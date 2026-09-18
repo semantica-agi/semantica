@@ -52,6 +52,27 @@ def _safe_dict(obj) -> dict:
     return {"value": str(obj)}
 
 
+def _dedup_pair(item: dict) -> dict:
+    """Map a duplicate pair to the shape the Entity Resolution tab parses.
+
+    ``DuplicateDetector`` yields ``DuplicateCandidate`` fields (``entity1`` /
+    ``entity2`` / ``similarity_score``), but ``EntityResolutionTab.tsx`` reads
+    ``entity_a`` / ``entity_b`` / ``similarity|score``. Emit both so the UI
+    resolves ids/scores while any client on the old keys keeps working
+    (see issue #1585).
+    """
+    pair = dict(item)
+    if "entity_a" not in pair and "entity1" in pair:
+        pair["entity_a"] = pair["entity1"]
+    if "entity_b" not in pair and "entity2" in pair:
+        pair["entity_b"] = pair["entity2"]
+    if "similarity" not in pair and "similarity_score" in pair:
+        pair["similarity"] = pair["similarity_score"]
+    if "score" not in pair and "confidence" in pair:
+        pair["score"] = pair["confidence"]
+    return pair
+
+
 def _parse_fact(fact: str) -> Optional[Tuple[str, List[str]]]:
     match = _FACT_RE.match((fact or "").strip())
     if not match:
@@ -308,7 +329,7 @@ async def detect_duplicates(
         ]
         duplicates = await asyncio.to_thread(detector.detect_duplicates, entities, threshold=body.threshold)
         duplicate_list = duplicates if isinstance(duplicates, list) else getattr(duplicates, "duplicates", [])
-        return DedupResponse(duplicates=[_safe_dict(item) for item in duplicate_list], total_flagged=len(duplicate_list))
+        return DedupResponse(duplicates=[_dedup_pair(_safe_dict(item)) for item in duplicate_list], total_flagged=len(duplicate_list))
     except ImportError:
         raise HTTPException(status_code=503, detail="Deduplication module not available.")
     except Exception as exc:

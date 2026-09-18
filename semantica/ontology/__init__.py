@@ -133,6 +133,7 @@ License: MIT
 from typing import Any, Dict, List, Optional, Union
 
 from .associative_class import AssociativeClass, AssociativeClassBuilder
+from .bootstrap_schema import bootstrap_schema
 from .class_inferrer import ClassInferrer
 from .competency_questions import CompetencyQuestion, CompetencyQuestionsManager
 from .config import OntologyConfig, ontology_config
@@ -182,6 +183,7 @@ from .methods import ingest_ontology
 __all__ = [
     # Main generators
     "OntologyGenerator",
+    "bootstrap_schema",
     "ClassInferrer",
     "ClassInferencer",  # Legacy alias
     "PropertyGenerator",

@@ -146,10 +146,17 @@ def handle_export_graph(args: dict) -> dict:
 
 
 def handle_get_provenance(args: dict) -> dict:
-    """Retrieve the provenance / audit history for a node."""
-    node_id = args.get("node_id", "").strip()
+    """Retrieve the provenance / audit history for a node.
+
+    The advertised schema requires ``entity_id``. ``node_id`` is accepted as
+    a compatibility alias for callers that discovered the old handler key
+    (#1248).
+    """
+    # Prefer the public schema field; fall back to the legacy key.
+    entity_id = str(args.get("entity_id") or "").strip()
+    node_id = entity_id or str(args.get("node_id") or "").strip()
     if not node_id:
-        return {"error": "node_id is required", "provenance": []}
+        return {"error": "entity_id is required", "provenance": []}
     include_metadata = bool(args.get("include_metadata", True))
     try:
         graph = get_graph()

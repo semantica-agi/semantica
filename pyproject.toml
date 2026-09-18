@@ -159,6 +159,7 @@ db-arrow = [
 ]
 db-salesforce = ["simple-salesforce>=1.12.0"]
 db-redshift = ["redshift-connector>=2.0.0"]
+db-bigquery = ["google-cloud-bigquery>=3.0.0"]
 ingest-parquet = [
   "pyarrow>=24.0.0; python_version >= '3.10'",
   "pyarrow>=14.0.0,<24.0.0; python_version < '3.10'"
@@ -171,7 +172,7 @@ ingest-sap = ["requests>=2.28.0"]
 ingest-git = ["GitPython>=3.1.58"]
 
 db-all = [
-  "semantica[db-snowflake,db-databricks,db-salesforce,db-redshift,db-arrow]"
+  "semantica[db-snowflake,db-databricks,db-salesforce,db-redshift,db-bigquery,db-arrow]"
 ]
 
 # ---- Embedding / Models ----

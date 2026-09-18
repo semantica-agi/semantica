@@ -106,6 +106,8 @@ Author: Semantica Contributors
 License: MIT
 """
 
+import hashlib
+import os
 import re
 import difflib
 import threading
@@ -118,9 +120,16 @@ from ..utils.exceptions import ProcessingError
 from ..utils.logging import get_logger
 from .providers import HuggingFaceModelLoader, create_provider
 from .registry import method_registry
-from .cache import ExtractionCache
+from .cache import ExtractionCache, InMemoryBackend
 from .config import config
-from .types import Entity, Relation, Triplet
+from .types import (
+    CONFIDENCE_SOURCE_KEY,
+    CONFIDENCE_SOURCE_MODEL,
+    CONFIDENCE_SOURCE_UNAVAILABLE,
+    Entity,
+    Relation,
+    Triplet,
+)
 
 try:
     from .schemas import (
@@ -136,11 +145,112 @@ except ImportError:
 logger = get_logger("methods")
 
 # Initialize global result cache
-_result_cache = ExtractionCache(
-    ttl=config.get("cache_ttl", 3600)
-)
-if not config.get("cache_enabled", True):
-    _result_cache.enabled = False
+def _default_cache_path() -> str:
+    """A per-user, private default location for the persistent cache.
+
+    Uses ``$XDG_CACHE_HOME`` (or ``~/.cache``) so the file is not a predictable,
+    world-writable temp path — important because the sqlite backend can
+    deserialize its rows with pickle. The directory is created ``0o700``; if that
+    is not possible, a private ``tempfile`` directory is used as a fallback.
+    """
+    import tempfile
+
+    base = os.environ.get("XDG_CACHE_HOME") or os.path.join(
+        os.path.expanduser("~"), ".cache"
+    )
+    directory = os.path.join(base, "semantica")
+    try:
+        os.makedirs(directory, mode=0o700, exist_ok=True)
+        if hasattr(os, "chmod"):
+            os.chmod(directory, 0o700)
+    except OSError:
+        directory = tempfile.mkdtemp(prefix="semantica-cache-")  # 0o700, unique
+    return os.path.join(directory, "extract_cache.sqlite3")
+
+
+def _build_cache_backend():
+    """Select a cache backend from config.
+
+    Returns ``None`` (ExtractionCache's default in-memory backend) unless a
+    persistent backend is requested. Any failure to construct the persistent
+    backend degrades gracefully to the in-memory default so extraction never
+    breaks because of a cache misconfiguration.
+    """
+    backend_kind = str(config.get("cache_backend", "memory") or "memory").lower()
+    if backend_kind == "sqlite":
+        from .cache import SqliteCacheBackend
+
+        path = config.get("cache_path") or _default_cache_path()
+        try:
+            return SqliteCacheBackend(path, max_size=config.get("cache_size", 1000))
+        except Exception as exc:  # defensive fallback (e.g. unsafe/owned path)
+            logger.warning(
+                f"Failed to init sqlite cache backend at {path!r} "
+                f"({exc}); falling back to in-memory cache."
+            )
+    return None
+
+
+def _make_result_cache() -> ExtractionCache:
+    cache = ExtractionCache(
+        max_size=config.get("cache_size", 1000),
+        ttl=config.get("cache_ttl", 3600),
+        backend=_build_cache_backend(),
+    )
+    if not config.get("cache_enabled", True):
+        cache.enabled = False
+    return cache
+
+
+_result_cache = _make_result_cache()
+
+
+def configure_cache(
+    backend: Optional[str] = None,
+    path: Optional[str] = None,
+    ttl: Optional[int] = None,
+    enabled: Optional[bool] = None,
+) -> ExtractionCache:
+    """Reconfigure the global extraction cache at runtime and rebuild it.
+
+    The module-level cache is created at import time, so this is the supported
+    way to switch to persistent (sqlite) storage programmatically after import
+    (the ``SEMANTICA_CACHE_*`` environment variables work at import time too).
+
+    Args:
+        backend: ``"memory"`` or ``"sqlite"``.
+        path: sqlite database path (defaults to a per-user private location).
+        ttl: time-to-live in seconds.
+        enabled: enable/disable caching.
+
+    Returns:
+        The rebuilt global :class:`ExtractionCache`.
+    """
+    updates: Dict[str, Any] = {}
+    if backend is not None:
+        updates["cache_backend"] = backend
+    if path is not None:
+        updates["cache_path"] = path
+    if ttl is not None:
+        updates["cache_ttl"] = ttl
+    if enabled is not None:
+        updates["enable_cache"] = enabled
+    if updates:
+        config.set_optimization(**updates)
+
+    # Mutate the existing cache in place (rather than rebinding the module
+    # global) so any code holding a reference to it stays valid.
+    new_max = config.get("cache_size", 1000)
+    new_backend = _build_cache_backend()
+    if hasattr(_result_cache._backend, "close"):
+        _result_cache._backend.close()
+    _result_cache.max_size = new_max
+    _result_cache.ttl = config.get("cache_ttl", 3600)
+    _result_cache._backend = (
+        new_backend if new_backend is not None else InMemoryBackend(max_size=new_max)
+    )
+    _result_cache.enabled = bool(config.get("cache_enabled", True))
+    return _result_cache
 
 # Generation kwargs that affect provider output and must therefore be part of
 # the cache key. This is the union of every generation-affecting parameter
@@ -182,6 +292,18 @@ def _generation_cache_params(kwargs: dict) -> dict:
         k: v for k, v in kwargs.items()
         if k in _GENERATION_CACHE_KEYS and v is not None
     }
+
+
+def _stable_fingerprint(items) -> str:
+    """Deterministic SHA-256 fingerprint over a collection of strings.
+
+    Used to fold entity/relation inputs into a cache key. Unlike the built-in
+    ``hash()``, this is stable across interpreter processes (``hash()`` is
+    randomized per-process via ``PYTHONHASHSEED``), which the persistent cache
+    backend relies on so identical inputs map to the same key after a restart.
+    """
+    joined = "\x00".join(sorted(items))
+    return hashlib.sha256(joined.encode("utf-8")).hexdigest()
 
 # Try to import spaCy
 from ..utils.helpers import safe_import
@@ -696,27 +818,31 @@ def filter_entities_for_text(
 
 
 def calculate_weighted_confidence(
-    item_type: str, 
-    original_confidence: float, 
+    item_type: str,
+    original_confidence: Optional[float],
     valid_types: Optional[List[str]] = None,
     item_text: Optional[str] = None,
     weight_method: float = 0.5,
     weight_similarity: float = 0.5
-) -> float:
+) -> Optional[float]:
     """
     Calculate weighted confidence score using both Label and Content similarity.
     Final Score = (weight_method * original_confidence) + (weight_similarity * max(label_sim, content_sim))
-    
+
     Args:
         item_type: The extracted type/label/predicate (e.g., "PERSON", "founded_by")
-        original_confidence: The confidence score from the extraction method (0.0-1.0)
+        original_confidence: The confidence score from the extraction method
+            (0.0-1.0), or None if the method provided no score
         valid_types: List of valid/preferred types provided by user
         item_text: The actual text content extracted (e.g., "Steve Jobs", "acquired")
         weight_method: Weight for the original method confidence (default 0.5)
         weight_similarity: Weight for the similarity score (default 0.5)
-        
+
     Returns:
-        float: Weighted confidence score (0.0-1.0)
+        float or None: Weighted confidence score (0.0-1.0). When
+        original_confidence is None, returns the similarity score alone —
+        or None (still unknown) if valid_types is empty or the similarity
+        weight is disabled (<= 0).
     """
     if not valid_types:
         return original_confidence
@@ -737,11 +863,18 @@ def calculate_weighted_confidence(
     if total_weight <= 0:
         return original_confidence
         
+    if original_confidence is None:
+        if weight_similarity <= 0:
+            # Similarity disabled and no measured confidence: still unknown
+            return None
+        # No measured confidence to blend; rely on similarity alone
+        return max(0.0, min(1.0, best_similarity))
+
     w_m = weight_method / total_weight
     w_s = weight_similarity / total_weight
-    
+
     final_score = (w_m * original_confidence) + (w_s * best_similarity)
-    
+
     return max(0.0, min(1.0, final_score))
 
 
@@ -865,7 +998,9 @@ def extract_entities_ml(
     entities = []
 
     for ent in doc.ents:
-        confidence = 1.0
+        # Standard spaCy spans expose no per-entity probability. Report the
+        # absence explicitly (None) instead of fabricating certainty (1.0).
+        confidence = None
         if hasattr(ent, "confidence"):
             confidence = ent.confidence
         elif hasattr(ent, "score"):
@@ -882,6 +1017,11 @@ def extract_entities_ml(
                     "extraction_method": "ml",
                     "model": model,
                     "lemma": ent.lemma_ if hasattr(ent, "lemma_") else ent.text,
+                    CONFIDENCE_SOURCE_KEY: (
+                        CONFIDENCE_SOURCE_MODEL
+                        if confidence is not None
+                        else CONFIDENCE_SOURCE_UNAVAILABLE
+                    ),
                 },
             )
         )
@@ -1817,8 +1957,12 @@ def extract_relations_llm(
         "max_retries": max_retries,
         "relation_types": kwargs.get("relation_types"),
         "extract_temporal_bounds": extract_temporal_bounds,
-        # Include entities hash/str in cache key implicitly via **cache_params
-        "entities_hash": hash(tuple(sorted([e.text for e in entities]))) if entities else 0,
+        # Deterministic fingerprint over the entity inputs (text + label) that
+        # affect the prompt. Stable across processes so the persistent cache
+        # rehits after a restart (unlike the process-randomized built-in hash()).
+        "entities_hash": _stable_fingerprint(
+            [f"{e.text}\x01{e.label}" for e in entities]
+        ) if entities else "",
         **_generation_cache_params(kwargs),
     }
     cached_result = _result_cache.get("relations", text, **cache_params)
@@ -2486,9 +2630,15 @@ def extract_triplets_llm(
         "structured_output_mode": structured_output_mode,
         "max_retries": max_retries,
         "triplet_types": kwargs.get("triplet_types"),
-        # Include entities/relations hash in cache key implicitly via **cache_params
-        "entities_hash": hash(tuple(sorted([e.text for e in entities]))) if entities else 0,
-        "relations_hash": hash(tuple(sorted([str(r) for r in relations]))) if relations else 0,
+        # Deterministic fingerprints over the entity/relation inputs that affect
+        # the prompt. Stable across processes so the persistent cache rehits
+        # after a restart (unlike the process-randomized built-in hash()).
+        "entities_hash": _stable_fingerprint(
+            [f"{e.text}\x01{e.label}" for e in entities]
+        ) if entities else "",
+        "relations_hash": _stable_fingerprint(
+            [str(r) for r in relations]
+        ) if relations else "",
         **_generation_cache_params(kwargs),
     }
     cached_result = _result_cache.get("triplets", text, **cache_params)
