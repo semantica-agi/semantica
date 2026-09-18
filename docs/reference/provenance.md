@@ -523,6 +523,6 @@ Provenance tracking in Semantica produces the following audit artifacts:
 </Note>
 
 - [Change Management](/reference/change_management) — Version control and snapshot audit trails.
-- [Ingest](ingest) — Provenance begins at the ingestion stage.
-- [Export](export) — Include provenance metadata in RDF exports.
+- [Ingest](/reference/ingest) — Provenance begins at the ingestion stage.
+- [Export](/reference/export) — Include provenance metadata in RDF exports.
 - [Context](/reference/context) — Decision provenance via AgentContext.

@@ -448,4 +448,4 @@ triplets      = trip.extract(text)
 - [LLM Providers](/reference/llms) — Configure which LLM is used for extraction.
 - [Knowledge Graph](/reference/kg) — Build graphs from extracted entities and relationships.
 - [Parse Module](/reference/parse) — Parse documents before extraction.
-- [Deduplication](deduplication) — Resolve duplicate entities after extraction.
+- [Deduplication](/reference/deduplication) — Resolve duplicate entities after extraction.

@@ -1,6 +1,6 @@
 ---
 name: decision
-description: Full decision lifecycle in Semantica — record, query, find precedents (hybrid/advanced), analyze influence, explain, insights dashboard, list, and record exceptions. Uses AgentContext, ContextGraph, DecisionQuery, CausalChainAnalyzer, DecisionRecorder.
+description: Full decision lifecycle in Semantica â€” record, query, find precedents (hybrid/advanced), analyze influence, explain, insights dashboard, list, and record exceptions. Uses AgentContext, ContextGraph, DecisionQuery, CausalChainAnalyzer, DecisionRecorder.
 ---
 
 # /semantica:decision
@@ -114,7 +114,7 @@ Output: Influence score + influenced decisions table + predicted new relationshi
 
 ## `explain <decision_id>`
 
-Full explainability trace — reasoning steps, causal antecedents, policy compliance.
+Full explainability trace â€” reasoning steps, causal antecedents, policy compliance.
 
 ```python
 from semantica.context import AgentContext, ContextGraph

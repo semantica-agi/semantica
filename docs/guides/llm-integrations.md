@@ -3,11 +3,11 @@ title: "LLM Integrations"
 description: "Connect Semantica to Groq, OpenAI, Anthropic, HuggingFace, Novita AI, and 100+ LLM providers through a unified interface."
 ---
 
-Semantica exposes a unified provider interface — a single `.generate()` method — across Groq, OpenAI, Anthropic Claude, HuggingFace, Novita AI, and 100+ providers via LiteLLM. Use it when you need to swap providers for latency, accuracy, cost, or data-residency reasons without touching application code.
+Semantica exposes a unified provider interface — the same `.generate()`, `.generate_structured()` and `.generate_typed()` methods — across Groq, OpenAI, Anthropic Claude, HuggingFace, Novita AI, and 100+ providers via LiteLLM. Use it when you need to swap providers for latency, accuracy, cost, or data-residency reasons without touching application code.
 
 ## What Are LLM Integrations?
 
-The `semantica.llms` module provides a unified interface for connecting to Large Language Model providers. Instead of learning different APIs for each provider, you use the same methods (`.generate()`, `.generate_structured()`) regardless of whether you're calling Groq, OpenAI, Anthropic, or local HuggingFace models.
+The `semantica.llms` module provides a unified interface for connecting to Large Language Model providers. Instead of learning different APIs for each provider, you use the same methods (`.generate()`, `.generate_structured()`, `.generate_typed()`) regardless of whether you're calling Groq, OpenAI, Anthropic, or local HuggingFace models.
 
 **Unified interface across providers:** All LLM providers in Semantica expose identical methods, so switching from OpenAI to Anthropic requires changing only the provider constructor, not your application code.
 
@@ -19,7 +19,7 @@ The `semantica.llms` module provides a unified interface for connecting to Large
 
 **Reduced vendor lock-in.** Avoid tying your application to a single LLM provider's API. If pricing changes or service availability issues arise, switching providers is straightforward.
 
-**Consistent APIs.** Use the same `.generate()` and `.generate_structured()` methods across all providers instead of learning provider-specific interfaces.
+**Consistent APIs.** Use the same `.generate()`, `.generate_structured()`, and `.generate_typed()` methods across all providers instead of learning provider-specific interfaces.
 
 **Multi-provider workflows.** Run fast models for initial classification and expensive frontier models for complex reasoning in the same pipeline.
 
@@ -70,15 +70,16 @@ The unified interface means you can prototype with Groq for speed, validate accu
 
 ## The Shared Interface
 
-Every provider exposes the same two methods:
+Every provider exposes the same methods:
 
 ```python
 provider.generate(prompt: str, **kwargs) -> str
-provider.generate_structured(prompt: str, **kwargs) -> dict
+provider.generate_structured(prompt: str, **kwargs) -> dict | list
+provider.generate_typed(prompt: str, schema: Type[BaseModel], max_retries: int = 3, **kwargs) -> BaseModel
 provider.is_available() -> bool
 ```
 
-`generate()` returns a plain string. `generate_structured()` instructs the model to respond in JSON and returns a parsed `dict`. `is_available()` lets you health-check the provider before committing to a call — useful in retry logic and warm-up checks.
+`generate()` returns a plain string. `generate_structured()` instructs the model to respond in JSON and returns the parsed result — a `dict` for a top-level JSON object, or a `list` if the model returns a top-level JSON array. `generate_typed()` takes a Pydantic model, validates the model's output against it, and retries up to `max_retries` times with the validation error fed back into the prompt — reach for it when downstream code needs a guaranteed shape rather than best-effort JSON. `is_available()` lets you health-check the provider before committing to a call — useful in retry logic and warm-up checks.
 
 This means every place in Semantica that accepts an LLM — `query_with_reasoning()`, semantic extraction, custom reasoning loops — accepts any of these providers interchangeably.
 
@@ -711,7 +712,7 @@ for src in best["sources"]:
 
 **Using LLMs for deterministic pattern matching that regex can handle.** If your task is extracting email addresses, phone numbers, or other pattern-based entities, regular expressions are faster, cheaper, and more reliable than LLM extraction. Use LLMs when context, ambiguity, or domain knowledge matter for correct interpretation.
 
-**Not validating structured outputs.** The `generate_structured()` method returns parsed JSON, but LLMs can still produce malformed or incomplete structures. Always validate the returned dictionary against your expected schema before using the data downstream.
+**Not validating structured outputs.** The `generate_structured()` method returns parsed JSON (a dict, or a list for a top-level array), but LLMs can still produce malformed or incomplete structures. Validate the result against your expected schema before using it downstream — or use `generate_typed()`, which validates against a Pydantic model for you.
 
 **Switching providers without testing prompt behavior.** Different models respond differently to the same prompt. A prompt optimized for GPT-4 may produce poor results with Llama or Claude. When switching providers, test your prompts and adjust temperature, instructions, or examples as needed.
 

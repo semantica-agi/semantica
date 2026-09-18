@@ -539,6 +539,6 @@ print(f"\n{len(result['communities'])} exposure clusters  "
 ## Related Guides
 
 - [Context Graphs](/guides/context-graphs) — building and querying the underlying `ContextGraph`
-- [Visualization](visualization) — render centrality rankings and community clusters as interactive dashboards
+- [Visualization](/guides/visualization) — render centrality rankings and community clusters as interactive dashboards
 - [Decision Intelligence](/guides/decision-intelligence) — link prediction and structural similarity applied to decision nodes
 - [GraphRAG](/guides/graphrag) — using analytics results to ground LLM generation in the most contextually relevant subgraph

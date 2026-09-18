@@ -291,6 +291,6 @@ semantica-explorer --graph my_graph.json
 See the [Explorer reference](/reference/explorer) for the full feature set and REST API.
 
 - [Knowledge Graph](/reference/kg) — The graph being visualized.
-- [Ontology](ontology) — Visualize ontology class structure.
+- [Ontology](/reference/ontology) — Visualize ontology class structure.
 - [Embeddings](/reference/embeddings) — Generate the embeddings visualized here.
 - [Explorer](/reference/explorer) — Full interactive Knowledge Explorer UI.

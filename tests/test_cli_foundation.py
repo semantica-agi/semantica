@@ -232,7 +232,14 @@ class _MockFramework:
         self._return_value = return_value
 
     def build_knowledge_base(self, sources):
-        return self._return_value
+        value = self._return_value
+        # Report the sources actually handed to this call, as the real
+        # framework does. The multi-source path calls once per file and sums
+        # the per-call counts, so a fixed number would be counted once per file.
+        if isinstance(value, dict) and "statistics" in value:
+            stats = {**value["statistics"], "sources_processed": len(sources)}
+            value = {**value, "statistics": stats}
+        return value
 
 
 def test_build_result_with_stats_shows_source_count(runner, monkeypatch):
@@ -279,6 +286,127 @@ def test_build_result_none_shows_generic_success(runner, monkeypatch):
 
     assert result.exit_code == 0
     assert "Knowledge base build completed" in result.output
+
+
+# ---------------------------------------------------------------------------
+# Empty-graph detection (#1352)
+# ---------------------------------------------------------------------------
+
+
+class _PerSourceFramework:
+    """Stand-in that returns a different build result for each source.
+
+    Mirrors the multi-source progress loop, which calls build_knowledge_base
+    once per file — so the CLI must aggregate across calls rather than judge
+    only the last one.
+    """
+
+    def __init__(self, results_by_source):
+        self._results_by_source = results_by_source
+
+    def build_knowledge_base(self, sources):
+        (source,) = sources
+        return self._results_by_source[source]
+
+
+def _built(entities=0, relationships=0):
+    return {
+        "statistics": {"sources_processed": 1},
+        "knowledge_graph": {
+            "entities": [{"id": f"e{i}"} for i in range(entities)],
+            "relationships": [{"id": f"r{i}"} for i in range(relationships)],
+        },
+    }
+
+
+def test_build_empty_graph_exits_nonzero(runner, monkeypatch):
+    """A processed source with an empty graph is a failure, not a success."""
+    monkeypatch.setattr(
+        cli_module,
+        "_get_framework",
+        lambda _: _MockFramework(_built(entities=0, relationships=0)),
+    )
+
+    result = runner.invoke(cli_module.main, ["kg", "build", "-s", "src.txt"])
+
+    assert result.exit_code == 1
+    assert "knowledge graph is empty" in result.output
+    assert "Knowledge base built" not in result.output
+
+
+def test_build_success_reports_entity_and_relationship_counts(runner, monkeypatch):
+    """The success line states what was built, not just how many sources ran."""
+    monkeypatch.setattr(
+        cli_module,
+        "_get_framework",
+        lambda _: _MockFramework(_built(entities=7, relationships=3)),
+    )
+
+    result = runner.invoke(cli_module.main, ["kg", "build", "-s", "src.txt"])
+
+    assert result.exit_code == 0
+    assert "7 entities" in result.output
+    assert "3 relationships" in result.output
+
+
+def test_build_result_without_graph_key_is_not_treated_as_empty(runner, monkeypatch):
+    """A result that carries no knowledge_graph at all is not evidence of an
+    empty graph, so it must not trip the empty-graph failure."""
+    monkeypatch.setattr(
+        cli_module,
+        "_get_framework",
+        lambda _: _MockFramework({"statistics": {"sources_processed": 1}}),
+    )
+
+    result = runner.invoke(cli_module.main, ["kg", "build", "-s", "src.txt"])
+
+    assert result.exit_code == 0
+    assert "knowledge graph is empty" not in result.output
+
+
+def test_build_multiple_sources_aggregates_across_files(runner, monkeypatch):
+    """Counts are summed over every per-file build, and one empty file among
+    populated ones must not fail the whole command."""
+    monkeypatch.setattr(
+        cli_module,
+        "_get_framework",
+        lambda _: _PerSourceFramework(
+            {
+                "a.txt": _built(entities=30, relationships=4),
+                "b.txt": _built(entities=20, relationships=6),
+                "c.txt": _built(entities=0, relationships=0),
+            }
+        ),
+    )
+
+    result = runner.invoke(
+        cli_module.main,
+        ["kg", "build", "-s", "a.txt", "-s", "b.txt", "-s", "c.txt"],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert "3 source(s)" in result.output
+    assert "50 entities" in result.output
+    assert "10 relationships" in result.output
+
+
+def test_build_multiple_sources_all_empty_exits_nonzero(runner, monkeypatch):
+    """Aggregation must not mask a build where every file produced nothing."""
+    monkeypatch.setattr(
+        cli_module,
+        "_get_framework",
+        lambda _: _PerSourceFramework(
+            {"a.txt": _built(), "b.txt": _built(), "c.txt": _built()}
+        ),
+    )
+
+    result = runner.invoke(
+        cli_module.main,
+        ["kg", "build", "-s", "a.txt", "-s", "b.txt", "-s", "c.txt"],
+    )
+
+    assert result.exit_code == 1
+    assert "3 source(s) processed but the knowledge graph is empty" in result.output
 
 
 @pytest.mark.parametrize(

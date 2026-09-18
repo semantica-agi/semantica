@@ -688,10 +688,12 @@ class AgentContext:
         if user_id:
             filter_dict["user_id"] = user_id
         if days_old:
-            from datetime import datetime, timedelta
+            from datetime import datetime, timedelta, timezone
 
-            filter_dict["start_date"] = (
-                datetime.now() - timedelta(days=days_old)
+            if days_old < 0:
+                raise ValueError("days_old must be non-negative")
+            filter_dict["end_date"] = (
+                datetime.now(timezone.utc) - timedelta(days=days_old)
             ).isoformat()
         filter_dict.update(filters)
 

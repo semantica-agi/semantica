@@ -514,9 +514,9 @@ class FAISSIndexBuilder:
         return FAISSIndex(index, self.dimension, index_type)
 
     def train_index(self, index: FAISSIndex, training_vectors: np.ndarray):
-        """Train index on sample vectors."""
-        if not isinstance(index.index, faiss.IndexIVFFlat):
-            return  # Only IVF indices need training
+        """Train IVF and PQ indexes on sample vectors."""
+        if not isinstance(index.index, (faiss.IndexIVFFlat, faiss.IndexPQ)):
+            return
 
         index.index.train(training_vectors.astype(np.float32))
 

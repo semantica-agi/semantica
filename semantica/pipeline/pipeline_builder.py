@@ -205,12 +205,16 @@ class PipelineBuilder:
         self.pipeline_config["parallelism"] = level
         return self
 
-    def build(self, name: str = "default_pipeline") -> Pipeline:
+    def build(self, name: str = "default_pipeline", validate: bool = True) -> Pipeline:
         """
         Build pipeline from configuration.
 
         Args:
             name: Pipeline name
+            validate: Whether to validate the pipeline structure before
+                building.  Set to ``False`` when you need a pipeline object
+                to pass to an external validator (e.g. to test validation
+                logic separately).
 
         Returns:
             Built pipeline
@@ -222,14 +226,15 @@ class PipelineBuilder:
         )
 
         try:
-            # Validate pipeline structure
-            self.progress_tracker.update_tracking(
-                tracking_id, message="Validating pipeline structure..."
-            )
-            validation_result = self.validator.validate_pipeline(self)
-            if not validation_result.valid:
-                errors = validation_result.errors
-                raise ValidationError(f"Pipeline validation failed: {errors}")
+            # Validate pipeline structure (skip when caller opts out)
+            if validate:
+                self.progress_tracker.update_tracking(
+                    tracking_id, message="Validating pipeline structure..."
+                )
+                validation_result = self.validator.validate_pipeline(self)
+                if not validation_result.valid:
+                    errors = validation_result.errors
+                    raise ValidationError(f"Pipeline validation failed: {errors}")
 
             self.progress_tracker.update_tracking(
                 tracking_id, message="Creating pipeline object..."

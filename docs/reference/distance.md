@@ -609,5 +609,5 @@ The Knowledge Explorer embeds Distance Intelligence directly in the browser dash
 
 - [Context Module](/reference/context) — `ContextGraph.get_neighbors()` and proximity-blended retrieval.
 - [Knowledge Graph Module](/reference/kg) — `NodeEmbedder`, `SimilarityCalculator`, and graph analytics.
-- [Visualization](visualization) — Programmatic distance heatmaps and ego-mode graph renders.
+- [Visualization](/reference/visualization) — Programmatic distance heatmaps and ego-mode graph renders.
 - [Explorer](/reference/explorer) — Knowledge Explorer with built-in Distance Intelligence dashboard.
