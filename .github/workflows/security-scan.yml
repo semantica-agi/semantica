@@ -113,14 +113,66 @@ jobs:
 
           # Same dependency tree Safety used to scan, and the same tool and
           # invocation already proven reliable in security.yml.
-          pip-audit -r requirements-ci.txt --format=json --output=pip-audit-report.json || true
+          #
+          # CI installs TWO locked dependency graphs, so both are audited:
+          # requirements-ci.txt (generated from the `all` extra) and
+          # .github/requirements/open-ontologies-extra.txt, which ci.yml
+          # installs and imports to run the Open Ontologies integration
+          # tests. The open-ontologies extra is deliberately kept out of
+          # `all`, so requirements-ci.txt does not carry it: auditing only
+          # that file would leave a disclosed vulnerability in
+          # open-ontologies-lite, or in any package unique to its
+          # resolution, unable to fail this gate.
+          pip-audit -r requirements-ci.txt --format=json --output=pip-audit-base.json || true
+          pip-audit -r .github/requirements/open-ontologies-extra.txt --format=json --output=pip-audit-open-ontologies.json || true
 
           # Guard 1: fail loudly if pip-audit exited before writing a report
           # at all (network error, tool crash). Without this check a missing
           # or empty file causes jq to fall back to "0", making a broken
-          # scanner indistinguishable from a clean scan.
+          # scanner indistinguishable from a clean scan. Applied to each raw
+          # report, so one silently failing audit cannot be hidden by the
+          # other one succeeding.
+          for raw_report in pip-audit-base.json pip-audit-open-ontologies.json; do
+            if [ ! -s "$raw_report" ]; then
+              echo "::error::pip-audit produced no report ($raw_report is missing or empty). Treating as failure — check for network errors or pip-audit crashes in the logs above."
+              exit 1
+            fi
+          done
+
+          # Merge into the single pip-audit-report.json that every step below
+          # reads, so the validation, allowlist, counting, reporting and
+          # artifact-upload logic stays exactly as it was.
+          #
+          # Both graphs resolve against the same constraint file and so share
+          # most of their packages. Entries are deduplicated on
+          # (lowercased name, version) and their vulns unioned by id —
+          # without that, one finding in a shared package would be counted
+          # twice by the gate and listed twice in the PR comment. An entry
+          # that pip-audit could audit (it carries a vulns array) is
+          # preferred over the same package reported with a skip_reason, so
+          # merging never downgrades a real result to an unaudited one.
+          # `.[0] + {...}` keeps any other top-level keys pip-audit emits.
+          jq -s '
+            .[0] + {dependencies: (
+              [.[].dependencies[]]
+              # A space cannot occur in a PEP 508 name or a version, so it
+              # is a safe key separator; a \u0000 escape would depend on how
+              # the jq build handles a NUL inside a string.
+              | group_by(((.name // "") | ascii_downcase) + " " + (.version // ""))
+              | map(
+                  (((map(select(has("vulns"))) | first) // .[0])) as $base
+                  | if ($base | has("vulns"))
+                    then $base + {vulns: ([.[].vulns // []] | add | unique_by(.id))}
+                    else $base
+                    end
+                )
+            )}
+          ' pip-audit-base.json pip-audit-open-ontologies.json > pip-audit-report.json
+
+          # Guard 1b: a jq failure above leaves an empty file, which would
+          # read as a clean scan to everything below.
           if [ ! -s pip-audit-report.json ]; then
-            echo "::error::pip-audit produced no report (pip-audit-report.json is missing or empty). Treating as failure — check for network errors or pip-audit crashes in the logs above."
+            echo "::error::Merging the pip-audit reports produced no output (pip-audit-report.json is missing or empty). Treating as failure — check the jq invocation above."
             exit 1
           fi
 
