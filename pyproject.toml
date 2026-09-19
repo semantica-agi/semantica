@@ -135,7 +135,7 @@ documents = [
 # exists to cap to), so gate it like google-adk below rather than split it.
 parse-docling = ["docling>=2.107.0; python_version >= '3.10'"]
 # pdfplumber powers the default PDFParser; not pulled in by any other extra.
-parse-pdf = ["pdfplumber>=0.10.0"]
+parse-pdf = ["pdfplumber>=0.11"]
 
 # ---- SHACL Validation ----
 shacl = ["pyshacl>=0.25.0"]

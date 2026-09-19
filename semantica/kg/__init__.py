@@ -106,6 +106,7 @@ License: MIT
 
 
 from .centrality_calculator import CentralityCalculator
+from .canonical import AnchorResolver, AnchorResult
 from .community_detector import CommunityDetector
 from .community_hierarchy import (
     CommunityHierarchy,
@@ -161,6 +162,8 @@ __all__ = [
     "GraphBuilder",
     "GraphBuilderWithProvenance",
     "EntityResolver",
+    "AnchorResolver",
+    "AnchorResult",
     "GraphAnalyzer",
     "GraphValidator",
     "TemporalGraphQuery",

@@ -484,3 +484,73 @@ class TestSQLiteStorage:
         finally:
             if os.path.exists(db_path):
                 os.unlink(db_path)
+
+
+class TestSQLiteStorageSchemaSelfHeal:
+    """Schema 自愈回归：DB 文件在长驻进程存活期间被外部删除/替换后，
+    后续操作必须重建 schema，而不是报 'no such table: provenance'。"""
+
+    def test_schema_recreated_after_db_file_deleted(self):
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".db") as tmp:
+            db_path = tmp.name
+
+        try:
+            storage = SQLiteStorage(db_path)
+            storage.store(ProvenanceEntry(entity_id="a", entity_type="entity", activity_id="act"))
+            assert storage.retrieve("a") is not None
+
+            # 模拟部署事故：文件被外部清空（SQLite 对缺失文件静默建空库，
+            # 长驻对象不再重建 schema 就会连续撞 no such table）
+            for suffix in ("", "-wal", "-shm"):
+                if os.path.exists(db_path + suffix):
+                    os.unlink(db_path + suffix)
+
+            # 读写两条路径各自重连后都应自愈
+            assert storage.retrieve("a") is None
+            storage.store(ProvenanceEntry(entity_id="b", entity_type="entity", activity_id="act"))
+            assert storage.retrieve("b") is not None
+            assert storage.retrieve_all() != []
+        finally:
+            for suffix in ("", "-wal", "-shm"):
+                if os.path.exists(db_path + suffix):
+                    os.unlink(db_path + suffix)
+
+    def test_migrate_columns_on_existing_table(self):
+        """旧库（原始 19 列 schema）缺迁移列时，任一连接打开即补全。"""
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".db") as tmp:
+            db_path = tmp.name
+
+        try:
+            conn = sqlite3.connect(db_path)
+            conn.execute("""
+                CREATE TABLE provenance (
+                    entity_id TEXT PRIMARY KEY,
+                    entity_type TEXT NOT NULL,
+                    activity_id TEXT NOT NULL,
+                    agent_id TEXT DEFAULT 'semantica',
+                    source_document TEXT,
+                    source_location TEXT,
+                    source_quote TEXT,
+                    timestamp TEXT NOT NULL,
+                    first_seen TEXT,
+                    last_updated TEXT,
+                    confidence REAL DEFAULT 1.0,
+                    checksum TEXT,
+                    parent_entity_id TEXT,
+                    used_entities TEXT,
+                    start_index INTEGER,
+                    end_index INTEGER,
+                    credibility REAL,
+                    metadata TEXT,
+                    version TEXT DEFAULT '1.0'
+                )
+            """)
+            conn.commit()
+            conn.close()
+
+            storage = SQLiteStorage(db_path)
+            storage.store(ProvenanceEntry(entity_id="x", entity_type="entity", activity_id="act"))
+            assert storage.retrieve("x").entity_id == "x"
+        finally:
+            if os.path.exists(db_path):
+                os.unlink(db_path)

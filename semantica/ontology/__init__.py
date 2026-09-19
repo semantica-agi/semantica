@@ -161,6 +161,7 @@ from .ontology_validator import (
     SHACLViolation,
     ValidationResult,
     run_shacl_validation,
+    validate_shacl_graph,
     validate_ontology,
 )
 from .quality_gate import (
@@ -203,6 +204,7 @@ __all__ = [
     "SHACLValidationReport",
     "SHACLViolation",
     "run_shacl_validation",
+    "validate_shacl_graph",
     "OntologyQualityGate",
     "OntologyQualityReport",
     "QualityIssue",

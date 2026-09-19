@@ -121,7 +121,10 @@ semantica/static/
 
 # Local graph explorer test datasets
 demo_out/
+
+# Local agent tool artifacts
 .kiro/
+.zcode/
 
 # Worktrees
 .worktrees/
