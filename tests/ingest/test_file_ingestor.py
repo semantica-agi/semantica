@@ -128,14 +128,17 @@ def test_type_detector_supports_line_delimited_json(suffix: str) -> None:
 
     detector = FileTypeDetector()
 
-    assert detector.detect_type(f"resources{suffix}") in {"jsonl", "ndjson"}
+    assert detector.detect_type(f"resources{suffix}") == suffix.lstrip(".")
     assert detector.is_supported(suffix.lstrip("."))
 
 
-def test_ingest_ndjson_file_preserves_content(tmp_path: Path) -> None:
+@pytest.mark.parametrize("suffix", [".jsonl", ".ndjson"])
+def test_ingest_line_delimited_json_file_preserves_content(
+    tmp_path: Path, suffix: str
+) -> None:
     """FHIR Bulk/NDJSON resources can be ingested as a supported file."""
 
-    path = tmp_path / "Patient.000.ndjson"
+    path = tmp_path / f"Patient.000{suffix}"
     path.write_text(
         '{"resourceType":"Patient","id":"synthetic-1"}\n'
         '{"resourceType":"Patient","id":"synthetic-2"}\n',
@@ -144,7 +147,9 @@ def test_ingest_ndjson_file_preserves_content(tmp_path: Path) -> None:
 
     result = FileIngestor().ingest_file(path)
 
-    assert result.file_type == "ndjson"
+    expected_type = suffix.lstrip(".")
+    assert result.file_type == expected_type
+    assert result.mime_type == "application/x-ndjson"
     assert result.metadata["is_supported"] is True
     assert result.text.count('"resourceType":"Patient"') == 2
 

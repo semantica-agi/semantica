@@ -1076,7 +1076,7 @@ def init_cmd(cli_ctx: CLIContext, force: bool) -> None:
 @click.argument("path", default=".", type=click.Path(exists=True))
 @click.option("--type", "ingestor_type", default=None, help="Force ingestor type.")
 @click.option("--store", "store_override", default=None, help="Target graph backend.")
-@click.option("--patterns", default="*.pdf,*.docx,*.txt,*.csv,*.json",
+@click.option("--patterns", default="*.pdf,*.docx,*.txt,*.csv,*.json,*.jsonl,*.ndjson",
               show_default=True, help="Comma-separated glob patterns to match.")
 @click.pass_obj
 def watch_cmd(cli_ctx: CLIContext, path: str, ingestor_type: Optional[str],
@@ -1923,7 +1923,9 @@ _INGEST_TYPES = [
     "snowflake", "stream",
 ]
 
-_INGEST_FORMATS = ["pdf", "docx", "csv", "excel", "html", "json", "parquet", "xml", "rdf"]
+_INGEST_FORMATS = [
+    "pdf", "docx", "csv", "excel", "html", "json", "jsonl", "ndjson", "parquet", "xml", "rdf"
+]
 _GRAPH_STORE_ENV_BACKEND_HINTS = {
     "GRAPH_STORE_NEO4J_URI": "neo4j",
     "GRAPH_STORE_FALKORDB_HOST": "falkordb",

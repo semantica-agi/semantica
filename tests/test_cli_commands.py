@@ -332,6 +332,35 @@ class TestIngest:
         assert captured["kwargs"]["batch_size"] == 500
         assert captured["kwargs"]["format"] == "csv"
 
+    @pytest.mark.parametrize("fmt", ["ndjson", "jsonl"])
+    def test_ingest_format_line_delimited_json(self, runner, monkeypatch, fmt):
+        captured = {}
+
+        def fake_ingest_file(sources, **kwargs):
+            captured["sources"] = sources
+            captured["kwargs"] = kwargs
+            return [{"path": sources}]
+
+        monkeypatch.setattr("semantica.ingest.methods.ingest_file", fake_ingest_file)
+
+        result = runner.invoke(
+            cli_module.main,
+            ["ingest", f"data.{fmt}", "--type", "file", "--format", fmt, "--json"],
+        )
+
+        _ok(result)
+        data = _json_output(result)
+        assert data["files"] == [{"path": f"data.{fmt}"}]
+        assert captured["sources"] == f"data.{fmt}"
+        assert captured["kwargs"]["method"] == "file"
+        assert captured["kwargs"]["format"] == fmt
+
+    def test_watch_help_shows_line_delimited_json_patterns(self, runner):
+        result = runner.invoke(cli_module.main, ["watch", "--help"])
+        _ok(result)
+        assert "*.jsonl" in result.output
+        assert "*.ndjson" in result.output
+
     def test_runtime_path_passes_source_positionally_with_auto_detection(self, runner, monkeypatch):
         captured = {}
 
