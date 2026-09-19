@@ -18,6 +18,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`RelationalSchemaMapper`** (#1386, part 1) by @costajohnt
+  - `semantica.kg.RelationalSchemaMapper` maps rows from a relational source (`DBIngestor`, `SnowflakeIngestor`, `DatabricksIngestor`, `PandasIngestor`, a DataFrame or plain row dicts) to the `{"entities", "relationships"}` shape `GraphBuilder` and `OntologyGenerator` consume: entity tables become entities keyed by primary key, foreign keys become typed relationships, junction tables become relationships only
+  - Every entity and relationship is tagged with the `source` it came from so `ConflictDetector` can key credibility on it. New `tests/kg/test_schema_mapper.py`
+
 - **Pluggable, persistent backend for `ExtractionCache`** (#1581) by @Besokus
   - `ExtractionCache` now delegates storage to a `CacheBackend`, keeping stable SHA-256 key derivation (text + params, with `provider`/`model`/generation params; sensitive keys filtered) and the public `get`/`set`/`clear`/`get_stats` API in one place. Default behavior is unchanged — an in-memory LRU + TTL backend (`InMemoryBackend`)
   - New `SqliteCacheBackend` (`semantica.semantic_extract`, lazy export): a persistent backend backed by the stdlib `sqlite3`, so cached extraction results **survive a process restart** — a fresh process (CI job, notebook kernel, batch worker, extraction subprocess) reuses prior results instead of re-paying every LLM call. TTL and LRU (by last access) mirror the in-memory backend. Values are serialized with a pluggable serializer (`pickle` by default; pass e.g. `json` to avoid pickle — point the DB at a trusted, local path)
