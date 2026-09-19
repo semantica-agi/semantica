@@ -60,6 +60,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `Relation`, `Triplet` and the separate `utils.types.Entity` are untouched; the LLM, HuggingFace, pattern and regex paths always set explicit float scores and are unchanged
   - Docs: `semantica/semantic_extract/semantic_extract_usage.md` and `cookbook/introduction/05_Entity_Extraction.ipynb` (renders unavailable confidence as `N/A`)
 
+### Changed
+
+- **`LanguageDetector` minimum text length is now configurable** (closes #1281) by @taoche
+  - **New `min_text_length` option** (default unchanged at 10 stripped characters), settable per instance via `LanguageDetector(min_text_length=...)`, per call via `**options` on every detection API, and through `detect_language()`. Ten characters is reasonable for Latin scripts and far too many for CJK — a 9-character Chinese string never reached `langdetect` at all
+  - `UNKNOWN_LANGUAGE` (`"unknown"`) is now exported from `semantica.normalize` as an explicit out-of-band sentinel. Pass `LanguageDetector(default_language=UNKNOWN_LANGUAGE)` to opt into an unambiguous fallback that is distinct from every ISO language code
+  - The default fallback remains `"en"` — no breaking change for existing callers
+  - `detect()` and `detect_with_confidence()` now delegate to `detect_multiple()`, so the length guard, the fallback and the error handling exist once rather than in three copies that can drift
+  - Invalid `min_text_length` values (`None`, non-numeric strings, negatives) degrade to the fallback with a warning instead of raising `TypeError` from the length comparison, which sits outside the detection exception handlers
+  - Unrecognized per-call option names (e.g. `min_text_len`) now warn once per name per instance instead of being silently absorbed by `**options`
+  - `detect_language()` copies the stored method config before merging per-call kwargs, so a one-call override no longer leaks into the shared `normalize_config`
+  - Docs: `docs/reference/normalize.md` and `semantica/normalize/normalize_usage.md`
+
 ## [0.7.0] - 2026-09-07
 
 ### Changed
