@@ -5,7 +5,11 @@ Wrapper for LiteLLM library that provides unified access to 100+ LLM providers.
 Supports OpenAI, Anthropic, Groq, Azure, Bedrock, Vertex AI, and many more.
 """
 
-from typing import Any, Dict, List, Optional
+import json
+import time
+from typing import Any, Dict, List, Optional, Type, Union
+
+from pydantic import BaseModel
 
 from ..utils.exceptions import ProcessingError
 from ..utils.logging import get_logger
@@ -22,6 +26,64 @@ else:
     logger.warning(
         "litellm library not installed. Install with: pip install litellm"
     )
+
+
+def _extract_first_json(text: str):
+    """Scan *text* for the first top-level JSON value (object or array) and
+    return the parsed Python object, or ``None`` if no valid JSON is found.
+
+    Unlike a simple regex approach this walks forward character-by-character so
+    it correctly handles:
+    * Nested objects and arrays  (``{"a": [1, 2]}``).
+    * String literals that contain brackets  (``{"k": "[not a list]"}``).
+    * Misleading prose brackets before the actual JSON
+      (``"Intro [not JSON] then {"ok": 1}"``).
+
+    The first ``{`` or ``[`` that forms a complete, valid JSON value wins.
+    If a candidate starting position produces invalid JSON we move on to the
+    next candidate rather than raising immediately.
+    """
+    OPEN = {"{": "}", "[": "]"}
+    i = 0
+    n = len(text)
+    while i < n:
+        ch = text[i]
+        if ch not in OPEN:
+            i += 1
+            continue
+        close = OPEN[ch]
+        # Walk forward tracking nesting depth and string state.
+        depth = 0
+        in_string = False
+        escape_next = False
+        j = i
+        while j < n:
+            c = text[j]
+            if escape_next:
+                escape_next = False
+            elif in_string:
+                if c == "\\":
+                    escape_next = True
+                elif c == '"':
+                    in_string = False
+            else:
+                if c == '"':
+                    in_string = True
+                elif c == ch:
+                    depth += 1
+                elif c == close:
+                    depth -= 1
+                    if depth == 0:
+                        candidate = text[i : j + 1]
+                        try:
+                            return json.loads(candidate)
+                        except json.JSONDecodeError:
+                            # This opening bracket doesn't form valid JSON;
+                            # advance past it and keep looking.
+                            break
+            j += 1
+        i += 1
+    return None
 
 
 class LiteLLM:
@@ -123,7 +185,7 @@ class LiteLLM:
             logger.error(f"LiteLLM generation failed: {e}")
             raise ProcessingError(f"LiteLLM generation failed: {e}")
 
-    def generate_structured(self, prompt: str, **kwargs) -> Dict[str, Any]:
+    def generate_structured(self, prompt: str, **kwargs) -> Union[Dict[str, Any], List[Any]]:
         """
         Generate structured JSON output.
 
@@ -132,7 +194,8 @@ class LiteLLM:
             **kwargs: Generation options
 
         Returns:
-            Parsed JSON response as dictionary
+            Parsed JSON response. A dict for a top-level JSON object, or a
+            list if the model returns a top-level JSON array.
 
         Raises:
             ProcessingError: If provider is not available or parsing fails
@@ -143,7 +206,6 @@ class LiteLLM:
             )
 
         try:
-            import json
             
             # Add JSON format instruction to prompt
             json_prompt = f"{prompt}\n\nReturn the response as valid JSON only."
@@ -178,14 +240,97 @@ class LiteLLM:
             try:
                 return json.loads(text_response)
             except json.JSONDecodeError:
-                # Try to extract JSON from text
-                import re
-                json_match = re.search(r'\{.*\}', text_response, re.DOTALL)
-                if json_match:
-                    return json.loads(json_match.group())
+                # Primary parse failed — prose surrounds the JSON.  Scan forward
+                # from each candidate opening bracket ({, [) and find its
+                # matching closing delimiter, correctly tracking nesting and
+                # string literals so we never pair unrelated brackets.
+                extracted = _extract_first_json(text_response)
+                if extracted is not None:
+                    return extracted
                 raise ProcessingError(f"Failed to parse JSON from LiteLLM response: {text_response[:200]}")
                 
         except Exception as e:
             logger.error(f"LiteLLM structured generation failed: {e}")
             raise ProcessingError(f"LiteLLM structured generation failed: {e}")
+
+    def generate_typed(
+        self, prompt: str, schema: Type[BaseModel], max_retries: int = 3, **kwargs
+    ) -> BaseModel:
+        """
+        Generate output validated against a Pydantic schema.
+
+        Uses the ``instructor`` library when it is installed and can be
+        initialised (schema and retries handled natively). Otherwise - instructor
+        missing, or its setup failing - falls back to a JSON-generation plus
+        Pydantic-validation retry loop on top of ``generate_structured()``. A
+        failure of the instructor completion request itself is raised, not
+        retried through the fallback.
+
+        Args:
+            prompt: Input prompt text
+            schema: Pydantic model class to validate the output against
+            max_retries: Number of retries if validation fails (default: 3)
+            **kwargs: Generation options
+
+        Returns:
+            An instance of `schema`, populated from the model's response
+
+        Raises:
+            ProcessingError: If provider is not available or generation fails
+        """
+        if not self.is_available():
+            raise ProcessingError(
+                "LiteLLM library not installed. Install with: pip install litellm"
+            )
+
+        options = {**self.config, **kwargs}
+
+        # Preferred path: instructor drives the schema and retries natively.
+        # Only an instructor setup failure falls through to the manual loop - a
+        # failure of the completion request itself (auth, transport, exhausted
+        # retries) is surfaced directly rather than retried a second way.
+        instructor_mod, instructor_available = safe_import("instructor")
+        if instructor_available:
+            client = None
+            try:
+                client = instructor_mod.from_litellm(completion)
+            except Exception as e:
+                logger.warning(
+                    f"instructor is installed but could not be initialised for "
+                    f"LiteLLM ({e}); falling back to manual validation loop."
+                )
+            if client is not None:
+                try:
+                    return client.chat.completions.create(
+                        model=self.model,
+                        messages=[{"role": "user", "content": prompt}],
+                        api_key=self.api_key,
+                        response_model=schema,
+                        max_retries=max_retries,
+                        **options,
+                    )
+                except Exception as e:
+                    raise ProcessingError(
+                        f"LiteLLM typed generation failed: {e}"
+                    ) from e
+
+        # Fallback: generate JSON, validate against the schema, retry with feedback.
+        last_error = None
+        current_prompt = prompt
+        for _attempt in range(max_retries):
+            try:
+                data = self.generate_structured(current_prompt, **kwargs)
+                return schema.model_validate(data)
+            except Exception as e:
+                last_error = e
+                current_prompt = (
+                    f"{prompt}\n\nThe previous response did not match the required "
+                    f"schema:\n{e}\n\nReturn valid JSON that matches the schema."
+                )
+                if _attempt < max_retries - 1:
+                    time.sleep(1)
+
+        raise ProcessingError(
+            f"LiteLLM typed generation failed after {max_retries} attempts: {last_error}"
+        )
 

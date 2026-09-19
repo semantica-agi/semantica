@@ -78,3 +78,16 @@ def test_generate_typed_raises_clear_error_when_unavailable(monkeypatch):
     llm = Novita(api_key=None)
     with pytest.raises(ProcessingError, match="Novita provider not available"):
         llm.generate_typed("hello", object())
+
+
+def test_generate_structured_passes_through_list_return():
+    """generate_structured() must propagate a top-level JSON array unchanged."""
+    llm = Novita(api_key="fake-key")
+    llm.provider = MagicMock()
+    llm.provider.is_available.return_value = True
+    llm.provider.generate_structured.return_value = [{"id": 1}, {"id": 2}]
+
+    result = llm.generate_structured("return a list")
+
+    assert result == [{"id": 1}, {"id": 2}]
+    assert isinstance(result, list)

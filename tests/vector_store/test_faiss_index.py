@@ -9,6 +9,7 @@ import pytest
 from semantica.utils.exceptions import ProcessingError
 from semantica.vector_store.faiss_store import (
     FAISSIndex,
+    FAISSIndexBuilder,
     FAISSStore,
     _metadata_path,
 )
@@ -583,3 +584,27 @@ def test_loading_index_without_meta_json_warns(tmp_path):
 
     assert loaded.vector_ids == []
     assert loaded.metadata == {}
+
+
+def test_builder_trains_pq_index():
+    faiss = pytest.importorskip("faiss")
+    vectors = np.random.default_rng(42).random((256, 4), dtype=np.float32)
+    builder = FAISSIndexBuilder(dimension=4)
+    index = builder.build_index("pq", m=2, bits=2)
+
+    assert not index.index.is_trained
+
+    previous_threads = faiss.omp_get_max_threads()
+    faiss.omp_set_num_threads(1)
+    try:
+        builder.train_index(index, vectors)
+        assert index.index.is_trained
+
+        index.add_vectors(vectors[:2], ids=["a", "b"])
+        assert index.index.ntotal == 2
+
+        distances, indices = index.search(vectors[:1], k=1)
+        assert distances.shape == (1, 1)
+        assert int(indices[0, 0]) in (0, 1)
+    finally:
+        faiss.omp_set_num_threads(previous_threads)

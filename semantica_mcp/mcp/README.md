@@ -73,7 +73,7 @@ python -m mcp [--debug]
 | Tool | Description |
 |---|---|
 | `export_graph` | Export graph to JSON, CSV, GraphML, Parquet, Turtle, N-Triples, RDF/XML, JSON-LD |
-| `get_provenance` | Audit history and source lineage for a node |
+| `get_provenance` | Audit history and source lineage for a node (`entity_id`) |
 
 ---
 

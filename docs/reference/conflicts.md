@@ -317,7 +317,7 @@ chain = tracker.get_traceability_chain("apple_inc")
 </Warning>
 
 <Tip>
-  **Combine with provenance.** The `SourceTracker` feeds directly into the [Provenance](provenance) module's audit trail. If you need to explain how a resolved value was chosen, provenance records give you the full chain.
+  **Combine with provenance.** The `SourceTracker` feeds directly into the [Provenance](/reference/provenance) module's audit trail. If you need to explain how a resolved value was chosen, provenance records give you the full chain.
 </Tip>
 
 ## ConflictAnalyzer
@@ -450,7 +450,7 @@ class InvestigationStep:
   </Accordion>
 </AccordionGroup>
 
-- [Deduplication](deduplication) — Resolve duplicate entities before conflict detection.
-- [Ontology](ontology) — Logical conflicts use SHACL shapes and ontology axioms.
-- [Provenance](provenance) — Track which source each conflicting fact came from.
+- [Deduplication](/reference/deduplication) — Resolve duplicate entities before conflict detection.
+- [Ontology](/reference/ontology) — Logical conflicts use SHACL shapes and ontology axioms.
+- [Provenance](/reference/provenance) — Track which source each conflicting fact came from.
 - [Knowledge Graph](/reference/kg) — The graph being checked for conflicts.

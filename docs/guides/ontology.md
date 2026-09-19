@@ -301,6 +301,100 @@ The exported Turtle file is the input to Semantica's SHACL validation pipeline. 
 
 ---
 
+## Drafting, Reviewing, and Publishing Ontology Changes
+
+Editing a live ontology is a heavier change than editing graph data. Other systems have already built against those class and property names, so a rename ripples outward. Explorer exposes the draft/proposal flow over HTTP so a change is staged and reviewed before it reaches the graph.
+
+The overhead is worth it once more than one person or agent edits the same ontology. While you are still prototyping, regenerating the ontology is usually cheaper than reviewing a diff.
+
+**The state machine**
+
+| State | Reached by | What can happen next |
+| :---- | :--------- | :------------------- |
+| `draft` | `PATCH /api/ontology/draft` | submit as a proposal |
+| `proposed` | `POST /api/ontology/propose` | approve or reject |
+| `approved` | `POST /api/ontology/proposals/{id}/approve` | publish (no other state can) |
+| `rejected` | `POST /api/ontology/proposals/{id}/reject` | revise into a new draft |
+| `published` | `POST /api/ontology/proposals/{id}/publish` | terminal |
+
+`publish` answers `400` for any state other than `approved`, so a proposal cannot reach the graph without an explicit approval.
+
+**The flow**
+
+```bash
+# 1. Stage the change. This endpoint is PATCH, not POST.
+curl -X PATCH http://localhost:8000/api/ontology/draft \
+  -H "Content-Type: application/json" \
+  -d '{
+    "ontology_uri": "http://example.org/onto/security",
+    "author": "analyst@example.org",
+    "summary": "Add Platform class for infrastructure entities",
+    "diff": {
+      "added_classes": ["http://example.org/onto/security#Platform"],
+      "added_properties": []
+    }
+  }'
+# → {"draft_id": "draft_9f2c1a4b7e03", ...}
+```
+
+```bash
+# 2. Submit it. This is where the checks run.
+curl -X POST http://localhost:8000/api/ontology/propose \
+  -H "Content-Type: application/json" \
+  -d '{
+    "draft_id": "draft_9f2c1a4b7e03",
+    "ontology_uri": "http://example.org/onto/security",
+    "summary": "Add Platform class for infrastructure entities"
+  }'
+```
+
+The response returns two blocks:
+
+- `impact_analysis` — a structured diff from `VersionManager.diff_ontologies`, plus `class_adds`, `class_removals`, `property_changes` and `restriction_changes` counts.
+- `shacl_validation` — current graph data validated against shapes generated from the proposed ontology. It reads `{"status": "skipped", "reason": "No store configured"}` when the session has no store, and `{"status": "error", ...}` when validation itself failed. Neither stops the proposal from being created; both are advisory.
+
+```bash
+# 3. Read the proposal, then approve or reject it. `GET /api/ontology/proposals`
+#    lists them, optionally filtered with ?ontology_uri= and ?state=.
+curl http://localhost:8000/api/ontology/proposals/prop_4d8e01a9c3f2
+curl -X POST http://localhost:8000/api/ontology/proposals/prop_4d8e01a9c3f2/approve
+
+# Reviewers can also leave comments tied to a specific element URI.
+curl -X POST http://localhost:8000/api/ontology/proposals/prop_4d8e01a9c3f2/comment \
+  -H "Content-Type: application/json" \
+  -d '{
+    "element_uri": "http://example.org/onto/security#Platform",
+    "text": "Should this inherit from Infrastructure rather than sit at the top level?",
+    "author": "reviewer@example.org"
+  }'
+```
+
+```bash
+# 4. Publish. Creates a version record first, then writes to the graph.
+curl -X POST http://localhost:8000/api/ontology/proposals/prop_4d8e01a9c3f2/publish
+# → {"status": "published", "version": "1.1.0", "nodes_added": 1, "edges_added": 0}
+```
+
+**What publish applies, and in what order**
+
+Publish calls `VersionManager.create_version()` before it touches the live graph. If version creation fails, the request answers `500` and nothing has been added.
+
+It applies additions only. `added_classes` and `added_properties` become `owl:Class` and `owl:ObjectProperty` nodes; removals and modifications are recorded in the version history but do not delete or rewrite anything already in the graph.
+
+**Version history and comparison**
+
+```bash
+curl "http://localhost:8000/api/ontology/versions/http%3A%2F%2Fexample.org%2Fonto%2Fsecurity"
+
+curl -X POST "http://localhost:8000/api/ontology/versions/http%3A%2F%2Fexample.org%2Fonto%2Fsecurity/compare" \
+  -H "Content-Type: application/json" \
+  -d '{"version1": "1.1.0", "version2": "1.2.0"}'
+```
+
+`compare` returns `class_changes`, `property_changes`, `restriction_changes` and `axiom_changes` as separate blocks, so you do not have to diff the whole ontology to see what moved.
+
+---
+
 ## Common Pitfalls
 
 **Over-modeling.** Don't create 50 classes when 10 would suffice. Start simple and add complexity only when you need formal distinctions for reasoning or validation. Having separate classes for `MaliciousEmail` and `PhishingEmail` is only useful if they have different properties or relationships.
@@ -308,6 +402,10 @@ The exported Turtle file is the input to Semantica's SHACL validation pipeline. 
 **Ontology drift.** When new entity types appear in your graph, the ontology becomes stale unless you regenerate or incrementally update it. Set up monitoring to detect when new entity types appear that aren't covered by your current ontology.
 
 **Inconsistent class naming.** Pick a convention (CamelCase, snake_case, or kebab-case) and stick to it. Mixing `ThreatActor`, `threat_actor`, and `threat-actor` in the same ontology creates confusion and breaks tooling that expects consistent naming patterns.
+
+**In-memory state.** The flow keeps its state on the application object rather than in a store, so a restart loses every draft, proposal and version record, and the state is not shared across worker processes. Anything you intend to keep has to be published before the process restarts.
+
+**Unencoded `#` in a path segment.** `/api/ontology/drafts/{uri}` and `/api/ontology/versions/{uri}` take the ontology URI as a path segment, and `#` starts a URL fragment there, so the server only sees the part before it. Encode it as `%23`, as in the version examples above. OWL ontologies commonly end in `#`, and the failure is silent: the endpoint answers `200` with an empty list rather than reporting a truncated URI. URIs without a `#` are unaffected.
 
 ---
 
@@ -504,7 +602,7 @@ else:
 ## Related Guides
 
 - [SHACL Validation](/guides/shacl-validation) — generate W3C SHACL constraint shapes from your ontology and validate live graph data against them
-- [Reasoning & Rules](reasoning) — apply forward/backward-chaining rules over your ontology to derive new facts
-- [Export & Serialization](export) — export graphs to RDF, GraphML, CSV, and Neo4j Cypher
+- [Reasoning & Rules](/guides/reasoning) — apply forward/backward-chaining rules over your ontology to derive new facts
+- [Export & Serialization](/guides/export) — export graphs to RDF, GraphML, CSV, and Neo4j Cypher
 - [Semantic Extraction](/guides/semantic-extraction) — extract entities and relationships that feed ontology generation
 - [Context Graphs](/guides/context-graphs) — the knowledge graph that ontology generation reads from

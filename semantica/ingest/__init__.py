@@ -133,6 +133,16 @@ import importlib
 from typing import TYPE_CHECKING, Any, Dict, Tuple
 
 if TYPE_CHECKING:
+    from .bigquery_ingestor import (
+        BigQueryConnector,
+        BigQueryData,
+        BigQueryIngestor,
+    )
+    from .powerbi_ingestor import (
+        PowerBIConnector,
+        PowerBIData,
+        PowerBIIngestor,
+    )
     from .salesforce_ingestor import (
         SalesforceConnector,
         SalesforceData,
@@ -247,6 +257,18 @@ _LAZY_EXPORTS: Dict[str, Tuple[str, str]] = {
     "SalesforceIngestor": (".salesforce_ingestor", "SalesforceIngestor"),
     "SalesforceData": (".salesforce_ingestor", "SalesforceData"),
     "SalesforceConnector": (".salesforce_ingestor", "SalesforceConnector"),
+    # Redshift ingestion
+    "RedshiftIngestor": (".redshift_ingestor", "RedshiftIngestor"),
+    "RedshiftData": (".redshift_ingestor", "RedshiftData"),
+    "RedshiftConnector": (".redshift_ingestor", "RedshiftConnector"),
+    # Power BI ingestion
+    "PowerBIIngestor": (".powerbi_ingestor", "PowerBIIngestor"),
+    "PowerBIData": (".powerbi_ingestor", "PowerBIData"),
+    "PowerBIConnector": (".powerbi_ingestor", "PowerBIConnector"),
+    # BigQuery ingestion
+    "BigQueryIngestor": (".bigquery_ingestor", "BigQueryIngestor"),
+    "BigQueryData": (".bigquery_ingestor", "BigQueryData"),
+    "BigQueryConnector": (".bigquery_ingestor", "BigQueryConnector"),
 }
 
 _OPTIONAL_DEPENDENCY_MESSAGES = {
@@ -289,6 +311,14 @@ _OPTIONAL_DEPENDENCY_MESSAGES = {
         "Salesforce ingestion requires optional dependency 'simple-salesforce'. "
         "Install it with: pip install 'semantica[db-salesforce]'"
     ),
+    ".redshift_ingestor": (
+        "Redshift ingestion requires optional dependency 'redshift-connector'. "
+        "Install it with: pip install 'semantica[db-redshift]'"
+    ),
+    ".bigquery_ingestor": (
+        "BigQuery ingestion requires optional dependency 'google-cloud-bigquery'. "
+        "Install it with: pip install 'semantica[db-bigquery]'"
+    ),
 }
 
 
@@ -307,7 +337,15 @@ def __getattr__(name: str) -> Any:
             missing_name is None
             or any(
                 pkg in missing_name
-                for pkg in ("git", "bs4", "pyarrow", "simple_salesforce", "lxml")
+                for pkg in (
+                    "git",
+                    "bs4",
+                    "pyarrow",
+                    "simple_salesforce",
+                    "lxml",
+                    "redshift_connector",
+                    "google",
+                )
             )
         ):
             raise ImportError(message) from exc
@@ -345,6 +383,24 @@ def __getattr__(name: str) -> Any:
         "SalesforceConnector",
     }:
         if not getattr(module, "SALESFORCE_AVAILABLE", True):
+            message = _OPTIONAL_DEPENDENCY_MESSAGES.get(module_name)
+            if message:
+                raise ImportError(message)
+
+    if module_name == ".redshift_ingestor" and name in {
+        "RedshiftIngestor",
+        "RedshiftConnector",
+    }:
+        if not getattr(module, "REDSHIFT_AVAILABLE", True):
+            message = _OPTIONAL_DEPENDENCY_MESSAGES.get(module_name)
+            if message:
+                raise ImportError(message)
+
+    if module_name == ".bigquery_ingestor" and name in {
+        "BigQueryIngestor",
+        "BigQueryConnector",
+    }:
+        if not getattr(module, "BIGQUERY_AVAILABLE", True):
             message = _OPTIONAL_DEPENDENCY_MESSAGES.get(module_name)
             if message:
                 raise ImportError(message)
@@ -439,6 +495,18 @@ __all__ = [
     "SalesforceIngestor",
     "SalesforceData",
     "SalesforceConnector",
+    # Redshift ingestion
+    "RedshiftIngestor",
+    "RedshiftData",
+    "RedshiftConnector",
+    # Power BI ingestion
+    "PowerBIIngestor",
+    "PowerBIData",
+    "PowerBIConnector",
+    # BigQuery ingestion
+    "BigQueryIngestor",
+    "BigQueryData",
+    "BigQueryConnector",
     # Registry and Methods
     "MethodRegistry",
     "method_registry",

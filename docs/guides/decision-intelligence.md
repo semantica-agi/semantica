@@ -294,6 +294,8 @@ else:
     # → "Decision blocked — confidence 0.62 below policy minimum 0.80."
 ```
 
+A `False` return from `check_compliance` means the rules were evaluated and the decision did not satisfy them. If the check itself cannot be executed — for example, a policy rule that cannot be compared against the decision's data — the call raises `ProcessingError` instead of returning `False`, so an evaluation failure is never reported as a compliance verdict. See the [Policy Engine guide](policy-engine) for the full contract.
+
 When a high-urgency situation requires bypassing the policy gate, record the exception with the approver identity and justification:
 
 ```python
@@ -607,6 +609,8 @@ d = Decision(
     decision_maker = "credit_model_v3",
 )
 
+# False = evaluated and non-compliant; if the check cannot run at
+# all, check_compliance raises ProcessingError (see policy-engine guide).
 if engine.check_compliance(d, "lending_policy_v3"):
     loan_id = context.record_decision(
         category=d.category, scenario=d.scenario,
@@ -664,6 +668,6 @@ results = context.find_precedents("APT29 infrastructure attribution", limit=5)
 
 - [Context Graphs](/guides/context-graphs) — how `ContextGraph` stores decision nodes and causal edges
 - [Distance Intelligence](/guides/distance-intelligence) — `trace_decision_causality()` annotates causal chains with confidence decay and distance bands
-- [Provenance](provenance) — W3C PROV-O audit trail that wraps decision records in standards-compliant provenance
+- [Provenance](/guides/provenance) — W3C PROV-O audit trail that wraps decision records in standards-compliant provenance
 - [MCP Server](/guides/mcp-server) — expose decision recording and precedent search to LLM agents via the `record_decision` and `find_precedents` tools
 - [Change Management](/guides/change-management) — checkpoint decision state with `flush_checkpoint()` for versioned snapshots

@@ -876,8 +876,8 @@ kg:
 
 - [Knowledge Graph Module](/reference/kg) — Core graph construction, `GraphBuilder`, analytics.
 - [Context Module](/reference/context) — Decision temporal windows and `find_active_nodes()`.
-- [Provenance](provenance) — W3C PROV-O lineage stamped alongside temporal metadata.
-- [Export](export) — OWL, Turtle, JSON-LD, and Parquet export with temporal annotations.
+- [Provenance](/reference/provenance) — W3C PROV-O lineage stamped alongside temporal metadata.
+- [Export](/reference/export) — OWL, Turtle, JSON-LD, and Parquet export with temporal annotations.
 
 - [Temporal Knowledge Graphs](https://github.com/semantica-agi/semantica/blob/main/cookbook/advanced/10_Temporal_Knowledge_Graphs.ipynb) — Temporal reasoning and Allen algebra · Advanced
 - [Context Module](https://github.com/semantica-agi/semantica/blob/main/cookbook/introduction/19_Context_Module.ipynb) — Including temporal decision windows · Intermediate

@@ -352,7 +352,166 @@ class TestPolicyEngine:
         
         with pytest.raises(ValueError, match="Policy.*not found"):
             policy_engine.check_compliance(decision, "nonexistent_policy")
-    
+
+    def test_check_compliance_raises_on_evaluation_error(
+        self, policy_engine, mock_graph_store
+    ):
+        """A failure while evaluating compliance must raise, not return False.
+
+        Returning False would conflate "checked and found non-compliant" with
+        "the check itself failed", which is dangerous in an audit/compliance
+        context. The engine must surface such failures as ProcessingError.
+        """
+        from semantica.context.decision_models import Decision
+        from semantica.utils.exceptions import ProcessingError
+
+        decision = Decision(
+            decision_id="decision_001",
+            category="credit_approval",
+            scenario="Credit limit increase",
+            reasoning="Customer meets all criteria",
+            outcome="approved",
+            confidence=0.9,
+            timestamp=datetime.now(),
+            decision_maker="ai_agent_001",
+        )
+
+        policy_id = "policy_001"
+
+        mock_graph_store.execute_query.return_value = [
+            {
+                "policy_id": policy_id,
+                "rules": {"min_credit_score": 650, "max_debt_ratio": 0.4},
+            }
+        ]
+
+        with patch.object(
+            policy_engine,
+            "_evaluate_compliance",
+            side_effect=RuntimeError("unexpected evaluation failure"),
+        ):
+            with pytest.raises(ProcessingError, match="Compliance check failed") as exc_info:
+                policy_engine.check_compliance(decision, policy_id)
+
+        assert isinstance(exc_info.value.__cause__, RuntimeError)
+
+    def test_check_compliance_raises_on_malformed_rule(
+        self, policy_engine, mock_graph_store
+    ):
+        """A malformed rule value must raise, not be swallowed into False.
+
+        This exercises the real evaluation path (no mocking of
+        ``_evaluate_compliance``): a non-numeric ``min_confidence`` triggers a
+        ``TypeError`` deep inside ``_check_compliance_with_rules``. That helper
+        must let the failure propagate so ``check_compliance`` reports it as a
+        ``ProcessingError`` rather than a spurious non-compliant verdict.
+        """
+        from semantica.context.decision_models import Decision
+        from semantica.utils.exceptions import ProcessingError
+
+        decision = Decision(
+            decision_id="decision_001",
+            category="credit_approval",
+            scenario="Credit limit increase",
+            reasoning="Customer meets all criteria",
+            outcome="approved",
+            confidence=0.9,
+            timestamp=datetime.now(),
+            decision_maker="ai_agent_001",
+        )
+
+        policy_id = "policy_001"
+
+        # min_confidence is malformed (str vs float) -> comparison raises.
+        mock_graph_store.execute_query.return_value = [
+            {"policy_id": policy_id, "rules": {"min_confidence": "high"}}
+        ]
+
+        with pytest.raises(ProcessingError, match="Compliance check failed"):
+            policy_engine.check_compliance(decision, policy_id)
+
+    def test_check_compliance_raises_when_check_rule_helper_fails(
+        self, policy_engine, mock_graph_store
+    ):
+        """A failure inside _check_compliance_with_rules must reach check_compliance.
+
+        ``allowed_outcomes`` is the only rule key that routes through the
+        ``_check_compliance_with_rules`` helper (keys starting with ``min_``,
+        ``max_``, or ``required_`` are handled by their own branches in
+        ``_evaluate_compliance``).  Supplying a non-iterable value (``True``)
+        triggers a ``TypeError`` inside that helper.  The old broad
+        ``except Exception: return False`` in ``_check_compliance_with_rules``
+        was removed by this PR, so the ``TypeError`` must propagate all the way
+        to ``check_compliance``, which wraps it as ``ProcessingError``.
+
+        This test exercises the real execution path without mocking
+        ``_evaluate_compliance``.
+        """
+        from semantica.context.decision_models import Decision
+        from semantica.utils.exceptions import ProcessingError
+
+        decision = Decision(
+            decision_id="decision_001",
+            category="credit_approval",
+            scenario="Credit limit increase",
+            reasoning="Customer meets all criteria",
+            outcome="approved",
+            confidence=0.9,
+            timestamp=datetime.now(),
+            decision_maker="ai_agent_001",
+        )
+
+        policy_id = "policy_001"
+
+        # allowed_outcomes=True is a bool (not iterable):
+        # "approved" not in True -> TypeError inside _check_compliance_with_rules.
+        mock_graph_store.execute_query.return_value = [
+            {"policy_id": policy_id, "rules": {"allowed_outcomes": True}}
+        ]
+
+        with pytest.raises(ProcessingError, match="Compliance check failed") as exc_info:
+            policy_engine.check_compliance(decision, policy_id)
+
+        assert isinstance(exc_info.value.__cause__, TypeError)
+
+    def test_check_compliance_raises_on_policy_lookup_failure(
+        self, policy_engine, mock_graph_store
+    ):
+        """An infrastructure failure during policy lookup must raise ProcessingError.
+
+        Before this fix, a graph-store error inside ``get_policy()`` was caught
+        by ``check_compliance``'s broad ``except Exception`` and silently
+        returned as ``False``, making an infrastructure failure
+        indistinguishable from a genuine non-compliant verdict.  The call must
+        now raise ``ProcessingError`` so that an operational failure is never
+        reported as a compliance verdict.
+        """
+        from semantica.context.decision_models import Decision
+        from semantica.utils.exceptions import ProcessingError
+
+        decision = Decision(
+            decision_id="decision_001",
+            category="credit_approval",
+            scenario="Credit limit increase",
+            reasoning="Customer meets all criteria",
+            outcome="approved",
+            confidence=0.9,
+            timestamp=datetime.now(),
+            decision_maker="ai_agent_001",
+        )
+
+        policy_id = "policy_001"
+
+        # Simulate a persistent infrastructure failure: every execute_query call raises.
+        mock_graph_store.execute_query.side_effect = RuntimeError(
+            "DB connection pool exhausted"
+        )
+
+        with pytest.raises(ProcessingError, match="Compliance check failed") as exc_info:
+            policy_engine.check_compliance(decision, policy_id)
+
+        assert isinstance(exc_info.value.__cause__, RuntimeError)
+
     def test_record_policy_application_success(self, policy_engine, mock_graph_store):
         """Test successful policy application recording."""
         decision_id = "decision_001"
