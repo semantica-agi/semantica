@@ -95,3 +95,16 @@ def test_generate_typed_raises_clear_error_when_unavailable(monkeypatch):
     claude = Anthropic(api_key=None)
     with pytest.raises(ProcessingError, match="Anthropic provider not available"):
         claude.generate_typed("hello", object())
+
+
+def test_generate_structured_passes_through_list_return():
+    """generate_structured() must propagate a top-level JSON array unchanged."""
+    claude = Anthropic(api_key="fake-key")
+    claude.provider = MagicMock()
+    claude.provider.is_available.return_value = True
+    claude.provider.generate_structured.return_value = [{"id": 1}, {"id": 2}]
+
+    result = claude.generate_structured("return a list")
+
+    assert result == [{"id": 1}, {"id": 2}]
+    assert isinstance(result, list)

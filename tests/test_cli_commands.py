@@ -1219,10 +1219,12 @@ class TestReason:
         """--engine graph should call GraphReasoner.reason(graph, query) and
         surface its natural-language answer, not the facts-count shape.
 
-        Also regression-guards two context-building gaps: a node with
-        multiple labels must keep all of them (not just labels[0]), and a
-        relationship's properties must reach GraphReasoner, not just its
-        source/target/type.
+        Also regression-guards three context-building gaps: a node with
+        multiple labels must keep all of them (not just labels[0]), a
+        relationship's properties must reach GraphReasoner (not just its
+        source/target/type), and start_node_id/end_node_id must resolve to
+        the actual node names rather than leaking raw internal ids into the
+        graph context sent to the LLM.
         """
         pytest.importorskip("numpy", reason="semantica.reasoning needs numpy")
 
@@ -1246,6 +1248,10 @@ class TestReason:
                 assert graph["entities"][0]["type"] == "Person/Manager"
                 assert graph["relationships"][0]["type"] == "MANAGES"
                 assert graph["relationships"][0]["properties"] == {"since": "2020"}
+                # start_node_id/end_node_id (1, 2) must resolve to node
+                # names, not leak raw internal ids into the LLM's context.
+                assert graph["relationships"][0]["source"] == "Alice"
+                assert graph["relationships"][0]["target"] == "Bob"
                 assert query == "Who manages Bob?"
                 return "Alice manages Bob."
 
@@ -1289,6 +1295,35 @@ class TestReason:
             cli_module.main, ["reason", "run", "--engine", "graph", "--query", "anything?"])
         assert result.exit_code != 0
         assert "LLM provider not initialized" in result.output
+        assert "Traceback" not in result.output
+
+    def test_run_graph_surfaces_generation_failure_as_error(self, runner, monkeypatch):
+        """The second GraphReasoner error path -- a generation-time failure
+        (e.g. provider initialized but the call itself fails) returns
+        "Error during reasoning: ..." rather than the "not initialized"
+        string. reason run must surface this as a real command failure too,
+        not just the first error string."""
+        pytest.importorskip("numpy", reason="semantica.reasoning needs numpy")
+
+        class _EmptyStore:
+            def get_nodes(self, limit=None): return []
+            def get_relationships(self, limit=None): return []
+
+        monkeypatch.setattr(cli_module, "_get_graph_store", lambda ctx: _EmptyStore())
+
+        class _FailingGraphReasoner:
+            def __init__(self, config=None, **kwargs):
+                pass
+
+            def reason(self, graph, query, **options):
+                return "Error during reasoning: connection timed out"
+
+        monkeypatch.setattr(
+            "semantica.reasoning.GraphReasoner", _FailingGraphReasoner, raising=False)
+        result = runner.invoke(
+            cli_module.main, ["reason", "run", "--engine", "graph", "--query", "anything?"])
+        assert result.exit_code != 0
+        assert "Error during reasoning" in result.output
         assert "Traceback" not in result.output
 
     def test_load_rule_definitions_formats(self, tmp_path):

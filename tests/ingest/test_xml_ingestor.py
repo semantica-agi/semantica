@@ -2,15 +2,17 @@ from pathlib import Path
 
 import pytest
 
-from semantica.ingest import (
+pytest.importorskip("lxml")
+
+from semantica.ingest import (  # noqa: E402
     XMLIngestionData,
     XMLIngestor,
     ingest,
     ingest_file,
     ingest_xml,
 )
-from semantica.ingest.xml_ingestor import XML_NAMESPACE
-from semantica.utils.exceptions import ProcessingError, ValidationError
+from semantica.ingest.xml_ingestor import XML_NAMESPACE  # noqa: E402
+from semantica.utils.exceptions import ProcessingError, ValidationError  # noqa: E402
 
 
 def test_xml_ingestor_extracts_structure_namespaces_and_attributes(
