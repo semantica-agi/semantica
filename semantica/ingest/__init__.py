@@ -148,6 +148,11 @@ if TYPE_CHECKING:
         SalesforceData,
         SalesforceIngestor,
     )
+    from .servicenow_ingestor import (
+        ServiceNowConnector,
+        ServiceNowData,
+        ServiceNowIngestor,
+    )
 
 from .config import IngestConfig, ingest_config
 from .file_ingestor import (
@@ -240,6 +245,10 @@ _LAZY_EXPORTS: Dict[str, Tuple[str, str]] = {
     "SAPIngestor": (".sap_ingestor", "SAPIngestor"),
     "SAPODataEntity": (".sap_ingestor", "SAPODataEntity"),
     "SAPODataConnector": (".sap_ingestor", "SAPODataConnector"),
+    # ServiceNow Table API ingestion
+    "ServiceNowIngestor": (".servicenow_ingestor", "ServiceNowIngestor"),
+    "ServiceNowData": (".servicenow_ingestor", "ServiceNowData"),
+    "ServiceNowConnector": (".servicenow_ingestor", "ServiceNowConnector"),
     # Databricks ingestion
     "DatabricksIngestor": (".databricks_ingestor", "DatabricksIngestor"),
     "DatabricksData": (".databricks_ingestor", "DatabricksData"),
@@ -478,6 +487,10 @@ __all__ = [
     "SAPIngestor",
     "SAPODataEntity",
     "SAPODataConnector",
+    # ServiceNow Table API ingestion
+    "ServiceNowIngestor",
+    "ServiceNowData",
+    "ServiceNowConnector",
     # Databricks ingestion
     "DatabricksIngestor",
     "DatabricksData",

@@ -110,7 +110,8 @@
               "integrations/bigquery",
               "integrations/salesforce",
               "integrations/redshift",
-              "integrations/powerbi"
+              "integrations/powerbi",
+              "integrations/servicenow"
             ]
           },
           {
