@@ -1571,8 +1571,8 @@ async def load_ontology(
             ontology_uri = ontology_data.data.get("uri", f"temp:{uuid.uuid4().hex[:12]}")
             registry[ontology_uri] = OntologyEntry(
                 uri=ontology_uri,
-                name=ontology_data.data.get("name", "Imported Ontology"),
-                description=ontology_data.data.get("description"),
+                name=body.name or ontology_data.data.get("name", "Imported Ontology"),
+                description=body.description or ontology_data.data.get("description"),
                 format=fmt,
                 status="external",
                 version=ontology_data.data.get("version", "1.0"),
@@ -1587,7 +1587,7 @@ async def load_ontology(
             
             return LoadOntologyResponse(
                 uri=ontology_uri,
-                name=ontology_data.data.get("name", "Imported Ontology"),
+                name=body.name or ontology_data.data.get("name", "Imported Ontology"),
                 nodes_added=nodes_added,
                 edges_added=edges_added,
                 format=fmt,
@@ -1628,8 +1628,8 @@ async def load_ontology(
     ontology_uri = metadata.get("uri", f"temp:{uuid.uuid4().hex[:12]}")
     registry[ontology_uri] = OntologyEntry(
         uri=ontology_uri,
-        name=metadata.get("name", "Imported Ontology"),
-        description=metadata.get("description"),
+        name=body.name or metadata.get("name", "Imported Ontology"),
+        description=body.description or metadata.get("description"),
         format=fmt,
         status="external",
         version=metadata.get("version", "1.0"),
@@ -1644,7 +1644,7 @@ async def load_ontology(
 
     return LoadOntologyResponse(
         uri=ontology_uri,
-        name=metadata.get("name", "Imported Ontology"),
+        name=body.name or metadata.get("name", "Imported Ontology"),
         nodes_added=nodes_added,
         edges_added=edges_added,
         format=fmt,
