@@ -4,6 +4,7 @@ Decision intelligence tools — record, query, precedents, causal chain, impact.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 from typing import Any
@@ -261,7 +262,17 @@ def handle_get_causal_chain(args: dict) -> dict:
                     ),
                     "chain": [],
                 }
-        result = chain if isinstance(chain, list) else list(chain)
+        # CausalChainAnalyzer returns Decision dataclasses, which the tools/call
+        # handler cannot json.dumps. serialize_decision applies the existing
+        # default=str policy, which also covers non-JSON values inside decision
+        # metadata. The fallback backends may already return plain values, so
+        # only objects exposing to_dict() are converted.
+        from semantica.context.decision_models import serialize_decision
+
+        result = [
+            json.loads(serialize_decision(item)) if hasattr(item, "to_dict") else item
+            for item in chain
+        ]
         return {"chain": result, "count": len(result), "direction": direction}
     except Exception as exc:
         log.exception("get_causal_chain failed")
