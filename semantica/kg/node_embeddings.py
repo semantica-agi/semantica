@@ -141,7 +141,7 @@ class NodeEmbedder:
 
         if method == "node2vec" and not GENSIM_AVAILABLE:
             raise ImportError(
-                "gensim is required for Node2Vec. Install with: pip install gensim"
+                "gensim is required for Node2Vec. Install with: pip install 'semantica[graph-embeddings]'"
             )
     
     def compute_embeddings(

@@ -39,7 +39,7 @@ python -m semantica.mcp_server
 openclaw gateway restart
 ```
 
-All **12 Semantica tools** are now available to any OpenClaw agent:
+All **15 Semantica tools** are now available to any OpenClaw agent:
 
 | Tool | What it does |
 |---|---|
@@ -55,6 +55,9 @@ All **12 Semantica tools** are now available to any OpenClaw agent:
 | `get_graph_analytics` | Centrality, communities, topology stats |
 | `export_graph` | Export graph (JSON, RDF, GraphML, …) |
 | `get_graph_summary` | High-level graph overview |
+| `query_graph` | Fetch a node, walk neighbours, keyword search |
+| `update_node` | Merge properties onto a node |
+| `delete_node` | Archive (soft-delete) a node |
 
 **3 resources** are also exposed: `semantica://graph/summary`, `semantica://decisions/list`, `semantica://schema/info`.
 

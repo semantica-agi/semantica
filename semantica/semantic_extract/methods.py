@@ -106,19 +106,30 @@ Author: Semantica Contributors
 License: MIT
 """
 
+import hashlib
+import os
 import re
 import difflib
 import threading
+from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from contextlib import contextmanager
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 from ..utils.exceptions import ProcessingError
 from ..utils.logging import get_logger
 from .providers import HuggingFaceModelLoader, create_provider
 from .registry import method_registry
-from .cache import ExtractionCache
+from .cache import ExtractionCache, InMemoryBackend
 from .config import config
-from .types import Entity, Relation, Triplet
+from .types import (
+    CONFIDENCE_SOURCE_KEY,
+    CONFIDENCE_SOURCE_MODEL,
+    CONFIDENCE_SOURCE_UNAVAILABLE,
+    Entity,
+    Relation,
+    Triplet,
+)
 
 try:
     from .schemas import (
@@ -134,11 +145,112 @@ except ImportError:
 logger = get_logger("methods")
 
 # Initialize global result cache
-_result_cache = ExtractionCache(
-    ttl=config.get("cache_ttl", 3600)
-)
-if not config.get("cache_enabled", True):
-    _result_cache.enabled = False
+def _default_cache_path() -> str:
+    """A per-user, private default location for the persistent cache.
+
+    Uses ``$XDG_CACHE_HOME`` (or ``~/.cache``) so the file is not a predictable,
+    world-writable temp path — important because the sqlite backend can
+    deserialize its rows with pickle. The directory is created ``0o700``; if that
+    is not possible, a private ``tempfile`` directory is used as a fallback.
+    """
+    import tempfile
+
+    base = os.environ.get("XDG_CACHE_HOME") or os.path.join(
+        os.path.expanduser("~"), ".cache"
+    )
+    directory = os.path.join(base, "semantica")
+    try:
+        os.makedirs(directory, mode=0o700, exist_ok=True)
+        if hasattr(os, "chmod"):
+            os.chmod(directory, 0o700)
+    except OSError:
+        directory = tempfile.mkdtemp(prefix="semantica-cache-")  # 0o700, unique
+    return os.path.join(directory, "extract_cache.sqlite3")
+
+
+def _build_cache_backend():
+    """Select a cache backend from config.
+
+    Returns ``None`` (ExtractionCache's default in-memory backend) unless a
+    persistent backend is requested. Any failure to construct the persistent
+    backend degrades gracefully to the in-memory default so extraction never
+    breaks because of a cache misconfiguration.
+    """
+    backend_kind = str(config.get("cache_backend", "memory") or "memory").lower()
+    if backend_kind == "sqlite":
+        from .cache import SqliteCacheBackend
+
+        path = config.get("cache_path") or _default_cache_path()
+        try:
+            return SqliteCacheBackend(path, max_size=config.get("cache_size", 1000))
+        except Exception as exc:  # defensive fallback (e.g. unsafe/owned path)
+            logger.warning(
+                f"Failed to init sqlite cache backend at {path!r} "
+                f"({exc}); falling back to in-memory cache."
+            )
+    return None
+
+
+def _make_result_cache() -> ExtractionCache:
+    cache = ExtractionCache(
+        max_size=config.get("cache_size", 1000),
+        ttl=config.get("cache_ttl", 3600),
+        backend=_build_cache_backend(),
+    )
+    if not config.get("cache_enabled", True):
+        cache.enabled = False
+    return cache
+
+
+_result_cache = _make_result_cache()
+
+
+def configure_cache(
+    backend: Optional[str] = None,
+    path: Optional[str] = None,
+    ttl: Optional[int] = None,
+    enabled: Optional[bool] = None,
+) -> ExtractionCache:
+    """Reconfigure the global extraction cache at runtime and rebuild it.
+
+    The module-level cache is created at import time, so this is the supported
+    way to switch to persistent (sqlite) storage programmatically after import
+    (the ``SEMANTICA_CACHE_*`` environment variables work at import time too).
+
+    Args:
+        backend: ``"memory"`` or ``"sqlite"``.
+        path: sqlite database path (defaults to a per-user private location).
+        ttl: time-to-live in seconds.
+        enabled: enable/disable caching.
+
+    Returns:
+        The rebuilt global :class:`ExtractionCache`.
+    """
+    updates: Dict[str, Any] = {}
+    if backend is not None:
+        updates["cache_backend"] = backend
+    if path is not None:
+        updates["cache_path"] = path
+    if ttl is not None:
+        updates["cache_ttl"] = ttl
+    if enabled is not None:
+        updates["enable_cache"] = enabled
+    if updates:
+        config.set_optimization(**updates)
+
+    # Mutate the existing cache in place (rather than rebinding the module
+    # global) so any code holding a reference to it stays valid.
+    new_max = config.get("cache_size", 1000)
+    new_backend = _build_cache_backend()
+    if hasattr(_result_cache._backend, "close"):
+        _result_cache._backend.close()
+    _result_cache.max_size = new_max
+    _result_cache.ttl = config.get("cache_ttl", 3600)
+    _result_cache._backend = (
+        new_backend if new_backend is not None else InMemoryBackend(max_size=new_max)
+    )
+    _result_cache.enabled = bool(config.get("cache_enabled", True))
+    return _result_cache
 
 # Generation kwargs that affect provider output and must therefore be part of
 # the cache key. This is the union of every generation-affecting parameter
@@ -181,6 +293,18 @@ def _generation_cache_params(kwargs: dict) -> dict:
         if k in _GENERATION_CACHE_KEYS and v is not None
     }
 
+
+def _stable_fingerprint(items) -> str:
+    """Deterministic SHA-256 fingerprint over a collection of strings.
+
+    Used to fold entity/relation inputs into a cache key. Unlike the built-in
+    ``hash()``, this is stable across interpreter processes (``hash()`` is
+    randomized per-process via ``PYTHONHASHSEED``), which the persistent cache
+    backend relies on so identical inputs map to the same key after a restart.
+    """
+    joined = "\x00".join(sorted(items))
+    return hashlib.sha256(joined.encode("utf-8")).hexdigest()
+
 # Try to import spaCy
 from ..utils.helpers import safe_import
 
@@ -199,8 +323,41 @@ _embedder_cache = None
 # spacy.load() on every call. Entries record the spacy module they were loaded
 # from: tests patch `methods.spacy` with a mock, and an entry produced by a
 # different module object must not be handed back to a later caller.
-_spacy_model_cache: Dict[str, Tuple[Any, Any]] = {}
+# Bounded: each spaCy Language costs hundreds of MB, and a long-running
+# service that varies the `model` option would otherwise pin every model it
+# ever touched for the life of the process. 4 covers lg/md/sm + one custom.
+MAX_SPACY_MODELS_CACHED = 4
+_spacy_model_cache: "OrderedDict[str, Tuple[Any, Any, threading.Lock]]" = OrderedDict()
 _spacy_model_cache_lock = threading.Lock()
+
+
+def _load_spacy_entry(name: str) -> Tuple[Any, Any, threading.Lock]:
+    """Return the cache entry for ``name``: ``(spacy_module, nlp, call_lock)``.
+
+    The entire lookup-plus-update is performed under ``_spacy_model_cache_lock``
+    so that the LRU ``move_to_end`` and eviction are always consistent.
+    ``spacy.load`` is called inside the lock; that is acceptable here because
+    model loads are rare (at most ``MAX_SPACY_MODELS_CACHED`` per process) and
+    the simpler design eliminates the TOCTOU window that a lockless fast-path
+    would introduce.
+
+    Raises whatever ``spacy.load`` raises (``OSError`` for a missing model).
+    """
+    if spacy is None:
+        raise ImportError(
+            "spaCy is not installed. Install with: pip install 'semantica[nlp-spacy]'"
+        )
+    with _spacy_model_cache_lock:
+        cached = _spacy_model_cache.get(name)
+        if cached is not None and cached[0] is spacy:
+            _spacy_model_cache.move_to_end(name)
+            return cached
+        nlp = spacy.load(name)
+        entry: Tuple[Any, Any, threading.Lock] = (spacy, nlp, threading.Lock())
+        _spacy_model_cache[name] = entry
+        while len(_spacy_model_cache) > MAX_SPACY_MODELS_CACHED:
+            _spacy_model_cache.popitem(last=False)
+        return entry
 
 
 def load_spacy_model(name: str):
@@ -208,18 +365,80 @@ def load_spacy_model(name: str):
 
     Raises whatever ``spacy.load`` raises (``OSError`` for a missing model), so
     callers keep their existing fallback behavior.
-    """
-    cached = _spacy_model_cache.get(name)
-    if cached is not None and cached[0] is spacy:
-        return cached[1]
 
-    with _spacy_model_cache_lock:
-        cached = _spacy_model_cache.get(name)
-        if cached is not None and cached[0] is spacy:
-            return cached[1]
-        nlp = spacy.load(name)
-        _spacy_model_cache[name] = (spacy, nlp)
-        return nlp
+    .. warning::
+        The returned ``Language`` object is shared process-wide.  Calling it
+        from multiple threads concurrently is not safe.  Use
+        ``spacy_pipeline_guard`` (or ``run_spacy_text``) to serialize calls.
+    """
+    _spacy_module, nlp, _call_lock = _load_spacy_entry(name)
+    return nlp
+
+
+@contextmanager
+def spacy_pipeline_guard(name: str):
+    """Yield the cached ``Language`` for ``name`` under its per-model call lock.
+
+    Concurrent calls on the *same* model serialize; calls on *different* models
+    run in parallel.  Raises whatever ``spacy.load`` raises (``OSError`` for a
+    missing model).
+    """
+    _spacy_module, nlp, call_lock = _load_spacy_entry(name)
+    with call_lock:
+        yield nlp
+
+
+def run_spacy_text(
+    name: str,
+    text: str,
+    *,
+    fallback: Optional[str] = None,
+    log_label: str = "spaCy",
+):
+    """Call ``nlp(text)`` under the per-model guard; try ``fallback`` on ``OSError``.
+
+    Returns the ``Doc``, or ``None`` when no usable model is available — the
+    caller's cue to take its own pattern fallback.  All ``nlp(text)`` calls go
+    through ``spacy_pipeline_guard``, serializing concurrent thread access for
+    the same model while letting different models run in parallel.
+
+    Fallback is only attempted when the *primary* model is missing (``OSError``).
+    A pipeline error (non-OSError) returns ``None`` immediately without trying
+    the fallback, because the fallback would likely hit the same error.
+    """
+    try:
+        with spacy_pipeline_guard(name) as nlp:
+            return nlp(text)
+    except OSError:
+        if not fallback:
+            logger.warning("%s model '%s' not found", log_label, name)
+            return None
+        logger.warning(
+            "%s model '%s' not found, trying fallback '%s'",
+            log_label, name, fallback,
+        )
+    except Exception:
+        logger.warning(
+            "%s model '%s' raised an unexpected error; skipping.",
+            log_label, name, exc_info=True,
+        )
+        return None
+
+    # Reached only when primary raised OSError and fallback is set.
+    try:
+        with spacy_pipeline_guard(fallback) as nlp:
+            return nlp(text)
+    except OSError:
+        logger.warning(
+            "%s fallback model '%s' not found either",
+            log_label, fallback,
+        )
+    except Exception:
+        logger.warning(
+            "%s fallback model '%s' raised an unexpected error; skipping.",
+            log_label, fallback, exc_info=True,
+        )
+    return None
 
 
 def clear_spacy_model_cache() -> None:
@@ -277,8 +496,8 @@ def get_nlp_model():
         try:
             _nlp_cache = spacy.load("en_core_web_sm", disable=["parser", "ner", "lemmatizer"])
             return _nlp_cache
-        except:
-            pass
+        except Exception:
+            pass  # spacy.load raises OSError for a missing model
             
     except Exception as e:
         logger.warning(f"Failed to load spaCy model for similarity: {e}")
@@ -599,27 +818,31 @@ def filter_entities_for_text(
 
 
 def calculate_weighted_confidence(
-    item_type: str, 
-    original_confidence: float, 
+    item_type: str,
+    original_confidence: Optional[float],
     valid_types: Optional[List[str]] = None,
     item_text: Optional[str] = None,
     weight_method: float = 0.5,
     weight_similarity: float = 0.5
-) -> float:
+) -> Optional[float]:
     """
     Calculate weighted confidence score using both Label and Content similarity.
     Final Score = (weight_method * original_confidence) + (weight_similarity * max(label_sim, content_sim))
-    
+
     Args:
         item_type: The extracted type/label/predicate (e.g., "PERSON", "founded_by")
-        original_confidence: The confidence score from the extraction method (0.0-1.0)
+        original_confidence: The confidence score from the extraction method
+            (0.0-1.0), or None if the method provided no score
         valid_types: List of valid/preferred types provided by user
         item_text: The actual text content extracted (e.g., "Steve Jobs", "acquired")
         weight_method: Weight for the original method confidence (default 0.5)
         weight_similarity: Weight for the similarity score (default 0.5)
-        
+
     Returns:
-        float: Weighted confidence score (0.0-1.0)
+        float or None: Weighted confidence score (0.0-1.0). When
+        original_confidence is None, returns the similarity score alone —
+        or None (still unknown) if valid_types is empty or the similarity
+        weight is disabled (<= 0).
     """
     if not valid_types:
         return original_confidence
@@ -640,11 +863,18 @@ def calculate_weighted_confidence(
     if total_weight <= 0:
         return original_confidence
         
+    if original_confidence is None:
+        if weight_similarity <= 0:
+            # Similarity disabled and no measured confidence: still unknown
+            return None
+        # No measured confidence to blend; rely on similarity alone
+        return max(0.0, min(1.0, best_similarity))
+
     w_m = weight_method / total_weight
     w_s = weight_similarity / total_weight
-    
+
     final_score = (w_m * original_confidence) + (w_s * best_similarity)
-    
+
     return max(0.0, min(1.0, final_score))
 
 
@@ -760,36 +990,17 @@ def extract_entities_ml(
         logger.warning("spaCy not available, falling back to pattern extraction")
         return extract_entities_pattern(text, **kwargs)
 
-    try:
-        nlp = load_spacy_model(model)
-    except OSError:
-        logger.warning(f"spaCy model {model} not found, using en_core_web_sm")
-        try:
-            nlp = load_spacy_model("en_core_web_sm")
-        except OSError:
-            logger.warning(
-                "spaCy model not available, falling back to pattern extraction"
-            )
-            return extract_entities_pattern(text, **kwargs)
-        except Exception as exc:
-            logger.warning(
-                "spaCy fallback triggered because the default model failed to initialize. Falling back to pattern extraction.",
-                exc_info=True,
-            )
-            return extract_entities_pattern(text, **kwargs)
-    except Exception as exc:
-        logger.warning(
-            "spaCy model %s failed to initialize, falling back to pattern extraction.",
-            model,
-            exc_info=True,
-        )
+    doc = run_spacy_text(
+        model, text, fallback="en_core_web_sm", log_label="spaCy NER"
+    )
+    if doc is None:
         return extract_entities_pattern(text, **kwargs)
-
-    doc = nlp(text)
     entities = []
 
     for ent in doc.ents:
-        confidence = 1.0
+        # Standard spaCy spans expose no per-entity probability. Report the
+        # absence explicitly (None) instead of fabricating certainty (1.0).
+        confidence = None
         if hasattr(ent, "confidence"):
             confidence = ent.confidence
         elif hasattr(ent, "score"):
@@ -806,6 +1017,11 @@ def extract_entities_ml(
                     "extraction_method": "ml",
                     "model": model,
                     "lemma": ent.lemma_ if hasattr(ent, "lemma_") else ent.text,
+                    CONFIDENCE_SOURCE_KEY: (
+                        CONFIDENCE_SOURCE_MODEL
+                        if confidence is not None
+                        else CONFIDENCE_SOURCE_UNAVAILABLE
+                    ),
                 },
             )
         )
@@ -1439,34 +1655,30 @@ def extract_relations_similarity(
         return extract_relations_cooccurrence(text, entities, **kwargs)
 
     relations = []
-    
-    # Try to load spaCy model with vectors
-    nlp = None
+
+    # Resolve which model to use for vectors (prefer larger models), then
+    # invoke it only under its guard: spaCy Languages are shared process-wide
+    # and not safe to call from concurrent threads.
+    chosen_model = None
     if SPACY_AVAILABLE:
-        try:
-            # Prefer larger models for vectors
-            for model_name in ["en_core_web_lg", "en_core_web_md", "en_core_web_sm"]:
-                if spacy.util.is_package(model_name):
-                    nlp = load_spacy_model(model_name)
-                    break
-            if not nlp:
-                 # Try loading what we have
-                 try:
-                     nlp = load_spacy_model("en_core_web_sm") 
-                 except:
-                     pass
-        except Exception:
-            pass
+        for model_name in ["en_core_web_lg", "en_core_web_md", "en_core_web_sm"]:
+            if spacy.util.is_package(model_name):
+                chosen_model = model_name
+                break
 
     # Pre-compute relation type vectors if possible
     relation_vectors = {}
     has_vectors = False
-    if nlp:
-        # Check if model has vectors
-        if nlp.vocab.vectors.shape[0] > 0:
-            has_vectors = True
-            for rt in relation_types:
-                relation_vectors[rt] = nlp(rt)
+    if chosen_model:
+        try:
+            with spacy_pipeline_guard(chosen_model) as guarded_nlp:
+                # Check if model has vectors
+                if guarded_nlp.vocab.vectors.shape[0] > 0:
+                    has_vectors = True
+                    for rt in relation_types:
+                        relation_vectors[rt] = guarded_nlp(rt)
+        except Exception:
+            pass
     
     for entity1 in entities:
         for entity2 in entities:
@@ -1496,10 +1708,12 @@ def extract_relations_similarity(
             best_type = None
             best_score = 0.0
 
-            if has_vectors and relation_vectors:
-                # Vector similarity
-                doc = nlp(between_text)
-                if doc.vector_norm:
+            if has_vectors and relation_vectors and chosen_model:
+                # Vector similarity — each call re-enters the model's guard
+                doc = run_spacy_text(
+                    chosen_model, between_text, log_label="spaCy similarity"
+                )
+                if doc is not None and doc.vector_norm:
                     for rt, vec in relation_vectors.items():
                         if vec.vector_norm:
                             sim = doc.similarity(vec)
@@ -1551,13 +1765,9 @@ def extract_relations_dependency(
         logger.warning("spaCy not available, falling back to pattern extraction")
         return extract_relations_pattern(text, entities, **kwargs)
 
-    try:
-        nlp = load_spacy_model(model)
-    except OSError:
-        logger.warning(f"spaCy model {model} not found")
+    doc = run_spacy_text(model, text, log_label="spaCy dependency")
+    if doc is None:
         return extract_relations_pattern(text, entities, **kwargs)
-
-    doc = nlp(text)
     relations = []
     
     # Map tokens to entities
@@ -1747,8 +1957,12 @@ def extract_relations_llm(
         "max_retries": max_retries,
         "relation_types": kwargs.get("relation_types"),
         "extract_temporal_bounds": extract_temporal_bounds,
-        # Include entities hash/str in cache key implicitly via **cache_params
-        "entities_hash": hash(tuple(sorted([e.text for e in entities]))) if entities else 0,
+        # Deterministic fingerprint over the entity inputs (text + label) that
+        # affect the prompt. Stable across processes so the persistent cache
+        # rehits after a restart (unlike the process-randomized built-in hash()).
+        "entities_hash": _stable_fingerprint(
+            [f"{e.text}\x01{e.label}" for e in entities]
+        ) if entities else "",
         **_generation_cache_params(kwargs),
     }
     cached_result = _result_cache.get("relations", text, **cache_params)
@@ -2316,7 +2530,7 @@ def extract_triplets_rules(
 
 
 def extract_triplets_huggingface(
-    text: str, model: str, device: Optional[str] = None, **kwargs
+    text: str, model: str, device: Optional[str] = None, entities: Optional[List[Entity]] = None, **kwargs
 ) -> List[Triplet]:
     """HuggingFace triplet extraction."""
     loader = HuggingFaceModelLoader(device=device)
@@ -2348,16 +2562,30 @@ def extract_triplets_huggingface(
                 tail = match.group("tail").strip()
                 
                 if head and relation and tail:
+                    # Head/tail are raw decoded strings from the model. Tag any
+                    # that match no known entity so the GraphBuilder promotes
+                    # them instead of leaving a dangling edge (#1463).
+                    # TripletExtractor dispatches with entities=..., so this is
+                    # the real NER list here, not a dead comparison.
+                    hf_entities = entities or []
+                    synthetic_endpoints = [
+                        endpoint_text
+                        for endpoint_text in (head, tail)
+                        if not match_entity(endpoint_text, hf_entities)
+                    ]
+                    hf_metadata = {
+                        "model": model,
+                        "extraction_method": "huggingface_rebel",
+                    }
+                    if synthetic_endpoints:
+                        hf_metadata["synthetic_endpoints"] = synthetic_endpoints
                     triplets.append(
                         Triplet(
                             subject=head,
                             predicate=relation,
                             object=tail,
                             confidence=0.9, # Model generation doesn't provide per-triplet confidence
-                            metadata={
-                                "model": model,
-                                "extraction_method": "huggingface_rebel"
-                            }
+                            metadata=hf_metadata
                         )
                     )
 
@@ -2402,9 +2630,15 @@ def extract_triplets_llm(
         "structured_output_mode": structured_output_mode,
         "max_retries": max_retries,
         "triplet_types": kwargs.get("triplet_types"),
-        # Include entities/relations hash in cache key implicitly via **cache_params
-        "entities_hash": hash(tuple(sorted([e.text for e in entities]))) if entities else 0,
-        "relations_hash": hash(tuple(sorted([str(r) for r in relations]))) if relations else 0,
+        # Deterministic fingerprints over the entity/relation inputs that affect
+        # the prompt. Stable across processes so the persistent cache rehits
+        # after a restart (unlike the process-randomized built-in hash()).
+        "entities_hash": _stable_fingerprint(
+            [f"{e.text}\x01{e.label}" for e in entities]
+        ) if entities else "",
+        "relations_hash": _stable_fingerprint(
+            [str(r) for r in relations]
+        ) if relations else "",
         **_generation_cache_params(kwargs),
     }
     cached_result = _result_cache.get("triplets", text, **cache_params)
@@ -2517,16 +2751,27 @@ Text to extract from:
         # Convert back to internal Triplet format
         triplets = []
         for t_out in result_obj.triplets:
+            # An LLM triple may reference an endpoint that does not match any
+            # entity extracted by NER. Record those endpoints so the GraphBuilder
+            # can promote them as synthetic entities instead of leaving a
+            # dangling edge (see issue #1463).
+            synthetic_endpoints = []
+            for endpoint_text in (t_out.subject, t_out.object):
+                if not match_entity(endpoint_text, entities or []):
+                    synthetic_endpoints.append(endpoint_text)
+            metadata = {
+                "provider": provider,
+                "model": model,
+                "extraction_method": "llm_typed",
+            }
+            if synthetic_endpoints:
+                metadata["synthetic_endpoints"] = synthetic_endpoints
             triplets.append(Triplet(
                 subject=t_out.subject,
                 predicate=t_out.predicate,
                 object=t_out.object,
                 confidence=t_out.confidence,
-                metadata={
-                    "provider": provider, 
-                    "model": model, 
-                    "extraction_method": "llm_typed"
-                }
+                metadata=metadata,
             ))
         
         logger.info(f"Successfully extracted {len(triplets)} triplets using {provider}/{model} (typed)")

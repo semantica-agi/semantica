@@ -91,7 +91,7 @@ _INIT_REQUEST = _jsonrpc("initialize", 1, {
 # ---------------------------------------------------------------------------
 
 class TestMCPStdioFramingContract(unittest.TestCase):
-    """Run 'python -m mcp' exactly as an MCP client would, over a real pipe.
+    """Run 'python -m semantica_mcp.mcp' exactly as an MCP client would, over a real pipe.
 
     Each test sends a complete JSON-RPC session through stdin and asserts that
     every byte on stdout is valid JSON — catching the exact failure mode from
@@ -102,7 +102,7 @@ class TestMCPStdioFramingContract(unittest.TestCase):
 
     def _run(self, *requests: bytes) -> subprocess.CompletedProcess:
         return subprocess.run(
-            [sys.executable, "-m", "mcp"],
+            [sys.executable, "-m", "semantica_mcp.mcp"],
             input=b"".join(requests),
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,

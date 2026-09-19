@@ -246,7 +246,8 @@ Full interactive docs at `http://localhost:8000/docs`. All endpoints accept and 
     | `/api/ontology/shacl/validate` | `POST` | Validate RDF against SHACL |
     | `/api/ontology/skos/schemes` | `GET` | List SKOS concept schemes |
     | `/api/ontology/skos/concept/{uri}` | `GET` | Get a SKOS concept |
-    | `/api/ontology/proposals` | `GET/POST` | Manage ontology change proposals |
+    | `/api/ontology/proposals` | `GET` | List or read ontology change proposals |
+    | `/api/ontology/propose` | `POST` | Submit a draft as a proposal |
     | `/api/ontology/versions/{uri}` | `GET` | Version history |
 
     **Vocabulary:**
@@ -404,6 +405,6 @@ Semantic neighborhood requires node embeddings stored in node properties (keys `
 Session state is in-memory only. Use `POST /api/export` to save a JSON snapshot before shutting down.
 
 - [Context](/reference/context) — Build and save the ContextGraph that Explorer loads.
-- [Ontology](ontology) — Programmatic ontology management and SHACL generation.
-- [Visualization](visualization) — Programmatic graph rendering without the Explorer server.
-- [Export](export) — Export to RDF, Parquet, and other formats without launching a server.
+- [Ontology](/reference/ontology) — Programmatic ontology management and SHACL generation.
+- [Visualization](/reference/visualization) — Programmatic graph rendering without the Explorer server.
+- [Export](/reference/export) — Export to RDF, Parquet, and other formats without launching a server.

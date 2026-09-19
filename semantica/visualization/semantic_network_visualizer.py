@@ -74,7 +74,7 @@ class SemanticNetworkVisualizer:
         if px is None or go is None:
             raise ProcessingError(
                 "Plotly is required for semantic network visualization. "
-                "Install with: pip install plotly"
+                "Install with: pip install 'semantica[viz]'"
             )
 
     def visualize_network(

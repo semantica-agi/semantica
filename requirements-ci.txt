@@ -181,6 +181,7 @@ anyio==4.14.2 \
     #   jupyter-server
     #   langsmith
     #   openai
+    #   pinecone
     #   starlette
     #   watchfiles
 argon2-cffi==25.1.0 \
@@ -426,9 +427,9 @@ boto3==1.43.85 \
     # via
     #   semantica (pyproject.toml)
     #   litellm
-botocore==1.43.85 \
-    --hash=sha256:685510e5f4c0f321806c815a60f121a176c0969665f053c4a336209cbe62b1d5 \
-    --hash=sha256:8fc0a3c56078c629320b021edadf7a45d289eea21a4988ada6a02277e5bbbdc0
+botocore==1.43.93 \
+    --hash=sha256:3ca57bb5d26d88b554a74de708a5c991f45306436c91aacca931252d1d4d54ff \
+    --hash=sha256:82da355d18a7f784347b00444be33942834651f31b6c5ffef49999cd47364c5e
     # via
     #   boto3
     #   s3transfer
@@ -786,7 +787,9 @@ charset-normalizer==3.5.1 \
     --hash=sha256:fd0350afdc3aabd5576f60ea109228bd5538139713c7b094c5cd27c73a98bc6f \
     --hash=sha256:fd0a274c0e5f9a21565cd9d3dd749b61f96b7aa1e20a93aa1ba4029518f2e5c0 \
     --hash=sha256:fdb8a068947befafba9952162645dc2fecaeb400e64584829ed5e9b2fbe21a7f
-    # via requests
+    # via
+    #   pdfminer-six
+    #   requests
 click==8.5.0 \
     --hash=sha256:255bc9599cf7748b4b1a446ccc735421bd08a2ae529a8b88597d3de5664ee360 \
     --hash=sha256:ba0d2089de75ea0310e2dde03160e6ca10009947fb95a182f9b54021bb272e34
@@ -1097,6 +1100,7 @@ cryptography==50.0.1 \
     #   azure-storage-blob
     #   google-auth
     #   joserfc
+    #   pdfminer-six
 cuda-bindings==13.3.1 \
     --hash=sha256:04436a9364059c84b8f9636f359eccda1cf814341f5b670c71d80d2f79dbc708 \
     --hash=sha256:120fcc53d57903df529c3486962c56528cba5b7d6c57c99537320ed9922c8b86 \
@@ -2733,15 +2737,15 @@ librt==0.15.0 \
     --hash=sha256:fc1ed11c4ad0b91af24def2050f2840ea4567828e3dd058fbe608d982f6e5465 \
     --hash=sha256:febb1ce6cac545a54e6b769982824e955a700fdd9fbf3a08a3d82c990968b57d
     # via mypy
-litellm==1.99.0 \
-    --hash=sha256:1c45097e426fed2ae7fbd38b5404c3addeb203d0e1148c0a59848aabd5fe83c6 \
-    --hash=sha256:5617804e838499bce8fecb41ad9bc984b7977361e557666fed0fef0c4623ce62 \
-    --hash=sha256:594bf4b6ff6b79c6aa3c3b78c0e939d4afd12687e076ba3fb608d38a5aa7f9c6 \
-    --hash=sha256:71109c323164b4b6776ff259876523e6e883a465aa1413dd51a1bda8e92efc5f \
-    --hash=sha256:a43e8716da8beed04480e91b4233ff2f1ab1fedd84cad332dbc526b54a9229ca \
-    --hash=sha256:e2b383070656fdbec4bc44602edaaed2a21e99ceee4ea0a4650c8cb381e67b59 \
-    --hash=sha256:e42f94731665b68e263481efd79f7629e9b97eed7e10c57dc37a890eca058227 \
-    --hash=sha256:e461b7ce53af990e5287cf7ae30d82c956b56dcce886f63ef39a76e678f82a3b
+litellm==1.100.1 \
+    --hash=sha256:1d2e622a2e2eab74efd25ed356208568b783cb406f413efd083e3416b81d1606 \
+    --hash=sha256:2f45760e61a624660444d110ae6475edc959e2906914c6c308c710c8be2ca742 \
+    --hash=sha256:4e2d410538c8a0d7b58440c47d7e1a6120c3219dfb5d100f39069fa8dbce0055 \
+    --hash=sha256:63201b3ed92cbe6ff9ec26ee83436efbd67c5f6d38b2d1ece0203f04819fc4c3 \
+    --hash=sha256:8f53d917ece795e35c125ec24d342ddc2103a806c22b1f7b1517110d31f45362 \
+    --hash=sha256:d24b5fbdeb1f0b5c0a6f7f0caf7b6aa79b69c704b90daca57e3ce7d50a9d6bf4 \
+    --hash=sha256:f150a169807a1b24c0ffc5bd1838f77659bf7449db8718e65d1be1bca517825f \
+    --hash=sha256:f24ab714b58a66276623b48ed58c0fbf4e1ccd6fd127b187a049ce0c74eba8ab
     # via semantica (pyproject.toml)
 llvmlite==0.49.0 \
     --hash=sha256:00f16db782f4a13c78c5804aedc434e46794a77e89999a168f9401106270e50a \
@@ -4298,6 +4302,14 @@ patsy==1.0.3 \
     --hash=sha256:79ebf4c93ff4d296e58a9d5be2b2ee31bd49d737cf11d70ffbd8a44b2de42e65 \
     --hash=sha256:d3dbebe8fd5f46e29912d030b63c6268647b59bf788a99e2af28a30234cf357c
     # via statsmodels
+pdfminer-six==20260107 \
+    --hash=sha256:366585ba97e80dffa8f00cebe303d2f381884d8637af4ce422f1df3ef38111a9 \
+    --hash=sha256:96bfd431e3577a55a0efd25676968ca4ce8fd5b53f14565f85716ff363889602
+    # via pdfplumber
+pdfplumber==0.11.10 \
+    --hash=sha256:7741ea81bf165b474b153e6789d10d18e06b6ddcf3ec84289c3ef2fed6802580 \
+    --hash=sha256:b95b2d28c66efb0a794a83b88c6c6aea5987532a445d20a1cbcfa657022e6e57
+    # via semantica (pyproject.toml)
 pexpect==4.9.0 \
     --hash=sha256:7236d1e080e4936be2dc3e326cec0af72acf9212a7e1d060210e70a47e253523 \
     --hash=sha256:ee7d41123f3c9911050ea2c2dac107568dc43b2d3b0c7557a33212c398ead30f
@@ -4406,18 +4418,19 @@ pillow==12.3.0 \
     #   docling-slim
     #   fastembed
     #   matplotlib
+    #   pdfplumber
     #   python-pptx
     #   rapidocr
     #   torchvision
-pinecone==9.1.0 \
-    --hash=sha256:461632bb07919da32b943100b8a047c74be53a6aa15c8b7679bff7a0f834c939 \
-    --hash=sha256:6c3a6dfa577dc11aed3197e1b221e65522603e9e1f6bd27a1b504a0909b3559f \
-    --hash=sha256:d3871bd3f39cb430ae8470158dc9c5dcffbac5ae31d144d9a7c3b351ac51755f \
-    --hash=sha256:d53fe6f4978ab0642eb2d3a0ee3b2576ccfeebaa11e0690b18e67dac4e057047 \
-    --hash=sha256:e930ba819f5b7e20aac688d04c840a8b6fbc6d12630d71303bb2130881a9d169 \
-    --hash=sha256:fc71ec431108de2df1a1978d3a24ac16f74ba3d8f3265c3760f969386e8742b8 \
-    --hash=sha256:fe6aeaf6515e9021984755ebc162f643c79d98056059aab2e765962a7538818c \
-    --hash=sha256:ffae8fb7cbb4056b920586629f15b08107350be4802a5637d10b31e2ad841f9c
+pinecone==10.0.0 \
+    --hash=sha256:0994270c514b16c72ec94dd6c29ff2708b81d30ff8467e19de192a28a7c86b7e \
+    --hash=sha256:0e05956a3201b1fbb54a1861277df919318a4941797f2d87fd558ac5ec232151 \
+    --hash=sha256:2f4e3200ee3562d195802b363487dd7fe6039a8c13630fc25fa3e8726c7a8654 \
+    --hash=sha256:3ab0c843b4fb04fbac22f1b8455e389063208a50f6a95d7a90627939968198de \
+    --hash=sha256:6066bbe9a7ae1d667cde08d262deb6fbea6feb35deb9177dd47141b55bbd9833 \
+    --hash=sha256:94d4c64779f3213a5cc538d3bd10a873da192cb9b0039db56690e556ba00b55c \
+    --hash=sha256:995c06e905940b10bb2aefe653225340b5a3f56f3efb373fe07f4e57b5043705 \
+    --hash=sha256:d482ed27a805cbd4aca2660da212008dd6e41d87d255279f405ff13b725970e2
     # via semantica (pyproject.toml)
 platformdirs==4.11.7 \
     --hash=sha256:4f41487eeeeeb07f3a6625e61d9bc0ae6809f92d3386dbd74392fbb76108104d \
@@ -5293,7 +5306,9 @@ pypdfium2==5.13.0 \
     --hash=sha256:d96929bde3bd64c771ab3558ca1ffd7704cc4d872ab92cd9f8f8b8a20f7f36b8 \
     --hash=sha256:d96beb7f379e6c76d874ca93fcd182ac3168dd499056407070f9927fb1061b8e \
     --hash=sha256:da5c7b74eebf40b5c1fbe1de01aa1edc8827a79fb1efd999616bc20dcaf77ba4
-    # via docling-slim
+    # via
+    #   docling-slim
+    #   pdfplumber
 pypickle==2.0.2 \
     --hash=sha256:d3307127314465fe3dc8f0162e11777d5e8284f3a29dc48b0f770d364a85d998 \
     --hash=sha256:d577e39cf501c7c80b1387f6d7dc885cf4efeba65f213df41226d1f24881b1e8

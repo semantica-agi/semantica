@@ -21,6 +21,7 @@ from typing import Any, List, Optional
 try:
     from google.adk.events import Event
     from google.adk.sessions import BaseSessionService, Session
+
     try:
         from google.adk.sessions import ListSessionsResponse
     except ImportError:
@@ -33,7 +34,7 @@ try:
     except ImportError:
         from google.adk.sessions.base_session_service import GetSessionConfig
     ADK_AVAILABLE = True
-except (ImportError, ModuleNotFoundError):
+except (ImportError, OSError):
     ADK_AVAILABLE = False
     BaseSessionService = object
     Session = Any
@@ -162,10 +163,10 @@ class SemanticaSessionService(BaseSessionService):
         return {}
 
     def _find_session_node(
-            self,
-            app_name: str,
-            user_id: str,
-            session_id: str,
+        self,
+        app_name: str,
+        user_id: str,
+        session_id: str,
     ) -> Optional[Any]:
         """Find a session node by its logical ADK session ID."""
         expected_node_id = self._node_id(app_name, user_id, session_id)
@@ -182,18 +183,18 @@ class SemanticaSessionService(BaseSessionService):
             metadata = node.get("metadata")
 
             if (
-                    isinstance(metadata, dict)
-                    and str(metadata.get("session_id")) == str(session_id)
-                    and str(metadata.get("app_name")) == str(app_name)
-                    and str(metadata.get("user_id")) == str(user_id)
+                isinstance(metadata, dict)
+                and str(metadata.get("session_id")) == str(session_id)
+                and str(metadata.get("app_name")) == str(app_name)
+                and str(metadata.get("user_id")) == str(user_id)
             ):
                 return node
 
         return None
 
     def _find_node_by_id(
-            self,
-            node_id: str,
+        self,
+        node_id: str,
     ) -> Optional[Any]:
         """Find a ContextGraph node by graph node ID."""
         for node in self.graph.find_nodes() or []:
@@ -212,13 +213,13 @@ class SemanticaSessionService(BaseSessionService):
         data = SemanticaSessionService._safe_dict(event)
 
         for field in (
-                "id",
-                "invocation_id",
-                "author",
-                "timestamp",
-                "partial",
-                "turn_complete",
-                "branch",
+            "id",
+            "invocation_id",
+            "author",
+            "timestamp",
+            "partial",
+            "turn_complete",
+            "branch",
         ):
             if field not in data and hasattr(event, field):
                 value = getattr(event, field)
@@ -231,10 +232,10 @@ class SemanticaSessionService(BaseSessionService):
         return data
 
     def _event_nodes(
-            self,
-            app_name: str,
-            user_id: str,
-            session_id: str,
+        self,
+        app_name: str,
+        user_id: str,
+        session_id: str,
     ) -> List[Any]:
         """Return all event nodes connected to a session."""
         session_node_id = self._node_id(app_name, user_id, session_id)
@@ -275,8 +276,8 @@ class SemanticaSessionService(BaseSessionService):
         return str(timestamp)
 
     def _event_from_node(
-            self,
-            node: Any,
+        self,
+        node: Any,
     ) -> Any:
         """
         Reconstruct an ADK Event from its stored metadata.
@@ -289,7 +290,7 @@ class SemanticaSessionService(BaseSessionService):
         if not event_id and graph_node_id:
             graph_node_id = str(graph_node_id)
             if graph_node_id.startswith("adk-event:"):
-                event_id = graph_node_id[len("adk-event:"):]
+                event_id = graph_node_id[len("adk-event:") :]
 
         if event_id:
             properties["id"] = event_id
@@ -310,11 +311,11 @@ class SemanticaSessionService(BaseSessionService):
 
     @staticmethod
     def _session_kwargs(
-            app_name: str,
-            user_id: str,
-            session_id: str,
-            state: Optional[dict],
-            events: Optional[List[Any]],
+        app_name: str,
+        user_id: str,
+        session_id: str,
+        state: Optional[dict],
+        events: Optional[List[Any]],
     ) -> dict:
         """Build kwargs for the ADK Session model."""
         return {
@@ -326,8 +327,8 @@ class SemanticaSessionService(BaseSessionService):
         }
 
     def _session_from_node(
-            self,
-            node: Any,
+        self,
+        node: Any,
     ) -> Session:
         """Reconstruct an ADK Session from a ContextGraph node."""
         properties = self._node_properties(node)
@@ -347,14 +348,14 @@ class SemanticaSessionService(BaseSessionService):
                     # splitting on ':' after the prefix always yields
                     # exactly 3 parts regardless of what characters the
                     # original app_name/user_id/session_id contained.
-                    parts = graph_node_id[len("adk-session:"):].split(":")
+                    parts = graph_node_id[len("adk-session:") :].split(":")
                     if len(parts) == 3:
                         decoded = [urllib.parse.unquote(part) for part in parts]
                         app_name = app_name or decoded[0]
                         user_id = user_id or decoded[1]
                         session_id = decoded[2]
                     else:
-                        session_id = graph_node_id[len("adk-session:"):]
+                        session_id = graph_node_id[len("adk-session:") :]
                 else:
                     session_id = graph_node_id
 
@@ -383,12 +384,12 @@ class SemanticaSessionService(BaseSessionService):
     # ------------------------------------------------------------------
 
     async def create_session(
-            self,
-            *,
-            app_name: str,
-            user_id: str,
-            state: Optional[dict[str, Any]] = None,
-            session_id: Optional[str] = None,
+        self,
+        *,
+        app_name: str,
+        user_id: str,
+        state: Optional[dict[str, Any]] = None,
+        session_id: Optional[str] = None,
     ) -> Session:
         """Create and persist an ADK session."""
         return await asyncio.to_thread(
@@ -396,11 +397,11 @@ class SemanticaSessionService(BaseSessionService):
         )
 
     def _create_session_sync(
-            self,
-            app_name: str,
-            user_id: str,
-            state: Optional[dict[str, Any]],
-            session_id: Optional[str],
+        self,
+        app_name: str,
+        user_id: str,
+        state: Optional[dict[str, Any]],
+        session_id: Optional[str],
     ) -> Session:
         with self._lock:
             session_id = session_id or str(uuid.uuid4())
@@ -430,12 +431,12 @@ class SemanticaSessionService(BaseSessionService):
             )
 
     async def get_session(
-            self,
-            *,
-            app_name: str,
-            user_id: str,
-            session_id: str,
-            config: Optional[GetSessionConfig] = None,
+        self,
+        *,
+        app_name: str,
+        user_id: str,
+        session_id: str,
+        config: Optional[GetSessionConfig] = None,
     ) -> Optional[Session]:
         """Retrieve an ADK session from ContextGraph."""
         return await asyncio.to_thread(
@@ -443,11 +444,11 @@ class SemanticaSessionService(BaseSessionService):
         )
 
     def _get_session_sync(
-            self,
-            app_name: str,
-            user_id: str,
-            session_id: str,
-            config: Optional[GetSessionConfig],
+        self,
+        app_name: str,
+        user_id: str,
+        session_id: str,
+        config: Optional[GetSessionConfig],
     ) -> Optional[Session]:
         with self._lock:
             node = self._find_session_node(app_name, user_id, session_id)
@@ -468,7 +469,7 @@ class SemanticaSessionService(BaseSessionService):
         # trims the already-built Session object.
         if config:
             if config.num_recent_events:
-                session.events = session.events[-config.num_recent_events:]
+                session.events = session.events[-config.num_recent_events :]
             if config.after_timestamp:
                 i = len(session.events) - 1
                 while i >= 0:
@@ -476,14 +477,14 @@ class SemanticaSessionService(BaseSessionService):
                         break
                     i -= 1
                 if i >= 0:
-                    session.events = session.events[i + 1:]
+                    session.events = session.events[i + 1 :]
 
         return session
 
     async def append_event(
-            self,
-            session: Session,
-            event: Event,
+        self,
+        session: Session,
+        event: Event,
     ) -> Event:
         """Persist an ADK event and associate it with a session."""
         # ADK's own base implementation is a no-op for partial/streaming
@@ -510,8 +511,13 @@ class SemanticaSessionService(BaseSessionService):
 
             # Verify cross-tenant security
             properties = self._node_properties(session_node)
-            if properties.get("app_name") != app_name or properties.get("user_id") != user_id:
-                raise ValueError("Cross-tenant session write denied: app_name or user_id mismatch.")
+            if (
+                properties.get("app_name") != app_name
+                or properties.get("user_id") != user_id
+            ):
+                raise ValueError(
+                    "Cross-tenant session write denied: app_name or user_id mismatch."
+                )
 
             # Apply ADK in-memory event and state delta semantics. This
             # runs inside asyncio.to_thread's worker thread, which has no
@@ -553,11 +559,11 @@ class SemanticaSessionService(BaseSessionService):
             )
 
     async def delete_session(
-            self,
-            *,
-            app_name: str,
-            user_id: str,
-            session_id: str,
+        self,
+        *,
+        app_name: str,
+        user_id: str,
+        session_id: str,
     ) -> None:
         """Delete a session and all of its graph-backed events."""
         await asyncio.to_thread(
@@ -565,10 +571,10 @@ class SemanticaSessionService(BaseSessionService):
         )
 
     def _delete_session_sync(
-            self,
-            app_name: str,
-            user_id: str,
-            session_id: str,
+        self,
+        app_name: str,
+        user_id: str,
+        session_id: str,
     ) -> None:
         with self._lock:
             session_node = self._find_session_node(app_name, user_id, session_id)
@@ -590,9 +596,9 @@ class SemanticaSessionService(BaseSessionService):
                     continue
 
                 if (
-                        edge.get("source") == session_node_id
-                        and edge.get("type") == "HAS_EVENT"
-                        and edge.get("target")
+                    edge.get("source") == session_node_id
+                    and edge.get("type") == "HAS_EVENT"
+                    and edge.get("target")
                 ):
                     event_node_ids.append(str(edge["target"]))
 
@@ -602,18 +608,18 @@ class SemanticaSessionService(BaseSessionService):
             self.graph.purge_node(session_node_id)
 
     async def list_sessions(
-            self,
-            *,
-            app_name: str,
-            user_id: Optional[str] = None,
+        self,
+        *,
+        app_name: str,
+        user_id: Optional[str] = None,
     ) -> ListSessionsResponse:
         """List sessions for an app, optionally scoped to one user."""
         return await asyncio.to_thread(self._list_sessions_sync, app_name, user_id)
 
     def _list_sessions_sync(
-            self,
-            app_name: str,
-            user_id: Optional[str],
+        self,
+        app_name: str,
+        user_id: Optional[str],
     ) -> ListSessionsResponse:
         with self._lock:
             sessions: List[Session] = []

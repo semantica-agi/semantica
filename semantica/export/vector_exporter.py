@@ -421,7 +421,7 @@ class VectorExporter:
             import numpy as np
         except (ImportError, OSError):
             raise ImportError(
-                "FAISS not installed. Install with: pip install faiss-cpu or faiss-gpu"
+                "FAISS not installed. Install with: pip install 'semantica[vectorstore-faiss]' (or 'semantica[gpu]' for CUDA)"
             )
 
         # Extract vectors and IDs

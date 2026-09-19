@@ -12,7 +12,6 @@ from semantica.ingest import (
     WebIngestor, ContentExtractor, SitemapCrawler, RobotsChecker,
     FeedIngestor, FeedMonitor,
     StreamIngestor, StreamMonitor,
-    RepoIngestor, CodeExtractor, GitAnalyzer,
     EmailIngestor, AttachmentProcessor,
     DBIngestor, DatabaseConnector,
     MCPIngestor, IngestConfig, ingest_config
@@ -140,6 +139,9 @@ class TestNotebook02DataIngestion:
         assert 'overall' in health
 
     def test_06_repo_ingestion(self):
+        pytest.importorskip("git")
+        from semantica.ingest import CodeExtractor, RepoIngestor
+
         code_extractor = CodeExtractor()
         with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as tmp:
             tmp.write("class MyClass:\n    def my_method(self):\n        pass")

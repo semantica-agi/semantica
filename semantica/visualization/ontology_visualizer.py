@@ -35,8 +35,14 @@ License: MIT
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
-import matplotlib.patches as mpatches
-import matplotlib.pyplot as plt
+try:
+    import matplotlib.patches as mpatches
+    import matplotlib.pyplot as plt
+    from matplotlib.patches import FancyBboxPatch
+except (ImportError, OSError):
+    mpatches = None
+    plt = None
+    FancyBboxPatch = None
 
 try:
     import plotly.express as px
@@ -46,8 +52,6 @@ except (ImportError, OSError):
     px = None
     go = None
     make_subplots = None
-
-from matplotlib.patches import FancyBboxPatch
 
 try:
     import graphviz
@@ -106,13 +110,13 @@ class OntologyVisualizer:
             if graphviz is None:
                 raise ProcessingError(
                     "Graphviz is required for DOT export. "
-                    "Install with: pip install graphviz"
+                    "Install with: pip install 'semantica[viz]'"
                 )
         else:
-            if px is None or go is None:
+            if go is None:
                 raise ProcessingError(
                     "Plotly is required for ontology visualization. "
-                    "Install with: pip install plotly"
+                    "Install with: pip install 'semantica[viz]'"
                 )
 
     def visualize_hierarchy(
@@ -424,7 +428,10 @@ class OntologyVisualizer:
                 prop_name = prop.get("name") or prop.get("uri", "")
                 # Check if property belongs to class (via domain or direct property list)
                 domain = prop.get("domain")
-                has_prop = prop_name in cls_props or domain == cls.get("name")
+                domains = (
+                    domain if isinstance(domain, list) else [domain] if domain else []
+                )
+                has_prop = prop_name in cls_props or cls.get("name") in domains
                 row.append(1 if has_prop else 0)
             matrix.append(row)
 
@@ -892,7 +899,7 @@ class OntologyVisualizer:
         """Create Graphviz hierarchy visualization."""
         if graphviz is None:
             raise ProcessingError(
-                "Graphviz not available. Install with: pip install graphviz"
+                "Graphviz not available. Install with: pip install 'semantica[viz]'"
             )
 
         dot = graphviz.Digraph(comment="Ontology Hierarchy")
@@ -945,12 +952,18 @@ class OntologyVisualizer:
 
             domain = prop.get("domain")
             if domain:
-                edges.append({"source": prop_name, "target": domain, "type": "domain"})
+                domains = domain if isinstance(domain, list) else [domain]
+                edges.extend(
+                    {"source": prop_name, "target": value, "type": "domain"}
+                    for value in domains
+                )
 
             range_val = prop.get("range")
             if range_val:
-                edges.append(
-                    {"source": prop_name, "target": range_val, "type": "range"}
+                ranges = range_val if isinstance(range_val, list) else [range_val]
+                edges.extend(
+                    {"source": prop_name, "target": value, "type": "range"}
+                    for value in ranges
                 )
 
         # Use similar approach as KG visualizer

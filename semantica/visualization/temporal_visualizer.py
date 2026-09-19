@@ -83,7 +83,7 @@ class TemporalVisualizer:
         if px is None or go is None:
             raise ProcessingError(
                 "Plotly is required for temporal visualization. "
-                "Install with: pip install plotly"
+                "Install with: pip install 'semantica[viz]'"
             )
 
     def visualize_temporal_dashboard(

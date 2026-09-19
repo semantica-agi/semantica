@@ -476,7 +476,14 @@ class ContextEdge:
         self.source_id = str(self.source_id)
         self.target_id = str(self.target_id)
         self.edge_type = str(self.edge_type or "related_to")
-        self.weight = _coerce_float(self.weight, default=1.0)
+        if isinstance(self.weight, dict):
+            if not isinstance(self.metadata, dict):
+                self.metadata = {}
+            dict_meta = dict(self.weight)
+            self.weight = _coerce_float(dict_meta.pop("weight", 1.0), default=1.0)
+            self.metadata = {**dict_meta, **self.metadata}
+        else:
+            self.weight = _coerce_float(self.weight, default=1.0)
         if not isinstance(self.metadata, dict):
             self.metadata = {}
         self.edge_id, self.family_id = _resolve_edge_identity(
@@ -1173,6 +1180,9 @@ class ContextGraph:
             **properties: Additional properties. Use `valid_from` and `valid_until`
                 (ISO datetime strings) to define a temporal validity window.
         """
+        if isinstance(weight, dict):
+            properties = {**weight, **properties}
+            weight = properties.pop("weight", 1.0)
         valid_from = properties.pop("valid_from", None)
         valid_until = properties.pop("valid_until", None)
         explicit_edge_id = properties.pop("id", properties.pop("edge_id", None))
@@ -4791,14 +4801,18 @@ class ContextGraph:
 
                 # Find potential causes (decisions that influenced this one) via
                 # shared entities/timestamps - additive heuristic, skipping anything
-                # already covered by an explicit relationship above.
-                potential_causes = []
+                # already covered by an explicit relationship above. Deduplicate by
+                # decision id (dict preserves insertion order): a decision sharing
+                # several entities with the current one is one potential cause,
+                # not one per shared entity, otherwise the trace reports the same
+                # "influences" chain once per overlapping entity.
+                potential_causes = {}
                 for entity in current_decision["entities"]:
                     for other_decision_id in self._entity_index.get(entity, set()):
                         if other_decision_id != current_id and other_decision_id not in explicit_cause_ids:
                             other_decision = self._decisions[other_decision_id]
                             if other_decision["timestamp"] < current_decision["timestamp"]:
-                                potential_causes.append(other_decision_id)
+                                potential_causes[other_decision_id] = None
 
                 for cause_id in potential_causes:
                     cause_dec = self._decisions.get(cause_id, {})
@@ -4868,7 +4882,7 @@ class ContextGraph:
             "min_confidence": 0.7,
             "required_outcomes": ["approved", "rejected", "flagged"],
             "required_metadata": ["decision_maker"],
-            "max_reasoning_length": 1000
+            "max_reasoning_length": 10000
         }
         
         rules = policy_rules or default_rules
@@ -4888,8 +4902,8 @@ class ContextGraph:
         
         # Check reasoning length
         reasoning = decision_data.get("reasoning", "")
-        if len(reasoning) > rules.get("max_reasoning_length", 1000):
-            warnings.append(f"Reasoning too long: {len(reasoning)} characters")
+        if len(reasoning.strip()) > rules.get("max_reasoning_length", 10000):
+            warnings.append(f"Reasoning too long: {len(reasoning.strip())} characters")
         
         return {
             "compliant": len(violations) == 0,

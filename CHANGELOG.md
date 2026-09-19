@@ -9,6 +9,95 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **`PolicyEngine.check_compliance` now raises `ProcessingError` for rules it cannot evaluate** (#1160, fixes #1159) by @cxzg007
+  - `check_compliance` previously swallowed evaluation failures and returned `False`, making an unevaluable rule — a `min_confidence` of `"high"` compared against a numeric confidence, an unhashable rule value, a policy loading error — indistinguishable from a policy violation. A rule that cannot be executed now raises `ProcessingError` from `semantica.utils.exceptions`, while `False` keeps its meaning of "evaluated and found non-compliant", including the case where the decision simply lacks the evidence a rule needs (absent metadata is non-compliance by policy)
+  - `False` continues to mean "evaluated and found non-compliant"; callers acting on a genuine non-compliant verdict are unaffected. Callers that previously received `False` as a silent stand-in for an operational failure (e.g. a graph-store error or malformed rule value) will now receive `ProcessingError` instead — wrap the call in `try/except ProcessingError` to handle that case separately, as documented in `docs/guides/policy-engine.md`
+  - `docs/guides/policy-engine.md` and `docs/guides/decision-intelligence.md` document the contract, and the `check_compliance` docstring states the design boundary between the two failure modes
+
+### Added
+
+- **Pluggable, persistent backend for `ExtractionCache`** (#1581) by @Besokus
+  - `ExtractionCache` now delegates storage to a `CacheBackend`, keeping stable SHA-256 key derivation (text + params, with `provider`/`model`/generation params; sensitive keys filtered) and the public `get`/`set`/`clear`/`get_stats` API in one place. Default behavior is unchanged — an in-memory LRU + TTL backend (`InMemoryBackend`)
+  - New `SqliteCacheBackend` (`semantica.semantic_extract`, lazy export): a persistent backend backed by the stdlib `sqlite3`, so cached extraction results **survive a process restart** — a fresh process (CI job, notebook kernel, batch worker, extraction subprocess) reuses prior results instead of re-paying every LLM call. TTL and LRU (by last access) mirror the in-memory backend. Values are serialized with a pluggable serializer (`pickle` by default; pass e.g. `json` to avoid pickle — point the DB at a trusted, local path)
+  - Selectable via config: `cache_backend` (`"memory"` | `"sqlite"`) and `cache_path`, settable through a config file, the new `SEMANTICA_CACHE_*` environment variables (`SEMANTICA_CACHE_BACKEND` / `SEMANTICA_CACHE_PATH` / `SEMANTICA_CACHE_TTL` / `SEMANTICA_CACHE_SIZE` / `SEMANTICA_CACHE_ENABLED`), or the new `configure_cache()` API at runtime. Any failure constructing the persistent backend degrades gracefully to the in-memory default, so extraction never breaks on a cache misconfiguration
+  - Persistent-cache keys are process-stable: relation/triplet extraction now folds entity/relation inputs into the key via a deterministic SHA-256 fingerprint instead of the process-randomized built-in `hash()`, so entries reliably rehit after a restart. `ttl=0` expires immediately on both backends, and corrupt/undeserializable rows are dropped rather than retained
+  - **Security / trust model:** the sqlite file is deserialized back into the process (default serializer `pickle`), so it must point at a trusted, user-private location and may hold sensitive extraction results in the clear (documented in the module usage guide). The default database lives under a per-user private directory (`$XDG_CACHE_HOME`/`~/.cache`, `0o700`); the db file is created **atomically** with `0o600` (`O_CREAT|O_EXCL`, no validate-then-open window) and an existing symlink, non-regular file, or file owned by another user is refused (falling back to in-memory). sqlite access uses a busy-timeout with bounded retry, rolls back within the same lock scope on failure, and contains all errors (reads degrade to a miss, writes to a skipped update)
+  - No new runtime dependencies (stdlib `sqlite3`). New public exports: `CacheBackend`, `InMemoryBackend`, `SqliteCacheBackend`, `configure_cache`. New `tests/semantic_extract/test_cache_backends.py`
+
+- **Repeated sampling for nondeterministic evals (#1545)**
+  - New `evaluate_repeated(cases, evaluators, config=None, target_fn=None, runs=10)` in `semantica.evals`: reruns `target_fn` per case `n` times and aggregates per-evaluator `SampleStats` — `n`, `passes`, `errors`, `pass_rate`, `mean_score`, `stddev`, and the observed `any_passed` (pass@n) / `all_passed` (pass^n). Verdicts classify each case as `stable_pass` / `flaky` / `stable_fail` / `error`, with a `RepeatedSummary` over the suite
+  - Nondeterminism stays in `target_fn`; evaluators remain pure. A case with a non-null static `actual` and `runs > 1` raises `ValueError` up front; an `actual` of `None` is treated as absent, matching `evaluate()`. Objective config applies per run and the same objective gates the aggregate `pass_rate` via `SampleStats.objective_passed`. `evaluate()` is untouched; new result types (`SampleStats`, `RepeatedCaseResult`, `RepeatedSummary`) are exported additively
+  - New `tests/evals/test_repeater.py`
+
+- **Schema-guided extraction validation** (#1510) by @Besokus
+  - New `SchemaValidator` (`semantica.semantic_extract`, lazy export): a deterministic sibling of `ExtractionValidator` that checks extraction output for *conformance to a domain ontology* — an axis orthogonal to `ExtractionValidator`'s confidence checks. It mirrors the same interface (`validate_entities()` / `validate_relations()` returning `ValidationResult`, batch-aware), so the two compose back-to-back
+  - Entity labels must be concepts in the schema; relation predicates must be in the schema and satisfy their `domain` / `range`. Violations are reported in `ValidationResult.errors` with counts in `metrics` and `score` = conformance ratio; `filter_by_schema()` / `filter_relations_by_schema()` return the conforming subset (mirroring `filter_by_confidence`). No LLM required
+  - New `ExtractionSchema` (`semantica.semantic_extract`, lazy export): a lightweight, read-only view over a domain ontology (allowed concepts + predicates with optional `domain` / `range`). Reuses the project's existing OWL ontology representation rather than a parallel type — build one from a `generate_ontology`-style dict (`ExtractionSchema.from_ontology`) or an OWL/Turtle file/string (`ExtractionSchema.from_owl`, via the existing `rdflib` dependency). An empty `domain`/`range` means unconstrained, matching OWL
+  - Implements the deterministic core of ontology-based information extraction (OBIE; Wimalasuriya & Dou, 2010). No new runtime dependencies
+  - New `tests/semantic_extract/test_schema_validator.py`
+- **Schema bootstrap** (#1510) by @pkupt
+  - New `bootstrap_schema` (`semantica.ontology`): induces a draft domain ontology from a sample of extracted `{entities, relationships}` so you can ratify it by hand and then use it (via `SchemaValidator`) to gate future extraction. Complements `SchemaValidator`: where the validator *constrains* output against an existing ontology, bootstrap *induces* the draft from data
+  - Threads the existing `min_occurrences` frequency gate through as a class- and predicate-level filter: types/predicates seen fewer times are omitted from the draft — not just entity-type (class) inference
+  - Never auto-applies: returns `draft: True` plus a Turtle serialization for human review, per the OBIE/ontology-learning convention that frequency alone yields proposals, not final ontologies
+  - New `tests/test_bootstrap_schema.py`
+
+### Fixed
+
+- **MCP `get_provenance` ignored the advertised `entity_id` argument, so every schema-compliant call failed** (closes #1248) by @csy20 — `GET_PROVENANCE` requires `entity_id` and `tools/list` advertises that key, but `handle_get_provenance` only read `node_id` and always returned `{"error": "node_id is required", "provenance": []}`. The handler now reads `entity_id` first and still accepts `node_id` as a compatibility alias. New `tests/test_mcp_package_get_provenance.py`
+
+### Changed
+
+- **`Entity.confidence` is now `Optional[float]` defaulting to `None`, so "no measurement" is no longer encoded as a perfect score** (closes #1282) by @taoche
+  - **Breaking at the type level for a public dataclass.** `semantica.semantic_extract.types.Entity.confidence` was `float = 1.0`; it is now `Optional[float] = None`. The spaCy NER adapter fabricated `1.0` whenever a span exposed no per-entity probability — the normal case for standard spaCy models — so every `ml`-extracted entity claimed perfect confidence, indistinguishable from a backend that genuinely reported 1.0
+  - **`extract()` callers are unaffected.** The pipeline scores unknown confidences (heuristic, labeled) *before* filtering, so every entity `extract()` emits still carries a numeric confidence, now with provenance under `metadata[CONFIDENCE_SOURCE_KEY]` (`model` / `heuristic` / `type_similarity` / `unavailable`, constants owned by `types.py`). Measured scores are never overwritten
+  - **Callers that construct `Entity` themselves and bypass `extract()` can now see `None` downstream.** `kg/graph_builder.py` copies the field into its graph entity dicts, so `GraphBuilder(...).build([Entity(...)], extract=False)` yields `confidence: None` where it previously yielded `1.0`, and any numeric comparison or sort on that value raises `TypeError`. Nothing in `semantica/` compares it numerically, so this is not a break in-tree
+  - `EntityConfidenceScorer` recalculates only when `confidence is None`, instead of treating `== 1.0` as a "recalculate" sentinel — the old test destroyed genuine backend scores of exactly 1.0 rather than merely mislabeling missing ones
+  - `calculate_weighted_confidence()` falls back to similarity-only scoring when no measured confidence exists, and stays `None` when the caller explicitly disables similarity weighting. Ensemble voting also averages only measured scores, but that now comes from the clustering rewrite already on `main` (`_numeric_confidence`), not from this PR
+  - The standalone filter APIs route unknown values through one policy helper, `meets_confidence_threshold()`: unknown passes, since absence of evidence is not low confidence. This matches the previous behavior, so no entity is newly dropped
+  - `ExtractionValidator` reports unscored entities under a separate `unscored` metric and treats unknown as neutral rather than zero
+  - `Relation`, `Triplet` and the separate `utils.types.Entity` are untouched; the LLM, HuggingFace, pattern and regex paths always set explicit float scores and are unchanged
+  - Docs: `semantica/semantic_extract/semantic_extract_usage.md` and `cookbook/introduction/05_Entity_Extraction.ipynb` (renders unavailable confidence as `N/A`)
+
+### Changed
+
+- **`LanguageDetector` minimum text length is now configurable** (closes #1281) by @taoche
+  - **New `min_text_length` option** (default unchanged at 10 stripped characters), settable per instance via `LanguageDetector(min_text_length=...)`, per call via `**options` on every detection API, and through `detect_language()`. Ten characters is reasonable for Latin scripts and far too many for CJK — a 9-character Chinese string never reached `langdetect` at all
+  - `UNKNOWN_LANGUAGE` (`"unknown"`) is now exported from `semantica.normalize` as an explicit out-of-band sentinel. Pass `LanguageDetector(default_language=UNKNOWN_LANGUAGE)` to opt into an unambiguous fallback that is distinct from every ISO language code
+  - The default fallback remains `"en"` — no breaking change for existing callers
+  - `detect()` and `detect_with_confidence()` now delegate to `detect_multiple()`, so the length guard, the fallback and the error handling exist once rather than in three copies that can drift
+  - Invalid `min_text_length` values (`None`, non-numeric strings, negatives) degrade to the fallback with a warning instead of raising `TypeError` from the length comparison, which sits outside the detection exception handlers
+  - Unrecognized per-call option names (e.g. `min_text_len`) now warn once per name per instance instead of being silently absorbed by `**options`
+  - `detect_language()` copies the stored method config before merging per-call kwargs, so a one-call override no longer leaks into the shared `normalize_config`
+  - Docs: `docs/reference/normalize.md` and `semantica/normalize/normalize_usage.md`
+
+## [0.7.0] - 2026-09-07
+
+### Changed
+
+- **Slim core dependencies: moved ~22 heavy packages to optional extras** (#1513)
+  - Core dependencies in `pyproject.toml` are now reduced to exactly 22 direct packages: `numpy`, `pandas`, `scipy`, `scikit-learn`, `rdflib`, `networkx`, `requests`, `chardet`, `protobuf`, `grpcio`, `pillow`, `pydantic`, `click`, `rich`, `tqdm`, `pyyaml`, `toml`, `python-dotenv`, `loguru`, `structlog`, `httpx`, and `pyarrow`.
+  - Heavy ML/NLP, visualization, document parsing, and ingestion packages moved into granular optional extras:
+    - `models-huggingface`: `torch`, `transformers`
+    - `embeddings-local`: `sentence-transformers`, `fastembed`, `onnxruntime`, `tokenizers`
+    - `nlp-spacy`: `spacy`
+    - `viz`: expanded to include `matplotlib`, `seaborn`, `plotly`, `ipywidgets`, `umap-learn`, alongside `pyvis`, `graphviz`, and `d3blocks`
+    - `media`: `librosa`, `opencv-python`
+    - `vectorstore-faiss`: `faiss-cpu` (also included in `vectorstore-all`)
+    - `documents`: `python-docx`, `openpyxl`, `lxml`, `beautifulsoup4`
+    - `ingest-git`: `GitPython`
+    - `graph-embeddings`: `gensim` (also included in `graph-all`)
+  - Full bundled behavior preserved via `pip install "semantica[all]"`, which includes all optional extras. Pinning `semantica<0.7.0` remains a permanent escape hatch for legacy workflows.
+  - Safe lazy construction across parsers and visualizers:
+    - `DOCXParser`, `ExcelParser`, `HTMLParser`, and `XMLParser` remain constructible without error on `__init__()`. They fail only upon calling `.parse()` with actionable error messages directing users to install `semantica[documents]`.
+    - `XMLParser` automatically falls back to standard library `xml.etree` (`_parse_with_etree`) when `lxml` is not installed, preserving XML parsing capabilities without extra dependencies.
+    - `EmbeddingVisualizer` and `OntologyVisualizer` safely guard `matplotlib` and optional reduction packages, advising `pip install 'semantica[viz]'`.
+    - `RepoIngestor` guards `GitPython` with a clear error pointing to `semantica[ingest-git]`.
+    - `PublicAPIIngestor` guards `lxml` and `_SAFE_XML_PARSER`.
+    - Updated user-facing installation hints across CLI doctor commands, node embeddings (`NodeEmbedder`), vector stores (`FAISSStore`), and model loaders.
+  - Recompiled CI lockfiles (`requirements-ci.txt`, `.github/requirements/explorer-extra-py311.txt`, `.github/requirements/explorer-extra-py313.txt`, and `.github/requirements/base-deps.txt`).
+
 ## [0.6.8] - 2026-09-05
 
 ### Added
@@ -251,11 +340,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
-- **Agno's `AgnoKnowledgeGraph.load_urls()` made outbound requests with no SSRF protection beyond a scheme check** (#1212) by @Sameer6305 — caller-supplied URLs went straight to `urllib.request.urlopen()`, unguarded against loopback/private addresses, cloud metadata endpoints (`169.254.169.254`), IPv6-internal addresses, hostnames resolving to private space, or redirects into any of the above. Found during a project-wide SSRF audit following #936/#959. Now routed through the shared `request_with_ssrf_guard()`; an unsafe URL is skipped rather than aborting the rest of the ingestion batch. `OpenClawKGTool` (operator-configured, intentionally allowed to target `localhost` for local deployments) gains scheme/malformed-URL validation as defense in depth, without restricting its legitimate private-network use case. 29 new Agno tests, 26 new OpenClaw tests, all passing alongside the 15 pre-existing Agno integration tests
-
-### Dependencies
-
-- Routine version bumps with no application-facing behavior change: `anthropic` 0.121.0→0.122.0 (#1045), `botocore` 1.43.69→1.43.73 (#1047), `agno` 2.8.7→2.9.0 (#1050), `google-genai` 2.17.0→2.18.1→2.19.0 (#1163, #1205), `lxml` 6.1.1→6.1.2 (#1197), `charset-normalizer` 3.5.0→3.5.1 (#1201), `pypickle` 2.0.1→2.0.2 (#1203)
 
 ## [0.6.6] - 2026-08-20
 

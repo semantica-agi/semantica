@@ -5,7 +5,7 @@ icon: "circle-question"
 ---
 
 <Info>
-  Use **Ctrl+F** / **Cmd+F** to search this page. Common jumps: [Installation](#installation) · [Data & Features](#data--features) · [Troubleshooting](#troubleshooting)
+  Use **Ctrl+F** / **Cmd+F** to search this page. Common jumps: [Installation](#installation) · [Data & Features](#data-&-features) · [Troubleshooting](#troubleshooting)
 </Info>
 
 ## Quick Answers

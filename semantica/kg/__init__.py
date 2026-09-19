@@ -107,6 +107,16 @@ License: MIT
 
 from .centrality_calculator import CentralityCalculator
 from .community_detector import CommunityDetector
+from .community_hierarchy import (
+    CommunityHierarchy,
+    CommunityHierarchyBuilder,
+    HierarchicalCommunity,
+)
+from .community_summarizer import (
+    CommunityReport,
+    CommunitySummarizer,
+    estimate_tokens,
+)
 from .config import KGConfig, kg_config
 from .connectivity_analyzer import ConnectivityAnalyzer
 from .entity_resolver import EntityResolver
@@ -114,6 +124,11 @@ from .graph_analyzer import GraphAnalyzer
 from .graph_builder import GraphBuilder
 from .graph_validator import GraphValidator
 from .link_predictor import LinkPredictor
+from .methods import (
+    build_community_hierarchy,
+    summarize_community,
+    summarize_hierarchy,
+)
 from .node_embeddings import NodeEmbedder
 from .path_finder import PathFinder
 from .kg_provenance import GraphBuilderWithProvenance, AlgorithmTrackerWithProvenance
@@ -134,6 +149,15 @@ from .temporal_query_rewriter import TemporalQueryRewriter, TemporalQueryResult
 __all__ = [
     # Core Classes
     "KnowledgeGraph",
+    "HierarchicalCommunity",
+    "CommunityHierarchy",
+    "CommunityHierarchyBuilder",
+    "build_community_hierarchy",
+    "CommunityReport",
+    "CommunitySummarizer",
+    "estimate_tokens",
+    "summarize_community",
+    "summarize_hierarchy",
     "GraphBuilder",
     "GraphBuilderWithProvenance",
     "EntityResolver",

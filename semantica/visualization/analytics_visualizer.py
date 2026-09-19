@@ -85,7 +85,7 @@ class AnalyticsVisualizer:
         if px is None or go is None:
             raise ProcessingError(
                 "Plotly is required for analytics visualization. "
-                "Install with: pip install plotly"
+                "Install with: pip install 'semantica[viz]'"
             )
         if np is None:
             raise ProcessingError(

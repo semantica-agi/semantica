@@ -124,7 +124,7 @@ class KGVisualizer:
         if px is None or go is None:
             raise ProcessingError(
                 "Plotly is required for KG visualization. "
-                "Install with: pip install plotly"
+                "Install with: pip install 'semantica[viz]'"
             )
 
     def _convert_knowledge_graph(self, kg: Any) -> Dict[str, Any]:

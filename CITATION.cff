@@ -7,7 +7,7 @@ authors:
 repository-code: "https://github.com/semantica-agi/semantica"
 url: "https://getsemantica.ai"
 license: MIT
-version: 0.6.8
+version: 0.7.0
 date-released: 2026-09-05
 keywords:
   - knowledge-graph

@@ -34,11 +34,11 @@ Example Usage:
     >>> from semantica.semantic_extract import NamedEntityRecognizer
     >>> ner = NamedEntityRecognizer(confidence_threshold=0.7)
     >>> entities = ner.extract_entities("Steve Jobs founded Apple.")
-    
+
     >>> from semantica.semantic_extract import RelationExtractor
     >>> rel_extractor = RelationExtractor(confidence_threshold=0.6)
     >>> relations = rel_extractor.extract_relations(text, entities=entities)
-    
+
     >>> from semantica.semantic_extract import TripletExtractor
     >>> triplet_extractor = TripletExtractor(include_temporal=True)
     >>> triplets = triplet_extractor.extract_triplets(text)
@@ -51,7 +51,6 @@ from __future__ import annotations
 
 import importlib
 from typing import Any, Dict, Tuple
-
 
 _LAZY_EXPORTS: Dict[str, Tuple[str, str]] = {
     # Named Entity Recognition
@@ -92,7 +91,10 @@ _LAZY_EXPORTS: Dict[str, Tuple[str, str]] = {
     "RoleLabeler": (".semantic_analyzer", "RoleLabeler"),
     "SemanticClusterer": (".semantic_analyzer", "SemanticClusterer"),
     # Semantic Network
-    "SemanticNetworkExtractor": (".semantic_network_extractor", "SemanticNetworkExtractor"),
+    "SemanticNetworkExtractor": (
+        ".semantic_network_extractor",
+        "SemanticNetworkExtractor",
+    ),
     "SemanticNode": (".semantic_network_extractor", "SemanticNode"),
     "SemanticEdge": (".semantic_network_extractor", "SemanticEdge"),
     "SemanticNetwork": (".semantic_network_extractor", "SemanticNetwork"),
@@ -103,6 +105,10 @@ _LAZY_EXPORTS: Dict[str, Tuple[str, str]] = {
     # Validation
     "ExtractionValidator": (".extraction_validator", "ExtractionValidator"),
     "ValidationResult": (".extraction_validator", "ValidationResult"),
+    # Schema-guided validation
+    "ExtractionSchema": (".schema", "ExtractionSchema"),
+    "Predicate": (".schema", "Predicate"),
+    "SchemaValidator": (".schema_validator", "SchemaValidator"),
     # Providers
     "BaseProvider": (".providers", "BaseProvider"),
     "OpenAIProvider": (".providers", "OpenAIProvider"),
@@ -121,10 +127,16 @@ _LAZY_EXPORTS: Dict[str, Tuple[str, str]] = {
     # Config
     "Config": (".config", "Config"),
     "config": (".config", "config"),
+    # Cache
+    "ExtractionCache": (".cache", "ExtractionCache"),
+    "CacheBackend": (".cache", "CacheBackend"),
+    "InMemoryBackend": (".cache", "InMemoryBackend"),
+    "SqliteCacheBackend": (".cache", "SqliteCacheBackend"),
     # Methods
     "get_entity_method": (".methods", "get_entity_method"),
     "get_relation_method": (".methods", "get_relation_method"),
     "get_triplet_method": (".methods", "get_triplet_method"),
+    "configure_cache": (".methods", "configure_cache"),
 }
 
 
@@ -138,6 +150,7 @@ def __getattr__(name: str) -> Any:
     value = getattr(module, attr_name)
     globals()[name] = value
     return value
+
 
 __all__ = [
     # Named Entity Recognition
@@ -188,6 +201,10 @@ __all__ = [
     # Validation
     "ExtractionValidator",
     "ValidationResult",
+    # Schema-guided validation
+    "ExtractionSchema",
+    "Predicate",
+    "SchemaValidator",
     # Providers
     "BaseProvider",
     "OpenAIProvider",
@@ -206,6 +223,12 @@ __all__ = [
     # Config
     "Config",
     "config",
+    # Cache
+    "ExtractionCache",
+    "CacheBackend",
+    "InMemoryBackend",
+    "SqliteCacheBackend",
+    "configure_cache",
     # Methods
     "get_entity_method",
     "get_relation_method",

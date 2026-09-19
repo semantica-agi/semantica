@@ -50,10 +50,11 @@ CLOUD_BACKENDS = sorted(_AVAILABILITY_FLAG)
 # Backends that store locally and need no connection step.
 _LOCAL_BACKENDS = {"inmemory", "faiss", "sqlite", "pgvector"}
 
-# The facade dispatches store_vectors() to `add` or `add_vectors`. Milvus
-# exposes add_vectors so it already resolves; the other three name their write
-# method differently and fall through to NotImplementedError.
-_NO_WRITE_DISPATCH = {"qdrant", "pinecone", "weaviate"}
+# The facade dispatches store_vectors() to `add`, `add_vectors`, or
+# `insert_vectors`. Milvus exposes add_vectors and qdrant insert_vectors, so
+# both resolve; the remaining two name their write method differently and fall
+# through to NotImplementedError.
+_NO_WRITE_DISPATCH = {"pinecone", "weaviate"}
 
 
 def _construct(backend):

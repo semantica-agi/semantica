@@ -192,7 +192,13 @@ class OWLGenerator:
     def _resolve_class_uri(self, value: Any, ns_manager: NamespaceManager) -> str:
         if self._is_http_uri(value):
             return value
-        return ns_manager.generate_class_iri(str(value))
+        # Preserve standard vocabulary terms (owl:Thing, rdfs:Class, ...) as their
+        # canonical IRIs instead of minting a local class for the prefixed name.
+        text = str(value)
+        prefix, _, local = text.partition(":")
+        if prefix in ns_manager.get_all_namespaces() and local:
+            return f"{ns_manager.get_all_namespaces()[prefix]}{local}"
+        return ns_manager.generate_class_iri(text)
 
     def _resolve_property_identifier(self, prop: Dict[str, Any]) -> str:
         return prop.get("label") or prop.get("name")

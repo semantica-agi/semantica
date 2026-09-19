@@ -186,12 +186,19 @@ class MilvusCollection:
             raise ProcessingError("Milvus not available")
 
         try:
+            # Ensure "metadata" is always fetched; merge with any caller-supplied
+            # output_fields so that passing output_fields=["vector"] via **options
+            # does not raise a duplicate-keyword TypeError.
+            caller_fields = options.pop("output_fields", []) or []
+            merged_output_fields = list({"metadata", *caller_fields})
+
             search_results = self.collection.search(
                 data=[v.tolist() for v in vectors],
                 anns_field=anns_field,
                 param=param,
                 limit=limit,
                 expr=expr,
+                output_fields=merged_output_fields,
                 **options,
             )
 
@@ -204,11 +211,11 @@ class MilvusCollection:
                             "id": hit.id,
                             "distance": hit.distance,
                             "score": 1.0 / (1.0 + max(0.0, hit.distance)),
-                            # Milvus collection schema stores only id+vector; no
-                            # metadata field is defined in create_collection().
-                            # Return empty dict — a future schema migration that
-                            # adds a metadata JSON field is tracked separately.
-                            "metadata": {},
+                            # The collection schema defines a JSON metadata field
+                            # (see create_collection()). Return the stored value
+                            # so callers receive the same metadata as get_metadata()
+                            # and filter_by_metadata().
+                            "metadata": hit.entity.get("metadata") or {},
                             "vector": None,
                         }
                     )
@@ -626,6 +633,46 @@ class MilvusStore:
                 tracking_id, status="failed", message=str(e)
             )
             raise
+
+    def delete_vectors(self, vector_ids: List[str], **options) -> Dict[str, Any]:
+        """Delete vectors from collection by their ids.
+
+        Args:
+            vector_ids: Vector ids to delete
+            **options: Additional options
+
+        Returns:
+            A dict with the number of matching entities that were deleted
+            (``delete_count``).
+        """
+        if self.collection is None:
+            raise ProcessingError(
+                "Collection not initialized. Call create_collection() or get_collection() first."
+            )
+
+        if not vector_ids:
+            return {"delete_count": 0}
+
+        try:
+            # Milvus DELETE deletes by expression. Escape each id so a quote or
+            # backslash in an id cannot break out of the string literal.
+            if len(vector_ids) == 1:
+                expr = f"id == {_format_milvus_value(vector_ids[0])}"
+            else:
+                formatted = ", ".join(_format_milvus_value(i) for i in vector_ids)
+                expr = f"id in [{formatted}]"
+            result = self.collection.collection.delete(expr=expr, **options)
+            delete_count = getattr(result, "delete_count", 0)
+            if delete_count is None:
+                delete_count = 0
+            elif isinstance(delete_count, (str, bytes)):
+                try:
+                    delete_count = int(delete_count)
+                except (TypeError, ValueError):
+                    delete_count = 0
+            return {"delete_count": delete_count}
+        except Exception as e:
+            raise ProcessingError(f"Failed to delete vectors: {str(e)}")
 
     def get_vector(self, vector_id: str) -> Optional[np.ndarray]:
         """Get vector by ID."""

@@ -622,6 +622,12 @@ class CentralityCalculator:
         try:
             self.logger.info("Calculating PageRank scores")
 
+            if not hasattr(graph, "nodes") and hasattr(self, "_to_networkx"):
+                try:
+                    graph = self._to_networkx(graph)
+                except Exception:
+                    pass
+
             # Filter nodes by labels if specified
             nodes = self._filter_nodes_by_labels(graph, node_labels)
             if not nodes:

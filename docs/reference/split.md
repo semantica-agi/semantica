@@ -371,9 +371,9 @@ for chunk in chunks:
     print(f"  {len(entities)} entities in chunk starting at {chunk.start_index}")
 ```
 
-For the full pipeline orchestration API, see the [Pipeline reference](pipeline).
+For the full pipeline orchestration API, see the [Pipeline reference](/reference/pipeline).
 
 - [Parse](/reference/parse) — Parse documents before chunking: produces sections and metadata.
 - [Embeddings](/reference/embeddings) — Embed chunks for vector search and semantic chunking.
 - [Semantic Extract](/reference/semantic_extract) — Extract entities and relations from individual chunks.
-- [Pipeline](pipeline) — Integrate splitting as a named pipeline step.
+- [Pipeline](/reference/pipeline) — Integrate splitting as a named pipeline step.

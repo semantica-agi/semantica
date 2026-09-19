@@ -122,12 +122,22 @@ class ContextRetriever:
     • Real-time context updates
     """
 
-    def __init__(self, config: Optional[Dict[str, Any]] = None, **kwargs):
+    def __init__(
+        self,
+        config: Optional[Dict[str, Any]] = None,
+        community_hierarchy: Optional[Any] = None,
+        community_reports: Optional[Any] = None,
+        llm: Optional[Any] = None,
+        **kwargs,
+    ):
         """
         Initialize context retriever.
 
         Args:
             config: Configuration dictionary
+            community_hierarchy: Optional CommunityHierarchy instance
+            community_reports: Optional community reports collection
+            llm: Optional LLM instance for global/drift synthesis
             **kwargs: Additional configuration options:
                 - memory_store: Memory store instance
                 - knowledge_graph: Knowledge graph instance
@@ -145,6 +155,22 @@ class ContextRetriever:
         self.knowledge_graph = self.config.get("knowledge_graph")
         self.vector_store = self.config.get("vector_store")
 
+        self.community_hierarchy = (
+            community_hierarchy
+            if community_hierarchy is not None
+            else self.config.get("community_hierarchy")
+        )
+        self.community_reports = (
+            community_reports
+            if community_reports is not None
+            else self.config.get("community_reports")
+        )
+        self.llm = (
+            llm
+            if llm is not None
+            else self.config.get("llm")
+        )
+
         self.use_graph_expansion = self.config.get("use_graph_expansion", True)
         self.max_expansion_hops = self.config.get("max_expansion_hops", 2)
         self.hybrid_alpha = self.config.get("hybrid_alpha", 0.5)
@@ -158,7 +184,7 @@ class ContextRetriever:
         # Initialize decision-specific components
         self.hybrid_calculator = HybridSimilarityCalculator()
         self.decision_pipeline: Optional[DecisionEmbeddingPipeline] = None
-        
+
         # Initialize KG algorithms if knowledge graph available
         if self.knowledge_graph:
             self.path_finder = PathFinder()
@@ -170,7 +196,7 @@ class ContextRetriever:
             self.centrality_calculator = None
             self.community_detector = None
             self.similarity_calculator = None
-        
+
         # Initialize decision pipeline if vector store available
         if self.vector_store:
             self.decision_pipeline = DecisionEmbeddingPipeline(
@@ -185,6 +211,7 @@ class ContextRetriever:
         max_results: int = 5,
         use_graph_expansion: Optional[bool] = None,
         min_relevance_score: float = 0.0,
+        mode: str = "local",
         **options,
     ) -> List[RetrievedContext]:
         """
@@ -195,6 +222,7 @@ class ContextRetriever:
             max_results: Maximum number of results
             use_graph_expansion: Use graph expansion (overrides config)
             min_relevance_score: Minimum relevance score
+            mode: Retrieval mode ('local', 'global', 'drift', 'hybrid')
             **options: Additional options:
                 - entity_ids: Filter by entity IDs
                 - node_types: Filter by node types
@@ -203,6 +231,53 @@ class ContextRetriever:
         Returns:
             List of retrieved context items
         """
+        norm_mode = str(mode).lower().strip()
+        if norm_mode == "global":
+            return self.retrieve_global(
+                query,
+                max_results=max_results,
+                min_relevance_score=min_relevance_score,
+                as_contexts=True,
+                **options,
+            )
+        elif norm_mode == "drift":
+            return self.retrieve_drift(
+                query,
+                max_results=max_results,
+                min_relevance_score=min_relevance_score,
+                as_contexts=True,
+                **options,
+            )
+        elif norm_mode == "hybrid":
+            local_res = self.retrieve(
+                query,
+                max_results=max_results * 2,
+                use_graph_expansion=use_graph_expansion,
+                min_relevance_score=min_relevance_score,
+                mode="local",
+                **options,
+            )
+            global_res = self.retrieve_global(
+                query,
+                max_results=max_results * 2,
+                min_relevance_score=min_relevance_score,
+                as_contexts=True,
+                **options,
+            )
+            merged = self._rank_and_merge(local_res + global_res, query)
+            eff_min_score = (
+                max(0.0, min(1.0, min_relevance_score / 10.0))
+                if min_relevance_score > 1.0
+                else max(0.0, min(1.0, min_relevance_score))
+            )
+            filtered = [r for r in merged if r.score >= eff_min_score]
+            return filtered[:max_results]
+        elif norm_mode != "local":
+            raise ValueError(
+                f"Unsupported retrieval mode '{mode}'. Supported modes: "
+                "'local', 'global', 'drift', 'hybrid'"
+            )
+
         # Track context retrieval
         tracking_id = self.progress_tracker.start_tracking(
             file=None,
@@ -257,8 +332,13 @@ class ContextRetriever:
             ranked_results = self._rank_and_merge(all_results, query)
 
             # Filter by minimum score
+            eff_min_score = (
+                max(0.0, min(1.0, min_relevance_score / 10.0))
+                if min_relevance_score > 1.0
+                else max(0.0, min(1.0, min_relevance_score))
+            )
             filtered_results = [
-                r for r in ranked_results if r.score >= min_relevance_score
+                r for r in ranked_results if r.score >= eff_min_score
             ]
 
             self.progress_tracker.stop_tracking(
@@ -274,6 +354,140 @@ class ContextRetriever:
                 tracking_id, status="failed", message=str(e)
             )
             raise
+
+    def retrieve_global(
+        self,
+        query: str,
+        level: Optional[int] = None,
+        max_results: int = 5,
+        min_relevance_score: float = 0.0,
+        as_contexts: bool = False,
+        **options,
+    ) -> Union[Any, List[RetrievedContext]]:
+        """
+        Execute global search over community reports.
+
+        Args:
+            query: Search query
+            level: Target coarsening hierarchy level
+            max_results: Maximum results when returning contexts
+            min_relevance_score: Minimum relevance score
+            as_contexts: If True, return List[RetrievedContext];
+                if False, return GlobalSearchResult
+            **options: Additional options passed to GlobalGraphRetriever
+
+        Returns:
+            GlobalSearchResult or List[RetrievedContext]
+        """
+        from .global_retriever import GlobalGraphRetriever
+
+        reports = options.pop("reports", None)
+        if reports is None:
+            reports = options.pop("community_reports", self.community_reports)
+        else:
+            options.pop("community_reports", None)
+
+        hierarchy = options.pop("hierarchy", None)
+        if hierarchy is None:
+            hierarchy = options.pop("community_hierarchy", self.community_hierarchy)
+        else:
+            options.pop("community_hierarchy", None)
+
+        llm = options.pop("llm", self.llm)
+
+        retriever = GlobalGraphRetriever(
+            reports=reports,
+            hierarchy=hierarchy,
+            llm=llm,
+            min_relevance_score=min_relevance_score,
+            **options,
+        )
+        res = retriever.search(
+            query,
+            level=level,
+            min_relevance_score=min_relevance_score,
+            **options,
+        )
+        if as_contexts:
+            context_threshold = (
+                max(0.0, min(1.0, min_relevance_score / 10.0))
+                if min_relevance_score > 1.0
+                else max(0.0, min(1.0, min_relevance_score))
+            )
+            contexts = [
+                c for c in res.to_retrieved_contexts()
+                if c.score >= context_threshold
+            ]
+            return contexts[:max_results]
+        return res
+
+    def retrieve_drift(
+        self,
+        query: str,
+        max_depth: int = 2,
+        max_results: int = 5,
+        min_relevance_score: float = 0.0,
+        as_contexts: bool = False,
+        **options,
+    ) -> Union[Any, List[RetrievedContext]]:
+        """
+        Execute DRIFT hybrid search combining global framing and local graph traversal.
+
+        Args:
+            query: Search query
+            max_depth: Maximum graph expansion depth
+            max_results: Maximum results when returning contexts
+            min_relevance_score: Minimum relevance score
+            as_contexts: If True, return List[RetrievedContext];
+                if False, return DriftSearchResult
+            **options: Additional options passed to DriftSearchEngine
+
+        Returns:
+            DriftSearchResult or List[RetrievedContext]
+        """
+        from .drift_search import DriftSearchEngine
+
+        kg = options.pop("knowledge_graph", None)
+        if kg is None:
+            kg = options.pop("graph", self.knowledge_graph)
+        else:
+            options.pop("graph", None)
+
+        reports = options.pop("reports", None)
+        if reports is None:
+            reports = options.pop("community_reports", self.community_reports)
+        else:
+            options.pop("community_reports", None)
+
+        hierarchy = options.pop("hierarchy", None)
+        if hierarchy is None:
+            hierarchy = options.pop("community_hierarchy", self.community_hierarchy)
+        else:
+            options.pop("community_hierarchy", None)
+
+        llm = options.pop("llm", self.llm)
+
+        engine = DriftSearchEngine(
+            knowledge_graph=kg,
+            reports=reports,
+            hierarchy=hierarchy,
+            llm=llm,
+            max_depth=max_depth,
+            **options,
+        )
+        res = engine.search(query, max_depth=max_depth, **options)
+        if as_contexts:
+            context_threshold = (
+                max(0.0, min(1.0, min_relevance_score / 10.0))
+                if min_relevance_score > 1.0
+                else max(0.0, min(1.0, min_relevance_score))
+            )
+            contexts = [
+                c for c in res.to_retrieved_contexts()
+                if c.score >= context_threshold
+            ]
+            return contexts[:max_results]
+        return res
 
     def _retrieve_from_vector(
         self, query: str, max_results: int
@@ -738,52 +952,94 @@ class ContextRetriever:
         self, results: List[RetrievedContext], query: str
     ) -> List[RetrievedContext]:
         """Rank and merge results from multiple sources with GraphRAG optimization."""
+        def is_graph_source(s: Optional[str]) -> bool:
+            if not s:
+                return False
+            return (
+                s.startswith("graph")
+                or s.startswith("global")
+                or s.startswith("drift")
+                or s.startswith("community")
+                or s in ("global_search", "drift_search", "local_graph")
+            )
+
         # Separate results by source (handle None source gracefully)
         vector_results = [r for r in results if r.source and r.source.startswith("vector:")]
-        graph_results = [r for r in results if r.source and r.source.startswith("graph:")]
+        graph_results = [r for r in results if is_graph_source(r.source)]
         memory_results = [r for r in results if r.source and r.source.startswith("memory:")]
+        other_results = [
+            r for r in results
+            if (
+                r not in vector_results
+                and r not in graph_results
+                and r not in memory_results
+            )
+        ]
         
         # Normalize scores within each source (0-1 range)
         def normalize_scores(source_results):
-            if not source_results:
+            unweighted = [
+                r for r in source_results
+                if not (r.metadata and r.metadata.get("_source_weighted"))
+            ]
+            if not unweighted:
                 return source_results
-            scores = [r.score for r in source_results]
+            scores = [r.score for r in unweighted]
             if not scores:
                 return source_results
             min_score, max_score = min(scores), max(scores)
             if max_score > min_score:
-                for r in source_results:
+                for r in unweighted:
                     r.score = (r.score - min_score) / (max_score - min_score)
             return source_results
-        
+
         vector_results = normalize_scores(vector_results)
         graph_results = normalize_scores(graph_results)
         memory_results = normalize_scores(memory_results)
-        
+        other_results = normalize_scores(other_results)
+
         # Apply hybrid_alpha weighting: 0=vector only, 1=graph only, 0.5=balanced
         alpha = self.hybrid_alpha
         for r in vector_results:
-            r.score = r.score * (1 - alpha)  # Weight vector results
+            if r.metadata is None:
+                r.metadata = {}
+            if not r.metadata.get("_source_weighted"):
+                r.score = r.score * (1 - alpha)  # Weight vector results
+                r.metadata["_source_weighted"] = True
         for r in graph_results:
-            r.score = r.score * alpha  # Weight graph results
-            # Boost graph results with more context (more related entities/relationships)
-            context_boost = min(
-                0.2,  # Max 20% boost
-                (len(r.related_entities) + len(r.related_relationships or [])) * 0.01
-            )
-            r.score += context_boost
+            if r.metadata is None:
+                r.metadata = {}
+            if not r.metadata.get("_source_weighted"):
+                r.score = r.score * alpha  # Weight graph results
+                # Boost graph results with more context
+                context_boost = min(
+                    0.2,  # Max 20% boost
+                    (len(r.related_entities) + len(r.related_relationships or [])) * 0.01
+                )
+                r.score += context_boost
+                r.metadata["_source_weighted"] = True
         for r in memory_results:
-            r.score = r.score * 0.3  # Lower weight for memory
+            if r.metadata is None:
+                r.metadata = {}
+            if not r.metadata.get("_source_weighted"):
+                r.score = r.score * 0.3  # Lower weight for memory
+                r.metadata["_source_weighted"] = True
+        for r in other_results:
+            if r.metadata is None:
+                r.metadata = {}
+            if not r.metadata.get("_source_weighted"):
+                r.score = r.score * 0.5  # Neutral weight for other
+                r.metadata["_source_weighted"] = True
         
         # Deduplicate by entity ID (for graph) or content (for others)
         seen_entities = {}  # entity_id -> result
         seen_content = {}   # content_hash -> result
         
-        all_results = vector_results + graph_results + memory_results
+        all_results = vector_results + graph_results + memory_results + other_results
         
         for result in all_results:
             # For graph results, deduplicate by entity ID
-            if result.source and result.source.startswith("graph:"):
+            if is_graph_source(result.source):
                 entity_id = result.metadata.get("node_id")
                 if entity_id:
                     if entity_id not in seen_entities:
@@ -817,7 +1073,7 @@ class ContextRetriever:
                                 if rel_key not in existing_rel_ids:
                                     existing.related_relationships.append(rel)
                                     existing_rel_ids.add(rel_key)
-                        continue
+                    continue
             
             # For non-graph results, deduplicate by content
             content_key = result.content[:100] if result.content else ""
@@ -830,8 +1086,11 @@ class ContextRetriever:
         
         # Combine deduplicated results
         merged_results = list(seen_entities.values()) + [
-            r for r in seen_content.values() 
-            if not (r.source and r.source.startswith("graph:")) or r.metadata.get("node_id") not in seen_entities
+            r for r in seen_content.values()
+            if (
+                not is_graph_source(r.source)
+                or r.metadata.get("node_id") not in seen_entities
+            )
         ]
         
         # Re-rank with query relevance boost

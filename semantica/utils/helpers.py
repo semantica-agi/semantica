@@ -38,15 +38,15 @@ Example Usage:
     >>> from semantica.utils import clean_text, normalize_entities
     >>> cleaned = clean_text("  Hello   World  ")
     >>> entities = normalize_entities([{"id": "e1", "text": "John", "type": "PERSON"}])
-    >>> 
+    >>>
     >>> from semantica.utils import hash_data, safe_filename
     >>> data_hash = hash_data({"key": "value"})
     >>> safe_name = safe_filename("my file.txt")
-    >>> 
+    >>>
     >>> from semantica.utils import merge_dicts, get_nested_value
     >>> merged = merge_dicts({"a": 1}, {"b": 2}, deep=True)
     >>> value = get_nested_value(config, "database.host", default="localhost")
-    >>> 
+    >>>
     >>> from semantica.utils import retry_on_error
     >>> @retry_on_error(max_retries=3, delay=1.0)
     ... def fetch_data():
@@ -457,7 +457,9 @@ def chunk_list(items: List[Any], chunk_size: int) -> List[List[Any]]:
     Returns:
         List of chunks
     """
-    return [items[i : i + chunk_size] for i in range(0, len(items), chunk_size)]    
+    return [items[i : i + chunk_size] for i in range(0, len(items), chunk_size)]
+
+
 def flatten_dict(
     d: Dict[str, Any], parent_key: str = "", sep: str = "."
 ) -> Dict[str, Any]:
@@ -556,27 +558,27 @@ def safe_import(
 ) -> Tuple[Any, bool]:
     """
     Safely import an optional module, handling both ImportError and OSError.
-    
+
     This is useful for optional dependencies that may fail to import due to:
     - Missing package (ImportError)
     - DLL loading failures on Windows, e.g., PyTorch (OSError)
-    
+
     Args:
         module_name: Name of the module to import (e.g., "spacy", "docling.document_converter")
         package: Optional package name for relative imports
         default: Default value to return if import fails
         error_message: Optional custom error message for logging
-        
+
     Returns:
         Tuple of (module_or_default, success_flag):
         - If import succeeds: (imported_module, True)
         - If import fails: (default, False)
-        
+
     Example:
         >>> spacy, available = safe_import("spacy")
         >>> if available:
         ...     doc = spacy.load("en_core_web_sm")
-        >>> 
+        >>>
         >>> converter, available = safe_import("docling.document_converter", default=None)
         >>> if available:
         ...     converter = converter()
@@ -587,11 +589,13 @@ def safe_import(
         else:
             module = importlib.import_module(module_name)
         return module, True
-    except (ImportError, ModuleNotFoundError, OSError) as e:
+    except (ImportError, OSError) as e:
         if error_message:
             import sys
+
             if "logging" in sys.modules:
                 from .logging import get_logger
+
                 logger = get_logger("utils.helpers")
                 logger.debug(f"{error_message}: {e}")
         return default, False
@@ -807,9 +811,13 @@ def _is_record(value: Any) -> bool:
     exporters rather than a ``ValidationError`` at the boundary where the
     problem is visible.
     """
-    return isinstance(value, Mapping) or is_dataclass(value) or (
-        hasattr(value, "__dict__")
-        and not isinstance(value, (types.ModuleType, type))
+    return (
+        isinstance(value, Mapping)
+        or is_dataclass(value)
+        or (
+            hasattr(value, "__dict__")
+            and not isinstance(value, (types.ModuleType, type))
+        )
     )
 
 

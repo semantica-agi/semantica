@@ -38,14 +38,13 @@ class TestOptionalDependencies(unittest.TestCase):
         with import_without(
             "semantica.visualization.embedding_visualizer", "umap"
         ) as module:
-            with plotly_doubles(module), patch.object(module, "PCA") as mock_pca_class:
-                mock_pca_class.return_value.fit_transform.return_value = np.zeros((4, 2))
-
+            with plotly_doubles(module):
                 viz = module.EmbeddingVisualizer()
                 embeddings = np.array([[0, 1, 2], [1, 0, 3], [0, 0, 0], [1, 1, 1]])
-                viz.visualize_2d_projection(embeddings, method="umap")
-
-            mock_pca_class.assert_called()
+                with self.assertRaises(module.ProcessingError) as cm:
+                    viz.visualize_2d_projection(embeddings, method="umap")
+                self.assertIn("UMAP is required", str(cm.exception))
+                self.assertIn("semantica[viz]", str(cm.exception))
 
     def test_ontology_visualizer_without_graphviz(self):
         """Test OntologyVisualizer behavior when graphviz is missing."""

@@ -170,6 +170,8 @@ class TestVectorStoreDeepDive(unittest.TestCase):
         mock_hit = MagicMock()
         mock_hit.id = 1
         mock_hit.distance = 0.1
+        # entity.get("metadata") returns None so the `or {}` fallback yields {}
+        mock_hit.entity.get.return_value = None
         mock_collection_instance.search.return_value = [[mock_hit]]
         
         # Test Init
@@ -209,12 +211,12 @@ class TestVectorStoreDeepDive(unittest.TestCase):
         mock_client = MagicMock()
         mock_qdrant_cls.return_value = mock_client
         
-        # Mock search response
+        # Mock search response (modern query_points API: hits in .points)
         mock_hit = MagicMock()
         mock_hit.id = "vec_1"
         mock_hit.score = 0.9
         mock_hit.payload = {"type": "a"}
-        mock_client.search.return_value = [mock_hit]
+        mock_client.query_points.return_value = MagicMock(points=[mock_hit])
         
         store = QdrantStore(url="http://localhost:6333")
         

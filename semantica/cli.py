@@ -7,6 +7,7 @@ enabling users to interact with the framework via terminal commands.
 
 import json
 import os
+import re
 import sys
 import time
 
@@ -95,7 +96,26 @@ _ERROR_HINTS: Dict[type, str] = {
 }
 
 
+def _json_error_mode() -> bool:
+    """True when this invocation promised machine-readable stdout.
+
+    Covers both the global ``--json`` flag (stored on the CLI context) and a
+    subcommand's local ``--json`` flag (uniformly named ``local_json``).
+    """
+    ctx = click.get_current_context(silent=True)
+    if ctx is None:
+        return False
+    if ctx.params.get("local_json"):
+        return True
+    return isinstance(ctx.obj, CLIContext) and ctx.obj.json_output
+
+
 def _show_error_card(title: str, detail: str, hint: Optional[str] = None) -> None:
+    if _json_error_mode():
+        # --json promises machine-readable stdout with errors on stderr, so
+        # emit a structured error line there instead of a Rich panel.
+        click.echo(json.dumps({"error": detail, "type": title}), err=True)
+        return
     body = f"[bold]{title}[/bold]\n[{_DIM}]{detail}[/{_DIM}]"
     if hint:
         body += f"\n\n[{_KEY}]→[/{_KEY}] [{_DIM}]{hint}[/{_DIM}]"
@@ -105,7 +125,7 @@ def _show_error_card(title: str, detail: str, hint: Optional[str] = None) -> Non
 
 
 def _run_with_error_handling(action: Callable[[], None]) -> None:
-    """Run a CLI action with Rich error cards on failure."""
+    """Run a CLI action with error cards (or JSON-mode stderr errors) on failure."""
     try:
         action()
     except click.ClickException as exc:
@@ -282,16 +302,20 @@ def _run_build(cli_ctx: CLIContext, sources: Sequence[str]) -> None:
         return
 
     framework = _get_framework(cli_ctx)
+    # Every build call is kept: the multi-source progress loop below calls
+    # build_knowledge_base once per file, and keeping only the last result
+    # would make the empty-graph check and the reported counts reflect one
+    # file instead of the whole build.
+    results: List[Dict[str, Any]] = []
     if cli_ctx.quiet or cli_ctx.json_output:
-        result = framework.build_knowledge_base(sources=list(sources))
+        results.append(framework.build_knowledge_base(sources=list(sources)))
     elif len(sources) == 1:
         with console.status(
             f"[{_DIM}]Building knowledge base from {Path(sources[0]).name}…[/{_DIM}]",
             spinner="dots",
         ):
-            result = framework.build_knowledge_base(sources=list(sources))
+            results.append(framework.build_knowledge_base(sources=list(sources)))
     elif not cli_ctx.json_output:
-        result: Dict[str, Any] = {}
         with Progress(
             SpinnerColumn(),
             TextColumn("[{task.description}]", style=_DIM),
@@ -304,13 +328,41 @@ def _run_build(cli_ctx: CLIContext, sources: Sequence[str]) -> None:
             task = progress.add_task("waiting", total=len(sources))
             for src in sources:
                 progress.update(task, description=Path(src).name)
-                result = framework.build_knowledge_base(sources=[src])
+                results.append(framework.build_knowledge_base(sources=[src]))
                 progress.advance(task)
 
-    stats = result.get("statistics", {}) if isinstance(result, dict) else {}
-    processed = stats.get("sources_processed")
+    results = [r for r in results if isinstance(r, dict)]
+    processed_counts = [
+        r.get("statistics", {}).get("sources_processed") for r in results
+    ]
+    processed_counts = [c for c in processed_counts if c is not None]
+    processed = sum(processed_counts) if processed_counts else None
+
+    # A source count alone does not mean anything was built: with no pipeline
+    # configured the default pipeline passes its input through untouched, so
+    # every source is "processed" and the graph stays empty. Reporting success
+    # there hid the failure completely (#1352). Only results that actually
+    # carry a knowledge_graph are judged; a result without one is not evidence
+    # of an empty graph.
+    graphs = [r["knowledge_graph"] or {} for r in results if "knowledge_graph" in r]
+    entity_count = sum(len(g.get("entities") or []) for g in graphs)
+    relationship_count = sum(len(g.get("relationships") or []) for g in graphs)
+
+    if graphs and processed and not entity_count and not relationship_count:
+        raise click.ClickException(
+            f"{processed} source(s) processed but the knowledge graph is empty "
+            "— no entities or relationships were extracted. This usually means "
+            "no pipeline was configured, so the sources were read but never "
+            "parsed or extracted. Supply a pipeline with --config, or use "
+            "'semantica extract' to check the sources yield entities."
+        )
+
     if processed is not None:
-        _ok(cli_ctx, f"Knowledge base built — {processed} source(s) processed.")
+        _ok(
+            cli_ctx,
+            f"Knowledge base built — {processed} source(s) processed, "
+            f"{entity_count} entities, {relationship_count} relationships.",
+        )
     else:
         _ok(cli_ctx, "Knowledge base build completed.")
 
@@ -446,7 +498,7 @@ def _show_startup(cli_ctx: CLIContext) -> None:
         return
     cfg = cli_ctx.config.to_dict()
     graph_store = (
-        cli_ctx.store_backend or cfg.get("graph_db", {}).get("backend", "memory")
+        cli_ctx.store_backend or cfg.get("graph_db", {}).get("backend", "neo4j")
     )
     vector_store = (
         cli_ctx.vector_store_backend
@@ -832,9 +884,7 @@ def doctor(cli_ctx: CLIContext, local_json: bool, deep_embeddings: bool) -> None
         # Graph store reachability
         def _graph() -> str:
             cfg = cli_ctx.config.to_dict()
-            backend = cli_ctx.store_backend or cfg.get("graph_db", {}).get("backend", "memory")
-            if backend == "memory":
-                return "memory (always available)"
+            backend = cli_ctx.store_backend or cfg.get("graph_db", {}).get("backend", "neo4j")
             gs = _get_graph_store(cli_ctx)
             gs.ping() if hasattr(gs, "ping") else gs.connect()
             return f"{backend} reachable"
@@ -861,10 +911,18 @@ def doctor(cli_ctx: CLIContext, local_json: bool, deep_embeddings: bool) -> None
         def _embedding_backend(method: str) -> str:
             if method == "sentence_transformers":
                 import sentence_transformers  # noqa: F401
-                note = f"importable ({importlib.metadata.version('sentence-transformers')})"
+                try:
+                    ver = importlib.metadata.version("sentence-transformers")
+                except Exception:
+                    ver = getattr(sentence_transformers, "__version__", "installed")
+                note = f"importable ({ver})"
             else:
                 import fastembed  # noqa: F401
-                note = f"importable ({importlib.metadata.version('fastembed')})"
+                try:
+                    ver = importlib.metadata.version("fastembed")
+                except Exception:
+                    ver = getattr(fastembed, "__version__", "installed")
+                note = f"importable ({ver})"
             if not deep:
                 return note
             try:
@@ -885,12 +943,12 @@ def doctor(cli_ctx: CLIContext, local_json: bool, deep_embeddings: bool) -> None
         checks.append(_check(
             "Embeddings (sentence-transformers)",
             lambda: _embedding_backend("sentence_transformers"),
-            hint="pip install sentence-transformers",
+            hint="pip install 'semantica[embeddings-local]'",
         ))
         checks.append(_check(
             "Embeddings (fastembed)",
             lambda: _embedding_backend("fastembed"),
-            hint="pip install fastembed",
+            hint="pip install 'semantica[embeddings-local]'",
         ))
 
         # LLM provider keys
@@ -1181,6 +1239,120 @@ def _load_rule_definitions(path: str) -> List[str]:
             if line.strip() and not line.lstrip().startswith("#")]
 
 
+def _load_premises(path: str) -> List[Any]:
+    """Load DeductiveReasoner ``Premise`` objects from a YAML file.
+
+    Mirrors _load_rule_definitions()'s format conventions: a YAML list of
+    plain statement strings, a list of ``{statement, confidence}`` mappings,
+    a top-level ``{"premises": [...]}`` mapping, or plain-text lines.
+
+    ``confidence`` is accepted and parsed onto the Premise (the dataclass
+    has the field, so a doc-shaped input shouldn't be rejected), but
+    DeductiveReasoner.apply_logic() never reads premise.confidence -- every
+    derived Conclusion's confidence comes from the firing rule's confidence
+    instead. Setting it currently has no effect on the result.
+    """
+    from .reasoning.deductive_reasoner import Premise
+    text = Path(path).read_text(encoding="utf-8")
+    try:
+        data = yaml.safe_load(text)
+    except yaml.YAMLError:
+        data = None
+    if isinstance(data, dict):
+        if "premises" not in data:
+            raise click.ClickException(
+                f"Premises file '{path}' is a YAML mapping but has no 'premises' key. "
+                "Expected either a YAML list or a mapping with a 'premises' list."
+            )
+        premises_value = data["premises"]
+        # A present-but-non-list value (e.g. "premises: null") must be a
+        # clear error, not silently fall through to reinterpreting the raw
+        # file text as one-statement-per-line plain text.
+        if not isinstance(premises_value, list):
+            raise click.ClickException(
+                f"Premises file '{path}' has a 'premises' key that is not a list."
+            )
+        data = premises_value
+    elif not isinstance(data, list):
+        data = [line.strip() for line in text.splitlines()
+                if line.strip() and not line.lstrip().startswith("#")]
+    premises = []
+    for i, item in enumerate(data):
+        if isinstance(item, dict):
+            statement = item.get("statement")
+            if not statement:
+                raise click.ClickException(
+                    f"Premise entry {i} in '{path}' is missing 'statement'.")
+            premises.append(Premise(
+                premise_id=str(item.get("id", f"premise_{i}")),
+                statement=str(statement),
+                confidence=float(item.get("confidence", 1.0)),
+            ))
+        else:
+            premises.append(Premise(premise_id=f"premise_{i}", statement=str(item)))
+    if not premises:
+        raise click.ClickException(f"Premises file '{path}' contains no premises.")
+    return premises
+
+
+def _load_observations(path: str) -> List[Any]:
+    """Load AbductiveReasoner ``Observation`` objects from a YAML file.
+
+    Mirrors _load_rule_definitions()'s format conventions: a YAML list of
+    plain description strings, a list of ``{description, facts}`` mappings,
+    a top-level ``{"observations": [...]}`` mapping, or plain-text lines.
+
+    ``facts`` is accepted and parsed onto the Observation (the dataclass
+    has the field), but nothing in abductive_reasoner.py currently reads
+    observation.facts -- hypothesis generation only matches a rule's
+    conclusion against observation.description. Setting it currently has
+    no effect on the result.
+    """
+    from .reasoning.abductive_reasoner import Observation
+    text = Path(path).read_text(encoding="utf-8")
+    try:
+        data = yaml.safe_load(text)
+    except yaml.YAMLError:
+        data = None
+    if isinstance(data, dict):
+        if "observations" not in data:
+            raise click.ClickException(
+                f"Observations file '{path}' is a YAML mapping but has no 'observations' key. "
+                "Expected either a YAML list or a mapping with an 'observations' list."
+            )
+        obs_value = data["observations"]
+        # A present-but-non-list value (e.g. "observations: null") must be
+        # a clear error, not silently fall through to reinterpreting the
+        # raw file text as one-description-per-line plain text -- that
+        # path could otherwise hand find_explanations() a single bogus
+        # observation and report a misleading "success".
+        if not isinstance(obs_value, list):
+            raise click.ClickException(
+                f"Observations file '{path}' has an 'observations' key that is not a list."
+            )
+        data = obs_value
+    elif not isinstance(data, list):
+        data = [line.strip() for line in text.splitlines()
+                if line.strip() and not line.lstrip().startswith("#")]
+    observations = []
+    for i, item in enumerate(data):
+        if isinstance(item, dict):
+            description = item.get("description")
+            if not description:
+                raise click.ClickException(
+                    f"Observation entry {i} in '{path}' is missing 'description'.")
+            observations.append(Observation(
+                observation_id=str(item.get("id", f"obs_{i}")),
+                description=str(description),
+                facts=item.get("facts", []),
+            ))
+        else:
+            observations.append(Observation(observation_id=f"obs_{i}", description=str(item)))
+    if not observations:
+        raise click.ClickException(f"Observations file '{path}' contains no observations.")
+    return observations
+
+
 def _graph_store_facts(cli_ctx: CLIContext) -> List[str]:
     """Read the configured graph store into Reasoner fact strings.
 
@@ -1204,6 +1376,80 @@ def _graph_store_facts(cli_ctx: CLIContext) -> List[str]:
         target = names.get(rel.get("end_node_id"), rel.get("end_node_id"))
         facts.append(f"{rel.get('type', 'RELATED_TO')}({source}, {target})")
     return facts
+
+
+def _graph_store_as_context(cli_ctx: CLIContext) -> Dict[str, List[Dict[str, Any]]]:
+    """Read the configured graph store into GraphReasoner's expected shape.
+
+    GraphReasoner._prepare_graph_context() reads a plain
+    ``{"entities": [...], "relationships": [...]}`` dict -- distinct from
+    both the raw GraphStore rows and the ``Label(arg)`` fact strings
+    ``_graph_store_facts()`` builds for the other engines.
+    """
+    gs = _get_graph_store(cli_ctx)
+    nodes = gs.get_nodes(limit=sys.maxsize)
+    relationships = gs.get_relationships(limit=sys.maxsize)
+    names: Dict[Any, Any] = {}
+    entities = []
+    for node in nodes:
+        props = node.get("properties") or {}
+        name = props.get("name") or props.get("id") or node.get("id")
+        names[node.get("id")] = name
+        labels = node.get("labels") or ["Entity"]
+        # Multiple labels are all real classifications (mirrors the one
+        # fact-per-label convention _graph_store_facts() uses); joining them
+        # keeps a node with e.g. ["Person", "Employee"] fully described
+        # instead of silently dropping every label but the first.
+        entities.append({
+            "id": name, "name": name, "type": "/".join(labels), "properties": props,
+        })
+    rel_out = []
+    for rel in relationships:
+        source = names.get(rel.get("start_node_id"), rel.get("start_node_id"))
+        target = names.get(rel.get("end_node_id"), rel.get("end_node_id"))
+        rel_out.append({
+            "source": source, "target": target,
+            "type": rel.get("type", "RELATED_TO"),
+            "properties": rel.get("properties") or {},
+        })
+    return {"entities": entities, "relationships": rel_out}
+
+
+def _lowercase_datalog_args(fact_str: str) -> str:
+    """Lowercase only a fact string's arguments, keeping the predicate's
+    case untouched.
+
+    DatalogReasoner reads a leading-uppercase *argument* as a variable
+    (constants must be lowercase), but places no such constraint on the
+    predicate. Lowercasing the whole string would still satisfy the
+    constant check but would break matching against Datalog rules written
+    against the graph's own label spelling, e.g. "Human(X) :- Person(X)."
+    expects a "Person(...)" fact, not "person(...)".
+    """
+    match = re.match(r'^([a-zA-Z0-9_]+)\((.*)\)$', fact_str.strip())
+    if not match:
+        return fact_str
+    predicate, args_str = match.groups()
+    args = [arg.strip().lower() for arg in args_str.split(',')]
+    return f"{predicate}({', '.join(args)})"
+
+
+def _run_reasoning_with_status(
+    cli_ctx: CLIContext, engine: str, local_json: bool, fn: Callable[[], Dict[str, Any]]
+) -> Dict[str, Any]:
+    """Run a reasoning computation, showing a spinner unless output is quiet/JSON.
+
+    Checks _is_json() (global --json OR the command's own --json flag), not
+    just cli_ctx.json_output -- otherwise `reason run --json` (the local
+    flag, global --json omitted) would still print spinner status text to
+    stdout ahead of the JSON payload, corrupting it for a parser.
+    """
+    if cli_ctx.quiet or _is_json(cli_ctx, local_json):
+        return fn()
+    with console.status(
+        f"[{_DIM}]Running {engine} reasoning engine…[/{_DIM}]", spinner="dots"
+    ):
+        return fn()
 
 
 # ─── Output helpers ──────────────────────────────────────────────────────────
@@ -1452,6 +1698,218 @@ def kg_validate_cmd(cli_ctx: CLIContext, local_json: bool) -> None:
             _jecho(result if isinstance(result, dict) else {"result": str(result)})
         else:
             _ok(cli_ctx, f"Graph validation: {result}")
+
+    _run_with_error_handling(_action)
+
+
+@kg.command("global")
+@click.argument("query_str")
+@click.option(
+    "--reports",
+    "reports_path",
+    type=click.Path(exists=True),
+    default=None,
+    help="Path to JSON file containing community reports.",
+)
+@click.option(
+    "--hierarchy",
+    "hierarchy_path",
+    type=click.Path(exists=True),
+    default=None,
+    help="Path to JSON file containing community hierarchy.",
+)
+@click.option(
+    "--level",
+    type=int,
+    default=None,
+    help="Coarsening level to query.",
+)
+@click.option(
+    "--max-tokens",
+    type=int,
+    default=4000,
+    show_default=True,
+    help="Token budget for retrieval context.",
+)
+@click.option(
+    "--min-relevance",
+    type=float,
+    default=0.0,
+    show_default=True,
+    help="Minimum relevance score (0.0 to 10.0).",
+)
+@click.option("--json", "local_json", is_flag=True, default=False)
+@click.pass_obj
+def kg_global_cmd(
+    cli_ctx: CLIContext,
+    query_str: str,
+    reports_path: Optional[str],
+    hierarchy_path: Optional[str],
+    level: Optional[int],
+    max_tokens: int,
+    min_relevance: float,
+    local_json: bool,
+) -> None:
+    """Run global Map-Reduce search over hierarchical community reports."""
+    cli_ctx = _require_ctx(cli_ctx)
+    json_out = _is_json(cli_ctx, local_json)
+
+    def _action() -> None:
+        try:
+            from .context.methods import retrieve_global
+            from .kg.community_hierarchy import CommunityHierarchy
+        except ImportError as exc:
+            raise click.ClickException(f"Module not available: {exc}") from exc
+
+        loaded_reports = None
+        if reports_path:
+            try:
+                with open(reports_path, "r", encoding="utf-8") as f:
+                    loaded_reports = json.load(f)
+            except Exception as exc:
+                raise click.ClickException(
+                    f"Failed to read reports file '{reports_path}': {exc}"
+                ) from exc
+        else:
+            raise click.ClickException(
+                "Global retrieval requires --reports. "
+                "Please provide a path to community reports."
+            )
+
+        loaded_hierarchy = None
+        if hierarchy_path:
+            try:
+                with open(hierarchy_path, "r", encoding="utf-8") as f:
+                    h_data = json.load(f)
+                    loaded_hierarchy = CommunityHierarchy.from_dict(h_data)
+            except Exception as exc:
+                raise click.ClickException(
+                    f"Failed to read hierarchy file '{hierarchy_path}': {exc}"
+                ) from exc
+
+        result = retrieve_global(
+            query=query_str,
+            reports=loaded_reports,
+            hierarchy=loaded_hierarchy,
+            level=level,
+            max_context_tokens=max_tokens,
+            min_relevance_score=min_relevance,
+        )
+
+        if json_out:
+            _jecho(result.to_dict())
+        else:
+            _ok(
+                cli_ctx,
+                f"Global Search Results (Level {result.level}, "
+                f"Reports: {len(result.community_reports_used)}):",
+            )
+            console.print(f"\n{result.response}\n")
+            if result.citations:
+                console.print(f"Citations: {', '.join(result.citations)}")
+            console.print(
+                f"Key Points: {len(result.key_points)} | "
+                f"Time: {result.metrics.get('time_taken', 0.0):.2f}s"
+            )
+
+    _run_with_error_handling(_action)
+
+
+@kg.command("drift")
+@click.argument("query_str")
+@click.option(
+    "--reports",
+    "reports_path",
+    type=click.Path(exists=True),
+    default=None,
+    help="Path to JSON file containing community reports.",
+)
+@click.option(
+    "--graph",
+    "graph_path",
+    type=click.Path(exists=True),
+    default=None,
+    help="Path to JSON file containing knowledge graph.",
+)
+@click.option(
+    "--depth",
+    type=int,
+    default=2,
+    show_default=True,
+    help="Traversal depth for entity exploration.",
+)
+@click.option(
+    "--drift-threshold",
+    type=float,
+    default=0.35,
+    show_default=True,
+    help="Threshold for semantic drift pruning.",
+)
+@click.option("--json", "local_json", is_flag=True, default=False)
+@click.pass_obj
+def kg_drift_cmd(
+    cli_ctx: CLIContext,
+    query_str: str,
+    reports_path: Optional[str],
+    graph_path: Optional[str],
+    depth: int,
+    drift_threshold: float,
+    local_json: bool,
+) -> None:
+    """Run DRIFT hybrid search combining global framing and local exploration."""
+    cli_ctx = _require_ctx(cli_ctx)
+    json_out = _is_json(cli_ctx, local_json)
+
+    def _action() -> None:
+        try:
+            from .context.methods import retrieve_drift
+        except ImportError as exc:
+            raise click.ClickException(f"Module not available: {exc}") from exc
+
+        loaded_reports = None
+        if reports_path:
+            try:
+                with open(reports_path, "r", encoding="utf-8") as f:
+                    loaded_reports = json.load(f)
+            except Exception as exc:
+                raise click.ClickException(
+                    f"Failed to read reports file '{reports_path}': {exc}"
+                ) from exc
+
+        loaded_graph = None
+        if graph_path:
+            try:
+                with open(graph_path, "r", encoding="utf-8") as f:
+                    loaded_graph = json.load(f)
+            except Exception as exc:
+                raise click.ClickException(
+                    f"Failed to read graph file '{graph_path}': {exc}"
+                ) from exc
+
+        result = retrieve_drift(
+            query=query_str,
+            knowledge_graph=loaded_graph,
+            reports=loaded_reports,
+            max_depth=depth,
+            drift_threshold=drift_threshold,
+        )
+
+        if json_out:
+            _jecho(result.to_dict())
+        else:
+            _ok(
+                cli_ctx,
+                f"DRIFT Hybrid Search Results (Depth {result.depth_reached}, "
+                f"Facts: {len(result.verified_local_contexts)}):",
+            )
+            console.print(f"\n{result.answer}\n")
+            if result.citations:
+                console.print(f"Citations: {', '.join(result.citations)}")
+            console.print(
+                f"Facets Explored: {len(result.facets_explored)} | "
+                f"Pruned Facts: {result.pruned_fact_count} | "
+                f"Time: {result.metrics.get('time_taken', 0.0):.2f}s"
+            )
 
     _run_with_error_handling(_action)
 
@@ -2249,59 +2707,220 @@ def reason(ctx: click.Context) -> None:
                                   "datalog", "sparql", "graph"]),
               default="rete", show_default=True)
 @click.option("--rules", default=None, type=click.Path(exists=True),
-              help="Custom rules file (YAML/Datalog/SPARQL).")
+              help="Custom rules file (YAML for rete, Datalog Horn clauses for datalog).")
+@click.option("--query", "query_text", default=None,
+              help="Natural-language question, required for --engine graph.")
+@click.option("--premises", "premises_file", default=None, type=click.Path(exists=True),
+              help="Premises file for --engine deductive (YAML list of statements; "
+                   "falls back to graph-store facts if omitted).")
+@click.option("--observations", "observations_file", default=None, type=click.Path(exists=True),
+              help="Observations file for --engine abductive (required).")
 @click.option("--json", "local_json", is_flag=True, default=False)
 @click.pass_obj
 def reason_run(cli_ctx: CLIContext, engine: str, rules: Optional[str],
-               local_json: bool) -> None:
+               query_text: Optional[str], premises_file: Optional[str],
+               observations_file: Optional[str], local_json: bool) -> None:
     """Execute a reasoning engine against the knowledge graph.
 
     \b
     Example:
       semantica reason run --engine rete --rules business-rules.yaml
+      semantica reason run --engine datalog --rules facts.dl
+      semantica reason run --engine graph --query "Who manages Bob?"
+      semantica reason run --engine deductive --premises premises.yaml --rules rules.yaml
+      semantica reason run --engine abductive --observations observations.yaml --rules rules.yaml
     """
     cli_ctx = _require_ctx(cli_ctx)
 
     def _action() -> None:
-        # Only the forward-chaining production-rule engines run through
-        # Reasoner.infer_facts(); the other engines take different inputs
-        # (SPARQL/Datalog queries, observations, premises) and are not wired
-        # to this command yet. Fail honestly instead of silently
-        # forward-chaining under another engine's name.
-        if engine not in ("rete", "forward-chain"):
-            hint = (" Use 'semantica reason query' for SPARQL/Datalog queries."
-                    if engine in ("sparql", "datalog") else "")
+        if engine in ("rete", "forward-chain"):
+            try:
+                from .reasoning import Reasoner
+                # Reasoner has no run() method (#1354); dispatch to its real
+                # API: facts from the configured graph store + rules from the
+                # optional --rules file into infer_facts().
+                r = Reasoner(engine=engine, config=cli_ctx.config.to_dict())
+                rule_defs = _load_rule_definitions(rules) if rules else None
+                facts = _graph_store_facts(cli_ctx)
+
+                def _infer() -> Dict[str, Any]:
+                    inferred = r.infer_facts(facts, rule_defs)
+                    return {
+                        "engine": engine,
+                        "facts": len(facts),
+                        "inferred_count": len(inferred),
+                        "inferred_facts": inferred,
+                    }
+
+                result = _run_reasoning_with_status(cli_ctx, engine, local_json, _infer)
+            except ImportError as exc:
+                raise click.ClickException(f"Reasoning module not available: {exc}") from exc
+
+        elif engine == "datalog":
+            try:
+                from .reasoning import DatalogReasoner
+                dr = DatalogReasoner(config=cli_ctx.config.to_dict())
+                for rule_def in (_load_rule_definitions(rules) if rules else []):
+                    dr.add_rule(rule_def)
+                # Datalog reads a leading-uppercase *argument* as a variable
+                # (see datalog_reasoner.py _is_variable(); predicate case is
+                # unconstrained), so graph-store facts like "Person(Alice)"
+                # need their arguments -- not the predicate -- lowercased to
+                # read as ground constants. Lowercasing the whole string
+                # would also break matching against rules written against
+                # the graph's own (typically title-case) label spelling,
+                # e.g. "Human(X) :- Person(X)."
+                fact_strings = [_lowercase_datalog_args(f) for f in _graph_store_facts(cli_ctx)]
+                for fact_str in fact_strings:
+                    dr.add_fact(fact_str)
+
+                def _infer() -> Dict[str, Any]:
+                    before = set(fact_strings)
+                    derived = dr.derive_all()
+                    inferred = [f for f in derived if f not in before]
+                    return {
+                        "engine": engine,
+                        "facts": len(fact_strings),
+                        "inferred_count": len(inferred),
+                        "inferred_facts": inferred,
+                    }
+
+                result = _run_reasoning_with_status(cli_ctx, engine, local_json, _infer)
+            except ImportError as exc:
+                raise click.ClickException(f"Reasoning module not available: {exc}") from exc
+
+        elif engine == "graph":
+            if not query_text:
+                raise click.ClickException(
+                    "Engine 'graph' requires --query \"<question>\".")
+            try:
+                from .reasoning import GraphReasoner
+                gr = GraphReasoner(config=cli_ctx.config.to_dict())
+                graph = _graph_store_as_context(cli_ctx)
+
+                def _infer() -> Dict[str, Any]:
+                    answer = gr.reason(graph, query_text)
+                    # GraphReasoner.reason() never raises on an LLM-side
+                    # failure (no provider configured, generation error) --
+                    # it returns a string starting with "Error" instead.
+                    # Surface that as a real command failure (non-zero exit)
+                    # rather than a successful result an automated caller
+                    # would read as a real answer.
+                    if answer.startswith("Error: LLM provider not initialized") or \
+                            answer.startswith("Error during reasoning:"):
+                        raise click.ClickException(answer)
+                    return {
+                        "engine": engine,
+                        "query": query_text,
+                        "facts": len(graph["entities"]) + len(graph["relationships"]),
+                        "answer": answer,
+                    }
+
+                result = _run_reasoning_with_status(cli_ctx, engine, local_json, _infer)
+            except ImportError as exc:
+                raise click.ClickException(f"Reasoning module not available: {exc}") from exc
+
+        elif engine == "deductive":
+            try:
+                # DeductiveReasoner/Premise aren't re-exported from
+                # semantica.reasoning's __init__ (unlike DatalogReasoner/
+                # GraphReasoner) -- import from the submodule directly.
+                from .reasoning.deductive_reasoner import DeductiveReasoner, Premise
+                dr = DeductiveReasoner(config=cli_ctx.config.to_dict())
+                for rule_def in (_load_rule_definitions(rules) if rules else []):
+                    dr.reasoner.add_rule(rule_def)
+                # DeductiveReasoner uses the same "IF X THEN Y" / "?x"
+                # syntax as rete (both go through Reasoner.add_rule()), so
+                # --rules files are shared across the two engines unchanged.
+                if premises_file:
+                    premises = _load_premises(premises_file)
+                else:
+                    premises = [Premise(premise_id=f"fact_{i}", statement=fact)
+                                for i, fact in enumerate(_graph_store_facts(cli_ctx))]
+
+                def _infer() -> Dict[str, Any]:
+                    # apply_logic() scans self.reasoner.rules once, not to a
+                    # fixpoint -- a conclusion whose prerequisite premise is
+                    # itself a *later* rule's conclusion would be silently
+                    # dropped from a single call. known_facts persists on
+                    # the DeductiveReasoner instance across calls (premises
+                    # are just re-added, which is a no-op on a set), so
+                    # looping until a call yields nothing new reaches the
+                    # same fixpoint infer_facts()/derive_all() reach for
+                    # the other engines.
+                    conclusions: List[Any] = []
+                    while True:
+                        new_conclusions = dr.apply_logic(premises)
+                        if not new_conclusions:
+                            break
+                        conclusions.extend(new_conclusions)
+                    return {
+                        "engine": engine,
+                        "facts": len(premises),
+                        "inferred_count": len(conclusions),
+                        "inferred_facts": [c.statement for c in conclusions],
+                    }
+
+                result = _run_reasoning_with_status(cli_ctx, engine, local_json, _infer)
+            except ImportError as exc:
+                raise click.ClickException(f"Reasoning module not available: {exc}") from exc
+
+        elif engine == "abductive":
+            if not observations_file:
+                raise click.ClickException(
+                    "Engine 'abductive' requires --observations <file>.")
+            try:
+                from .reasoning.abductive_reasoner import AbductiveReasoner
+                ab = AbductiveReasoner(config=cli_ctx.config.to_dict())
+                for rule_def in (_load_rule_definitions(rules) if rules else []):
+                    ab.reasoner.add_rule(rule_def)
+                # Deliberately not calling _graph_store_facts()/
+                # add_knowledge() here: AbductiveReasoner's current
+                # generate_hypotheses()/find_explanations() never reads
+                # knowledge_base, so it would have no effect on the result
+                # while forcing every abductive run to depend on the
+                # configured graph store being reachable -- even a fully
+                # self-contained --rules + --observations run would fail if
+                # the graph backend is down. Revisit once knowledge_base is
+                # actually consumed by the ranking/generation algorithm.
+                observations = _load_observations(observations_file)
+
+                def _infer() -> Dict[str, Any]:
+                    explanations = ab.find_explanations(observations)
+                    return {
+                        "engine": engine,
+                        "observations": len(observations),
+                        "explanations": [
+                            {
+                                "observation": exp.observation.description,
+                                "best_hypothesis": (
+                                    exp.best_hypothesis.explanation
+                                    if exp.best_hypothesis else None
+                                ),
+                                "confidence": exp.confidence,
+                                "hypotheses_considered": len(exp.hypotheses),
+                            }
+                            for exp in explanations
+                        ],
+                    }
+
+                result = _run_reasoning_with_status(cli_ctx, engine, local_json, _infer)
+            except ImportError as exc:
+                raise click.ClickException(f"Reasoning module not available: {exc}") from exc
+
+        else:
+            # sparql is the only remaining engine choice, and it has no
+            # execution path to dispatch to at all: SPARQLReasoner.
+            # execute_query() raises NotImplementedError unconditionally
+            # and the class has no .query() method either. Fail honestly
+            # instead of silently forward-chaining under another engine's
+            # name.
             raise click.ClickException(
-                f"Engine '{engine}' is not wired to 'reason run' yet; "
-                f"supported engines: rete, forward-chain.{hint}")
-        try:
-            from .reasoning import Reasoner
-            # Reasoner has no run() method (#1354); dispatch to its real
-            # API: facts from the configured graph store + rules from the
-            # optional --rules file into infer_facts().
-            r = Reasoner(engine=engine, config=cli_ctx.config.to_dict())
-            rule_defs = _load_rule_definitions(rules) if rules else None
-            facts = _graph_store_facts(cli_ctx)
+                "Engine 'sparql' is not wired to 'reason run' yet; "
+                "supported engines: rete, forward-chain, datalog, graph, "
+                "deductive, abductive. Use 'semantica reason query' for "
+                "SPARQL queries.")
 
-            def _infer() -> Dict[str, Any]:
-                inferred = r.infer_facts(facts, rule_defs)
-                return {
-                    "engine": engine,
-                    "facts": len(facts),
-                    "inferred_count": len(inferred),
-                    "inferred_facts": inferred,
-                }
-
-            if cli_ctx.quiet or cli_ctx.json_output:
-                result = _infer()
-            else:
-                with console.status(
-                    f"[{_DIM}]Running {engine} reasoning engine…[/{_DIM}]",
-                    spinner="dots",
-                ):
-                    result = _infer()
-        except ImportError as exc:
-            raise click.ClickException(f"Reasoning module not available: {exc}") from exc
         if _is_json(cli_ctx, local_json):
             _jecho(result if isinstance(result, dict) else {"result": str(result)})
         else:
@@ -4745,15 +5364,10 @@ def mcp_list_tools(cli_ctx: CLIContext, local_json: bool) -> None:
     cli_ctx = _require_ctx(cli_ctx)
 
     def _action() -> None:
-        try:
-            from semantica_mcp.mcp.tools import __all__ as tools
-        except ImportError:
-            tools = [
-                "extract_entities", "extract_relations", "build_graph",
-                "query_graph", "get_graph_analytics", "run_reasoning",
-                "record_decision", "get_decisions", "export_graph",
-                "validate_shacl", "get_provenance", "embed_and_search",
-            ]
+        # Same catalog the server exposes via tools/list, so `list-tools`
+        # and `mcp start` can't drift (issue #1355).
+        from semantica_mcp.mcp.tools import TOOL_DEFINITIONS
+        tools = [t["name"] for t in TOOL_DEFINITIONS]
         if _is_json(cli_ctx, local_json):
             _jecho({"tools": list(tools)})
         else:
@@ -4786,12 +5400,15 @@ def mcp_call(cli_ctx: CLIContext, tool_name: str, args: str, local_json: bool) -
             tool_args = json.loads(args)
         except json.JSONDecodeError as exc:
             raise click.ClickException(f"Invalid JSON in --args: {exc}") from exc
+        if not isinstance(tool_args, dict):
+            raise click.ClickException("--args must be a JSON object")
+        # Dispatch through the same server `mcp start` spawns; its session
+        # module never defined MCPSession (issue #1355).
+        from semantica_mcp.mcp.server import UnknownToolError, call_tool
         try:
-            from semantica_mcp.mcp.session import MCPSession
-            session = MCPSession(config=cli_ctx.config.to_dict())
-            result = session.call_tool(tool_name, **tool_args)
-        except ImportError as exc:
-            raise click.ClickException(f"MCP module not available: {exc}") from exc
+            result = call_tool(tool_name, tool_args)
+        except UnknownToolError as exc:
+            raise click.ClickException(str(exc)) from exc
         if _is_json(cli_ctx, local_json):
             _jecho(result if isinstance(result, (dict, list)) else {"result": str(result)})
         else:

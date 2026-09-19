@@ -1,0 +1,20 @@
+# OSV-Scanner ignore config (also consumed by OpenSSF Scorecard's
+# "Vulnerabilities" check, which reports advisories found in this repo's
+# dependency manifests via https://osv.dev).
+#
+# See https://github.com/google/osv-scanner#ignore-vulnerabilities-by-id for
+# the file format.
+
+[[IgnoredVulns]]
+id = "GHSA-4j2p-28q2-5m79"
+reason = """
+accelerate<=1.14.0 (transitive dependency via docling-slim, pinned in
+requirements-ci.txt) has an open path traversal / DoS advisory (also tracked
+as CVE-2026-69112) in load_checkpoint_in_model / load_checkpoint_and_dispatch,
+which fail to sanitize weight_map entries from sharded checkpoint indexes.
+1.14.0 is the latest release on PyPI; no patched version exists yet.
+Semantica does not call either function or load arbitrary/untrusted sharded
+checkpoints, so the vulnerable code path is not reachable. Re-evaluate once
+accelerate ships a fix - see .github/workflows/security-scan.yml for the
+matching pip-audit exclusion.
+"""
