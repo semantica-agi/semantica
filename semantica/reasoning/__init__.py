@@ -7,21 +7,26 @@ rule-based inference via Rete, SPARQL reasoning, abductive and deductive reasoni
 and native Datalog evaluation.
 """
 
-from .reasoner import Reasoner, InferenceResult, Rule, Fact, RuleType
-from .reasoner import (
-    Action,
-    AssertAction,
-    RetractAction,
-    CallAction,
-    EmitEventAction,
-)
-from .graph_reasoner import GraphReasoner
+from .datalog_reasoner import DatalogFact, DatalogReasoner, DatalogRule
 from .explanation_generator import (
     Explanation,
     ExplanationGenerator,
     Justification,
     ReasoningPath,
     ReasoningStep,
+)
+from .graph_reasoner import GraphReasoner
+from .reasoner import (
+    Action,
+    AssertAction,
+    CallAction,
+    EmitEventAction,
+    Fact,
+    InferenceResult,
+    Reasoner,
+    RetractAction,
+    Rule,
+    RuleType,
 )
 from .rete_engine import (
     AlphaNode,
@@ -32,9 +37,18 @@ from .rete_engine import (
     TerminalNode,
 )
 from .sparql_reasoner import SPARQLQueryResult, SPARQLReasoner
-
-from .datalog_reasoner import DatalogReasoner, DatalogFact, DatalogRule
-from .temporal_reasoning import IntervalRelation, TemporalInterval, TemporalReasoningEngine
+from .temporal_reasoning import (
+    IntervalRelation,
+    TemporalInterval,
+    TemporalReasoningEngine,
+)
+from .truth_maintenance import TruthMaintenanceSession
+from .truth_maintenance_types import (
+    Derivation,
+    FactExplanation,
+    FactSupport,
+    MaintenanceDelta,
+)
 
 __all__ = [
     # Reasoner facade
@@ -67,6 +81,12 @@ __all__ = [
     "TemporalInterval",
     "IntervalRelation",
     "TemporalReasoningEngine",
+    # Truth maintenance
+    "TruthMaintenanceSession",
+    "FactSupport",
+    "Derivation",
+    "FactExplanation",
+    "MaintenanceDelta",
     # Explanation
     "ExplanationGenerator",
     "Explanation",
