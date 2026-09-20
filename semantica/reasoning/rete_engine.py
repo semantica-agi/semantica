@@ -39,6 +39,7 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 
 from ..utils.logging import get_logger
 from ..utils.progress_tracker import get_progress_tracker
+from ._rule_matching import substitute_variables as _substitute_variables
 from .reasoner import Fact, Rule, _make_activation_key
 
 logger = get_logger("rete_engine")
@@ -114,6 +115,31 @@ def unify_condition(
     bindings = dict(initial_bindings or {})
     pattern = condition if isinstance(condition, str) else str(condition)
     fact_str = str(fact)
+
+    # Structural arity pre-check: compare the number of arguments in the
+    # pattern against len(fact.arguments) before building the regex.
+    # This prevents the lazy .+? groups from absorbing extra comma-separated
+    # arguments into a single binding (e.g. "Knows(?x, ?y)" matching a
+    # 3-argument fact by capturing "B, C" as ?y).
+    _paren_open = pattern.find("(")
+    _paren_close = pattern.rfind(")")
+    if _paren_open != -1 and _paren_close != -1:
+        _arg_str = pattern[_paren_open + 1 : _paren_close].strip()
+        if _arg_str:
+            # Count top-level commas (ignoring nested parens) to determine arity.
+            _depth = 0
+            _pattern_arity = 1
+            for _ch in _arg_str:
+                if _ch == "(":
+                    _depth += 1
+                elif _ch == ")":
+                    _depth -= 1
+                elif _ch == "," and _depth == 0:
+                    _pattern_arity += 1
+        else:
+            _pattern_arity = 0
+        if len(fact.arguments) != _pattern_arity:
+            return None
 
     # Build the anchored regex once (variables already bound are inlined as
     # literals). See ``_build_condition_regex`` for the segment handling.
@@ -570,9 +596,15 @@ class ReteEngine:
             )
             results = []
             for match in matches:
-                # Conclusions are the pure inference result and remain
-                # independent from optional side-effect execution below.
-                results.append(match.rule.conclusion)
+                # Instantiate the conclusion by substituting variable bindings.
+                # Falls back to the raw template if any binding value cannot be
+                # represented as a string (e.g. an object whose __repr__ raises).
+                try:
+                    str_bindings = {k: str(v) for k, v in match.bindings.items()}
+                    instantiated = _substitute_variables(match.rule.conclusion, str_bindings)
+                except Exception:  # noqa: BLE001
+                    instantiated = match.rule.conclusion
+                results.append(instantiated)
                 try:
                     # Fire the rule's actions (and any legacy handler) through
                     # the bound Reasoner so Rete matching produces the same

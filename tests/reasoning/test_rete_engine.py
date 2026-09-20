@@ -61,6 +61,23 @@ class TestUnifyCondition(unittest.TestCase):
         self.assertIn("Person(John)", joined)
         self.assertIn("bad pattern", joined)
 
+    def test_arity_mismatch_returns_none(self):
+        """A fact with more arguments than the pattern must return None, not a wrong binding."""
+        # 3-arg fact against a 2-variable pattern — the old lazy .+? would capture "B, C" as ?y
+        fact_3args = Fact("f10", "Knows", ["A", "B", "C"])
+        self.assertIsNone(unify_condition("Knows(?x, ?y)", fact_3args))
+
+    def test_arity_mismatch_fewer_args_returns_none(self):
+        """A fact with fewer arguments than the pattern must also return None."""
+        fact_1arg = Fact("f11", "Knows", ["A"])
+        self.assertIsNone(unify_condition("Knows(?x, ?y)", fact_1arg))
+
+    def test_correct_arity_still_binds(self):
+        """Normal 2-arg fact against 2-variable pattern still works after the arity check."""
+        fact_2args = Fact("f12", "Knows", ["A", "B"])
+        bindings = unify_condition("Knows(?x, ?y)", fact_2args)
+        self.assertEqual(bindings, {"x": "A", "y": "B"})
+
     def test_unexpected_error_logs_warning_and_returns_none(self):
         """An unexpected error is also logged and swallowed as None."""
         fact = Fact("f7", "Person", ["John"])
