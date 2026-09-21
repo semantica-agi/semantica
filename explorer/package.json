@@ -56,7 +56,7 @@
     "tsx": "^4.21.0",
     "typescript": "~5.9.3",
     "typescript-eslint": "^8.57.0",
-    "vite": "^6.4.2"
+    "vite": "^8.3.0"
   },
   "overrides": {
     "dompurify": "^3.4.0",
