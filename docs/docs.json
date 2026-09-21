@@ -109,6 +109,7 @@
               "integrations/databricks",
               "integrations/bigquery",
               "integrations/salesforce",
+              "integrations/tableau",
               "integrations/redshift",
               "integrations/powerbi"
             ]
