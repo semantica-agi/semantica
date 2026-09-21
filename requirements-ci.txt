@@ -4063,9 +4063,9 @@ onnxruntime==1.29.0 \
     # via
     #   semantica (pyproject.toml)
     #   fastembed
-openai==2.54.0 \
-    --hash=sha256:89089789197ccdb87f173a03145ed1598d00795220c93e96cf712b1cbf5e5f2b \
-    --hash=sha256:e3e6f8bc1ba30ddf381ace1a14340eed381cb984a1a59bd0f34b5be3b5d49cfa
+openai==3.15.0 \
+    --hash=sha256:47bc15f8b9db62ba9ff7fa32164c72f4fd6333b22d890251292aac1c6bfe998f \
+    --hash=sha256:95d6b2caf3823c7e0fc08911317b7f31b9f9ccf93b414e7a5c8d5b226af115f6
     # via
     #   semantica (pyproject.toml)
     #   instructor
