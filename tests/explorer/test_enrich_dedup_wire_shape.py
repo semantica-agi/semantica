@@ -159,7 +159,12 @@ def test_dedup_route_rejects_drifted_pair_shape(monkeypatch):
 
 
 def test_duplicate_pair_accepts_detector_keys():
-    """Legacy DuplicateCandidate keys in, both spellings out."""
+    """Legacy DuplicateCandidate keys in, both spellings out.
+
+    ``DuplicateCandidate`` always carries both ``similarity_score`` and
+    ``confidence`` as distinct values.  The mirroring must map each to its own
+    canonical twin without collapsing them.
+    """
     pair = DuplicatePair.model_validate(
         {
             "entity1": {"id": "acme_inc", "text": "Acme Corporation"},
@@ -172,11 +177,15 @@ def test_duplicate_pair_accepts_detector_keys():
 
     assert dumped["entity_a"] == {"id": "acme_inc", "text": "Acme Corporation"}
     assert dumped["entity_b"] == {"id": "acme_corp", "text": "Acme Corp"}
-    assert dumped["similarity"] == 0.91
     # Legacy keys stay on the wire for pre-#1586 clients.
     assert dumped["entity1"] == dumped["entity_a"]
     assert dumped["entity2"] == dumped["entity_b"]
+    # similarity ← similarity_score, score ← confidence; they must stay distinct.
+    assert dumped["similarity"] == 0.91
     assert dumped["similarity_score"] == 0.91
+    assert dumped["score"] == 0.87
+    assert dumped["confidence"] == 0.87
+    assert dumped["similarity"] != dumped["score"]
 
 
 def test_duplicate_pair_accepts_canonical_keys_and_backfills_legacy():
@@ -230,3 +239,40 @@ def test_dedup_response_validates_nested_pairs():
         total_flagged=1,
     )
     assert ok.duplicates[0].entity_a == "a"
+
+
+def test_duplicate_pair_fills_score_from_similarity():
+    """``score`` is required but falls back to ``similarity`` when absent.
+
+    A producer that only emits ``similarity`` (no ``confidence`` / ``score``)
+    must still yield a non-zero score bar in the UI.  Both required float
+    fields and every legacy twin must be populated from the single source.
+    """
+    pair = DuplicatePair.model_validate(
+        {
+            "entity_a": "a",
+            "entity_b": "b",
+            "similarity": 0.9,
+        }
+    )
+    dumped = pair.model_dump()
+
+    assert dumped["similarity"] == 0.9
+    assert dumped["score"] == 0.9
+    # Legacy twins must also be backfilled so pre-#1586 clients keep resolving.
+    assert dumped["similarity_score"] == 0.9
+    assert dumped["confidence"] == 0.9
+
+
+def test_duplicate_pair_rejects_missing_score_family():
+    """A pair with valid entity fields but no score family must fail validation.
+
+    Entities without any of similarity / similarity_score / score / confidence
+    cannot produce a usable score bar, so they must not silently pass through
+    as a 0% row — the validator must surface a ``ValidationError`` instead.
+    """
+    with pytest.raises(ValidationError) as excinfo:
+        DuplicatePair.model_validate({"entity_a": "a", "entity_b": "b"})
+
+    missing = {error["loc"][0] for error in excinfo.value.errors()}
+    assert {"similarity", "score"} <= missing
