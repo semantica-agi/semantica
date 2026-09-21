@@ -148,6 +148,11 @@ if TYPE_CHECKING:
         SalesforceData,
         SalesforceIngestor,
     )
+    from .dynamics365_ingestor import (
+        Dynamics365Connector,
+        Dynamics365Data,
+        Dynamics365Ingestor,
+    )
 
 from .config import IngestConfig, ingest_config
 from .file_ingestor import (
@@ -257,6 +262,10 @@ _LAZY_EXPORTS: Dict[str, Tuple[str, str]] = {
     "SalesforceIngestor": (".salesforce_ingestor", "SalesforceIngestor"),
     "SalesforceData": (".salesforce_ingestor", "SalesforceData"),
     "SalesforceConnector": (".salesforce_ingestor", "SalesforceConnector"),
+    # Tableau ingestion
+    "TableauIngestor": (".tableau_ingestor", "TableauIngestor"),
+    "TableauData": (".tableau_ingestor", "TableauData"),
+    "TableauConnector": (".tableau_ingestor", "TableauConnector"),
     # Redshift ingestion
     "RedshiftIngestor": (".redshift_ingestor", "RedshiftIngestor"),
     "RedshiftData": (".redshift_ingestor", "RedshiftData"),
@@ -269,6 +278,10 @@ _LAZY_EXPORTS: Dict[str, Tuple[str, str]] = {
     "BigQueryIngestor": (".bigquery_ingestor", "BigQueryIngestor"),
     "BigQueryData": (".bigquery_ingestor", "BigQueryData"),
     "BigQueryConnector": (".bigquery_ingestor", "BigQueryConnector"),
+    # Dynamics 365 ingestion
+    "Dynamics365Ingestor": (".dynamics365_ingestor", "Dynamics365Ingestor"),
+    "Dynamics365Data": (".dynamics365_ingestor", "Dynamics365Data"),
+    "Dynamics365Connector": (".dynamics365_ingestor", "Dynamics365Connector"),
 }
 
 _OPTIONAL_DEPENDENCY_MESSAGES = {
@@ -311,6 +324,10 @@ _OPTIONAL_DEPENDENCY_MESSAGES = {
         "Salesforce ingestion requires optional dependency 'simple-salesforce'. "
         "Install it with: pip install 'semantica[db-salesforce]'"
     ),
+    ".tableau_ingestor": (
+        "Tableau ingestion requires optional dependency 'tableauserverclient'. "
+        "Install it with: pip install 'semantica[ingest-tableau]'"
+    ),
     ".redshift_ingestor": (
         "Redshift ingestion requires optional dependency 'redshift-connector'. "
         "Install it with: pip install 'semantica[db-redshift]'"
@@ -318,6 +335,10 @@ _OPTIONAL_DEPENDENCY_MESSAGES = {
     ".bigquery_ingestor": (
         "BigQuery ingestion requires optional dependency 'google-cloud-bigquery'. "
         "Install it with: pip install 'semantica[db-bigquery]'"
+    ),
+    ".dynamics365_ingestor": (
+        "Dynamics 365 ingestion requires optional dependency 'msal'. "
+        "Install it with: pip install 'semantica[ingest-dynamics365]'"
     ),
 }
 
@@ -387,6 +408,15 @@ def __getattr__(name: str) -> Any:
             if message:
                 raise ImportError(message)
 
+    if module_name == ".tableau_ingestor" and name in {
+        "TableauIngestor",
+        "TableauConnector",
+    }:
+        if not getattr(module, "TABLEAU_AVAILABLE", True):
+            message = _OPTIONAL_DEPENDENCY_MESSAGES.get(module_name)
+            if message:
+                raise ImportError(message)
+
     if module_name == ".redshift_ingestor" and name in {
         "RedshiftIngestor",
         "RedshiftConnector",
@@ -401,6 +431,15 @@ def __getattr__(name: str) -> Any:
         "BigQueryConnector",
     }:
         if not getattr(module, "BIGQUERY_AVAILABLE", True):
+            message = _OPTIONAL_DEPENDENCY_MESSAGES.get(module_name)
+            if message:
+                raise ImportError(message)
+
+    if module_name == ".dynamics365_ingestor" and name in {
+        "Dynamics365Ingestor",
+        "Dynamics365Connector",
+    }:
+        if not getattr(module, "DYNAMICS_AVAILABLE", True):
             message = _OPTIONAL_DEPENDENCY_MESSAGES.get(module_name)
             if message:
                 raise ImportError(message)
@@ -495,6 +534,10 @@ __all__ = [
     "SalesforceIngestor",
     "SalesforceData",
     "SalesforceConnector",
+    # Tableau ingestion
+    "TableauIngestor",
+    "TableauData",
+    "TableauConnector",
     # Redshift ingestion
     "RedshiftIngestor",
     "RedshiftData",
@@ -507,6 +550,10 @@ __all__ = [
     "BigQueryIngestor",
     "BigQueryData",
     "BigQueryConnector",
+    # Dynamics 365 ingestion
+    "Dynamics365Ingestor",
+    "Dynamics365Data",
+    "Dynamics365Connector",
     # Registry and Methods
     "MethodRegistry",
     "method_registry",
