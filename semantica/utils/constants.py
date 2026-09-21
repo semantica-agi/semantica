@@ -54,6 +54,8 @@ SUPPORTED_DOCUMENT_FORMATS = [
     "html",
     "xml",
     "json",
+    "jsonl",
+    "ndjson",
     "csv",
     "xlsx",
     "pptx",
@@ -105,6 +107,22 @@ DEFAULT_CONFIG = {
         "encryption_enabled": False,
         "access_control_enabled": True,
         "audit_logging_enabled": True,
+    },
+    "graphrag": {
+        "global_retrieval": {
+            "max_context_tokens": 4000,
+            "min_relevance_score": 0.0,
+            "max_workers": 4,
+            "timeout": 60.0,
+            "auto_promote_level": True,
+        },
+        "drift_search": {
+            "max_depth": 2,
+            "drift_threshold": 0.35,
+            "top_k_reports": 3,
+            "max_facets": 3,
+            "max_context_tokens": 4000,
+        },
     },
 }
 

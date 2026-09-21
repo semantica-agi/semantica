@@ -13,8 +13,6 @@ def require_adk(request):
         pytest.importorskip("google.adk")
 
 
-from google.adk.events import Event
-
 from integrations.google_adk import (
     SemanticaSessionService,
     semantica_decision_tools,
@@ -114,6 +112,8 @@ def test_shared_graph_event_and_knowledge_nodes():
             user_id="shared-user",
         )
     )
+
+    from google.adk.events import Event
 
     event = Event(
         author="researcher",

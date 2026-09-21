@@ -88,7 +88,11 @@ ner = NamedEntityRecognizer()
 entities = ner.extract_entities("Apple Inc. was founded by Steve Jobs in 1976.")
 
 for entity in entities:
-    print(f"{entity.text} ({entity.type}) - Confidence: {entity.confidence:.2f}")
+    # metadata["confidence_source"] records where the score came from
+    # (model/heuristic/...); confidence is None only for entities that
+    # bypass the extraction pipeline without a backend score
+    confidence = f"{entity.confidence:.2f}" if entity.confidence is not None else "N/A"
+    print(f"{entity.text} ({entity.type}) - Confidence: {confidence}")
 ```
 
 ### Different Entity Extraction Methods
@@ -186,19 +190,23 @@ for entity in entities:
 
 ```python
 from semantica.semantic_extract import EntityClassifier, EntityConfidenceScorer
+from semantica.semantic_extract.types import Entity
 
 classifier = EntityClassifier()
 scorer = EntityConfidenceScorer()
 
-entity = {"text": "Apple Inc.", "type": "ORG"}
+entity = Entity(text="Apple Inc.", label="ORG", start_char=0, end_char=10)
 
 # Classify entity
-classification = classifier.classify(entity)
+classification = classifier.classify_entity_type(entity)
 print(f"Classification: {classification}")
 
-# Score confidence
-confidence = scorer.score(entity)
-print(f"Confidence: {confidence:.2f}")
+# Score confidence — score_entities() accepts a list and returns the same list
+# with confidence filled in for any entity that had confidence=None
+(scored,) = scorer.score_entities([entity])
+confidence = scored.confidence
+conf_str = f"{confidence:.2f}" if confidence is not None else "N/A"
+print(f"Confidence: {conf_str}")
 ```
 
 ## Relation Extraction

@@ -332,6 +332,35 @@ class TestIngest:
         assert captured["kwargs"]["batch_size"] == 500
         assert captured["kwargs"]["format"] == "csv"
 
+    @pytest.mark.parametrize("fmt", ["ndjson", "jsonl"])
+    def test_ingest_format_line_delimited_json(self, runner, monkeypatch, fmt):
+        captured = {}
+
+        def fake_ingest_file(sources, **kwargs):
+            captured["sources"] = sources
+            captured["kwargs"] = kwargs
+            return [{"path": sources}]
+
+        monkeypatch.setattr("semantica.ingest.methods.ingest_file", fake_ingest_file)
+
+        result = runner.invoke(
+            cli_module.main,
+            ["ingest", f"data.{fmt}", "--type", "file", "--format", fmt, "--json"],
+        )
+
+        _ok(result)
+        data = _json_output(result)
+        assert data["files"] == [{"path": f"data.{fmt}"}]
+        assert captured["sources"] == f"data.{fmt}"
+        assert captured["kwargs"]["method"] == "file"
+        assert captured["kwargs"]["format"] == fmt
+
+    def test_watch_help_shows_line_delimited_json_patterns(self, runner):
+        result = runner.invoke(cli_module.main, ["watch", "--help"])
+        _ok(result)
+        assert "*.jsonl" in result.output
+        assert "*.ndjson" in result.output
+
     def test_runtime_path_passes_source_positionally_with_auto_detection(self, runner, monkeypatch):
         captured = {}
 
@@ -1219,10 +1248,12 @@ class TestReason:
         """--engine graph should call GraphReasoner.reason(graph, query) and
         surface its natural-language answer, not the facts-count shape.
 
-        Also regression-guards two context-building gaps: a node with
-        multiple labels must keep all of them (not just labels[0]), and a
-        relationship's properties must reach GraphReasoner, not just its
-        source/target/type.
+        Also regression-guards three context-building gaps: a node with
+        multiple labels must keep all of them (not just labels[0]), a
+        relationship's properties must reach GraphReasoner (not just its
+        source/target/type), and start_node_id/end_node_id must resolve to
+        the actual node names rather than leaking raw internal ids into the
+        graph context sent to the LLM.
         """
         pytest.importorskip("numpy", reason="semantica.reasoning needs numpy")
 
@@ -1246,6 +1277,10 @@ class TestReason:
                 assert graph["entities"][0]["type"] == "Person/Manager"
                 assert graph["relationships"][0]["type"] == "MANAGES"
                 assert graph["relationships"][0]["properties"] == {"since": "2020"}
+                # start_node_id/end_node_id (1, 2) must resolve to node
+                # names, not leak raw internal ids into the LLM's context.
+                assert graph["relationships"][0]["source"] == "Alice"
+                assert graph["relationships"][0]["target"] == "Bob"
                 assert query == "Who manages Bob?"
                 return "Alice manages Bob."
 
@@ -1289,6 +1324,35 @@ class TestReason:
             cli_module.main, ["reason", "run", "--engine", "graph", "--query", "anything?"])
         assert result.exit_code != 0
         assert "LLM provider not initialized" in result.output
+        assert "Traceback" not in result.output
+
+    def test_run_graph_surfaces_generation_failure_as_error(self, runner, monkeypatch):
+        """The second GraphReasoner error path -- a generation-time failure
+        (e.g. provider initialized but the call itself fails) returns
+        "Error during reasoning: ..." rather than the "not initialized"
+        string. reason run must surface this as a real command failure too,
+        not just the first error string."""
+        pytest.importorskip("numpy", reason="semantica.reasoning needs numpy")
+
+        class _EmptyStore:
+            def get_nodes(self, limit=None): return []
+            def get_relationships(self, limit=None): return []
+
+        monkeypatch.setattr(cli_module, "_get_graph_store", lambda ctx: _EmptyStore())
+
+        class _FailingGraphReasoner:
+            def __init__(self, config=None, **kwargs):
+                pass
+
+            def reason(self, graph, query, **options):
+                return "Error during reasoning: connection timed out"
+
+        monkeypatch.setattr(
+            "semantica.reasoning.GraphReasoner", _FailingGraphReasoner, raising=False)
+        result = runner.invoke(
+            cli_module.main, ["reason", "run", "--engine", "graph", "--query", "anything?"])
+        assert result.exit_code != 0
+        assert "Error during reasoning" in result.output
         assert "Traceback" not in result.output
 
     def test_load_rule_definitions_formats(self, tmp_path):
@@ -2222,6 +2286,83 @@ class TestStore:
                                       "--from", "sqlite", "--to", "pgvector", "--json"])
         _ok(result)
         assert dest_configs["pgvector"].get("dimension") == 3
+
+    def test_migrate_retry_reloads_persisted_faiss_state(
+        self, runner, monkeypatch, tmp_path
+    ):
+        pytest.importorskip("faiss")
+        import numpy as np
+
+        from semantica.vector_store.faiss_store import FAISSStore
+
+        index_path = tmp_path / "migrated.faiss"
+        source_items = [
+            {"id": "a", "vector": [0.1, 0.2, 0.3], "metadata": {"tag": "x"}},
+            {"id": "b", "vector": [0.4, 0.5, 0.6], "metadata": {"tag": "y"}},
+        ]
+
+        class _SourceBackend:
+            dimension = 3
+
+        class _MigrationStore:
+            def __init__(self, backend, config=None, **kw):
+                self.backend = backend
+                if backend == "sqlite":
+                    self._backend_store = _SourceBackend()
+                else:
+                    self._backend_store = FAISSStore(dimension=3)
+                    self._backend_store.create_index(index_type="flat")
+
+            def iter_vectors(self, batch_size=500):
+                if self.backend == "sqlite":
+                    yield from source_items
+
+            def store_vectors(self, vectors, metadata, ids=None):
+                self._backend_store.add_vectors(
+                    np.asarray(vectors, dtype=np.float32),
+                    ids=ids,
+                    metadata=metadata,
+                )
+
+        fake_vs = _fake_module(VectorStore=_MigrationStore)
+        monkeypatch.setitem(
+            __import__("sys").modules, "semantica.vector_store", fake_vs
+        )
+        monkeypatch.setattr(
+            cli_module.Config,
+            "to_dict",
+            lambda self: {
+                "vector_store": {
+                    "sqlite": {"dimension": 3},
+                    "faiss": {"dimension": 3, "index_path": str(index_path)},
+                }
+            },
+        )
+
+        command = [
+            "store",
+            "migrate",
+            "--from",
+            "sqlite",
+            "--to",
+            "faiss",
+            "--json",
+        ]
+        first_result = runner.invoke(cli_module.main, command)
+        _ok(first_result)
+
+        first_load = FAISSStore(dimension=3)
+        first_load.load_index(index_path, index_type="flat")
+        assert first_load.index.vector_ids == ["a", "b"]
+        assert first_load.index.index.ntotal == 2
+
+        retry_result = runner.invoke(cli_module.main, command)
+        _ok(retry_result)
+
+        retry_load = FAISSStore(dimension=3)
+        retry_load.load_index(index_path, index_type="flat")
+        assert retry_load.index.vector_ids == ["a", "b"]
+        assert retry_load.index.index.ntotal == 2
 
     def test_migrate_faiss_source_requires_index_path(self, runner, monkeypatch):
         fake_vs = _fake_module(VectorStore=lambda **kw: MagicMock())

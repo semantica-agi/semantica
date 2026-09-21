@@ -1076,7 +1076,7 @@ def init_cmd(cli_ctx: CLIContext, force: bool) -> None:
 @click.argument("path", default=".", type=click.Path(exists=True))
 @click.option("--type", "ingestor_type", default=None, help="Force ingestor type.")
 @click.option("--store", "store_override", default=None, help="Target graph backend.")
-@click.option("--patterns", default="*.pdf,*.docx,*.txt,*.csv,*.json",
+@click.option("--patterns", default="*.pdf,*.docx,*.txt,*.csv,*.json,*.jsonl,*.ndjson",
               show_default=True, help="Comma-separated glob patterns to match.")
 @click.pass_obj
 def watch_cmd(cli_ctx: CLIContext, path: str, ingestor_type: Optional[str],
@@ -1702,6 +1702,218 @@ def kg_validate_cmd(cli_ctx: CLIContext, local_json: bool) -> None:
     _run_with_error_handling(_action)
 
 
+@kg.command("global")
+@click.argument("query_str")
+@click.option(
+    "--reports",
+    "reports_path",
+    type=click.Path(exists=True),
+    default=None,
+    help="Path to JSON file containing community reports.",
+)
+@click.option(
+    "--hierarchy",
+    "hierarchy_path",
+    type=click.Path(exists=True),
+    default=None,
+    help="Path to JSON file containing community hierarchy.",
+)
+@click.option(
+    "--level",
+    type=int,
+    default=None,
+    help="Coarsening level to query.",
+)
+@click.option(
+    "--max-tokens",
+    type=int,
+    default=4000,
+    show_default=True,
+    help="Token budget for retrieval context.",
+)
+@click.option(
+    "--min-relevance",
+    type=float,
+    default=0.0,
+    show_default=True,
+    help="Minimum relevance score (0.0 to 10.0).",
+)
+@click.option("--json", "local_json", is_flag=True, default=False)
+@click.pass_obj
+def kg_global_cmd(
+    cli_ctx: CLIContext,
+    query_str: str,
+    reports_path: Optional[str],
+    hierarchy_path: Optional[str],
+    level: Optional[int],
+    max_tokens: int,
+    min_relevance: float,
+    local_json: bool,
+) -> None:
+    """Run global Map-Reduce search over hierarchical community reports."""
+    cli_ctx = _require_ctx(cli_ctx)
+    json_out = _is_json(cli_ctx, local_json)
+
+    def _action() -> None:
+        try:
+            from .context.methods import retrieve_global
+            from .kg.community_hierarchy import CommunityHierarchy
+        except ImportError as exc:
+            raise click.ClickException(f"Module not available: {exc}") from exc
+
+        loaded_reports = None
+        if reports_path:
+            try:
+                with open(reports_path, "r", encoding="utf-8") as f:
+                    loaded_reports = json.load(f)
+            except Exception as exc:
+                raise click.ClickException(
+                    f"Failed to read reports file '{reports_path}': {exc}"
+                ) from exc
+        else:
+            raise click.ClickException(
+                "Global retrieval requires --reports. "
+                "Please provide a path to community reports."
+            )
+
+        loaded_hierarchy = None
+        if hierarchy_path:
+            try:
+                with open(hierarchy_path, "r", encoding="utf-8") as f:
+                    h_data = json.load(f)
+                    loaded_hierarchy = CommunityHierarchy.from_dict(h_data)
+            except Exception as exc:
+                raise click.ClickException(
+                    f"Failed to read hierarchy file '{hierarchy_path}': {exc}"
+                ) from exc
+
+        result = retrieve_global(
+            query=query_str,
+            reports=loaded_reports,
+            hierarchy=loaded_hierarchy,
+            level=level,
+            max_context_tokens=max_tokens,
+            min_relevance_score=min_relevance,
+        )
+
+        if json_out:
+            _jecho(result.to_dict())
+        else:
+            _ok(
+                cli_ctx,
+                f"Global Search Results (Level {result.level}, "
+                f"Reports: {len(result.community_reports_used)}):",
+            )
+            console.print(f"\n{result.response}\n")
+            if result.citations:
+                console.print(f"Citations: {', '.join(result.citations)}")
+            console.print(
+                f"Key Points: {len(result.key_points)} | "
+                f"Time: {result.metrics.get('time_taken', 0.0):.2f}s"
+            )
+
+    _run_with_error_handling(_action)
+
+
+@kg.command("drift")
+@click.argument("query_str")
+@click.option(
+    "--reports",
+    "reports_path",
+    type=click.Path(exists=True),
+    default=None,
+    help="Path to JSON file containing community reports.",
+)
+@click.option(
+    "--graph",
+    "graph_path",
+    type=click.Path(exists=True),
+    default=None,
+    help="Path to JSON file containing knowledge graph.",
+)
+@click.option(
+    "--depth",
+    type=int,
+    default=2,
+    show_default=True,
+    help="Traversal depth for entity exploration.",
+)
+@click.option(
+    "--drift-threshold",
+    type=float,
+    default=0.35,
+    show_default=True,
+    help="Threshold for semantic drift pruning.",
+)
+@click.option("--json", "local_json", is_flag=True, default=False)
+@click.pass_obj
+def kg_drift_cmd(
+    cli_ctx: CLIContext,
+    query_str: str,
+    reports_path: Optional[str],
+    graph_path: Optional[str],
+    depth: int,
+    drift_threshold: float,
+    local_json: bool,
+) -> None:
+    """Run DRIFT hybrid search combining global framing and local exploration."""
+    cli_ctx = _require_ctx(cli_ctx)
+    json_out = _is_json(cli_ctx, local_json)
+
+    def _action() -> None:
+        try:
+            from .context.methods import retrieve_drift
+        except ImportError as exc:
+            raise click.ClickException(f"Module not available: {exc}") from exc
+
+        loaded_reports = None
+        if reports_path:
+            try:
+                with open(reports_path, "r", encoding="utf-8") as f:
+                    loaded_reports = json.load(f)
+            except Exception as exc:
+                raise click.ClickException(
+                    f"Failed to read reports file '{reports_path}': {exc}"
+                ) from exc
+
+        loaded_graph = None
+        if graph_path:
+            try:
+                with open(graph_path, "r", encoding="utf-8") as f:
+                    loaded_graph = json.load(f)
+            except Exception as exc:
+                raise click.ClickException(
+                    f"Failed to read graph file '{graph_path}': {exc}"
+                ) from exc
+
+        result = retrieve_drift(
+            query=query_str,
+            knowledge_graph=loaded_graph,
+            reports=loaded_reports,
+            max_depth=depth,
+            drift_threshold=drift_threshold,
+        )
+
+        if json_out:
+            _jecho(result.to_dict())
+        else:
+            _ok(
+                cli_ctx,
+                f"DRIFT Hybrid Search Results (Depth {result.depth_reached}, "
+                f"Facts: {len(result.verified_local_contexts)}):",
+            )
+            console.print(f"\n{result.answer}\n")
+            if result.citations:
+                console.print(f"Citations: {', '.join(result.citations)}")
+            console.print(
+                f"Facets Explored: {len(result.facets_explored)} | "
+                f"Pruned Facts: {result.pruned_fact_count} | "
+                f"Time: {result.metrics.get('time_taken', 0.0):.2f}s"
+            )
+
+    _run_with_error_handling(_action)
+
+
 # ─── Data In ──────────────────────────────────────────────────────────────────
 
 
@@ -1711,7 +1923,9 @@ _INGEST_TYPES = [
     "snowflake", "stream",
 ]
 
-_INGEST_FORMATS = ["pdf", "docx", "csv", "excel", "html", "json", "parquet", "xml", "rdf"]
+_INGEST_FORMATS = [
+    "pdf", "docx", "csv", "excel", "html", "json", "jsonl", "ndjson", "parquet", "xml", "rdf"
+]
 _GRAPH_STORE_ENV_BACKEND_HINTS = {
     "GRAPH_STORE_NEO4J_URI": "neo4j",
     "GRAPH_STORE_FALKORDB_HOST": "falkordb",

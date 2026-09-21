@@ -121,6 +121,10 @@ jobs:
           "
           pytest -q tests/test_issue_1513_slim_core.py
           pytest -q tests/test_docs_check.py
+          # semantica/reasoning imports nothing outside the standard library,
+          # so its suite runs against base dependencies without the extras
+          # installed later in this job.
+          pytest -q tests/reasoning/
       - name: Install Explorer backend test dependencies
         run: |
           # Run the deterministic backend path before the all-extras CI

@@ -44,6 +44,77 @@ class TestOntologyIngestor:
             if os.path.exists(tmp_path):
                 os.remove(tmp_path)
 
+    def test_ingest_preserves_multiple_property_domains_and_ranges(self):
+        ttl_content = """
+        @prefix : <http://example.org/ontology/> .
+        @prefix owl: <http://www.w3.org/2002/07/owl#> .
+        @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+        @prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+        <http://example.org/ontology/> a owl:Ontology .
+        :Person a owl:Class .
+        :Place a owl:Class .
+        :name a owl:DatatypeProperty ;
+            rdfs:domain :Person, :Place ;
+            rdfs:range xsd:normalizedString, xsd:string .
+        :label a owl:DatatypeProperty ;
+            rdfs:domain :Person, :Place ;
+            rdfs:range xsd:string .
+        :email a owl:DatatypeProperty ;
+            rdfs:domain :Person ;
+            rdfs:range xsd:string .
+        :description a owl:DatatypeProperty ;
+            rdfs:range xsd:string .
+        """
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".ttl", mode="w") as tmp:
+            tmp.write(ttl_content)
+            tmp_path = tmp.name
+
+        try:
+            result = OntologyIngestor().ingest_ontology(tmp_path)
+
+            # --- multi-domain / multi-range: list output ---
+            name_property = next(
+                prop for prop in result.data["properties"] if prop["name"] == "name"
+            )
+            assert name_property["domain"] == [
+                "http://example.org/ontology/Person",
+                "http://example.org/ontology/Place",
+            ]
+            assert name_property["range"] == [
+                "http://www.w3.org/2001/XMLSchema#normalizedString",
+                "http://www.w3.org/2001/XMLSchema#string",
+            ]
+
+            # --- multi-domain / single-range ---
+            label_property = next(
+                prop for prop in result.data["properties"] if prop["name"] == "label"
+            )
+            assert label_property["domain"] == [
+                "http://example.org/ontology/Person",
+                "http://example.org/ontology/Place",
+            ]
+            # single range value must be a scalar string, not a list
+            assert label_property["range"] == "http://www.w3.org/2001/XMLSchema#string"
+
+            # --- single domain: must be a scalar string, not a one-element list ---
+            email_property = next(
+                prop for prop in result.data["properties"] if prop["name"] == "email"
+            )
+            assert email_property["domain"] == "http://example.org/ontology/Person"
+            assert not isinstance(email_property["domain"], list)
+
+            # --- no rdfs:domain: key must be absent entirely ---
+            description_property = next(
+                prop for prop in result.data["properties"]
+                if prop["name"] == "description"
+            )
+            assert "domain" not in description_property
+
+        finally:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+
     def test_ingest_directory(self, sample_ttl_content):
         with tempfile.TemporaryDirectory() as tmp_dir:
             # Create two ontology files

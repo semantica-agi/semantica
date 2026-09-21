@@ -1637,7 +1637,7 @@ If you use Semantica in your research or production systems, please cite it as:
 ```bibtex
 @software{semantica2026,
   title  = {Semantica: Graph-Native Infrastructure for Context and Accountable AI Systems},
-  author = {Semantica},
+  author = {Mohammad Kaif},
   year   = {2026},
   url    = {https://github.com/semantica-agi/semantica}
 }

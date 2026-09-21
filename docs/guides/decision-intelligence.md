@@ -294,6 +294,8 @@ else:
     # → "Decision blocked — confidence 0.62 below policy minimum 0.80."
 ```
 
+A `False` return from `check_compliance` means the rules were evaluated and the decision did not satisfy them. If the check itself cannot be executed — for example, a policy rule that cannot be compared against the decision's data — the call raises `ProcessingError` instead of returning `False`, so an evaluation failure is never reported as a compliance verdict. See the [Policy Engine guide](policy-engine) for the full contract.
+
 When a high-urgency situation requires bypassing the policy gate, record the exception with the approver identity and justification:
 
 ```python
@@ -607,6 +609,8 @@ d = Decision(
     decision_maker = "credit_model_v3",
 )
 
+# False = evaluated and non-compliant; if the check cannot run at
+# all, check_compliance raises ProcessingError (see policy-engine guide).
 if engine.check_compliance(d, "lending_policy_v3"):
     loan_id = context.record_decision(
         category=d.category, scenario=d.scenario,

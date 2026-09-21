@@ -24,12 +24,13 @@ Author: Semantica Contributors
 License: MIT
 """
 
+import copy
+import dataclasses
 import os
 import stat
 import time
 import hashlib
 import json
-import pickle
 import sqlite3
 import threading
 from abc import ABC, abstractmethod
@@ -39,14 +40,155 @@ from typing import Any, Callable, Dict, Optional
 from threading import Lock
 
 from ..utils.logging import get_logger
+from .types import Entity, Relation, Triplet
 
 # The namespaces ExtractionCache manages. Kept as a module constant so backends
 # and get_stats() agree on the set without hard-coding it in several places.
 NAMESPACES = ("entities", "relations", "triplets")
 
 
+# ---------------------------------------------------------------------------
+# Default SQLite serialization codec (JSON-based, safe)
+#
+# The codec handles the three concrete value types stored by ExtractionCache:
+#   List[Entity], List[Relation], List[Triplet]
+#
+# Dataclass instances are encoded as the *exact* two-key envelope:
+#   {"__dc__": "<ClassName>", "fields": {<field>: <encoded-value>, ...}}
+#
+# A dict is treated as a codec envelope **only** when it has exactly these
+# two keys and "fields" is itself a dict.  Any other dict — including one
+# that merely happens to carry a ``__dc__`` key among other keys — falls
+# through to the plain-dict path unchanged.  This means user metadata can
+# freely contain ``__dc__``, ``__type__``, or any other key without risk of
+# silent reconstruction or data loss.
+#
+# Plain dicts are encoded by recursing into their values without adding any
+# wrapper, so their keys are never mistaken for envelope markers.
+#
+# All field values (str, int, float, bool, None, dict-of-primitives) are
+# JSON-native, so no Python-specific serialisation is required.
+# ---------------------------------------------------------------------------
+
+# Sentinel frozenset used by _decode_value to recognise the exact envelope shape.
+_ENVELOPE_KEYS = frozenset({"__dc__", "fields"})
+
+
+def _encode_value(value: Any) -> Any:
+    """Recursively encode *value* to a JSON-safe representation.
+
+    Dataclass instances are represented as the exact two-key envelope
+    ``{"__dc__": "<ClassName>", "fields": {…}}``.
+    Lists are encoded element-wise.
+    Plain dicts are encoded by recursing into their values — no wrapper is
+    added, so user metadata keys (including ``__dc__`` or ``__type__``) are
+    never reinterpreted by the decoder.
+    Everything else is returned unchanged (it must already be
+    JSON-serialisable; non-serialisable values surface as a ``TypeError``
+    from ``json.dumps``, which ``SqliteCacheBackend.set`` already handles).
+    """
+    if isinstance(value, list):
+        return [_encode_value(item) for item in value]
+    if dataclasses.is_dataclass(value) and not isinstance(value, type):
+        # Encode as the exact two-key envelope so _decode_value can
+        # unambiguously distinguish codec output from user data.
+        return {
+            "__dc__": type(value).__name__,
+            "fields": {
+                f.name: _encode_value(getattr(value, f.name))
+                for f in dataclasses.fields(value)
+            },
+        }
+    if isinstance(value, dict):
+        # Recurse into dict values so nested dataclasses inside metadata are
+        # also encoded.  Do NOT add any wrapper: the dict's own keys must be
+        # preserved exactly and must never be confused with envelope markers.
+        return {k: _encode_value(v) for k, v in value.items()}
+    # Primitive — returned as-is.
+    return value
+
+
+def _is_envelope(raw: dict) -> bool:
+    """Return True iff *raw* is the exact two-key dataclass envelope written
+    by :func:`_encode_value`.
+
+    The guard requires **all** of:
+    - exactly two keys: ``__dc__`` and ``fields``
+    - ``fields`` is a ``dict``
+
+    Any dict with more keys (or without ``fields`` being a dict) is treated
+    as ordinary user data, even if it contains a ``__dc__`` key.
+    """
+    return (
+        raw.keys() == _ENVELOPE_KEYS
+        and isinstance(raw.get("fields"), dict)
+    )
+
+
+def _decode_value(raw: Any) -> Any:
+    """Reconstruct Python objects from the JSON-decoded representation.
+
+    Dicts that satisfy the exact envelope shape ``{"__dc__": str,
+    "fields": dict}`` (and nothing else) are dataclass envelopes written by
+    :func:`_encode_value` and are reconstructed as the corresponding type.
+    Any dict that merely *contains* a ``__dc__`` key among other keys falls
+    through to the plain-dict path and is returned with all keys intact.
+    Lists are decoded element-wise.
+    Primitives are returned as-is.
+    """
+    if isinstance(raw, list):
+        return [_decode_value(item) for item in raw]
+    if isinstance(raw, dict) and _is_envelope(raw):
+        # Exact codec envelope — reconstruct the dataclass.
+        type_tag = raw["__dc__"]
+        fields = {k: _decode_value(v) for k, v in raw["fields"].items()}
+        if type_tag == "Entity":
+            return Entity(**fields)
+        if type_tag == "Relation":
+            return Relation(**fields)
+        if type_tag == "Triplet":
+            return Triplet(**fields)
+        # Unknown tag from a future codec version — return the decoded fields
+        # dict so callers get the data rather than an opaque envelope.
+        return fields
+    if isinstance(raw, dict):
+        # Plain dict (e.g. user metadata): recurse into values so any codec
+        # envelopes nested inside are decoded, but preserve all keys —
+        # including ``__dc__`` or ``__type__`` — unchanged.
+        return {k: _decode_value(v) for k, v in raw.items()}
+    # Primitive (str, int, float, bool, None) — returned as-is.
+    return raw
+
+
+def _cache_serialize(value: Any) -> bytes:
+    """Default SQLite cache serializer.  Converts *value* to UTF-8 JSON bytes.
+
+    Safe to deserialize from an untrusted file because ``json.loads`` does
+    not execute arbitrary code.
+    """
+    return json.dumps(_encode_value(value), ensure_ascii=False).encode("utf-8")
+
+
+def _cache_deserialize(data: bytes) -> Any:
+    """Default SQLite cache deserializer.  Reconstructs Python objects from
+    the UTF-8 JSON bytes produced by :func:`_cache_serialize`.
+
+    Note: JSON has no tuple type, so any tuple-valued metadata field is
+    returned as a list after a round-trip.  All values stored by the
+    production extraction pipeline are str/int/float/bool/None, so this
+    does not affect normal operation.
+    """
+    return _decode_value(json.loads(data.decode("utf-8")))
+
+
 class CacheItem:
-    """Container for cached data."""
+    """Container for cached data with metadata.
+
+    Holds the value exactly as passed by the caller of ``__init__``.  It is
+    the responsibility of the owner (``InMemoryBackend``) to pass an already-
+    isolated snapshot so that the stored value is immune to mutation of the
+    object the original caller passed to ``set()``.
+    """
 
     def __init__(self, value: Any, ttl: Optional[int] = None):
         self.value = value
@@ -113,9 +255,17 @@ class InMemoryBackend(CacheBackend):
         }
         self._locks: Dict[str, Lock] = {ns: Lock() for ns in NAMESPACES}
 
+    # Sentinel distinguishing "no entry under this key" from a stored None.
+    _MISSING = object()
+
     def get(self, namespace: str, key: str) -> Optional[Any]:
         if namespace not in self._caches:
             return None
+
+        # Phase 1: look up the stored snapshot under the lock.  Only the
+        # reference is captured here so lock hold-time is O(1) regardless of
+        # value size.  The deepcopy happens in phase 2, outside the lock.
+        snapshot = self._MISSING
         with self._locks[namespace]:
             cache = self._caches[namespace]
             item = cache.get(key)
@@ -125,16 +275,40 @@ class InMemoryBackend(CacheBackend):
                 del cache[key]
                 return None
             cache.move_to_end(key)  # mark as recently used
-            return item.value
+            snapshot = item.value
+
+        # Phase 2: return a caller-owned copy.  deepcopy is done outside the
+        # lock so a large result does not block concurrent reads on the same
+        # namespace.  If the stored snapshot cannot be copied (e.g. a value
+        # that slipped through CacheItem's own fallback), treat it as a miss
+        # and evict rather than surface a corrupt object.
+        try:
+            return copy.deepcopy(snapshot)
+        except Exception:
+            with self._locks[namespace]:
+                self._caches[namespace].pop(key, None)
+            return None
 
     def set(self, namespace: str, key: str, value: Any, ttl: Optional[int]) -> None:
         if namespace not in self._caches:
             return
+
+        # Prepare the cache-owned snapshot BEFORE acquiring the lock so that
+        # a large deepcopy does not hold the namespace lock and block
+        # concurrent readers (mirroring the get() two-phase design).
+        # If deepcopy fails the value is stored as-is: the writer's result
+        # still caches, and get() will treat the uncopyable entry as a miss
+        # (evict + return None) rather than returning an aliased mutable value.
+        try:
+            snapshot = copy.deepcopy(value)
+        except Exception:
+            snapshot = value
+
         with self._locks[namespace]:
             cache = self._caches[namespace]
             if key in cache:
                 cache.move_to_end(key)
-            cache[key] = CacheItem(value, ttl)
+            cache[key] = CacheItem(snapshot, ttl)
             if len(cache) > self.max_size:
                 cache.popitem(last=False)  # evict least recently used
 
@@ -163,21 +337,24 @@ class SqliteCacheBackend(CacheBackend):
     fresh process (CI job, notebook kernel, batch worker, extraction
     subprocess) reuses previous results instead of re-paying every LLM call.
 
-    **Trust model (read before enabling).** The database file is deserialized
-    back into this process on every read, and the default ``serializer`` is
-    ``pickle`` — so a cache file an attacker can influence is a code-execution
-    vector. Therefore:
+    **Default serialization.** Values are stored as UTF-8 JSON with a thin
+    tagged-envelope codec that reconstructs :class:`~semantica.semantic_extract.types.Entity`,
+    :class:`~semantica.semantic_extract.types.Relation`, and
+    :class:`~semantica.semantic_extract.types.Triplet` instances transparently.
+    JSON is not executable, so a tampered cache file cannot achieve arbitrary
+    code execution through the default deserializer.
 
-    - ``db_path`` MUST point at a **trusted, per-user, private** location.
-    - The file may hold **sensitive extraction results** in the clear.
-    - The default ``pickle`` serializer must only be used with a trusted file;
-      pass ``serializer`` / ``deserializer`` (e.g. ``json``) for untrusted or
-      shared locations.
+    **Custom serializer/deserializer.** Pass explicit ``serializer`` and
+    ``deserializer`` callables to override the default codec.  If you supply
+    ``pickle.dumps`` / ``pickle.loads`` you accept full responsibility for the
+    trust model: ``pickle`` deserializes arbitrary Python objects and a
+    file an attacker can write is a remote-code-execution vector.
 
-    To enforce this the backend creates the file **atomically** with ``0o600``
-    (``O_CREAT | O_EXCL``, no validate-then-open window) and, when reusing an
-    existing file, rejects symlinks, non-regular files, and files owned by
-    another user — raising so the caller falls back to the in-memory backend.
+    **File security.** The backend creates the database file **atomically**
+    with ``0o600`` (``O_CREAT | O_EXCL``, no validate-then-open window) and,
+    when reusing an existing file, rejects symlinks, non-regular files, and
+    files owned by another user — raising so the caller falls back to the
+    in-memory backend.
 
     Concurrency/reliability: TTL and LRU (by last access) mirror
     :class:`InMemoryBackend`. A ``busy_timeout`` plus bounded retry handles
@@ -197,8 +374,8 @@ class SqliteCacheBackend(CacheBackend):
         self,
         db_path: str,
         max_size: int = 1000,
-        serializer: Callable[[Any], bytes] = pickle.dumps,
-        deserializer: Callable[[bytes], Any] = pickle.loads,
+        serializer: Callable[[Any], bytes] = _cache_serialize,
+        deserializer: Callable[[bytes], Any] = _cache_deserialize,
         busy_timeout: float = 5.0,
         max_retries: int = 3,
         retry_backoff: float = 0.05,
