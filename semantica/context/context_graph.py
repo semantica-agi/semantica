@@ -641,7 +641,14 @@ class ContextGraph:
    
         self.kg_components = {}
         self._analytics_cache = {}
-        
+
+        # In-memory node embeddings (e.g. node2vec). NodeEmbedder.store_embeddings()
+        # falls back to this dict for stores without property setters, so it must
+        # exist from construction and be round-tripped by the JSON save_to_file/
+        # load_from_file (the Markdown export paths do not carry embeddings) —
+        # otherwise precomputed embeddings die with the process (#1140).
+        self._node_embeddings: Dict[str, Any] = {}
+
         self.mutation_callback = self.config.get("mutation_callback", None)
         self._suspend_mutation_callback = False
         
@@ -1412,6 +1419,13 @@ class ContextGraph:
                 "links": links_data,
             }
 
+            # Preserve precomputed node embeddings (e.g. node2vec) across
+            # save/load: NodeEmbedder.store_embeddings() keeps them in this
+            # in-memory dict for stores without property setters, so without
+            # this they would silently die with the process (#1140).
+            if self._node_embeddings:
+                data["node_embeddings"] = dict(self._node_embeddings)
+
         # Write atomically: serialize to a sibling temp file then replace the
         # destination in one OS-level rename.  This guarantees the destination
         # is either the old contents or the new contents — never a partial write
@@ -1498,6 +1512,7 @@ class ContextGraph:
             # would make entities in the loaded graph read as already retracted.
             self._retractions.clear()
             self._tombstones.clear()
+            self._node_embeddings.clear()
 
             if "graph_id" in data:
                 self.graph_id = data["graph_id"]
@@ -1526,6 +1541,14 @@ class ContextGraph:
                 link_id = link_meta.get("link_id")
                 if link_id:
                     self._unresolved_links[link_id] = link_meta
+
+            # Restore node embeddings preserved by save_to_file (e.g. node2vec,
+            # kept in this in-memory dict by NodeEmbedder.store_embeddings for
+            # stores without property setters). Old files without the key leave
+            # the dict empty; files produced by other tools are not affected.
+            embeddings_data = data.get("node_embeddings")
+            if isinstance(embeddings_data, dict):
+                self._node_embeddings.update(embeddings_data)
 
             # Rebuild all derived decision indexes from the freshly-loaded
             # nodes so that find_precedents_by_scenario, find_similar_decisions,
@@ -4492,21 +4515,37 @@ class ContextGraph:
         use_semantic_search: bool = True,
         include_superseded: bool = False,
         as_of: Optional[Union[str, int, float, datetime]] = None,
+        soft_floor: Optional[float] = None,
         **filters
     ) -> List[Dict[str, Any]]:
         """
         Find similar decisions (precedents) using hybrid search.
-        
+
         Args:
             scenario: Scenario to find precedents for
             category: Filter by decision category
             limit: Maximum number of precedents
             similarity_threshold: Minimum similarity score
             use_semantic_search: Use vector embeddings for search
+            include_superseded: Include superseded decisions
+            as_of: Temporal filter (timestamp or date)
+            soft_floor: Switch to ranking semantics: instead of applying
+                ``similarity_threshold`` as a hard cutoff, keep every
+                candidate whose combined similarity is at or above this
+                (low) floor and let the sort + ``limit`` do the selection.
+                The lexical content score of an exact-scenario match is
+                bounded by ``|S| / |S union R|`` because ``scenario``,
+                ``reasoning`` and ``entities`` share one bag of words, so
+                any fixed high threshold systematically loses decisions
+                whose reasoning is long relative to the query (#1140).
+                Passing ``soft_floor=0.0`` ranks every candidate; a small
+                positive value (e.g. ``0.05``) only removes total noise.
+                When provided, this overrides ``similarity_threshold``.
             **filters: Additional filters
-            
+
         Returns:
-            List of similar decisions with similarity scores
+            List of similar decisions with similarity scores, sorted by
+            similarity (descending)
         """
         if not hasattr(self, '_decisions') or not self._decisions:
             return []
@@ -4548,8 +4587,11 @@ class ContextGraph:
             
             # Combined similarity
             combined_sim = 0.7 * content_sim + 0.3 * structural_sim
-            
-            if combined_sim >= similarity_threshold:
+
+            # soft_floor = ranking semantics (see docstring): the floor only
+            # cuts total noise, selection is done by sort + limit below.
+            cutoff = soft_floor if soft_floor is not None else similarity_threshold
+            if combined_sim >= cutoff:
                 precedents.append({
                     "decision": decision,
                     "similarity": combined_sim,
@@ -5551,17 +5593,23 @@ class ContextGraph:
         scenario: str,
         category: Optional[str] = None,
         max_results: int = 10,
-        min_similarity: float = 0.3
+        min_similarity: float = 0.3,
+        soft_floor: Optional[float] = None
     ) -> List[Dict[str, Any]]:
         """
         Easy way to find similar past decisions.
-        
+
         Args:
             scenario: What situation are you looking for
             category: Filter by decision type
             max_results: Maximum results to return
-            min_similarity: Minimum similarity score
-            
+            min_similarity: Minimum similarity score (hard cutoff; ignored
+                when ``soft_floor`` is provided)
+            soft_floor: Ranking semantics — keep every candidate scoring at
+                or above this (low) floor and return the top ``max_results``
+                by score instead of applying the hard ``min_similarity``
+                cutoff. See :meth:`find_precedents_by_scenario` (#1140).
+
         Returns:
             List of similar decisions with similarity scores
         """
@@ -5569,7 +5617,8 @@ class ContextGraph:
             scenario=scenario,
             category=category,
             limit=max_results,
-            similarity_threshold=min_similarity
+            similarity_threshold=min_similarity,
+            soft_floor=soft_floor
         )
     
     def analyze_decision_impact(
