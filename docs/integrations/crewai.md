@@ -9,10 +9,10 @@ icon: "users"
 ## Installation
 
 ```bash
-pip install "semantica[crewai]"
+pip install "crewai>=0.80.0"
 ```
 
-Requires `crewai >= 0.80.0`. If `crewai` is not installed, the integration still imports — every class carries the full Semantica API and degrades gracefully, but cannot be passed to a `Crew`.
+Installed separately — semantica does not offer a `[crewai]` extra, since crewai hard-pins `chromadb~=1.1.0`, which carries critical, currently-unpatched advisories (CVE-2026-45829/45830/45831/45833). Install `crewai` yourself and accept that risk if you need it. If `crewai` is not installed, the integration still imports — every class carries the full Semantica API and degrades gracefully, but cannot be passed to a `Crew`.
 
 ## Components at a Glance
 

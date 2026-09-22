@@ -884,7 +884,7 @@ def generate_report(
 def export_knowledge_graph(
     knowledge_graph: Dict[str, Any],
     file_path: Union[str, Path],
-    format: str = "json",
+    format: Optional[str] = None,
     method: Optional[str] = None,
     **kwargs,
 ) -> None:
@@ -912,13 +912,16 @@ def export_knowledge_graph(
             - "owl": OWLExporter
             - "cypher": LPGExporter
             - "aql": ArangoAQLExporter
-        method: Optional specific export method
+        method: Optional specific export method. Left as ``None``, each
+            exporter keeps its own default rather than being handed a value
+            the caller never chose.
         **kwargs: Additional options passed to exporter
 
     Examples:
         >>> from semantica.export.methods import export_knowledge_graph
         >>> export_knowledge_graph(kg, "output.json", format="json")
         >>> export_knowledge_graph(kg, "output.ttl", format="turtle")
+        >>> export_knowledge_graph(kg, "output.ttl")   # extension decides
         >>> export_knowledge_graph(kg, "output.cypher", format="cypher")
     """
     # Auto-detect format from file extension if not specified
@@ -930,6 +933,7 @@ def export_knowledge_graph(
             ".jsonld": "json-ld",
             ".csv": "csv",
             ".ttl": "turtle",
+            ".nt": "ntriples",
             ".rdf": "rdfxml",
             ".graphml": "graphml",
             ".gexf": "gexf",
@@ -943,29 +947,35 @@ def export_knowledge_graph(
         }
         format = format_map.get(ext, "json")
 
+    # Forward ``method`` only when the caller actually set it. Passing an
+    # explicit None would overwrite the default each wrapper declares for
+    # itself, which is how ``format="yaml"`` used to raise.
+    def _method_kwargs() -> Dict[str, Any]:
+        return {} if method is None else {"method": method}
+
     # Route to appropriate exporter
     if format in ["json", "json-ld"]:
-        export_json(knowledge_graph, file_path, format=format, method=method, **kwargs)
+        export_json(knowledge_graph, file_path, format=format, **_method_kwargs(), **kwargs)
     elif format == "csv":
-        export_csv(knowledge_graph, file_path, method=method, **kwargs)
+        export_csv(knowledge_graph, file_path, **_method_kwargs(), **kwargs)
     elif format in ["turtle", "rdfxml", "jsonld", "ntriples", "n3"]:
-        export_rdf(knowledge_graph, file_path, format=format, method=method, **kwargs)
+        export_rdf(knowledge_graph, file_path, format=format, **_method_kwargs(), **kwargs)
     elif format in ["graphml", "gexf", "dot"]:
-        export_graph(knowledge_graph, file_path, format=format, method=method, **kwargs)
+        export_graph(knowledge_graph, file_path, format=format, **_method_kwargs(), **kwargs)
     elif format in ["yaml", "yml"]:
-        export_yaml(knowledge_graph, file_path, method=method, **kwargs)
+        export_yaml(knowledge_graph, file_path, **_method_kwargs(), **kwargs)
     elif format in ["owl-xml", "owl"]:
-        export_owl(knowledge_graph, file_path, format=format, method=method, **kwargs)
+        export_owl(knowledge_graph, file_path, format=format, **_method_kwargs(), **kwargs)
     elif format == "cypher":
-        export_lpg(knowledge_graph, file_path, method=method, **kwargs)
+        export_lpg(knowledge_graph, file_path, **_method_kwargs(), **kwargs)
     elif format in ["neo4j_csv", "neo4j-csv"]:
         # file_path is treated as the output directory; nodes.csv and
         # relationships.csv are written inside it.
-        export_neo4j_csv(knowledge_graph, file_path, method=method, **kwargs)
+        export_neo4j_csv(knowledge_graph, file_path, **_method_kwargs(), **kwargs)
     elif format == "aql":
-        export_arango(knowledge_graph, file_path, method=method, **kwargs)
+        export_arango(knowledge_graph, file_path, **_method_kwargs(), **kwargs)
     elif format == "parquet":
-        export_parquet(knowledge_graph, file_path, method=method, **kwargs)
+        export_parquet(knowledge_graph, file_path, **_method_kwargs(), **kwargs)
     else:
         raise ProcessingError(f"Unknown export format: {format}")
 

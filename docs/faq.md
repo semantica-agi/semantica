@@ -13,11 +13,11 @@ icon: "circle-question"
 | Question | Answer |
 | :-------- | :------ |
 | License? | MIT: free forever, no paywalled features |
-| Python version? | 3.8+ (3.11+ recommended) |
+| Python version? | 3.10+ (3.11+ recommended) |
 | API key required? | Optional: pattern extraction works with no keys |
 | Works with LangChain / LlamaIndex? | Yes: Semantica is a layer on top, not a replacement |
 | Production-ready? | Yes: 1,000+ tests, security fixes shipped in every release (see [CHANGELOG](https://github.com/semantica-agi/semantica/blob/main/CHANGELOG.md)) |
-| Latest version? | **v0.6.8** (September 2026) |
+| Latest version? | **v0.7.0** (September 2026) |
 | Local LLMs? | Yes: Ollama via LiteLLM, HuggingFaceLLM for air-gapped |
 
 
@@ -70,9 +70,9 @@ Yes: MIT licensed, no vendor lock-in, no paywalled features. Some capabilities r
 
 <Accordion title="What's the latest version?" icon="star">
 
-**v0.6.8**: released September 2026.
+**v0.7.0**: released September 2026.
 
-Highlights: every release is now cryptographically signed (SLSA build provenance + Sigstore, closing the OpenSSF Scorecard Signed-Releases gap), real vector-store enumeration (`scan_vectors()`/`iter_vectors()`) across FAISS/SQLiteVec/PgVector/Qdrant/Weaviate/Milvus making `store migrate` functional, first-class Anthropic/Gemini/Ollama/DeepSeek/Novita LLM provider wrappers, a CI-friendly ontology quality gate, and 35 correctness fixes. The 0.6.x line also added first-class LangChain and CrewAI support and the Semantica RDF vocabulary with deterministic IRIs. See the [CHANGELOG](https://github.com/semantica-agi/semantica/blob/main/CHANGELOG.md) for the full history.
+Highlights: core install dependencies cut from 44 to 22 packages via optional extras (`pip install "semantica[all]"` for the old bundled behavior), Hierarchical Community GraphRAG (multi-level community detection, summarized reports, global/DRIFT hybrid search), six new data connectors (BigQuery, Redshift, Power BI, Airflow, plus JSONL ingestion), schema-guided extraction validation, source-aware truth maintenance with trust tiers for graph facts, a persistent SQLite extraction-cache backend, and 40+ correctness fixes. Requires Python 3.10+ (3.8/3.9 dropped). Two breaking changes: `Entity.confidence` is now `Optional[float]`, and `PolicyEngine.check_compliance` raises `ProcessingError` instead of returning `False` for unevaluable rules. The 0.6.x line also added every release being cryptographically signed (SLSA + Sigstore), real vector-store enumeration, and first-class Anthropic/Gemini/Ollama/DeepSeek/Novita LLM provider wrappers. See the [CHANGELOG](https://github.com/semantica-agi/semantica/blob/main/CHANGELOG.md) for the full history.
 
 ```bash
 pip install --upgrade semantica
@@ -99,7 +99,7 @@ See [Installation](/installation) for virtual environment setup, optional extras
 
 <Accordion title="What Python version do I need?" icon="python">
 
-Python **3.8 or higher**. Python 3.11+ is recommended for best performance and compatibility.
+Python **3.10 or higher** (3.10–3.13 are supported). Python 3.11+ is recommended for best performance and compatibility.
 
 </Accordion>
 
@@ -119,7 +119,7 @@ If you're on an older version, install extras individually: `pip install "semant
 
 | Requirement | Minimum | Recommended |
 | :----------- | :------- | :----------- |
-| Python | 3.8 | 3.11+ |
+| Python | 3.10 | 3.11+ |
 | RAM | 4 GB | 16 GB+ |
 | Storage | 2 GB | 20 GB+ |
 | GPU | Optional | CUDA for embeddings and ML models |
@@ -271,7 +271,7 @@ Groq, OpenAI, Anthropic, Google Gemini, Ollama (fully local), DeepSeek, Novita A
 
 Yes. Every release ships with:
 
-- 1,000+ passing tests across Python 3.8–3.12
+- 1,000+ passing tests, with installs verified weekly on Python 3.10–3.13
 - `PipelineValidator` and `FailureHandler` with exponential backoff and configurable retry policies
 - W3C PROV-O provenance tracking across all modules
 - Change management with SHA-256 checksums and full audit trails

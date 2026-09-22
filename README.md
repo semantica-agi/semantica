@@ -26,7 +26,7 @@
 
 #### Built for High-Stakes, Regulated Domains
 
-[![GitHub Stars](https://img.shields.io/github/stars/semantica-agi/semantica?style=flat-square&color=FFD700&logo=github&logoColor=white&label=Stars)](https://github.com/semantica-agi/semantica) [![GitHub Forks](https://img.shields.io/github/forks/semantica-agi/semantica?style=flat-square&color=6E40C9&logo=github&logoColor=white&label=Forks)](https://github.com/semantica-agi/semantica/network/members) [![Contributors](https://img.shields.io/github/contributors/semantica-agi/semantica?style=flat-square&color=2EA043&logo=github&logoColor=white)](https://github.com/semantica-agi/semantica/graphs/contributors) [![PyPI](https://img.shields.io/pypi/v/semantica.svg?style=flat-square&color=0066CC&logo=pypi&logoColor=white)](https://pypi.org/project/semantica/) [![Total Downloads](https://static.pepy.tech/badge/semantica?style=flat-square)](https://pepy.tech/project/semantica) [![Python 3.8+](https://img.shields.io/badge/python-3.8+-3776AB?style=flat-square&logo=python&logoColor=white)](https://www.python.org/) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square)](https://opensource.org/licenses/MIT) [![CI](https://img.shields.io/github/actions/workflow/status/semantica-agi/semantica/ci.yml?style=flat-square&label=CI)](https://github.com/semantica-agi/semantica/actions) [![Install Matrix](https://img.shields.io/github/actions/workflow/status/semantica-agi/semantica/install-matrix.yml?style=flat-square&label=pip%20install)](https://github.com/semantica-agi/semantica/actions/workflows/install-matrix.yml) [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/semantica-agi/semantica/badge?style=flat-square)](https://scorecard.dev/viewer/?uri=github.com/semantica-agi/semantica) [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/semantica-agi/semantica)
+[![GitHub Stars](https://img.shields.io/github/stars/semantica-agi/semantica?style=flat-square&color=FFD700&logo=github&logoColor=white&label=Stars)](https://github.com/semantica-agi/semantica) [![GitHub Forks](https://img.shields.io/github/forks/semantica-agi/semantica?style=flat-square&color=6E40C9&logo=github&logoColor=white&label=Forks)](https://github.com/semantica-agi/semantica/network/members) [![Contributors](https://img.shields.io/github/contributors/semantica-agi/semantica?style=flat-square&color=2EA043&logo=github&logoColor=white)](https://github.com/semantica-agi/semantica/graphs/contributors) [![PyPI](https://img.shields.io/pypi/v/semantica.svg?style=flat-square&color=0066CC&logo=pypi&logoColor=white)](https://pypi.org/project/semantica/) [![Total Downloads](https://static.pepy.tech/badge/semantica?style=flat-square)](https://pepy.tech/project/semantica) [![Python 3.10+](https://img.shields.io/badge/python-3.10+-3776AB?style=flat-square&logo=python&logoColor=white)](https://www.python.org/) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square)](https://opensource.org/licenses/MIT) [![CI](https://img.shields.io/github/actions/workflow/status/semantica-agi/semantica/ci.yml?style=flat-square&label=CI)](https://github.com/semantica-agi/semantica/actions) [![Install Matrix](https://img.shields.io/github/actions/workflow/status/semantica-agi/semantica/install-matrix.yml?style=flat-square&label=pip%20install)](https://github.com/semantica-agi/semantica/actions/workflows/install-matrix.yml) [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/semantica-agi/semantica/badge?style=flat-square)](https://scorecard.dev/viewer/?uri=github.com/semantica-agi/semantica) [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/semantica-agi/semantica)
 
 [![Website](https://img.shields.io/badge/Website-getsemantica.ai-000000?style=for-the-badge\&logo=googlechrome\&logoColor=white)](https://getsemantica.ai/)
 [![Docs](https://img.shields.io/badge/Docs-docs.getsemantica.ai-0099FF?style=for-the-badge\&logo=readthedocs\&logoColor=white)](https://docs.getsemantica.ai/)
@@ -1195,7 +1195,7 @@ Start with `semantica`, verify with `doctor`, build a graph, and explore the com
 
 ## Integrations
 
-Native plugin bundles for Claude Code, Cursor, Codex, Windsurf, Cline, Continue, VS Code, and OpenClaw; a full-featured MCP server for any MCP-compatible client; a comprehensive REST API; and first-class Agno, CrewAI, and LangChain support for agentic frameworks. Every major LLM provider is already supported via `semantica.llms` and LiteLLM: OpenAI, Anthropic, Gemini, Mistral, Llama, Groq, Cohere, Azure, Bedrock, Ollama, DeepSeek, HuggingFace, and more.
+Native plugin bundles for Claude Code, Cursor, Codex, Windsurf, Cline, Continue, VS Code, OpenClaw, and pi; a full-featured MCP server for any MCP-compatible client; a comprehensive REST API; and first-class Agno, CrewAI, and LangChain support for agentic frameworks. Every major LLM provider is already supported via `semantica.llms` and LiteLLM: OpenAI, Anthropic, Gemini, Mistral, Llama, Groq, Cohere, Azure, Bedrock, Ollama, DeepSeek, HuggingFace, and more.
 
 MCP setup takes 30 seconds — see [MCP Server](#mcp-server) below.
 
@@ -1204,46 +1204,51 @@ MCP setup takes 30 seconds — see [MCP Server](#mcp-server) below.
 
 <table>
 <tr>
-<th colspan="3" align="left">Native Plugin Bundle</th>
+<th colspan="4" align="left">Native Plugin Bundle</th>
 <th colspan="5" align="left">MCP Server + Plugin</th>
 </tr>
 <tr>
-<td align="center" width="12.5%">
+<td align="center" width="11.1%">
 <a href="https://claude.com/product/claude-code"><img src="https://github.com/anthropics.png?size=120" alt="Claude Code" width="48" height="48" /></a><br/>
 <strong>Claude Code</strong><br/>
 <sub>Skills · agents · hooks</sub>
 </td>
-<td align="center" width="12.5%">
+<td align="center" width="11.1%">
 <a href="https://cursor.com"><img src="https://www.freelogovectors.net/wp-content/uploads/2025/06/cursor-logo-freelogovectors.net_.png" alt="Cursor" width="48" height="48" /></a><br/>
 <strong>Cursor</strong><br/>
 <sub>Skills · agents</sub>
 </td>
-<td align="center" width="12.5%">
+<td align="center" width="11.1%">
 <a href="https://github.com/openai/codex"><img src="https://github.com/openai.png?size=120" alt="Codex CLI" width="48" height="48" /></a><br/>
 <strong>Codex CLI</strong><br/>
 <sub>Skills · agents</sub>
 </td>
-<td align="center" width="12.5%">
+<td align="center" width="11.1%">
+<a href="https://pi.dev"><img src="https://github.com/earendil-works.png?size=120" alt="pi" width="48" height="48" /></a><br/>
+<strong>pi</strong><br/>
+<sub>Skills · <a href="plugins/.pi-plugin/">plugin</a></sub>
+</td>
+<td align="center" width="11.1%">
 <a href="https://windsurf.com"><img src="https://exafunction.github.io/public/brand/windsurf-black-symbol.svg" alt="Windsurf" width="48" height="48" /></a><br/>
 <strong>Windsurf</strong><br/>
 <sub><a href="plugins/.windsurf-plugin/">plugin</a></sub>
 </td>
-<td align="center" width="12.5%">
+<td align="center" width="11.1%">
 <a href="https://github.com/cline/cline"><img src="https://github.com/cline.png?size=120" alt="Cline" width="48" height="48" /></a><br/>
 <strong>Cline</strong><br/>
 <sub><a href="plugins/.cline-plugin/">plugin</a></sub>
 </td>
-<td align="center" width="12.5%">
+<td align="center" width="11.1%">
 <a href="https://github.com/continuedev/continue"><img src="https://github.com/continuedev.png?size=120" alt="Continue" width="48" height="48" /></a><br/>
 <strong>Continue</strong><br/>
 <sub><a href="plugins/.continue-plugin/">plugin</a></sub>
 </td>
-<td align="center" width="12.5%">
+<td align="center" width="11.1%">
 <a href="https://github.com/microsoft/vscode"><img src="https://github.com/microsoft.png?size=120" alt="VS Code" width="48" height="48" /></a><br/>
 <strong>VS Code</strong><br/>
 <sub><a href="plugins/.vscode-plugin/">plugin</a></sub>
 </td>
-<td align="center" width="12.5%">
+<td align="center" width="11.1%">
 <a href="integrations/openclaw/"><img src="https://github.com/openclaw.png?size=120" alt="OpenClaw" width="48" height="48" /></a><br/>
 <strong>OpenClaw</strong><br/>
 <sub>MCP + <a href="integrations/openclaw/">plugin</a></sub>
@@ -1312,7 +1317,7 @@ MCP setup takes 30 seconds — see [MCP Server](#mcp-server) below.
 <td align="center" width="12.5%">
 <a href="https://github.com/crewAIInc/crewAI"><img src="https://github.com/crewAIInc.png?size=120" alt="CrewAI" width="48" height="48" /></a><br/>
 <strong>CrewAI</strong><br/>
-<sub>First-class · <code>pip install semantica[crewai]</code></sub>
+<sub>First-class · <code>pip install "crewai>=0.80.0"</code> alongside semantica</sub>
 </td>
 <td align="center" width="12.5%">
 <a href="https://github.com/langchain-ai/langchain"><img src="https://github.com/langchain-ai.png?size=120" alt="LangChain" width="48" height="48" /></a><br/>
@@ -1443,7 +1448,7 @@ curl "http://localhost:8000/api/graph/node/acme_corp/neighbors?depth=2"
 
 **Specialized agents:** `kg-assistant` · `decision-advisor` · `explainability`
 
-Bundles for Claude Code, Cursor, Codex, Windsurf, Cline, Continue, VS Code, and OpenClaw in [`plugins/`](plugins/).
+Bundles for Claude Code, Cursor, Codex, pi, Windsurf, Cline, Continue, VS Code, and OpenClaw in [`plugins/`](plugins/).
 
 ---
 
@@ -1487,18 +1492,22 @@ app = create_app(session=GraphSession(graph), agent_memory=memory)
 The Memories workspace is shown only when `agent_memory` is provided. Apply
 updates the supplied runtime object; it does not add disk persistence.
 
-## What's New in v0.6.8
+## What's New in v0.7.0
 
-**Every release from here on is cryptographically signed** — the build now runs SLSA build-provenance attestation plus Sigstore signing, and `.sigstore.json` bundles ship alongside the wheel/sdist on every GitHub Release, closing the OpenSSF Scorecard Signed-Releases gap. Beyond that, this is a large fix-and-hardening release plus a batch of vector-store and LLM-provider additions:
+**Core install just got 4x lighter.** Direct dependencies dropped from 44 to 22 packages — heavy ML/NLP, visualization, document-parsing, and ingestion libraries (`torch`, `spacy`, `sentence-transformers`, `matplotlib`, `faiss-cpu`, `python-docx`, and more) moved into granular optional extras. `pip install "semantica[all]"` keeps the old fully-bundled behavior. This is also the first release requiring **Python 3.10+** (3.8/3.9 support dropped; 3.14 not yet supported), with a committed `uv.lock` for reproducible dev installs:
 
-- **Vector store gains real enumeration**: `scan_vectors()`/`iter_vectors()` land across FAISS, SQLiteVec, PgVector, Qdrant, Weaviate, and Milvus (each via the pagination primitive its API actually supports), making `semantica store migrate` functional between backends for the first time; Weaviate also gains `delete_vectors()` for `ErasureCoordinator` support
-- **`semantica.llms` gains first-class `Anthropic`, `Gemini`, `Ollama`, `DeepSeek`, and `Novita` provider wrappers**, matching the existing `Groq`/`OpenAI` pattern
-- **Ontology package gains a deterministic, CI-friendly quality gate** for ontologies and knowledge graphs, plus first-class Google ADK integration and a Salesforce ingestor
-- **Explorer's read-only Markdown viewer becomes a full editor** for live `ContextGraph` nodes and host-supplied `AgentMemory` items
-- **`ErasureCoordinator`** completes the erasure workflow `purge_node()` only started, so a purged entity no longer survives verbatim in `AgentMemory` or as an embedding
-- **Security**: 12 Dependabot `aiohttp` alerts, 5 HIGH-severity Trivy container findings, and 2 npm advisories all resolved
+- **Hierarchical Community GraphRAG**: multi-level Louvain/Leiden community detection, LLM-summarized community reports, and global Map-Reduce + DRIFT hybrid search (`ContextRetriever(mode="global"|"drift"|"hybrid")`, new `semantica kg global`/`semantica kg drift` CLI commands) — 193 new tests
+- **Six new data connectors**: BigQuery, Amazon Redshift, Power BI, Apache Airflow, plus line-delimited JSON (`.jsonl`/`.ndjson`) ingestion
+- **Schema-guided extraction**: `SchemaValidator` checks extraction output against a domain ontology, and `bootstrap_schema` induces a draft ontology from extracted data to ratify by hand
+- **Source-aware truth maintenance and trust tiers**: a new `TruthMaintenanceSession` tracks fact support and retractions for non-recursive rules, `ContextRetriever` can filter retrieved context by active/supported facts, and graph facts now get a corroboration-based trust tier (quarantine/bronze/silver/gold)
+- **Persistent extraction cache**: `ExtractionCache` gains a pluggable `CacheBackend`, including a new SQLite backend so cached LLM extraction results survive a process restart
+- **MCP gains semantic retrieval tools** (`store_document`/`retrieve_context`/`update_document`/`remove_document`) and 6 bug fixes across provenance, causal-chain serialization, and export handlers
+- **`SPARQLReasoner.execute_query` runs real queries** against the configured triplet store or an in-memory `rdflib.Graph`, instead of the previous no-op
+- **Security**: removed the `crewai` extra to close unpatched `chromadb`/`json-repair` CVEs, fixed a Neptune credential-logging leak, and corrected a pip-audit CVE-alias matching gap
 
-Also fixes 35 correctness bugs (Python 3.9 install breakage, FAISS save/load metadata loss, `semantica ingest`'s silent no-op against a configured graph store, MCP persistence, Explorer graph rendering, ontology property-collision handling, and more) and a large batch of documentation corrections across the site.
+**Breaking changes**: `Entity.confidence` is now `Optional[float]` (was `float = 1.0`) so unmeasured confidence is no longer indistinguishable from a perfect score; `PolicyEngine.check_compliance` now raises `ProcessingError` (previously returned `False`) for rules it cannot evaluate; the `dev` extra is gone in favor of a PEP 735 dependency group; `semantica[crewai]` no longer installs `crewai` automatically.
+
+Also fixes 40+ correctness bugs (in-memory vector-ID reuse corrupting live vectors, FAISS/Qdrant/Milvus vector-store gaps, Explorer temporal-scrubber and ontology-linking bugs, CLI commands calling nonexistent APIs, and more) and a large batch of documentation corrections across the site.
 
 → [Full release notes](RELEASE_NOTES.md) · [Changelog](CHANGELOG.md)
 
@@ -1526,7 +1535,7 @@ pip install "semantica[ingest-git]"         # Git repository ingestor (GitPython
 pip install "semantica[vectorstore-faiss]"  # FAISS vector store
 pip install "semantica[vectorstore-all]"    # All vector stores (Qdrant, Pinecone, Weaviate, FAISS, PgVector, SQLite)
 pip install "semantica[agno]"               # Agno multi-agent integration
-pip install "semantica[crewai]"             # CrewAI integration
+pip install "crewai>=0.80.0"                # CrewAI integration (no semantica extra — see integrations/crewai/README.md)
 pip install "semantica[langchain]"          # LangChain / LangGraph integration
 pip install "semantica[llm-all]"            # All LLM provider clients
 pip install "semantica[graph-neo4j]"        # Neo4j graph store (LPG)
@@ -1550,7 +1559,7 @@ For production deployments, use Docker or Kubernetes rather than a local `pip in
 ```bash
 # From source
 git clone https://github.com/semantica-agi/semantica.git
-cd semantica && pip install -e ".[dev]" && pytest tests/
+cd semantica && pip install -e . --group dev && pytest tests/
 ```
 
 ### CI & Deployment
@@ -1563,7 +1572,7 @@ Wiring `semantica` into your own CI is a two-minute job. On GitHub Actions, use 
     python-version: '3.11'
 ```
 
-Copy-paste starting templates for GitHub Actions, GitLab CI, and CircleCI live in [examples/ci/](examples/ci/). The published package itself is verified installable across Ubuntu/macOS/Windows and Python 3.9-3.12 every week by the [Install Matrix workflow](.github/workflows/install-matrix.yml).
+Copy-paste starting templates for GitHub Actions, GitLab CI, and CircleCI live in [examples/ci/](examples/ci/). The published package itself is verified installable across Ubuntu/macOS/Windows and Python 3.10-3.13 every week by the [Install Matrix workflow](.github/workflows/install-matrix.yml).
 
 Ready-made deployment configs for AWS, GCP, Azure, Fly.io, Railway, Render, Kubernetes, and Helm are in [deploy/](deploy/).
 
@@ -1617,7 +1626,7 @@ On-premises deployment · Private cloud · Custom domain implementations · SLA-
 All contributions are welcome: bug fixes, features, tests, and documentation.
 
 1. Fork the repo and create a branch
-2. `pip install -e ".[dev]"`
+2. `pip install -e . --group dev` (pip 25.1+) or `uv sync`
 3. Write tests alongside your changes (`pytest tests/`)
 4. Open a PR and tag `@KaifAhmad1` for review
 
@@ -1632,7 +1641,7 @@ If you use Semantica in your research or production systems, please cite it as:
 ```bibtex
 @software{semantica2026,
   title  = {Semantica: Graph-Native Infrastructure for Context and Accountable AI Systems},
-  author = {Semantica},
+  author = {Mohammad Kaif},
   year   = {2026},
   url    = {https://github.com/semantica-agi/semantica}
 }

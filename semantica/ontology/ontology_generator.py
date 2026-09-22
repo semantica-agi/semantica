@@ -83,7 +83,10 @@ class OntologyGenerator:
             **kwargs: Additional configuration options:
                 - base_uri: Base URI for ontology (default: "https://semantica.dev/ontology/")
                 - namespace_manager: Optional namespace manager instance
-                - min_occurrences: Minimum occurrences for class inference (default: 2)
+                - min_occurrences: Minimum occurrences for a class or predicate to
+                  be inferred. Gates both entity-type (class) inference and
+                  relationship-type (object property) inference; types/predicates
+                  seen fewer times are omitted from the ontology (default: 2)
 
         Example:
             ```python
@@ -138,6 +141,8 @@ class OntologyGenerator:
                 - name: Ontology name (default: "GeneratedOntology")
                 - build_hierarchy: Whether to build class hierarchy (default: True)
                 - namespace_manager: Optional namespace manager instance
+                - min_occurrences: Frequency gate for classes and predicates
+                  (same semantics as __init__; default: 2)
 
         Returns:
             Generated ontology dictionary containing:

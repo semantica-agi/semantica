@@ -3,10 +3,12 @@ Enrichment and reasoning routes.
 """
 
 import asyncio
+import logging
 import re
 from typing import Dict, List, Optional, Tuple
 
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import ValidationError
 
 from ..dependencies import get_session
 from ..schemas import (
@@ -24,6 +26,7 @@ from ..schemas import (
 from ..session import GraphSession
 
 router = APIRouter(tags=["Enrichment"])
+logger = logging.getLogger(__name__)
 _FACT_RE = re.compile(r"^(?P<predicate>[A-Za-z_][\w:-]*)\((?P<args>.*)\)$")
 
 # SECURITY: Cap the candidate pool loaded by link prediction to prevent a
@@ -308,9 +311,24 @@ async def detect_duplicates(
         ]
         duplicates = await asyncio.to_thread(detector.detect_duplicates, entities, threshold=body.threshold)
         duplicate_list = duplicates if isinstance(duplicates, list) else getattr(duplicates, "duplicates", [])
-        return DedupResponse(duplicates=[_safe_dict(item) for item in duplicate_list], total_flagged=len(duplicate_list))
+        # DuplicatePair normalizes the candidate keys to the shape the Entity
+        # Resolution tab parses and validates that it is actually present.
+        return DedupResponse(
+            duplicates=[_safe_dict(item) for item in duplicate_list],
+            total_flagged=len(duplicate_list),
+        )
     except ImportError:
         raise HTTPException(status_code=503, detail="Deduplication module not available.")
+    except ValidationError as exc:
+        # A pair that carries neither the canonical nor the legacy spelling is
+        # a server-side contract break (issue #1592), not a bad request. Fail
+        # loudly here instead of shipping rows the UI renders as 0% with empty
+        # ids, which is how #1585 went unnoticed.
+        logger.exception("Dedup response violated the DuplicatePair contract")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Dedup response violated the DuplicatePair contract: {exc}",
+        ) from exc
     except Exception as exc:
         raise HTTPException(status_code=422, detail=f"Dedup scan failed: {exc}")
 

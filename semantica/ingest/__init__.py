@@ -133,6 +133,16 @@ import importlib
 from typing import TYPE_CHECKING, Any, Dict, Tuple
 
 if TYPE_CHECKING:
+    from .bigquery_ingestor import (
+        BigQueryConnector,
+        BigQueryData,
+        BigQueryIngestor,
+    )
+    from .powerbi_ingestor import (
+        PowerBIConnector,
+        PowerBIData,
+        PowerBIIngestor,
+    )
     from .salesforce_ingestor import (
         SalesforceConnector,
         SalesforceData,
@@ -230,6 +240,10 @@ _LAZY_EXPORTS: Dict[str, Tuple[str, str]] = {
     "SAPIngestor": (".sap_ingestor", "SAPIngestor"),
     "SAPODataEntity": (".sap_ingestor", "SAPODataEntity"),
     "SAPODataConnector": (".sap_ingestor", "SAPODataConnector"),
+    # Apache Airflow ingestion
+    "AirflowIngestor": (".airflow_ingestor", "AirflowIngestor"),
+    "AirflowData": (".airflow_ingestor", "AirflowData"),
+    "AirflowConnector": (".airflow_ingestor", "AirflowConnector"),
     # Databricks ingestion
     "DatabricksIngestor": (".databricks_ingestor", "DatabricksIngestor"),
     "DatabricksData": (".databricks_ingestor", "DatabricksData"),
@@ -251,6 +265,14 @@ _LAZY_EXPORTS: Dict[str, Tuple[str, str]] = {
     "RedshiftIngestor": (".redshift_ingestor", "RedshiftIngestor"),
     "RedshiftData": (".redshift_ingestor", "RedshiftData"),
     "RedshiftConnector": (".redshift_ingestor", "RedshiftConnector"),
+    # Power BI ingestion
+    "PowerBIIngestor": (".powerbi_ingestor", "PowerBIIngestor"),
+    "PowerBIData": (".powerbi_ingestor", "PowerBIData"),
+    "PowerBIConnector": (".powerbi_ingestor", "PowerBIConnector"),
+    # BigQuery ingestion
+    "BigQueryIngestor": (".bigquery_ingestor", "BigQueryIngestor"),
+    "BigQueryData": (".bigquery_ingestor", "BigQueryData"),
+    "BigQueryConnector": (".bigquery_ingestor", "BigQueryConnector"),
     # Looker ingestion
     "LookerIngestor": (".looker_ingestor", "LookerIngestor"),
     "LookerData": (".looker_ingestor", "LookerData"),
@@ -297,9 +319,18 @@ _OPTIONAL_DEPENDENCY_MESSAGES = {
         "Salesforce ingestion requires optional dependency 'simple-salesforce'. "
         "Install it with: pip install 'semantica[db-salesforce]'"
     ),
+    ".airflow_ingestor": (
+        "Apache Airflow ingestion requires optional dependency 'requests'. "
+        "Install it with: "
+        "pip install \"semantica[ingest-airflow]\""
+    ),
     ".redshift_ingestor": (
         "Redshift ingestion requires optional dependency 'redshift-connector'. "
         "Install it with: pip install 'semantica[db-redshift]'"
+    ),
+    ".bigquery_ingestor": (
+        "BigQuery ingestion requires optional dependency 'google-cloud-bigquery'. "
+        "Install it with: pip install 'semantica[db-bigquery]'"
     ),
     ".looker_ingestor": (
         "Looker ingestion requires optional dependency 'looker-sdk'. "
@@ -330,6 +361,7 @@ def __getattr__(name: str) -> Any:
                     "simple_salesforce",
                     "lxml",
                     "redshift_connector",
+                    "google",
                     "looker_sdk",
                 )
             )
@@ -378,6 +410,15 @@ def __getattr__(name: str) -> Any:
         "RedshiftConnector",
     }:
         if not getattr(module, "REDSHIFT_AVAILABLE", True):
+            message = _OPTIONAL_DEPENDENCY_MESSAGES.get(module_name)
+            if message:
+                raise ImportError(message)
+
+    if module_name == ".bigquery_ingestor" and name in {
+        "BigQueryIngestor",
+        "BigQueryConnector",
+    }:
+        if not getattr(module, "BIGQUERY_AVAILABLE", True):
             message = _OPTIONAL_DEPENDENCY_MESSAGES.get(module_name)
             if message:
                 raise ImportError(message)
@@ -464,6 +505,10 @@ __all__ = [
     "SAPIngestor",
     "SAPODataEntity",
     "SAPODataConnector",
+    # Apache Airflow ingestion
+    "AirflowIngestor",
+    "AirflowData",
+    "AirflowConnector",
     # Databricks ingestion
     "DatabricksIngestor",
     "DatabricksData",
@@ -485,6 +530,14 @@ __all__ = [
     "RedshiftIngestor",
     "RedshiftData",
     "RedshiftConnector",
+    # Power BI ingestion
+    "PowerBIIngestor",
+    "PowerBIData",
+    "PowerBIConnector",
+    # BigQuery ingestion
+    "BigQueryIngestor",
+    "BigQueryData",
+    "BigQueryConnector",
     # Looker ingestion
     "LookerIngestor",
     "LookerData",

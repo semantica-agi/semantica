@@ -132,8 +132,18 @@ class Decision:
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "Decision":
         """Create decision from dictionary."""
+        data = data.copy()
         if isinstance(data.get("timestamp"), str):
             data["timestamp"] = datetime.fromisoformat(data["timestamp"])
+        metadata = data.get("metadata")
+        if isinstance(metadata, str):
+            try:
+                parsed = json.loads(metadata)
+                data["metadata"] = parsed if isinstance(parsed, dict) else {"raw": metadata}
+            except (TypeError, ValueError):
+                data["metadata"] = {"raw": metadata} if metadata else {}
+        elif not isinstance(metadata, dict) and metadata is not None:
+            data["metadata"] = {}
         return cls(**data)
 
 
@@ -255,8 +265,18 @@ class PolicyException:
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "PolicyException":
         """Create exception from dictionary."""
+        data = data.copy()
         if isinstance(data.get("approval_timestamp"), str):
             data["approval_timestamp"] = datetime.fromisoformat(data["approval_timestamp"])
+        metadata = data.get("metadata")
+        if isinstance(metadata, str):
+            try:
+                parsed = json.loads(metadata)
+                data["metadata"] = parsed if isinstance(parsed, dict) else {"raw": metadata}
+            except (TypeError, ValueError):
+                data["metadata"] = {"raw": metadata} if metadata else {}
+        elif not isinstance(metadata, dict) and metadata is not None:
+            data["metadata"] = {}
         return cls(**data)
 
 

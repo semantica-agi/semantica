@@ -46,7 +46,8 @@ Enhanced Analytics:
 
 Main Classes:
     - AgentContext: High-level interface with KG integration
-    - ContextGraph: In-memory graph store with KG algorithm support and comprehensive decision management
+    - ContextGraph: In-memory graph store with KG algorithm support and
+      comprehensive decision management
     - ContextNode/ContextEdge: Graph data structures
     - AgentMemory: Persistent agent memory with RAG
     - MemoryItem: Memory item data structure
@@ -65,24 +66,24 @@ Decision Tracking Classes:
 Example Usage:
     >>> from semantica.context import AgentContext, ContextGraph
     >>> # Simple AgentContext with decision tracking
-    >>> context = AgentContext(vector_store=vs, knowledge_graph=kg, 
+    >>> context = AgentContext(vector_store=vs, knowledge_graph=kg,
     ...                       decision_tracking=True,
     ...                       advanced_analytics=True,
     ...                       kg_algorithms=True,
     ...                       vector_store_features=True)
     >>> memory_id = context.store("User asked about Python", conversation_id="conv1")
     >>> results = context.retrieve("Python programming")
-    >>> decision_id = context.record_decision(category="approval", 
+    >>> decision_id = context.record_decision(category="approval",
     ...                                      scenario="Loan application",
     ...                                      reasoning="Good credit score",
     ...                                      outcome="approved",
     ...                                      confidence=0.95)
-    >>> precedents = context.find_precedents_advanced("Loan application", 
+    >>> precedents = context.find_precedents_advanced("Loan application",
     ...                                               category="approval",
     ...                                               use_kg_features=True)
     >>> influence = context.analyze_decision_influence(decision_id)
     >>> insights = context.get_context_insights()
-    
+
     >>> # Comprehensive ContextGraph with all decision features
     >>> graph = ContextGraph(advanced_analytics=True, enable_causality=True)
     >>> decision_id = graph.record_decision(
@@ -108,14 +109,19 @@ Production Examples:
 from .agent_context import AgentContext
 from .agent_memory import AgentMemory, MemoryItem
 from .context_graph import ContextEdge, ContextGraph, ContextNode
-from .context_retriever import ContextRetriever, RetrievedContext, TemporalGraphRetriever
+from .context_retriever import (
+    ContextRetriever,
+    RetrievedContext,
+    TemporalGraphRetriever,
+)
 from .decision_context import DecisionContext
 from .entity_linker import EntityLink, EntityLinker, LinkedEntity
 from .erasure import ErasureCoordinator, ErasureReceipt
+from .truth_maintenance_filter import TruthMaintenanceContextFilter
 
 # Decision tracking imports
 from .decision_models import (
-    Decision, DecisionContext as DecisionContextModel, Policy, 
+    Decision, DecisionContext as DecisionContextModel, Policy,
     PolicyException, Precedent, ApprovalChain
 )
 from .decision_recorder import DecisionRecorder
@@ -129,6 +135,30 @@ from .decision_methods import (
     get_decision_statistics, setup_decision_tracking
 )
 from .graph_schema import setup_decision_schema, verify_schema, get_schema_info
+
+# Global GraphRAG and DRIFT search imports
+from .global_retriever import (
+    GlobalGraphRetriever,
+    GlobalSearchResult,
+    MapKeyPoint,
+    MapPointSchema,
+    MapResponseSchema,
+)
+from .drift_search import (
+    DriftFacet,
+    DriftFacetSchema,
+    DriftFacetsResponseSchema,
+    DriftSearchEngine,
+    DriftSearchResult,
+)
+from .registry import MethodRegistry, method_registry
+from .methods import (
+    drift_search,
+    global_search,
+    retrieve_context,
+    retrieve_drift,
+    retrieve_global,
+)
 
 __all__ = [
     # High-level interface
@@ -146,12 +176,13 @@ __all__ = [
     "ContextRetriever",
     "RetrievedContext",
     "TemporalGraphRetriever",
+    "TruthMaintenanceContextFilter",
     # Cross-store erasure
     "ErasureCoordinator",
     "ErasureReceipt",
     # Decision tracking models
     "Decision",
-    "DecisionContextModel", 
+    "DecisionContextModel",
     "Policy",
     "PolicyException",
     "Precedent",
@@ -178,6 +209,24 @@ __all__ = [
     "setup_decision_schema",
     "verify_schema",
     "get_schema_info",
+    # Global GraphRAG & DRIFT Search
+    "GlobalGraphRetriever",
+    "GlobalSearchResult",
+    "MapKeyPoint",
+    "MapPointSchema",
+    "MapResponseSchema",
+    "DriftSearchEngine",
+    "DriftSearchResult",
+    "DriftFacet",
+    "DriftFacetSchema",
+    "DriftFacetsResponseSchema",
+    "MethodRegistry",
+    "method_registry",
+    "retrieve_global",
+    "retrieve_drift",
+    "retrieve_context",
+    "global_search",
+    "drift_search",
 ]
 
 # Backward compatibility alias

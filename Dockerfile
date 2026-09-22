@@ -21,17 +21,16 @@ RUN mkdir -p /app/semantica && npm run build
 # image only serves plain HTTP via uvicorn and never opens a QUIC listener,
 # so the bug isn't reachable here regardless.
 #
-# Pinned to 3.13, NOT 3.14: #1290 bumped this to python:3.14-slim and broke
-# the build outright (Container Security Scan, every run since) - gensim
-# (a base, non-extras-gated dependency) ships no cp314 wheel on PyPI yet, so
-# pip falls back to building it from source, which needs a C compiler this
-# slim image doesn't carry ("error: [Errno 2] No such file or directory:
-# 'gcc'"). Revisit the 3.14 bump once gensim (and anything else pulled in
-# transitively) publishes cp314 wheels - check with
-# `pip index versions gensim` / the project's PyPI files page, not just
-# whether `uv pip compile` resolves (resolution only reads sdist metadata,
-# it doesn't attempt the build that fails here).
-FROM python:3.14-slim@sha256:cad9a2c871761c413caa6fdd6441c783451e740a48aaeba60ae62a8b53525ef6 AS runtime
+# Pinned to 3.13, NOT 3.14. The image must stay inside the supported range in
+# pyproject.toml (`requires-python = ">=3.10,<3.14"`, Install Matrix 3.10-3.13)
+# and on the interpreter explorer-extra-py313.txt below was resolved for.
+# Dependabot bumped this to python:3.14-slim in #1290 (which broke the build:
+# no cp314 wheel for gensim, so pip compiled it and the slim image has no gcc)
+# and again in #1547; .github/dependabot.yml now ignores python minor/major
+# bumps for this image. gensim (extras graph-embeddings / split-topic) still
+# ships no cp314 wheel. Raise the ceiling in pyproject.toml, the Install Matrix
+# and this image together once 3.14 is verified, not with a lone image bump.
+FROM python:3.13-slim@sha256:8d9d0b8bcf6506481eae4907c18f5e3e7902e629f5f6d684f9e7c32e85e3ddf0 AS runtime
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -40,6 +39,30 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     ALLOWED_ORIGINS=http://localhost:8000,http://127.0.0.1:8000
 
 WORKDIR /app
+
+# Debian trixie-security already ships fixed builds for these base-image OS
+# packages (Trivy library/semantica alerts #6151-#6162, all CVE-2026-*):
+# perl-base (7 CVEs across perl core, Storable, Archive::Tar and IO::Compress
+# - all fixed by the same upstream perl source upload), libpcre2-8-0 (2 CVEs),
+# libsqlite3-0 (2 CVEs, FTS5), and gzip (1 CVE, LZH decompression).
+#
+# --only-upgrade scopes this to just the 4 named packages instead of a
+# blanket `apt-get upgrade` (terrascan AC_DOCKER_0052, see the OpenSSL note
+# above), but deliberately WITHOUT a `pkg=version` pin like the setuptools
+# pin below: unlike PyPI, Debian's live mirrors only ever serve the current
+# point release of a package, not every historical one. A pin to today's
+# fixed version (e.g. perl-base=5.40.1-6+deb13u1) would 404 the day Debian
+# ships deb13u2 and break every build that hits this layer - CI, Cloud
+# Build, and local Compose alike. Leaving the version unpinned means apt
+# always resolves to whatever trixie-security currently has, which is
+# guaranteed >= today's fixed version since security repos never regress.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends --only-upgrade \
+        perl-base \
+        libpcre2-8-0 \
+        libsqlite3-0 \
+        gzip \
+    && rm -rf /var/lib/apt/lists/*
 
 RUN groupadd --system semantica \
     && useradd --system --gid semantica --home-dir /app --shell /usr/sbin/nologin semantica

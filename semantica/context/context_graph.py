@@ -476,7 +476,14 @@ class ContextEdge:
         self.source_id = str(self.source_id)
         self.target_id = str(self.target_id)
         self.edge_type = str(self.edge_type or "related_to")
-        self.weight = _coerce_float(self.weight, default=1.0)
+        if isinstance(self.weight, dict):
+            if not isinstance(self.metadata, dict):
+                self.metadata = {}
+            dict_meta = dict(self.weight)
+            self.weight = _coerce_float(dict_meta.pop("weight", 1.0), default=1.0)
+            self.metadata = {**dict_meta, **self.metadata}
+        else:
+            self.weight = _coerce_float(self.weight, default=1.0)
         if not isinstance(self.metadata, dict):
             self.metadata = {}
         self.edge_id, self.family_id = _resolve_edge_identity(
@@ -1046,6 +1053,12 @@ class ContextGraph:
                         "weight": edge.weight,
                         "hop": next_hop,
                     }
+                    # Expose the merged node metadata so consumers such as
+                    # support-aware retrieval can validate annotations on
+                    # neighbor attachments instead of dropping them blindly.
+                    entry_metadata: Dict[str, Any] = dict(node.properties or {})
+                    entry_metadata.update(node.metadata or {})
+                    entry["metadata"] = entry_metadata
                     if include_distance_metadata:
                         entry["distance_band"] = classify_path_distance(next_hop)
                         entry["confidence_decay"] = next_decay
@@ -1173,6 +1186,9 @@ class ContextGraph:
             **properties: Additional properties. Use `valid_from` and `valid_until`
                 (ISO datetime strings) to define a temporal validity window.
         """
+        if isinstance(weight, dict):
+            properties = {**weight, **properties}
+            weight = properties.pop("weight", 1.0)
         valid_from = properties.pop("valid_from", None)
         valid_until = properties.pop("valid_until", None)
         explicit_edge_id = properties.pop("id", properties.pop("edge_id", None))
@@ -4872,7 +4888,7 @@ class ContextGraph:
             "min_confidence": 0.7,
             "required_outcomes": ["approved", "rejected", "flagged"],
             "required_metadata": ["decision_maker"],
-            "max_reasoning_length": 1000
+            "max_reasoning_length": 10000
         }
         
         rules = policy_rules or default_rules
@@ -4892,8 +4908,8 @@ class ContextGraph:
         
         # Check reasoning length
         reasoning = decision_data.get("reasoning", "")
-        if len(reasoning) > rules.get("max_reasoning_length", 1000):
-            warnings.append(f"Reasoning too long: {len(reasoning)} characters")
+        if len(reasoning.strip()) > rules.get("max_reasoning_length", 10000):
+            warnings.append(f"Reasoning too long: {len(reasoning.strip())} characters")
         
         return {
             "compliant": len(violations) == 0,

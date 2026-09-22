@@ -109,6 +109,8 @@ class FileTypeDetector:
 
         # Initialize Python's MIME types database
         mimetypes.init()
+        mimetypes.add_type("application/x-ndjson", ".ndjson")
+        mimetypes.add_type("application/x-ndjson", ".jsonl")
 
         self.logger.debug(
             "File type detector initialized with "

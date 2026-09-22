@@ -8,7 +8,7 @@ import logging
 import threading
 import time
 import uuid
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, Iterable, Iterator, List, Optional
 
 from ..context.context_graph import ContextGraph, _resolve_edge_identity
@@ -600,7 +600,7 @@ class GraphSession:
                 except ValueError:
                     return None
             if parsed.tzinfo is not None:
-                parsed = parsed.astimezone(UTC).replace(tzinfo=None)
+                parsed = parsed.astimezone(timezone.utc).replace(tzinfo=None)
             return parsed
 
         with self._lock:
@@ -625,7 +625,7 @@ class GraphSession:
     def add_annotation(self, annotation: Dict[str, Any]) -> str:
         ann_id = str(uuid.uuid4())
         annotation["annotation_id"] = ann_id
-        annotation["created_at"] = datetime.now(UTC).isoformat()
+        annotation["created_at"] = datetime.now(timezone.utc).isoformat()
         with self._lock:
             self.annotations[ann_id] = annotation
         return ann_id

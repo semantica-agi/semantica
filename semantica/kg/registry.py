@@ -59,6 +59,10 @@ class MethodRegistry:
         "community": {},
         "connectivity": {},
         "temporal": {},
+        "community_hierarchy": {},
+        "community_summary": {},
+        "global_retrieval": {},
+        "drift_search": {},
     }
 
     @classmethod
@@ -67,7 +71,9 @@ class MethodRegistry:
         Register a custom KG method.
 
         Args:
-            task: Task type ("build", "analyze", "resolve", "validate", "centrality", "community", "connectivity", "temporal")
+            task: Task type ("build", "analyze", "resolve", "validate",
+                "centrality", "community", "connectivity", "temporal",
+                "community_hierarchy", "community_summary")
             name: Method name
             method_func: Method function
         """
@@ -81,7 +87,9 @@ class MethodRegistry:
         Get method by task and name.
 
         Args:
-            task: Task type ("build", "analyze", "resolve", "validate", "centrality", "community", "connectivity", "temporal")
+            task: Task type ("build", "analyze", "resolve", "validate",
+                "centrality", "community", "connectivity", "temporal",
+                "community_hierarchy", "community_summary")
             name: Method name
 
         Returns:
@@ -110,7 +118,10 @@ class MethodRegistry:
         Unregister a method.
 
         Args:
-            task: Task type ("build", "analyze", "resolve", "validate", "conflict", "centrality", "community", "connectivity", "deduplicate", "temporal")
+            task: Task type ("build", "analyze", "resolve", "validate",
+                "conflict", "centrality", "community", "connectivity",
+                "deduplicate", "temporal", "community_hierarchy",
+                "community_summary")
             name: Method name
         """
         if task in cls._methods and name in cls._methods[task]:
@@ -177,7 +188,11 @@ class AlgorithmRegistry:
             "path_finding": {},
             "link_prediction": {},
             "centrality": {},
-            "community_detection": {}
+            "community_detection": {},
+            "community_hierarchy": {},
+            "community_summary": {},
+            "global_retrieval": {},
+            "drift_search": {},
         }
         self._metadata = {}
         self._capabilities = {}
@@ -223,7 +238,7 @@ class AlgorithmRegistry:
         if capabilities:
             self._capabilities[(category, name)] = capabilities
     
-    def get(self, category: str, name: str) -> Optional[type]:
+    def get(self, category: str, name: str = "default") -> Optional[type]:
         """
         Get algorithm class by category and name.
         
@@ -234,9 +249,38 @@ class AlgorithmRegistry:
         Returns:
             Algorithm class or None if not found
         """
-        return self._algorithms.get(category, {}).get(name)
+        algo = self._algorithms.get(category, {}).get(name)
+        if (
+            algo is None and
+            category == "community_hierarchy" and
+            name in ("louvain", "leiden", "default")
+        ):
+            from .community_hierarchy import CommunityHierarchyBuilder
+            return CommunityHierarchyBuilder
+        if (
+            algo is None and
+            category == "community_summary" and
+            name in ("default", "summarizer", "llm")
+        ):
+            from .community_summarizer import CommunitySummarizer
+            return CommunitySummarizer
+        if (
+            algo is None and
+            category == "global_retrieval" and
+            name in ("default", "global", "map_reduce")
+        ):
+            from ..context.global_retriever import GlobalGraphRetriever
+            return GlobalGraphRetriever
+        if (
+            algo is None and
+            category == "drift_search" and
+            name in ("default", "drift", "hybrid")
+        ):
+            from ..context.drift_search import DriftSearchEngine
+            return DriftSearchEngine
+        return algo
     
-    def create_instance(self, category: str, name: str, **kwargs) -> Any:
+    def create_instance(self, category: str, name: str = "default", **kwargs) -> Any:
         """
         Create an instance of an algorithm.
         
@@ -251,12 +295,15 @@ class AlgorithmRegistry:
         Raises:
             ValueError: If algorithm not found
         """
-        if name not in self._algorithms.get(category, {}):
-            raise ValueError(f"Algorithm {name} not found in category {category}")
-        algorithm_class = self._algorithms[category][name]
+        algorithm_class = self.get(category, name)
         if algorithm_class is None:
+            if name not in self._algorithms.get(category, {}):
+                raise ValueError(f"Algorithm {name} not found in category {category}")
             raise TypeError(f"Algorithm {name} has no implementation class registered")
         
+        if category == "community_hierarchy":
+            algo_name = "louvain" if name == "default" else name
+            kwargs.setdefault("algorithm", algo_name)
         return algorithm_class(**kwargs)
     
     def list_category(self, category: str) -> List[str]:
@@ -484,6 +531,149 @@ class AlgorithmRegistry:
             },
             capabilities=["iterative_labeling", "convergence_detection"]
         )
+
+        # Hierarchical community detection
+        self.register(
+            "community_hierarchy",
+            "default",
+            None,
+            metadata={
+                "description": (
+                    "Default hierarchical community detection (Louvain)"
+                ),
+                "parameters": [
+                    "resolution", "seed", "threshold", "max_levels"
+                ],
+                "complexity": "O(V log V + E)",
+                "quality": "High",
+                "use_case": "Hierarchical GraphRAG clustering",
+            },
+            capabilities=[
+                "multi_level",
+                "coarsening",
+                "deterministic",
+                "indexed_hierarchy",
+            ],
+        )
+        self.register(
+            "community_hierarchy",
+            "louvain",
+            None,
+            metadata={
+                "description": (
+                    "Multi-level Louvain hierarchical community detection"
+                ),
+                "parameters": [
+                    "resolution", "seed", "threshold", "max_levels"
+                ],
+                "complexity": "O(V log V + E)",
+                "quality": "High",
+                "use_case": "Hierarchical GraphRAG clustering",
+            },
+            capabilities=[
+                "multi_level",
+                "coarsening",
+                "deterministic",
+                "indexed_hierarchy",
+            ],
+        )
+        self.register(
+            "community_hierarchy",
+            "leiden",
+            None,
+            metadata={
+                "description": (
+                    "Multi-level Leiden hierarchical community detection "
+                    "with refinement"
+                ),
+                "parameters": ["resolution", "seed", "max_levels"],
+                "complexity": "O(V log V + E)",
+                "quality": "High",
+                "use_case": (
+                    "Hierarchical GraphRAG clustering with guaranteed "
+                    "connectivity"
+                ),
+            },
+            capabilities=[
+                "multi_level",
+                "refinement",
+                "deterministic",
+                "indexed_hierarchy",
+            ],
+        )
+
+        # Hierarchical community summarization
+        for name, desc in [
+            ("default", "Default hierarchical community summarizer"),
+            ("summarizer", "GraphRAG community summarizer engine"),
+            ("llm", "LLM-driven community summarizer"),
+        ]:
+            self.register(
+                "community_summary",
+                name,
+                None,
+                metadata={
+                    "description": desc,
+                    "parameters": ["llm", "max_tokens", "cache_dir"],
+                    "complexity": "O(V + E)",
+                    "quality": "High",
+                    "use_case": (
+                        "Hierarchical GraphRAG global summarization"
+                    ),
+                },
+                capabilities=[
+                    "structured_output",
+                    "centrality_budgeting",
+                    "sha256_caching",
+                    "hierarchical_synthesis",
+                ],
+            )
+
+        # Global GraphRAG retrieval
+        global_meta = {
+            "description": "Global Map-Reduce query retrieval over reports",
+            "parameters": ["query", "reports", "hierarchy", "llm"],
+            "complexity": "O(C)",
+            "quality": "High",
+            "use_case": "Macro-level executive query answering",
+        }
+        global_caps = [
+            "map_reduce",
+            "level_promotion",
+            "token_budgeting",
+            "citations",
+        ]
+        for g_name in ("default", "global", "map_reduce"):
+            self.register(
+                "global_retrieval",
+                g_name,
+                None,
+                metadata=global_meta,
+                capabilities=global_caps,
+            )
+
+        # DRIFT hybrid search
+        drift_meta = {
+            "description": "DRIFT hybrid global-local search engine",
+            "parameters": ["query", "knowledge_graph", "reports", "llm"],
+            "complexity": "O(K + E)",
+            "quality": "High",
+            "use_case": "Directed reasoning and drift-pruned traversal",
+        }
+        drift_caps = [
+            "thematic_framing",
+            "directed_reasoning",
+            "drift_pruning",
+            "dual_attribution",
+        ]
+        for d_name in ("default", "drift", "hybrid"):
+            self.register(
+                "drift_search",
+                d_name,
+                None,
+                metadata=drift_meta,
+                capabilities=drift_caps,
+            )
 
 
 # Global algorithm registry

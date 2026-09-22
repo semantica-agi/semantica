@@ -142,6 +142,13 @@ updates:
     labels:
       - "dependencies"
       - "docker"
+    ignore:
+      # The runtime image must stay inside the supported Python range
+      # (requires-python in pyproject.toml). Bumping python:3.13-slim to 3.14
+      # here already happened twice (#1290, #1547); raise the ceiling
+      # deliberately instead.
+      - dependency-name: "python"
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
 
   # Documentation dependencies
   - package-ecosystem: "pip"
