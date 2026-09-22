@@ -156,3 +156,95 @@ class TestNodeEmbeddingsPersistence:
 
         stale.load_from_file(path)
         assert stale._node_embeddings == {"real": [0.5, 0.5]}
+
+
+class TestNeighborhoodRetrieval:
+    """include_neighbors attaches the thread around a matched decision.
+
+    The fixtures below keep the main match above the default hard threshold
+    (short reasoning) while its neighbors stay below it, so the neighbors
+    attached by the option are exactly the decisions the search alone lost.
+    """
+
+    @pytest.fixture
+    def graph(self):
+        """A well-scoring decision plus two related-but-unreachable ones."""
+        g = ContextGraph()
+        main_id = g.record_decision(
+            category="architecture",
+            scenario=SCENARIO,
+            reasoning="Cost",
+            outcome="postgres",
+            confidence=0.9,
+            entities=["postgres", "storage"],
+        )
+        g.record_decision(
+            category="architecture",
+            scenario="Migrate the analytics jobs to the new warehouse",
+            reasoning="Same storage stack, shared tooling and backup runbooks",
+            outcome="migrate",
+            confidence=0.8,
+            entities=["postgres", "analytics"],
+        )
+        g.record_decision(
+            category="branding",
+            scenario="Pick a logo color for the landing page",
+            reasoning="Marketing wants something calm",
+            outcome="blue",
+            confidence=0.7,
+            entities=["marketing"],
+        )
+        return g, main_id
+
+    def test_neighbors_attached_via_shared_entities(self, graph):
+        """The unreachable decision sharing an entity comes back as neighbor."""
+        g, _ = graph
+        hits = g.find_precedents_by_scenario(SCENARIO, include_neighbors=3)
+        assert len(hits) == 1
+        neighbors = hits[0]["neighbors"]
+        assert len(neighbors) == 1
+        assert neighbors[0]["via"] == "shared_entities"
+        assert "postgres" in neighbors[0]["shared_entities"]
+        assert neighbors[0]["decision"]["entities"] == ["postgres", "analytics"]
+
+    def test_neighbors_absent_by_default(self, graph):
+        """Without the option the result shape is unchanged."""
+        g, _ = graph
+        hits = g.find_precedents_by_scenario(SCENARIO)
+        assert all("neighbors" not in h for h in hits)
+
+    def test_neighbors_capped_per_precedent(self, graph):
+        """The count is honored exactly."""
+        g, _ = graph
+        hits = g.find_precedents_by_scenario(SCENARIO, include_neighbors=1)
+        assert len(hits[0]["neighbors"]) == 1
+
+    def test_causal_neighbor_comes_first(self, graph):
+        """Explicit causal relationships outrank shared-entity adjacency."""
+        g, main_id = graph
+        all_ids = list(g._decisions.keys())
+        other_id = next(d for d in all_ids if d != main_id)
+        g.add_causal_relationship(main_id, other_id, "CAUSED")
+        # Rank a third decision in below the threshold by sharing an entity.
+        g.record_decision(
+            category="ops",
+            scenario="Rotate the database credentials quarterly",
+            reasoning="postgres service accounts",
+            outcome="rotate",
+            confidence=0.8,
+            entities=["postgres", "security"],
+        )
+        hits = g.find_precedents_by_scenario(SCENARIO, include_neighbors=2)
+        neighbors = hits[0]["neighbors"]
+        assert [n["via"] for n in neighbors] == ["causal", "shared_entities"]
+        assert neighbors[0]["relationship"] == "CAUSED"
+        assert neighbors[0]["decision"]["id"] == other_id
+
+    def test_neighbors_through_wrapper(self, graph):
+        """find_similar_decisions passes include_neighbors through."""
+        g, _ = graph
+        hits = g.find_similar_decisions(
+            SCENARIO, min_similarity=0.5, include_neighbors=1
+        )
+        assert len(hits) == 1
+        assert len(hits[0]["neighbors"]) == 1
