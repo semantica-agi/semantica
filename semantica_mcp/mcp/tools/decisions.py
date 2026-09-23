@@ -4,6 +4,7 @@ Decision intelligence tools — record, query, precedents, causal chain, impact.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 from typing import Any
@@ -12,6 +13,7 @@ from ..schemas import (
     ANALYZE_DECISION_IMPACT,
     FIND_PRECEDENTS,
     GET_CAUSAL_CHAIN,
+    LINK_DECISIONS,
     QUERY_DECISIONS,
     RECORD_DECISION,
 )
@@ -261,7 +263,17 @@ def handle_get_causal_chain(args: dict) -> dict:
                     ),
                     "chain": [],
                 }
-        result = chain if isinstance(chain, list) else list(chain)
+        # CausalChainAnalyzer returns Decision dataclasses, which the tools/call
+        # handler cannot json.dumps. serialize_decision applies the existing
+        # default=str policy, which also covers non-JSON values inside decision
+        # metadata. The fallback backends may already return plain values, so
+        # only objects exposing to_dict() are converted.
+        from semantica.context.decision_models import serialize_decision
+
+        result = [
+            json.loads(serialize_decision(item)) if hasattr(item, "to_dict") else item
+            for item in chain
+        ]
         return {"chain": result, "count": len(result), "direction": direction}
     except Exception as exc:
         log.exception("get_causal_chain failed")
@@ -285,6 +297,31 @@ def handle_analyze_decision_impact(args: dict) -> dict:
     except Exception as exc:
         log.exception("analyze_decision_impact failed")
         return {"error": str(exc)}
+
+
+def handle_link_decisions(args: dict) -> dict:
+    """Create a typed causal relationship between two recorded decisions."""
+    source = str(args.get("source") or "").strip()
+    target = str(args.get("target") or "").strip()
+    relationship = str(args.get("relationship") or "").strip()
+    if not source or not target:
+        return {"error": "source and target are required"}
+    if not relationship:
+        return {"error": "relationship is required"}
+    try:
+        graph = get_graph()
+        added = graph.add_causal_relationship(source, target, relationship)
+    except ValueError as exc:
+        return {"error": str(exc)}
+    except Exception as exc:
+        log.exception("link_decisions failed")
+        return {"error": str(exc)}
+    return {
+        "source": source,
+        "target": target,
+        "relationship": relationship,
+        "linked": added,
+    }
 
 
 DECISION_TOOLS = [
@@ -317,5 +354,11 @@ DECISION_TOOLS = [
         "description": "Analyse the downstream impact and influence of a decision across the knowledge graph.",
         "inputSchema": ANALYZE_DECISION_IMPACT,
         "_handler": handle_analyze_decision_impact,
+    },
+    {
+        "name": "link_decisions",
+        "description": "Create a typed causal relationship between two recorded decisions (CAUSED, INFLUENCED, or PRECEDENT_FOR). Use this after record_decision to connect decisions into a causal chain that get_causal_chain can then traverse.",
+        "inputSchema": LINK_DECISIONS,
+        "_handler": handle_link_decisions,
     },
 ]

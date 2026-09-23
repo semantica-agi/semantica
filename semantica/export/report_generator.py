@@ -555,8 +555,10 @@ class ReportGenerator:
 
     def _generate_metrics_summary(self, metrics: Dict[str, Any]) -> Dict[str, Any]:
         """Generate metrics summary."""
+        avg_conf = metrics.get("average_confidence")
+        avg_conf_str = f"{avg_conf:.2f}" if avg_conf is not None else "N/A"
         return {
             "Total Items": metrics.get("total_items", 0),
             "Success Rate": f"{metrics.get('success_rate', 0.0):.2%}",
-            "Average Confidence": f"{metrics.get('average_confidence', 0.0):.2f}",
+            "Average Confidence": avg_conf_str,
         }

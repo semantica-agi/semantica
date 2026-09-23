@@ -39,7 +39,7 @@ Push everything through: GitHub → Discord (`sV34vps5hH`) → X (`@BuildSemanti
 
 - [x] GitHub Actions example in `examples/ci/github-actions.yml`
 - [x] Reusable composite GitHub Action — [`.github/actions/setup-semantica`](.github/actions/setup-semantica/action.yml), modeled on `actions/setup-python`; usable by any repo as `uses: semantica-agi/semantica/.github/actions/setup-semantica@main`
-- [x] "pip install" status badge in the README, backed by [`.github/workflows/install-matrix.yml`](.github/workflows/install-matrix.yml) — verifies the *published* package installs cleanly on Ubuntu/macOS/Windows across Python 3.9-3.12, weekly + on every release
+- [x] "pip install" status badge in the README, backed by [`.github/workflows/install-matrix.yml`](.github/workflows/install-matrix.yml) — verifies the *published* package installs cleanly on Ubuntu/macOS/Windows across Python 3.10-3.13, weekly + on every release
 - [x] GitLab CI template — `examples/ci/gitlab-ci.yml`
 - [x] CircleCI template — `examples/ci/circleci-config.yml`
 - [ ] Jenkins, Azure DevOps, Bitbucket Pipelines, Buildkite, Travis CI equivalents

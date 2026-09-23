@@ -62,6 +62,7 @@ Production Use Cases:
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Set
 from collections import deque
+import json
 
 from ..graph_store import GraphStore
 from ..utils.helpers import classify_path_distance
@@ -581,6 +582,16 @@ class CausalChainAnalyzer:
         raw_confidence = data.get("confidence", 0.0)
         confidence = max(0.0, min(1.0, float(raw_confidence))) if raw_confidence is not None else 0.0
 
+        metadata = data.get("metadata")
+        if isinstance(metadata, str):
+            try:
+                parsed = json.loads(metadata)
+                metadata = parsed if isinstance(parsed, dict) else {"raw": metadata}
+            except (TypeError, ValueError):
+                metadata = {"raw": metadata} if metadata else {}
+        elif not isinstance(metadata, dict):
+            metadata = {}
+
         return Decision(
             decision_id=decision_id,
             category=data.get("category", ""),
@@ -592,7 +603,7 @@ class CausalChainAnalyzer:
             decision_maker=data.get("decision_maker", ""),
             reasoning_embedding=data.get("reasoning_embedding"),
             node2vec_embedding=data.get("node2vec_embedding"),
-            metadata=data.get("metadata", {}),
+            metadata=metadata,
         )
 
     def _extract_records(self, results: Any) -> List[Dict[str, Any]]:

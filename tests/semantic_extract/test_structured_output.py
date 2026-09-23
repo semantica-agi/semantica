@@ -1,7 +1,7 @@
 
 import pytest
 from unittest.mock import MagicMock, patch
-from typing import Type, List, Optional
+from typing import List, Type, Union
 from pydantic import BaseModel, ValidationError
 
 from semantica.semantic_extract.providers import BaseProvider
@@ -57,7 +57,7 @@ class MockProvider(BaseProvider):
     def generate(self, prompt: str, **kwargs) -> str:
         return "{}"
 
-    def generate_structured(self, prompt: str, **kwargs) -> dict:
+    def generate_structured(self, prompt: str, **kwargs) -> Union[dict, list]:
         self.generate_structured_called = True
         if "entities" in prompt.lower():
             return [{"text": "Apple", "label": "ORG", "start": 0, "end": 5}]

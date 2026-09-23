@@ -13,7 +13,7 @@ Contributions of all kinds are welcome (code, documentation, tests, and communit
 # Fork the repo on GitHub, then:
 git clone https://github.com/your-username/semantica.git
 cd semantica
-pip install -e ".[dev]"
+pip install -e . --group dev   # needs pip 25.1+ (or: uv sync)
 pytest
 ```
 
@@ -33,7 +33,7 @@ First-time contributors can start with [`good-first-issue`](https://github.com/s
 ```bash
 git clone https://github.com/your-username/semantica.git
 cd semantica
-pip install -e ".[dev]"
+pip install -e . --group dev   # needs pip 25.1+ (or: uv sync)
 ```
 
 **Code style tools:**

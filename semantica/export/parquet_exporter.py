@@ -216,6 +216,17 @@ class ParquetExporter:
                 )
                 for key, value in data.items():
                     if isinstance(value, list):
+                        if not value:
+                            # Matches export_knowledge_graph() below, which
+                            # guards every collection the same way. An empty
+                            # collection has nothing to write, and the
+                            # dedicated exporters reject an empty list, so
+                            # reaching them here aborts the whole call and
+                            # the other collections never get written.
+                            self.logger.debug(
+                                f"Skipping key '{key}': collection is empty"
+                            )
+                            continue
                         output_path = (
                             file_path.parent / f"{file_path.stem}_{key}.parquet"
                         )

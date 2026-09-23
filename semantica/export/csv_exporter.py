@@ -158,6 +158,16 @@ class CSVExporter:
                 )
                 for key, value in data.items():
                     if isinstance(value, list):
+                        if not value:
+                            # An empty collection has nothing to write, and
+                            # writing an empty file would be a guess at a
+                            # header. Skipping it also keeps a graph with no
+                            # relationships exportable: the entity file is
+                            # still produced instead of the call aborting.
+                            self.logger.debug(
+                                f"Skipping key '{key}': collection is empty"
+                            )
+                            continue
                         output_path = file_path.parent / f"{file_path.stem}_{key}.csv"
                         self._write_csv(
                             value,

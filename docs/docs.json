@@ -109,8 +109,11 @@
               "integrations/databricks",
               "integrations/bigquery",
               "integrations/salesforce",
+              "integrations/airflow",
               "integrations/redshift",
-              "integrations/powerbi"
+              "integrations/powerbi",
+              "integrations/servicenow",
+              "integrations/looker"
             ]
           },
           {
@@ -204,6 +207,8 @@
               "reference/distance",
               "reference/semantic_extract",
               "reference/reasoning",
+              "reference/truth_maintenance",
+              "reference/temporal_truth_maintenance",
               "reference/ontology"
             ]
           },

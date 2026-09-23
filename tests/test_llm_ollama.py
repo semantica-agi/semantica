@@ -76,3 +76,16 @@ def test_generate_typed_raises_clear_error_when_unavailable():
     llm = Ollama(base_url="http://localhost:1")
     with pytest.raises(ProcessingError, match="Ollama provider not available"):
         llm.generate_typed("hello", object())
+
+
+def test_generate_structured_passes_through_list_return():
+    """generate_structured() must propagate a top-level JSON array unchanged."""
+    llm = Ollama()
+    llm.provider = MagicMock()
+    llm.provider.is_available.return_value = True
+    llm.provider.generate_structured.return_value = [{"id": 1}, {"id": 2}]
+
+    result = llm.generate_structured("return a list")
+
+    assert result == [{"id": 1}, {"id": 2}]
+    assert isinstance(result, list)

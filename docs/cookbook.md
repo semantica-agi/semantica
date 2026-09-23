@@ -12,7 +12,7 @@ icon: "flask"
 </Tip>
 
 <Note>
-  Prerequisites: Python 3.8+, Jupyter, and an API key for your preferred LLM provider.
+  Prerequisites: Python 3.10+, Jupyter, and an API key for your preferred LLM provider.
 </Note>
 
 

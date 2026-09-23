@@ -491,3 +491,93 @@ def test_heuristic_cause_reported_once_per_shared_entity_pair():
     assert influence_hops.count((cause, effect)) == 1, (
         "the same (cause, effect) pair must be reported once, not once per shared entity"
     )
+
+
+# ── Issue #1653: add_causal_relationship() bool return contract ──────────────
+
+def _two_decision_graph():
+    """Return a fresh graph with two recorded decisions and their IDs."""
+    graph = ContextGraph(advanced_analytics=False)
+    source_id = graph.record_decision(
+        category="infra", scenario="Deploy service A", reasoning="r",
+        outcome="approved", confidence=0.9,
+    )
+    target_id = graph.record_decision(
+        category="infra", scenario="Deploy service B", reasoning="r",
+        outcome="approved", confidence=0.8,
+    )
+    return graph, source_id, target_id
+
+
+def test_add_causal_relationship_returns_true_on_first_insertion():
+    """Successful first insertion must return True (issue #1653 Part 2)."""
+    graph, src, tgt = _two_decision_graph()
+    result = graph.add_causal_relationship(src, tgt, "CAUSED")
+    assert result is True
+
+
+def test_add_causal_relationship_returns_false_for_missing_source():
+    """Unknown source ID → False + warning (issue #1653 Part 2)."""
+    graph, _, tgt = _two_decision_graph()
+    result = graph.add_causal_relationship("nonexistent_source", tgt, "CAUSED")
+    assert result is False
+
+
+def test_add_causal_relationship_returns_false_for_missing_target():
+    """Unknown target ID → False + warning (issue #1653 Part 2)."""
+    graph, src, _ = _two_decision_graph()
+    result = graph.add_causal_relationship(src, "nonexistent_target", "CAUSED")
+    assert result is False
+
+
+def test_add_causal_relationship_missing_id_emits_warning(caplog):
+    """Missing ID skip must log a WARNING containing both IDs."""
+    import logging
+    graph, src, _ = _two_decision_graph()
+    with caplog.at_level(logging.WARNING, logger="semantica.context.context_graph"):
+        graph.add_causal_relationship(src, "no_such_id", "CAUSED")
+    assert any("no_such_id" in r.message for r in caplog.records), (
+        "warning message must contain the unknown target ID"
+    )
+    assert any(src in r.message for r in caplog.records), (
+        "warning message must also contain the source ID"
+    )
+
+
+def test_add_causal_relationship_returns_false_for_non_decision_source():
+    """Non-decision source node → False + warning (issue #1653 Part 2)."""
+    graph, _, tgt = _two_decision_graph()
+    graph.add_node(node_id="entity_src", label="plain entity", node_type="Entity")
+    result = graph.add_causal_relationship("entity_src", tgt, "CAUSED")
+    assert result is False
+
+
+def test_add_causal_relationship_returns_false_for_non_decision_target():
+    """Non-decision target node → False + warning (issue #1653 Part 2)."""
+    graph, src, _ = _two_decision_graph()
+    graph.add_node(node_id="entity_tgt", label="plain entity", node_type="Entity")
+    result = graph.add_causal_relationship(src, "entity_tgt", "CAUSED")
+    assert result is False
+
+
+def test_add_causal_relationship_non_decision_node_emits_warning(caplog):
+    """Non-decision node skip must log a WARNING containing both IDs."""
+    import logging
+    graph, src, _ = _two_decision_graph()
+    graph.add_node(node_id="non_dec", label="plain entity", node_type="Entity")
+    with caplog.at_level(logging.WARNING, logger="semantica.context.context_graph"):
+        graph.add_causal_relationship(src, "non_dec", "CAUSED")
+    assert any("non_dec" in r.message for r in caplog.records)
+    assert any(src in r.message for r in caplog.records)
+
+
+def test_add_causal_relationship_returns_false_for_duplicate():
+    """Duplicate insertion of the same causal edge must return False (issue #1653 Part 2)."""
+    graph, src, tgt = _two_decision_graph()
+    first = graph.add_causal_relationship(src, tgt, "CAUSED")
+    second = graph.add_causal_relationship(src, tgt, "CAUSED")
+    assert first is True
+    assert second is False
+    # Exactly one edge stored, not two.
+    causal_edges = [e for e in graph.edges if e.source_id == src and e.target_id == tgt]
+    assert len(causal_edges) == 1

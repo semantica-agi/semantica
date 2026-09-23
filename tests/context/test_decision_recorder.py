@@ -6,11 +6,12 @@ for recording decisions with full context.
 """
 
 import pytest
+import json
 from datetime import datetime
 from unittest.mock import Mock, patch
 from typing import Dict, Any
 
-from semantica.context.decision_models import Decision
+from semantica.context.decision_models import Decision, PolicyException, ApprovalChain
 from semantica.context.decision_recorder import DecisionRecorder
 
 
@@ -117,6 +118,97 @@ class TestDecisionRecorder:
         
         assert decision_id == decision.decision_id
         assert mock_graph_store.execute_query.called
+
+    def test_record_decision_serializes_metadata_for_neo4j_properties(self, mock_graph_store):
+        """Decision node params must not contain Map-valued Neo4j properties."""
+        recorder = DecisionRecorder(graph_store=mock_graph_store)
+        decision = Decision(
+            decision_id="test_001",
+            category="test",
+            scenario="test scenario",
+            reasoning="test reasoning",
+            outcome="test outcome",
+            confidence=0.8,
+            timestamp=datetime.now(),
+            decision_maker="test_agent",
+            metadata={"tags": ["t"]},
+        )
+
+        def reject_map_properties(query, parameters):
+            if "CREATE (d:Decision" in query and isinstance(parameters["metadata"], dict):
+                raise RuntimeError("Encountered: Map{}")
+
+        mock_graph_store.execute_query.side_effect = reject_map_properties
+
+        decision_id = recorder.record_decision(decision, [], [])
+
+        assert decision_id == decision.decision_id
+        params = mock_graph_store.execute_query.call_args_list[0][0][1]
+        assert json.loads(params["metadata"]) == {"tags": ["t"]}
+
+    def test_record_decision_serializes_metadata_with_datetime_and_objects(self, mock_graph_store):
+        """Decision metadata with datetime and arbitrary objects serializes without TypeError."""
+        recorder = DecisionRecorder(graph_store=mock_graph_store)
+        now = datetime(2026, 9, 19, 12, 0, 0)
+        decision = Decision(
+            decision_id="test_002",
+            category="test",
+            scenario="test scenario",
+            reasoning="test reasoning",
+            outcome="test outcome",
+            confidence=0.8,
+            timestamp=now,
+            decision_maker="test_agent",
+            metadata={"created_at": now, "flag": True, "count": 42},
+        )
+
+        decision_id = recorder.record_decision(decision, [], [])
+
+        assert decision_id == decision.decision_id
+        params = mock_graph_store.execute_query.call_args_list[0][0][1]
+        parsed = json.loads(params["metadata"])
+        assert parsed["flag"] is True
+        assert parsed["count"] == 42
+        assert str(now) in parsed["created_at"]
+
+    def test_store_exception_and_approval_serializes_metadata_for_neo4j(self, mock_graph_store):
+        """Exception and approval nodes must serialize metadata/approval_context to JSON strings for Neo4j."""
+        recorder = DecisionRecorder(graph_store=mock_graph_store)
+
+        exception = PolicyException(
+            exception_id="exc_001",
+            decision_id="dec_001",
+            policy_id="pol_001",
+            reason="urgent",
+            approver="admin",
+            approval_timestamp=datetime.now(),
+            justification="critical fix",
+            metadata={"source": "auto_eval", "risk": "low"}
+        )
+        recorder._store_exception_node(exception)
+
+        exc_call = mock_graph_store.execute_query.call_args[0]
+        assert "CREATE (e:Exception" in exc_call[0]
+        assert isinstance(exc_call[1]["metadata"], str)
+        assert json.loads(exc_call[1]["metadata"]) == {"source": "auto_eval", "risk": "low"}
+
+        approval = ApprovalChain(
+            approval_id="app_001",
+            decision_id="dec_001",
+            approver="manager",
+            approval_method="slack_dm",
+            approval_context={"channel": "#approvals", "thread_id": "123"},
+            timestamp=datetime.now(),
+            metadata={"note": "approved via slack"}
+        )
+        recorder._store_approval_node(approval)
+
+        app_call = mock_graph_store.execute_query.call_args[0]
+        assert "CREATE (a:ApprovalChain" in app_call[0]
+        assert isinstance(app_call[1]["metadata"], str)
+        assert json.loads(app_call[1]["metadata"]) == {"note": "approved via slack"}
+        assert isinstance(app_call[1]["approval_context"], str)
+        assert json.loads(app_call[1]["approval_context"]) == {"channel": "#approvals", "thread_id": "123"}
     
     def test_record_decision_failure(self, decision_recorder, sample_decision, mock_graph_store):
         """Test decision recording failure."""

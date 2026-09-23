@@ -12,6 +12,7 @@ from typing import List, Dict, Any
 
 from semantica.context.decision_models import Decision, Policy, PolicyException
 from semantica.context.decision_query import DecisionQuery
+from semantica.context.decision_recorder import DecisionRecorder
 
 
 class TestDecisionQuery:
@@ -559,6 +560,109 @@ class TestDecisionQuery:
         assert len(decisions) == 1000
         # Verify memory usage is reasonable (this is a basic check)
         assert len(str(decisions)) > 0  # Ensure decisions are properly created
+
+    def test_dict_to_decision_deserializes_json_string_metadata(self, decision_query):
+        """DecisionQuery._dict_to_decision must decode JSON string metadata to dict and support item assignment."""
+        data = {
+            "decision_id": "dec_json_001",
+            "category": "risk_check",
+            "scenario": "loan scenario",
+            "reasoning": "low risk",
+            "outcome": "approved",
+            "confidence": 0.9,
+            "timestamp": datetime.now().isoformat(),
+            "decision_maker": "agent",
+            "metadata": '{"tags": ["auto", "verified"], "score": 95}'
+        }
+        decision = decision_query._dict_to_decision(data)
+        assert isinstance(decision.metadata, dict)
+        assert decision.metadata["tags"] == ["auto", "verified"]
+        assert decision.metadata["score"] == 95
+
+        # Item assignment must work (preventing TypeError: 'str' object does not support item assignment)
+        decision.metadata["similarity_score"] = 0.88
+        assert decision.metadata["similarity_score"] == 0.88
+        assert decision.metadata.get("similarity_score", 0) == 0.88
+
+    def test_dict_to_decision_handles_malformed_and_native_metadata(self, decision_query):
+        """DecisionQuery._dict_to_decision gracefully handles native dicts, malformed strings, and None."""
+        base = {
+            "decision_id": "dec_edge_001",
+            "category": "test",
+            "scenario": "test",
+            "reasoning": "test",
+            "outcome": "test",
+            "confidence": 0.8,
+            "timestamp": datetime.now().isoformat(),
+            "decision_maker": "test"
+        }
+
+        # Native dict (in-memory ContextGraph)
+        dec1 = decision_query._dict_to_decision({**base, "metadata": {"key": "val"}})
+        assert dec1.metadata == {"key": "val"}
+
+        # Malformed non-JSON string
+        dec2 = decision_query._dict_to_decision({**base, "metadata": "not-valid-json"})
+        assert dec2.metadata == {"raw": "not-valid-json"}
+
+        # None / missing
+        dec3 = decision_query._dict_to_decision({**base, "metadata": None})
+        assert dec3.metadata == {}
+
+    def test_dict_to_exception_deserializes_json_string_metadata(self, decision_query):
+        """DecisionQuery._dict_to_exception decodes JSON string metadata to dict."""
+        data = {
+            "exception_id": "exc_json_001",
+            "decision_id": "dec_json_001",
+            "policy_id": "pol_001",
+            "reason": "override",
+            "approver": "supervisor",
+            "approval_timestamp": datetime.now().isoformat(),
+            "justification": "urgent",
+            "metadata": '{"rule": "bypass", "approved": true}'
+        }
+        exc = decision_query._dict_to_exception(data)
+        assert isinstance(exc.metadata, dict)
+        assert exc.metadata["rule"] == "bypass"
+        assert exc.metadata["approved"] is True
+
+    def test_neo4j_record_and_query_roundtrip(self, mock_graph_store, mock_embedding_generator):
+        """Round-trip: record decision through DecisionRecorder, decode through DecisionQuery."""
+        recorder = DecisionRecorder(graph_store=mock_graph_store)
+        query = DecisionQuery(graph_store=mock_graph_store, embedding_generator=mock_embedding_generator)
+
+        original_metadata = {"source": "test_suite", "tags": ["neo4j", "roundtrip"], "version": 1}
+        decision = Decision(
+            decision_id="roundtrip_dec_001",
+            category="finance",
+            scenario="customer refund",
+            reasoning="within policy bounds",
+            outcome="approved",
+            confidence=0.92,
+            timestamp=datetime.now(),
+            decision_maker="refund_agent",
+            reasoning_embedding=[0.1, 0.2, 0.3],
+            metadata=original_metadata
+        )
+
+        recorder._store_decision_node(decision)
+
+        # Retrieve arguments passed to execute_query
+        call_args = mock_graph_store.execute_query.call_args[0]
+        params = call_args[1]
+
+        # Verify property sent to graph store is a JSON string (Neo4j safe)
+        assert isinstance(params["metadata"], str)
+        assert not isinstance(params["metadata"], dict)
+
+        # Feed the recorded parameters into DecisionQuery as returned by Neo4j
+        reconstructed = query._dict_to_decision(params)
+
+        assert reconstructed.decision_id == decision.decision_id
+        assert reconstructed.metadata == original_metadata
+        # Downstream mutations (similarity_score) succeed
+        reconstructed.metadata["similarity_score"] = 0.99
+        assert reconstructed.metadata["similarity_score"] == 0.99
 
 
 class TestDecisionQueryEdgeCases:

@@ -92,3 +92,16 @@ def test_generate_typed_raises_clear_error_when_unavailable(monkeypatch):
     gemini = Gemini(api_key=None)
     with pytest.raises(ProcessingError, match="Gemini provider not available"):
         gemini.generate_typed("hello", object())
+
+
+def test_generate_structured_passes_through_list_return():
+    """generate_structured() must propagate a top-level JSON array unchanged."""
+    gemini = Gemini(api_key="fake-key")
+    gemini.provider = MagicMock()
+    gemini.provider.is_available.return_value = True
+    gemini.provider.generate_structured.return_value = [{"id": 1}, {"id": 2}]
+
+    result = gemini.generate_structured("return a list")
+
+    assert result == [{"id": 1}, {"id": 2}]
+    assert isinstance(result, list)

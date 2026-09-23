@@ -78,6 +78,7 @@ Production Use Cases:
 
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple, Union
+import json
 import numpy as np
 
 from ..embeddings import EmbeddingGenerator
@@ -932,6 +933,24 @@ class DecisionQuery:
             self.logger.error(f"Failed to find similar exceptions: {e}")
             raise
     
+    @staticmethod
+    def _deserialize_graph_metadata(metadata: Any) -> Dict[str, Any]:
+        """Deserialize metadata from graph node properties to a dictionary.
+        
+        Property-graph stores (e.g. Neo4j) persist metadata as JSON strings.
+        Decodes JSON strings back into Dict[str, Any] while gracefully handling
+        non-JSON strings and retaining already-native dicts.
+        """
+        if isinstance(metadata, str):
+            try:
+                parsed = json.loads(metadata)
+                return parsed if isinstance(parsed, dict) else {"raw": metadata}
+            except (TypeError, ValueError):
+                return {"raw": metadata} if metadata else {}
+        elif isinstance(metadata, dict):
+            return metadata
+        return {}
+
     def _dict_to_decision(self, data: Dict[str, Any]) -> Decision:
         """Convert dictionary to Decision object."""
         # Handle timestamp conversion
@@ -953,7 +972,7 @@ class DecisionQuery:
             decision_maker=data.get("decision_maker", ""),
             reasoning_embedding=data.get("reasoning_embedding"),
             node2vec_embedding=data.get("node2vec_embedding"),
-            metadata=data.get("metadata", {}),
+            metadata=self._deserialize_graph_metadata(data.get("metadata")),
         )
     
     def _dict_to_exception(self, data: Dict[str, Any]) -> PolicyException:
@@ -976,7 +995,7 @@ class DecisionQuery:
             approver=data.get("approver", ""),
             approval_timestamp=data.get("approval_timestamp", datetime.now()),
             justification=data.get("justification", ""),
-            metadata=data.get("metadata", {}),
+            metadata=self._deserialize_graph_metadata(data.get("metadata")),
         )
     
     def _calculate_semantic_similarity(self, text1: str, text2: str) -> float:

@@ -476,7 +476,14 @@ class ContextEdge:
         self.source_id = str(self.source_id)
         self.target_id = str(self.target_id)
         self.edge_type = str(self.edge_type or "related_to")
-        self.weight = _coerce_float(self.weight, default=1.0)
+        if isinstance(self.weight, dict):
+            if not isinstance(self.metadata, dict):
+                self.metadata = {}
+            dict_meta = dict(self.weight)
+            self.weight = _coerce_float(dict_meta.pop("weight", 1.0), default=1.0)
+            self.metadata = {**dict_meta, **self.metadata}
+        else:
+            self.weight = _coerce_float(self.weight, default=1.0)
         if not isinstance(self.metadata, dict):
             self.metadata = {}
         self.edge_id, self.family_id = _resolve_edge_identity(
@@ -1046,6 +1053,12 @@ class ContextGraph:
                         "weight": edge.weight,
                         "hop": next_hop,
                     }
+                    # Expose the merged node metadata so consumers such as
+                    # support-aware retrieval can validate annotations on
+                    # neighbor attachments instead of dropping them blindly.
+                    entry_metadata: Dict[str, Any] = dict(node.properties or {})
+                    entry_metadata.update(node.metadata or {})
+                    entry["metadata"] = entry_metadata
                     if include_distance_metadata:
                         entry["distance_band"] = classify_path_distance(next_hop)
                         entry["confidence_decay"] = next_decay
@@ -1173,6 +1186,9 @@ class ContextGraph:
             **properties: Additional properties. Use `valid_from` and `valid_until`
                 (ISO datetime strings) to define a temporal validity window.
         """
+        if isinstance(weight, dict):
+            properties = {**weight, **properties}
+            weight = properties.pop("weight", 1.0)
         valid_from = properties.pop("valid_from", None)
         valid_until = properties.pop("valid_until", None)
         explicit_edge_id = properties.pop("id", properties.pop("edge_id", None))
@@ -3874,14 +3890,24 @@ class ContextGraph:
         source_decision_id: str,
         target_decision_id: str,
         relationship_type: str
-    ) -> None:
+    ) -> bool:
         """
         Add causal relationship between decisions.
-        
+
         Args:
             source_decision_id: Source decision ID
             target_decision_id: Target decision ID
             relationship_type: Type of relationship (CAUSED, INFLUENCED, PRECEDENT_FOR)
+
+        Returns:
+            True when a new causal edge was inserted.
+            False when the operation was skipped without inserting an edge:
+              - source or target decision ID is not present in the graph;
+              - source or target node exists but is not a decision node;
+              - an equivalent causal relationship (same source, target, and
+                normalized relationship type) already exists.
+            Skipped operations are logged at WARNING level. Invalid
+            relationship types raise ValueError instead of returning False.
         """
         # Normalize so callers may use either vocabulary's spelling
         # ("causes" from CausalChainAnalyzer, or "CAUSED" from this module's
@@ -3895,17 +3921,25 @@ class ContextGraph:
         
         # Check if decisions exist - if not, skip adding relationship
         if source_decision_id not in self.nodes or target_decision_id not in self.nodes:
-            return
-        
+            self.logger.warning(
+                "add_causal_relationship skipped: unknown decision id(s) "
+                f"'{source_decision_id}' -> '{target_decision_id}'"
+            )
+            return False
+
         # Check if nodes are decision nodes - if not, skip adding relationship
         source_node = self.nodes[source_decision_id]
         target_node = self.nodes[target_decision_id]
         if (not hasattr(source_node, 'node_type') or not isinstance(source_node.node_type, str) or
             not hasattr(target_node, 'node_type') or not isinstance(target_node.node_type, str) or
-            source_node.node_type.lower() != "decision" or 
+            source_node.node_type.lower() != "decision" or
             target_node.node_type.lower() != "decision"):
-            return
-        
+            self.logger.warning(
+                "add_causal_relationship skipped: nodes are not decision nodes "
+                f"('{source_decision_id}' -> '{target_decision_id}')"
+            )
+            return False
+
         edge = ContextEdge(
             source_id=source_decision_id,
             target_id=target_decision_id,
@@ -3913,7 +3947,22 @@ class ContextGraph:
             weight=1.0,
             metadata={"recorded_at": datetime.utcnow().isoformat()},
         )
-        self._add_internal_edge(edge)
+        # Guard against semantic duplicates: two calls with the same
+        # (source, target, relationship_type) triple represent the same causal
+        # link regardless of when they are recorded.  The content-derived
+        # edge_id includes recorded_at, so _add_internal_edge cannot detect
+        # this.  The duplicate check and the insertion are held under the same
+        # lock acquisition so no concurrent call can slip through between them.
+        # self._lock is an RLock, so the nested acquisition inside
+        # _add_internal_edge by the same thread is safe.
+        with self._lock:
+            existing = self._adjacency.get(source_decision_id, [])
+            if any(
+                e.target_id == target_decision_id and e.edge_type == relationship_type
+                for e in existing
+            ):
+                return False
+            return self._add_internal_edge(edge)
 
     def get_causal_chain(
         self,
@@ -4872,7 +4921,7 @@ class ContextGraph:
             "min_confidence": 0.7,
             "required_outcomes": ["approved", "rejected", "flagged"],
             "required_metadata": ["decision_maker"],
-            "max_reasoning_length": 1000
+            "max_reasoning_length": 10000
         }
         
         rules = policy_rules or default_rules
@@ -4892,8 +4941,8 @@ class ContextGraph:
         
         # Check reasoning length
         reasoning = decision_data.get("reasoning", "")
-        if len(reasoning) > rules.get("max_reasoning_length", 1000):
-            warnings.append(f"Reasoning too long: {len(reasoning)} characters")
+        if len(reasoning.strip()) > rules.get("max_reasoning_length", 10000):
+            warnings.append(f"Reasoning too long: {len(reasoning.strip())} characters")
         
         return {
             "compliant": len(violations) == 0,

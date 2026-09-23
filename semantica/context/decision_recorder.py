@@ -72,6 +72,7 @@ Production Use Cases:
 
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Union
+import json
 import uuid
 
 from ..embeddings import EmbeddingGenerator
@@ -466,6 +467,25 @@ class DecisionRecorder:
             self.logger.exception("Failed to link precedents")
             raise
     
+    @staticmethod
+    def _serialize_graph_metadata(metadata: Any) -> str:
+        """Serialize metadata to a JSON string for property-graph stores (e.g. Neo4j).
+        
+        Neo4j property values must be primitives or arrays thereof — dictionary/map
+        properties raise Neo.ClientError.Statement.TypeError (Encountered: Map{}).
+        Uses default=str so datetimes, UUIDs, and custom types serialize safely.
+        """
+        if isinstance(metadata, dict):
+            return json.dumps(metadata, default=str)
+        if metadata is None:
+            return "{}"
+        if isinstance(metadata, str):
+            return metadata
+        try:
+            return json.dumps(metadata, default=str)
+        except Exception:
+            return str(metadata)
+
     def _store_decision_node(self, decision: Decision) -> None:
         """Store decision node in graph database."""
         metadata = decision.metadata.copy() if decision.metadata else {}
@@ -515,7 +535,7 @@ class DecisionRecorder:
             "decision_maker": decision.decision_maker,
             "reasoning_embedding": decision.reasoning_embedding,
             "node2vec_embedding": decision.node2vec_embedding,
-            "metadata": decision.metadata
+            "metadata": self._serialize_graph_metadata(decision.metadata)
         })
     
     def _store_exception_node(self, exception: PolicyException) -> None:
@@ -558,11 +578,18 @@ class DecisionRecorder:
             "approver": exception.approver,
             "approval_timestamp": exception.approval_timestamp,
             "justification": exception.justification,
-            "metadata": exception.metadata
+            "metadata": self._serialize_graph_metadata(exception.metadata)
         })
     
     def _store_approval_node(self, approval: ApprovalChain) -> None:
         """Store approval node in graph database."""
+        approval_context = approval.approval_context
+        if isinstance(approval_context, (dict, list)):
+            try:
+                approval_context = json.dumps(approval_context, default=str)
+            except Exception:
+                approval_context = str(approval_context)
+
         query = """
         CREATE (a:ApprovalChain {
             approval_id: $approval_id,
@@ -579,9 +606,9 @@ class DecisionRecorder:
             "decision_id": approval.decision_id,
             "approver": approval.approver,
             "approval_method": approval.approval_method,
-            "approval_context": approval.approval_context,
+            "approval_context": approval_context,
             "timestamp": approval.timestamp,
-            "metadata": approval.metadata
+            "metadata": self._serialize_graph_metadata(approval.metadata)
         })
     
     def _track_decision_provenance(

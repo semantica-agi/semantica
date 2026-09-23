@@ -707,6 +707,27 @@ class TestCausalAnalyzerEdgeCases:
         # Should handle missing metadata gracefully
         assert len(chain) == 1
         assert chain[0].decision_id == "decision_001"
+
+    def test_dict_to_decision_json_string_metadata(self, causal_analyzer):
+        """CausalChainAnalyzer._dict_to_decision decodes JSON string metadata into a dict."""
+        data = {
+            "decision_id": "causal_dec_001",
+            "category": "security",
+            "scenario": "auth change",
+            "reasoning": "prevent bypass",
+            "outcome": "enforced",
+            "confidence": 0.95,
+            "timestamp": datetime.now().isoformat(),
+            "decision_maker": "sec_agent",
+            "metadata": '{"tier": "critical", "incident_id": "INC-99"}'
+        }
+        dec = causal_analyzer._dict_to_decision(data)
+        assert isinstance(dec.metadata, dict)
+        assert dec.metadata["tier"] == "critical"
+        assert dec.metadata["incident_id"] == "INC-99"
+        # Verify mutation works
+        dec.metadata["analyzed"] = True
+        assert dec.metadata["analyzed"] is True
     
     def test_invalid_confidence_values(self, causal_analyzer, mock_graph_store):
         """Test handling of invalid confidence values."""

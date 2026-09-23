@@ -12,6 +12,7 @@ import logging
 
 from .. import __version__
 from ..session import get_graph
+from ..tools import TOOL_DEFINITIONS
 
 log = logging.getLogger("semantica.mcp.resources")
 
@@ -70,15 +71,7 @@ def _read_schema_info(uri: str) -> dict:
             "RELATED_TO", "CAUSED_BY", "LEADS_TO", "PART_OF",
             "INSTANCE_OF", "SIMILAR_TO",
         ],
-        "tools": [
-            "extract_entities", "extract_relations", "extract_all",
-            "record_decision", "query_decisions", "find_precedents",
-            "get_causal_chain", "analyze_decision_impact",
-            "add_entity", "add_relationship", "search_graph",
-            "get_graph_summary", "get_graph_analytics",
-            "run_reasoning", "abductive_reasoning",
-            "export_graph", "get_provenance",
-        ],
+        "tools": [t["name"] for t in TOOL_DEFINITIONS],
     }
     return {"uri": uri, "mimeType": "application/json", "text": json.dumps(info, indent=2)}
 

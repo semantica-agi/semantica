@@ -77,3 +77,14 @@ def test_generate_typed_raises_clear_error_when_unavailable():
     hf = _make_wrapper(available=False)
     with pytest.raises(ProcessingError, match="HuggingFace LLM provider not available"):
         hf.generate_typed("hello", object())
+
+
+def test_generate_structured_passes_through_list_return():
+    """generate_structured() must propagate a top-level JSON array unchanged."""
+    hf = _make_wrapper()
+    hf.provider.generate_structured.return_value = [{"id": 1}, {"id": 2}]
+
+    result = hf.generate_structured("return a list")
+
+    assert result == [{"id": 1}, {"id": 2}]
+    assert isinstance(result, list)
