@@ -3890,14 +3890,19 @@ class ContextGraph:
         source_decision_id: str,
         target_decision_id: str,
         relationship_type: str
-    ) -> None:
+    ) -> bool:
         """
         Add causal relationship between decisions.
-        
+
         Args:
             source_decision_id: Source decision ID
             target_decision_id: Target decision ID
             relationship_type: Type of relationship (CAUSED, INFLUENCED, PRECEDENT_FOR)
+
+        Returns:
+            True when the edge was added; False when it was skipped because a
+            decision ID is unknown or a node is not a decision (logged as a
+            warning so callers no longer mistake the skip for success).
         """
         # Normalize so callers may use either vocabulary's spelling
         # ("causes" from CausalChainAnalyzer, or "CAUSED" from this module's
@@ -3911,17 +3916,25 @@ class ContextGraph:
         
         # Check if decisions exist - if not, skip adding relationship
         if source_decision_id not in self.nodes or target_decision_id not in self.nodes:
-            return
-        
+            self.logger.warning(
+                "add_causal_relationship skipped: unknown decision id(s) "
+                f"'{source_decision_id}' -> '{target_decision_id}'"
+            )
+            return False
+
         # Check if nodes are decision nodes - if not, skip adding relationship
         source_node = self.nodes[source_decision_id]
         target_node = self.nodes[target_decision_id]
         if (not hasattr(source_node, 'node_type') or not isinstance(source_node.node_type, str) or
             not hasattr(target_node, 'node_type') or not isinstance(target_node.node_type, str) or
-            source_node.node_type.lower() != "decision" or 
+            source_node.node_type.lower() != "decision" or
             target_node.node_type.lower() != "decision"):
-            return
-        
+            self.logger.warning(
+                "add_causal_relationship skipped: nodes are not decision nodes "
+                f"('{source_decision_id}' -> '{target_decision_id}')"
+            )
+            return False
+
         edge = ContextEdge(
             source_id=source_decision_id,
             target_id=target_decision_id,
@@ -3930,6 +3943,7 @@ class ContextGraph:
             metadata={"recorded_at": datetime.utcnow().isoformat()},
         )
         self._add_internal_edge(edge)
+        return True
 
     def get_causal_chain(
         self,
@@ -5301,16 +5315,23 @@ class ContextGraph:
                 f"{decision['scenario']} {decision['reasoning']} "
                 f"{' '.join(decision['entities'])}"
             )
+            decision_scenario_text = str(decision.get("scenario", ""))
+
+            def _word_jaccard(text: str) -> float:
+                words = set(text.lower().split())
+                union = scenario_words | words
+                return len(scenario_words & words) / len(union) if union else 0.0
 
             # --- word-level Jaccard (primary metric for Latin/space-delimited) ---
             scenario_words = set(scenario.lower().split())
-            decision_words = set(decision_text.lower().split())
-            word_union = scenario_words | decision_words
-            word_sim = (
-                len(scenario_words & decision_words) / len(word_union)
-                if word_union
-                else 0.0
-            )
+            # Jaccard against the full decision text is diluted by the reasoning
+            # and entity words: a query naming a decision's exact scenario could
+            # score below every reasonable threshold and return no precedent at
+            # all (#1140). Score the decision's own scenario first and keep the
+            # full-text score as a discounted secondary signal.
+            word_sim = _word_jaccard(decision_scenario_text)
+            full_text_word_sim = _word_jaccard(decision_text)
+            word_sim = max(word_sim, 0.8 * full_text_word_sim)
 
             # --- character-bigram Jaccard (CJK / very-short-query fallback) ---
             # Only used when whitespace tokenisation can't do the job: CJK-like
@@ -5324,7 +5345,13 @@ class ContextGraph:
             )
             if needs_bigram_fallback:
                 scenario_bigrams = self._char_bigrams(scenario)
-                decision_bigrams = self._char_bigrams(decision_text)
+
+                def _bigram_jaccard(text: str) -> float:
+                    bigrams = self._char_bigrams(text)
+                    if not bigrams:
+                        return 0.0
+                    union = scenario_bigrams | bigrams
+                    return len(scenario_bigrams & bigrams) / len(union) if union else 0.0
 
                 # Require at least 3 bigrams in the query before the bigram
                 # signal is used.  A 2-char query produces only 1 bigram; that
@@ -5333,12 +5360,13 @@ class ContextGraph:
                 # coefficient.  3 bigrams correspond to a 4-char stripped query
                 # (e.g. two CJK characters produce 1 bigram each → need ≥3
                 # chars stripped).
-                if len(scenario_bigrams) >= 3 and decision_bigrams:
-                    bigram_union = scenario_bigrams | decision_bigrams
-                    bigram_sim = (
-                        len(scenario_bigrams & decision_bigrams) / len(bigram_union)
-                        if bigram_union
-                        else 0.0
+                if len(scenario_bigrams) >= 3:
+                    # Same scenario-vs-full-text treatment as the word channel
+                    # above: the decision's own scenario must not be diluted
+                    # below threshold by its reasoning text (#1140).
+                    bigram_sim = max(
+                        _bigram_jaccard(decision_scenario_text),
+                        0.8 * _bigram_jaccard(decision_text),
                     )
 
             return max(word_sim, bigram_sim)
