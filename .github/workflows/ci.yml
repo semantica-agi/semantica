@@ -121,6 +121,10 @@ jobs:
           "
           pytest -q tests/test_issue_1513_slim_core.py
           pytest -q tests/test_docs_check.py
+          # semantica/reasoning imports nothing outside the standard library,
+          # so its suite runs against base dependencies without the extras
+          # installed later in this job.
+          pytest -q tests/reasoning/
       - name: Install Explorer backend test dependencies
         run: |
           # Run the deterministic backend path before the all-extras CI
@@ -150,11 +154,40 @@ jobs:
           # changes intentionally). Compare only version lines (pkg==ver),
           # ignoring the -c constraint comments and the `\` line continuations
           # that --generate-hashes emits.
+          # --group dev: the contributor tooling (pytest, black, ...) lives in
+          # the PEP 735 `dev` dependency group, not in the `all` extra.
           uv pip compile pyproject.toml --python-version 3.11 --extra all \
-            --constraint requirements-ci.txt -o /tmp/requirements-ci-check.txt
+            --group dev --constraint requirements-ci.txt \
+            -o /tmp/requirements-ci-check.txt
           diff \
             <(grep -E '^[a-zA-Z0-9._-]+==' requirements-ci.txt | sed 's/ \\$//') \
             <(grep -E '^[a-zA-Z0-9._-]+==' /tmp/requirements-ci-check.txt)
+      - name: Verify open-ontologies-extra.txt is up to date
+        run: |
+          # Same freshness contract as requirements-ci.txt above, applied to
+          # the separately pinned open-ontologies extra. That extra is
+          # deliberately kept out of `all`, so the check above cannot see it:
+          # without this step a pyproject.toml change would leave the
+          # integration tests below running against a stale dependency graph.
+          # uv is already installed by the step above.
+          #
+          # The flags must match the header of the committed file exactly,
+          # --python-platform linux included, or the two resolutions can
+          # legitimately differ and this gate turns into noise.
+          uv pip compile pyproject.toml --python-version 3.11 --python-platform linux \
+            --extra open-ontologies --constraint requirements-ci.txt \
+            -o /tmp/open-ontologies-extra-check.txt
+          diff \
+            <(grep -E '^[a-zA-Z0-9._-]+==' .github/requirements/open-ontologies-extra.txt | sed 's/ \\$//') \
+            <(grep -E '^[a-zA-Z0-9._-]+==' /tmp/open-ontologies-extra-check.txt)
+      - name: Verify uv.lock is up to date
+        run: |
+          # uv.lock backs the `uv sync` contributor workflow. It is a universal
+          # lock, so this also fails if any dependency cannot resolve for every
+          # Python version in `requires-python` (the failure reported in #1506).
+          # Regenerate with `uv lock` (uv version pinned in uv-tool.txt) and
+          # commit the result.
+          uv lock --check
       # build is a dev-time dependency; wheel is build-time only (neither is
       # in requirements-ci.txt) — install the same pinned versions
       # [build-system] declares so --no-isolation works below.
@@ -180,3 +213,16 @@ jobs:
           PY
       - name: Run Google ADK Integration Tests
         run: pytest tests/integrations/google_adk/
+      # The open-ontologies extra is deliberately not part of `all`, so
+      # requirements-ci.txt does not carry it and these tests would otherwise
+      # be silently skipped by their `importorskip`. Install it explicitly so
+      # the verified-export gate is actually exercised.
+      #
+      # .github/requirements/open-ontologies-extra.txt is
+      # `uv pip compile pyproject.toml --extra open-ontologies --python-version 3.11 --python-platform linux --constraint requirements-ci.txt --generate-hashes`
+      # - regenerate it the same way if pyproject.toml's open-ontologies dep changes.
+      - name: Run Open Ontologies Integration Tests
+        run: |
+          pip install -r .github/requirements/open-ontologies-extra.txt --require-hashes
+          python -c "import open_ontologies_lite"  # fail loudly rather than skip
+          pytest tests/integrations/open_ontologies/

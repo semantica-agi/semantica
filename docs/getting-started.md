@@ -33,7 +33,7 @@ icon: "rocket"
     ```bash From source
     git clone https://github.com/semantica-agi/semantica.git
     cd semantica
-    pip install -e ".[dev]"
+    pip install -e . --group dev   # needs pip 25.1+ (or: uv sync)
     ```
 
     </CodeGroup>
@@ -42,7 +42,7 @@ icon: "rocket"
       Verify installation:
       ```python
       import semantica
-      print(semantica.__version__)  # 0.6.8
+      print(semantica.__version__)  # 0.7.0
       ```
     </Check>
   </Step>

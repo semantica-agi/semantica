@@ -8,7 +8,7 @@ import ipaddress
 import logging
 import socket
 import uuid
-from datetime import datetime, UTC
+from datetime import datetime, timezone
 from difflib import SequenceMatcher
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urljoin, urlparse
@@ -1571,15 +1571,15 @@ async def load_ontology(
             ontology_uri = ontology_data.data.get("uri", f"temp:{uuid.uuid4().hex[:12]}")
             registry[ontology_uri] = OntologyEntry(
                 uri=ontology_uri,
-                name=ontology_data.data.get("name", "Imported Ontology"),
-                description=ontology_data.data.get("description"),
+                name=body.name or ontology_data.data.get("name", "Imported Ontology"),
+                description=body.description or ontology_data.data.get("description"),
                 format=fmt,
                 status="external",
                 version=ontology_data.data.get("version", "1.0"),
                 class_count=len([n for n in nodes if n.get("type") in _CLASS_TYPES]),
                 concept_count=len([n for n in nodes if n.get("type") in _CONCEPT_TYPES]),
                 property_count=len([n for n in nodes if n.get("type") in _PROPERTY_TYPES]),
-                loaded_at=datetime.now(UTC).isoformat(),
+                loaded_at=datetime.now(timezone.utc).isoformat(),
                 enabled=True,
                 tags=body.tags,
                 source_url=body.url,
@@ -1587,7 +1587,7 @@ async def load_ontology(
             
             return LoadOntologyResponse(
                 uri=ontology_uri,
-                name=ontology_data.data.get("name", "Imported Ontology"),
+                name=body.name or ontology_data.data.get("name", "Imported Ontology"),
                 nodes_added=nodes_added,
                 edges_added=edges_added,
                 format=fmt,
@@ -1628,15 +1628,15 @@ async def load_ontology(
     ontology_uri = metadata.get("uri", f"temp:{uuid.uuid4().hex[:12]}")
     registry[ontology_uri] = OntologyEntry(
         uri=ontology_uri,
-        name=metadata.get("name", "Imported Ontology"),
-        description=metadata.get("description"),
+        name=body.name or metadata.get("name", "Imported Ontology"),
+        description=body.description or metadata.get("description"),
         format=fmt,
         status="external",
         version=metadata.get("version", "1.0"),
         class_count=sum(1 for n in nodes if n.get("type") in _CLASS_TYPES),
         concept_count=sum(1 for n in nodes if n.get("type") in _CONCEPT_TYPES),
         property_count=sum(1 for n in nodes if n.get("type") in _PROPERTY_TYPES),
-        loaded_at=datetime.now(UTC).isoformat(),
+        loaded_at=datetime.now(timezone.utc).isoformat(),
         enabled=True,
         tags=body.tags,
         source_url=body.url,
@@ -1644,7 +1644,7 @@ async def load_ontology(
 
     return LoadOntologyResponse(
         uri=ontology_uri,
-        name=metadata.get("name", "Imported Ontology"),
+        name=body.name or metadata.get("name", "Imported Ontology"),
         nodes_added=nodes_added,
         edges_added=edges_added,
         format=fmt,
@@ -1835,7 +1835,7 @@ async def create_ontology(
         status="draft",
         version="0.1.0",
         class_count=sum(1 for n in nodes if n.get("type") == "owl:Class"),
-        loaded_at=datetime.now(UTC).isoformat(),
+        loaded_at=datetime.now(timezone.utc).isoformat(),
         enabled=True,
         tags=body.tags,
     )
@@ -2355,7 +2355,7 @@ async def upsert_alignment(
         or _label_from_uri(body.target_uri)
     )
 
-    now = datetime.now(UTC).isoformat()
+    now = datetime.now(timezone.utc).isoformat()
     store = _get_alignment_store(request)
     alignment_id = _alignment_id(body.source_uri, body.relation, body.target_uri)
     existing = store.get(alignment_id)
@@ -2678,7 +2678,7 @@ async def ontology_health(
         total_score=round(total_score, 1),
         dimensions=dimensions,
         issues=issues[:100],
-        generated_at=datetime.now(UTC).isoformat(),
+        generated_at=datetime.now(timezone.utc).isoformat(),
     )
 
 
@@ -2933,7 +2933,7 @@ async def generate_shacl(
         uri=body.uri,
         shacl_turtle=shacl_turtle,
         shape_count=len(shapes),
-        generated_at=datetime.now(UTC).isoformat(),
+        generated_at=datetime.now(timezone.utc).isoformat(),
     )
 
 
@@ -2951,7 +2951,7 @@ async def list_shacl_shapes(
         uri=uri,
         shapes=shapes,
         shacl_turtle=shacl_turtle,
-        generated_at=datetime.now(UTC).isoformat(),
+        generated_at=datetime.now(timezone.utc).isoformat(),
     )
 
 
@@ -3169,7 +3169,7 @@ async def refresh_ontology(
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
-    entry.loaded_at = datetime.now(UTC).isoformat()
+    entry.loaded_at = datetime.now(timezone.utc).isoformat()
 
     return RefreshResponse(uri=ontology_uri, nodes_added=nodes_added, edges_added=edges_added)
 
@@ -3186,7 +3186,7 @@ async def save_draft(
     """Stage editor diffs as a draft with ChangeLogEntry metadata."""
     drafts = _get_drafts(request)
     draft_id = f"draft_{uuid.uuid4().hex[:12]}"
-    now = datetime.now(UTC).isoformat()
+    now = datetime.now(timezone.utc).isoformat()
 
     # Create ChangeLogEntry for audit trail
     try:
@@ -3253,7 +3253,7 @@ async def submit_proposal(
 
     draft = drafts[body.draft_id]
     proposal_id = f"prop_{uuid.uuid4().hex[:12]}"
-    now = datetime.now(UTC).isoformat()
+    now = datetime.now(timezone.utc).isoformat()
 
     # Compute impact analysis using VersionManager.diff_ontologies and OntologyEngine
     impact_analysis = {}
@@ -3412,7 +3412,7 @@ async def approve_proposal(
         raise HTTPException(status_code=404, detail="Proposal not found.")
     proposal = proposals[proposal_id]
     proposal.state = "approved"
-    proposal.updated_at = datetime.now(UTC).isoformat()
+    proposal.updated_at = datetime.now(timezone.utc).isoformat()
     return {"status": "approved", "proposal_id": proposal_id}
 
 
@@ -3427,7 +3427,7 @@ async def reject_proposal(
         raise HTTPException(status_code=404, detail="Proposal not found.")
     proposal = proposals[proposal_id]
     proposal.state = "rejected"
-    proposal.updated_at = datetime.now(UTC).isoformat()
+    proposal.updated_at = datetime.now(timezone.utc).isoformat()
     return {"status": "rejected", "proposal_id": proposal_id}
 
 
@@ -3491,7 +3491,7 @@ async def publish_proposal(
                 ontology_uri=proposal.ontology_uri,
                 state="published",
                 author=proposal.author,
-                date=datetime.now(UTC).isoformat(),
+                date=datetime.now(timezone.utc).isoformat(),
                 diff_summary=draft.diff.model_dump(),
             )
         )
@@ -3532,7 +3532,7 @@ async def publish_proposal(
         nodes_added += await asyncio.to_thread(session.add_nodes, property_nodes)
 
     proposal.state = "published"
-    proposal.updated_at = datetime.now(UTC).isoformat()
+    proposal.updated_at = datetime.now(timezone.utc).isoformat()
 
     return {
         "status": "published",
@@ -3559,10 +3559,10 @@ async def add_comment(
         "element_uri": body.element_uri,
         "text": body.text,
         "author": body.author,
-        "created_at": datetime.now(UTC).isoformat(),
+        "created_at": datetime.now(timezone.utc).isoformat(),
     }
     proposal.comments.append(comment)
-    proposal.updated_at = datetime.now(UTC).isoformat()
+    proposal.updated_at = datetime.now(timezone.utc).isoformat()
     return {"status": "commented", "comment_id": comment["id"]}
 
 

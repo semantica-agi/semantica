@@ -5,7 +5,7 @@ Temporal routes for snapshots, diffs, and pattern detection.
 import asyncio
 import logging
 import re
-from datetime import datetime, timedelta, timezone, UTC
+from datetime import datetime, timedelta, timezone
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, Query, HTTPException
@@ -57,7 +57,7 @@ def _parse_query_dt(value: str) -> datetime:
     parsed = _parse_flexible_dt(value)
     if parsed is None:
         logger.warning("Could not parse timestamp %r; defaulting to utcnow()", value)
-        return datetime.now(UTC).replace(tzinfo=None)
+        return datetime.now(timezone.utc).replace(tzinfo=None)
     return parsed
 
 
@@ -66,7 +66,11 @@ async def temporal_snapshot(
     at: Optional[str] = Query(None, description="ISO datetime or year; defaults to now"),
     session: GraphSession = Depends(get_session),
 ):
-    at_time = _parse_query_dt(at) if at else datetime.now(UTC).replace(tzinfo=None)
+    at_time = (
+        _parse_query_dt(at)
+        if at
+        else datetime.now(timezone.utc).replace(tzinfo=None)
+    )
     active_nodes = await asyncio.to_thread(session.get_active_nodes, at_time=at_time)
     active_ids = [node.get("id") for node in active_nodes if node.get("id")]
     return TemporalSnapshotFastResponse(
@@ -158,7 +162,7 @@ async def distance_history(
                     "distance_history path computation failed for source=%r target=%r metric=%r: %s",
                     source, target, metric, exc, exc_info=True,
                 )
-        now = datetime.now(UTC).replace(tzinfo=None)
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
         snap = DistanceSnapshot(
             timestamp=now,
             hop_count=hop_count,

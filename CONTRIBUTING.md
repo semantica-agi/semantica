@@ -188,12 +188,48 @@ git remote add upstream https://github.com/semantica-agi/semantica.git
 python -m venv venv
 source venv/bin/activate  # Windows: venv\Scripts\activate
 
-# Install dev dependencies
-pip install -e ".[dev]"
+# Install the package plus the contributor tooling (pytest, black, ...).
+# The tooling lives in the PEP 735 `dev` dependency group, not in an extra;
+# `--group` needs pip 25.1+ (run `pip install --upgrade pip` first).
+pip install -e . --group dev
 
 # Install pre-commit hooks (optional)
 pre-commit install
 ```
+
+Semantica supports Python **3.10–3.13** (`requires-python = ">=3.10,<3.14"`).
+CI runs on 3.11 and the Install Matrix covers the whole range.
+
+#### Reproducible environment with uv (recommended)
+
+The repository commits a `uv.lock`, so `uv` can build the exact same
+environment for every contributor:
+
+```bash
+pip install uv==0.12.1        # same version CI uses
+uv sync                       # creates .venv from uv.lock, including the `dev` group
+uv sync --extra explorer      # add whichever extras you are working on
+uv sync --python 3.11         # match CI's interpreter (any of 3.10-3.13 works)
+uv run pytest tests/
+```
+
+`uv sync` installs the core dependencies plus the `dev` dependency group
+(uv's default group). Optional extras are opt-in via `--extra <name>`, exactly
+like `pip install -e ".[<name>]"`.
+
+`uv.lock` is a *universal* lock: it must resolve for every Python version in
+`requires-python` and covers the `dev` group and every optional extra
+currently declared in `pyproject.toml`. After changing dependencies
+in `pyproject.toml`, refresh and commit it:
+
+```bash
+uv lock          # regenerate
+uv lock --check  # what CI runs: fails if uv.lock is stale or unresolvable
+```
+
+`uv.lock` is for local development. It is separate from the hash-pinned
+`requirements-ci.txt` below, which remains the source of truth for CI and
+release builds.
 
 ### Pinned CI dependencies
 
@@ -208,12 +244,13 @@ Regenerate it after changing `pyproject.toml` dependencies:
 
 ```bash
 pip install uv==0.12.1
-uv pip compile pyproject.toml --python-version 3.11 --extra all --generate-hashes -o requirements-ci.txt
+uv pip compile pyproject.toml --python-version 3.11 --python-platform linux --extra all --group dev --generate-hashes -o requirements-ci.txt
 ```
 
 The `all` extra is the repo's cross-platform dependency set (GPU extras like
 `faiss-gpu`/`cupy` are excluded and installed separately on Linux — see
-`pyproject.toml`). Keep the pinned `uv` version in sync with CI so regeneration
+`pyproject.toml`). The `dev` dependency group (pytest, black, ...) is not part of
+`all`, so it is added with `--group dev`. Keep the pinned `uv` version in sync with CI so regeneration
 is deterministic.
 
 CI's staleness check re-resolves with the committed lockfile as a constraint

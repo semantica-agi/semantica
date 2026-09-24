@@ -8,7 +8,7 @@ A browser-based graph workbench for the [Semantica](https://github.com/semantica
 
 | Dependency | Minimum version |
 | --- | --- |
-| Python | 3.8+ |
+| Python | 3.10+ |
 | Node.js | 18.x or higher (20.x recommended) |
 | npm | 9.x or higher |
 

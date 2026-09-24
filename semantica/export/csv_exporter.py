@@ -107,7 +107,7 @@ class CSVExporter:
         fieldnames: Optional[List[str]] = None,
         mode: str = "w",
         **options,
-    ) -> None:
+    ) -> List[Path]:
         """
         Export data to CSV file(s).
 
@@ -125,6 +125,11 @@ class CSVExporter:
 
         Raises:
             ValidationError: If data type is unsupported
+
+        Returns:
+            The files written. A dictionary is written one file per key, so
+            this is how a caller learns which files a multi-file export
+            produced; a list is written to ``file_path``.
 
         Example:
             >>> # Single CSV file
@@ -152,12 +157,22 @@ class CSVExporter:
             # Handle different data structures
             if isinstance(data, dict):
                 # Export each key as separate CSV file
-                exported_files = []
+                exported_files: List[Path] = []
                 self.progress_tracker.update_tracking(
                     tracking_id, message=f"Exporting {len(data)} data groups..."
                 )
                 for key, value in data.items():
                     if isinstance(value, list):
+                        if not value:
+                            # An empty collection has nothing to write, and
+                            # writing an empty file would be a guess at a
+                            # header. Skipping it also keeps a graph with no
+                            # relationships exportable: the entity file is
+                            # still produced instead of the call aborting.
+                            self.logger.debug(
+                                f"Skipping key '{key}': collection is empty"
+                            )
+                            continue
                         output_path = file_path.parent / f"{file_path.stem}_{key}.csv"
                         self._write_csv(
                             value,
@@ -181,6 +196,7 @@ class CSVExporter:
                     status="completed",
                     message=f"Exported {len(exported_files)} CSV files",
                 )
+                return exported_files
             elif isinstance(data, list):
                 # Single CSV file
                 self.progress_tracker.update_tracking(
@@ -195,6 +211,7 @@ class CSVExporter:
                     status="completed",
                     message=f"Exported CSV to: {file_path}",
                 )
+                return [file_path]
             else:
                 raise ValidationError(
                     f"Unsupported data type: {type(data)}. "
@@ -367,7 +384,7 @@ class CSVExporter:
 
     def export_knowledge_graph(
         self, knowledge_graph: Dict[str, Any], base_path: Union[str, Path], **options
-    ) -> None:
+    ) -> List[Path]:
         """
         Export knowledge graph to multiple CSV files.
 
@@ -389,6 +406,11 @@ class CSVExporter:
                 - edges: List of edge dictionaries (optional)
             base_path: Base path for output files (without extension)
             **options: Additional options passed to export methods
+
+        Returns:
+            The files written, in the order they were exported. An empty
+            collection is not written, so a graph with no relationships
+            produces one file rather than two.
 
         Example:
             >>> kg = {
@@ -455,6 +477,8 @@ class CSVExporter:
             )
         else:
             self.logger.warning("No data found in knowledge graph to export")
+
+        return exported_files
 
     def _write_csv(
         self,

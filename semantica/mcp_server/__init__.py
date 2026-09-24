@@ -275,9 +275,39 @@ def _tool_get_causal_chain(args: dict) -> dict:
         from semantica.context.causal_analyzer import CausalChainAnalyzer
         analyzer = CausalChainAnalyzer(graph_store=graph)
         chain = analyzer.get_causal_chain(decision_id, direction=direction, max_depth=max_depth)
-        return {"chain": chain if isinstance(chain, list) else list(chain)}
+        # The analyzer returns Decision dataclasses, and tools/call json.dumps
+        # this result. serialize_decision applies the existing default=str
+        # policy, which also covers non-JSON values inside decision metadata.
+        from semantica.context.decision_models import serialize_decision
+        return {"chain": [json.loads(serialize_decision(d)) if hasattr(d, "to_dict") else d
+                          for d in chain]}
     except Exception as exc:
         return {"error": str(exc), "chain": []}
+
+
+def _tool_link_decisions(args: dict) -> dict:
+    """Create a typed causal relationship between two recorded decisions."""
+    source = str(args.get("source") or "").strip()
+    target = str(args.get("target") or "").strip()
+    relationship = str(args.get("relationship") or "").strip()
+    if not source or not target:
+        return {"error": "source and target are required"}
+    if not relationship:
+        return {"error": "relationship is required"}
+    graph = _get_graph()
+    try:
+        added = graph.add_causal_relationship(source, target, relationship)
+    except ValueError as exc:
+        return {"error": str(exc)}
+    except Exception as exc:
+        log.exception("link_decisions failed")
+        return {"error": str(exc)}
+    return {
+        "source": source,
+        "target": target,
+        "relationship": relationship,
+        "linked": added,
+    }
 
 
 def _tool_add_entity(args: dict) -> dict:
@@ -692,6 +722,20 @@ TOOLS = [
             "required": ["decision_id"],
         },
         "_handler": _tool_get_causal_chain,
+    },
+    {
+        "name": "link_decisions",
+        "description": "Create a typed causal relationship between two recorded decisions (CAUSED, INFLUENCED, or PRECEDENT_FOR).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "source":       {"type": "string", "description": "Source decision ID (the cause)"},
+                "target":       {"type": "string", "description": "Target decision ID (the effect)"},
+                "relationship": {"type": "string", "enum": ["CAUSED", "INFLUENCED", "PRECEDENT_FOR"], "description": "Causal relationship type"},
+            },
+            "required": ["source", "target", "relationship"],
+        },
+        "_handler": _tool_link_decisions,
     },
     {
         "name": "add_entity",

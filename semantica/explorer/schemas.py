@@ -3,9 +3,9 @@ Shared Pydantic schemas for the Semantica Knowledge Explorer API.
 """
 
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Literal, Optional, Tuple
+from typing import Any, Dict, List, Literal, Optional, Tuple, Union
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class NodeResponse(BaseModel):
@@ -220,8 +220,88 @@ class DedupRequest(BaseModel):
     threshold: float = Field(default=0.8, ge=0.0, le=1.0)
 
 
+class DuplicatePair(BaseModel):
+    """One flagged duplicate pair, in the shape the Entity Resolution tab reads.
+
+    ``DuplicateDetector`` emits ``DuplicateCandidate`` fields (``entity1`` /
+    ``entity2`` / ``similarity_score`` / ``confidence``), while
+    ``EntityResolutionTab.tsx::parseDuplicates`` reads ``entity_a`` /
+    ``entity_b`` / ``similarity``-or-``score``. Issue #1585 shipped because
+    those key sets were disjoint and ``DedupResponse.duplicates`` was an
+    untyped ``List[Dict[str, Any]]``, so nothing failed at the API boundary
+    and the UI rendered empty ids with a 0% score bar.
+
+    Both spellings travel on the wire: the canonical keys the UI parses are
+    required, and their legacy twins are mirrored so clients written against
+    the pre-#1586 shape keep resolving. A producer that emits neither
+    spelling now fails validation loudly instead of silently degrading.
+
+    Detector extras such as ``reasons`` and ``metadata`` pass through
+    untouched via ``extra="allow"``.
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+    entity_a: Union[str, Dict[str, Any]]
+    entity_b: Union[str, Dict[str, Any]]
+    similarity: float
+    score: float
+
+    # Legacy DuplicateCandidate spellings, mirrored from the canonical keys
+    # above so pre-#1586 consumers keep working.
+    entity1: Optional[Union[str, Dict[str, Any]]] = None
+    entity2: Optional[Union[str, Dict[str, Any]]] = None
+    similarity_score: Optional[float] = None
+    confidence: Optional[float] = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _mirror_pair_aliases(cls, data: Any) -> Any:
+        """Fill each canonical key from its legacy twin, and vice versa.
+
+        Runs before field validation so a payload carrying either spelling
+        satisfies the required canonical fields. A payload carrying neither
+        leaves them unset and fails validation, which is the point.
+        """
+        if not isinstance(data, dict):
+            return data
+
+        pair = dict(data)
+
+        def _coalesce(*keys: str) -> Any:
+            for key in keys:
+                value = pair.get(key)
+                if value is not None:
+                    return value
+            return None
+
+        entity_a = _coalesce("entity_a", "entity1")
+        entity_b = _coalesce("entity_b", "entity2")
+        # ``similarity`` is the key the UI reads first and ``score`` its
+        # fallback, so cross-fill between the two families: a producer that
+        # emits only one of them still renders a real score bar. When both
+        # are present each keeps its own value.
+        similarity = _coalesce("similarity", "similarity_score", "score", "confidence")
+        score = _coalesce("score", "confidence", "similarity", "similarity_score")
+
+        for key, value in (
+            ("entity_a", entity_a),
+            ("entity1", entity_a),
+            ("entity_b", entity_b),
+            ("entity2", entity_b),
+            ("similarity", similarity),
+            ("similarity_score", similarity),
+            ("score", score),
+            ("confidence", score),
+        ):
+            if pair.get(key) is None and value is not None:
+                pair[key] = value
+
+        return pair
+
+
 class DedupResponse(BaseModel):
-    duplicates: List[Dict[str, Any]] = Field(default_factory=list)
+    duplicates: List[DuplicatePair] = Field(default_factory=list)
     total_flagged: int = 0
 
 
