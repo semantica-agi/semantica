@@ -45,11 +45,24 @@ from ..utils.progress_tracker import get_progress_tracker
 # Credential-like option keys must never be copied into FileObject.metadata,
 # because metadata is a plain public dict that callers can inspect, serialize,
 # export to graph/CSV/JSON, or pass to downstream processors.
+#
 # Matching is case-insensitive (see _safe_options usage in ingest_file).
-# This list mirrors the exclusion set in semantica/semantic_extract/cache.py
-# and the _SECRET_FIELD_NAMES contract in semantica/ingest/looker_ingestor.py.
+# Exact-name matching is used deliberately — following the explicit convention
+# in semantica/semantic_extract/cache.py: "Exact-match (not substring) so
+# legitimate params such as 'max_tokens' are never dropped."  Substring
+# matching would silently drop innocuous metadata keys.
+#
+# Sources used to determine this set:
+#   - semantica/semantic_extract/cache.py  (LLM API credential keys)
+#   - semantica/ingest/looker_ingestor.py  (_SECRET_FIELD_NAMES)
+#   - semantica/ingest/file_ingestor.py    (CloudStorageIngestor: S3/Azure)
+#   - semantica/ingest/salesforce_ingestor.py (security_token, privatekey, …)
+#   - semantica/ingest/redshift_ingestor.py   (secret_access_key, …)
+#   - semantica/ingest/servicenow_ingestor.py (client_secret, …)
+#   - semantica/server.py / explorer       (X-API-Key HTTP header name)
 _SENSITIVE_METADATA_KEYS: frozenset = frozenset(
     {
+        # --- LLM / generic API keys (from cache.py baseline) ---
         "api_key",
         "apikey",
         "api_secret",
@@ -66,6 +79,23 @@ _SENSITIVE_METADATA_KEYS: frozenset = frozenset(
         "authorization",
         "credential",
         "credentials",
+        # --- Cloud storage credentials (CloudStorageIngestor: S3 / Azure) ---
+        "secret_access_key",        # boto3 / S3 / Redshift
+        "access_key_id",            # boto3 / S3 / Redshift
+        "connection_string",        # Azure Blob BlobServiceClient
+        # --- Additional credential patterns found in this codebase's ingestors ---
+        "auth_token",               # generic auth-token kwarg
+        "x-api-key",                # HTTP header name (Explorer API)
+        "security_token",           # Salesforce SOAP auth
+        "session_id",               # Salesforce pre-existing session
+        "consumer_key",             # Salesforce JWT Bearer (public app id, but
+                                    # often treated as sensitive in transit)
+        "privatekey",               # Salesforce JWT Bearer PEM string
+        "privatekey_file",          # Salesforce JWT Bearer PEM file path
+        "deploy_secret",            # Looker _SECRET_FIELD_NAMES
+        "device_token",             # Looker _SECRET_FIELD_NAMES
+        "git_password",             # Looker _SECRET_FIELD_NAMES
+        "pdt_password",             # Looker _SECRET_FIELD_NAMES
     }
 )
 

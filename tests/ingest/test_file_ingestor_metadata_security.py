@@ -53,28 +53,51 @@ _PLACEHOLDER = "test-placeholder-value"
 # case-insensitive matching.
 _SENSITIVE_CASES = [
     # (kwarg_name_to_pass,  description)
-    ("api_key",       "lowercase canonical"),
-    ("API_KEY",       "all-caps variant"),
-    ("Api_Key",       "mixed-case variant"),
-    ("apikey",        "no-underscore variant"),
-    ("api_secret",    "api_secret"),
-    ("token",         "token"),
-    ("TOKEN",         "TOKEN uppercase"),
-    ("access_token",  "access_token"),
-    ("refresh_token", "refresh_token"),
-    ("session_token", "session_token"),
-    ("bearer_token",  "bearer_token"),
-    ("password",      "password"),
-    ("PASSWORD",      "PASSWORD uppercase"),
-    ("secret",        "secret"),
-    ("client_secret", "client_secret"),
-    ("private_key",   "private_key"),
-    ("auth",          "auth"),
-    ("Auth",          "Auth mixed-case"),
-    ("authorization", "authorization"),
-    ("Authorization", "Authorization mixed-case"),
-    ("credential",    "credential"),
-    ("credentials",   "credentials (plural)"),
+    # --- LLM / generic API keys (cache.py baseline) ---
+    ("api_key",           "lowercase canonical"),
+    ("API_KEY",           "all-caps variant"),
+    ("Api_Key",           "mixed-case variant"),
+    ("apikey",            "no-underscore variant"),
+    ("api_secret",        "api_secret"),
+    ("token",             "token"),
+    ("TOKEN",             "TOKEN uppercase"),
+    ("access_token",      "access_token"),
+    ("refresh_token",     "refresh_token"),
+    ("session_token",     "session_token"),
+    ("bearer_token",      "bearer_token"),
+    ("password",          "password"),
+    ("PASSWORD",          "PASSWORD uppercase"),
+    ("secret",            "secret"),
+    ("client_secret",     "client_secret"),
+    ("private_key",       "private_key"),
+    ("auth",              "auth"),
+    ("Auth",              "Auth mixed-case"),
+    ("authorization",     "authorization"),
+    ("Authorization",     "Authorization mixed-case"),
+    ("credential",        "credential"),
+    ("credentials",       "credentials (plural)"),
+    # --- Cloud storage credentials (Qodo finding + CloudStorageIngestor) ---
+    ("secret_access_key", "S3/Redshift AWS secret key"),
+    ("SECRET_ACCESS_KEY", "S3/Redshift uppercase variant"),
+    ("access_key_id",     "S3/Redshift access key id"),
+    ("ACCESS_KEY_ID",     "S3/Redshift uppercase variant"),
+    ("connection_string", "Azure Blob connection string"),
+    ("Connection_String", "Azure Blob mixed-case variant"),
+    # --- Additional codebase credential patterns ---
+    ("auth_token",        "generic auth token"),
+    ("AUTH_TOKEN",        "auth_token uppercase variant"),
+    ("x-api-key",         "hyphenated HTTP header name"),
+    ("X-API-Key",         "hyphenated mixed-case variant"),
+    ("security_token",    "Salesforce SOAP security token"),
+    ("SECURITY_TOKEN",    "Salesforce uppercase variant"),
+    ("session_id",        "Salesforce pre-existing session"),
+    ("consumer_key",      "Salesforce JWT Bearer consumer key"),
+    ("privatekey",        "Salesforce JWT Bearer PEM string"),
+    ("privatekey_file",   "Salesforce JWT Bearer PEM file path"),
+    ("deploy_secret",     "Looker deploy secret"),
+    ("device_token",      "Looker device token"),
+    ("git_password",      "Looker git password"),
+    ("pdt_password",      "Looker PDT password"),
 ]
 
 
@@ -222,10 +245,17 @@ def test_top_level_ingest_file_no_credential_leak(txt_file: Path) -> None:
 # ---------------------------------------------------------------------------
 
 @pytest.mark.parametrize("key", [
+    # LLM / generic API keys (cache.py baseline)
     "api_key", "apikey", "api_secret",
     "token", "access_token", "refresh_token", "session_token", "bearer_token",
     "password", "secret", "client_secret", "private_key",
     "auth", "authorization", "credential", "credentials",
+    # Cloud storage credentials
+    "secret_access_key", "access_key_id", "connection_string",
+    # Additional codebase credential patterns
+    "auth_token", "x-api-key", "security_token", "session_id",
+    "consumer_key", "privatekey", "privatekey_file",
+    "deploy_secret", "device_token", "git_password", "pdt_password",
 ])
 def test_sensitive_metadata_keys_constant_completeness(key: str) -> None:
     """_SENSITIVE_METADATA_KEYS must contain every audited key."""
@@ -237,3 +267,63 @@ def test_sensitive_metadata_keys_constant_completeness(key: str) -> None:
 def test_sensitive_metadata_keys_is_frozenset() -> None:
     """The constant must be immutable so callers cannot accidentally mutate it."""
     assert isinstance(_SENSITIVE_METADATA_KEYS, frozenset)
+
+
+# ---------------------------------------------------------------------------
+# 6. Qodo HIGH-severity finding — specific regression for the four keys
+#    that were absent from the initial implementation.
+# ---------------------------------------------------------------------------
+
+def test_qodo_finding_secret_access_key_absent(txt_file: Path) -> None:
+    """secret_access_key (S3/Redshift AWS credential) must not reach metadata."""
+    ingestor = FileIngestor()
+    result = ingestor.ingest_file(txt_file, secret_access_key=_PLACEHOLDER)
+    assert "secret_access_key" not in result.metadata
+
+
+def test_qodo_finding_connection_string_absent(txt_file: Path) -> None:
+    """connection_string (Azure Blob) must not reach metadata."""
+    ingestor = FileIngestor()
+    result = ingestor.ingest_file(txt_file, connection_string=_PLACEHOLDER)
+    assert "connection_string" not in result.metadata
+
+
+def test_qodo_finding_auth_token_absent(txt_file: Path) -> None:
+    """auth_token must not reach metadata."""
+    ingestor = FileIngestor()
+    result = ingestor.ingest_file(txt_file, auth_token=_PLACEHOLDER)
+    assert "auth_token" not in result.metadata
+
+
+def test_qodo_finding_x_api_key_absent(txt_file: Path) -> None:
+    """x-api-key (hyphenated HTTP header name) must not reach metadata."""
+    ingestor = FileIngestor()
+    result = ingestor.ingest_file(txt_file, **{"x-api-key": _PLACEHOLDER})
+    assert "x-api-key" not in result.metadata
+
+
+def test_qodo_finding_all_four_plus_existing_absent(txt_file: Path) -> None:
+    """All four Qodo-flagged keys together with pre-existing keys — all absent."""
+    ingestor = FileIngestor()
+    result = ingestor.ingest_file(
+        txt_file,
+        # Qodo-flagged keys
+        secret_access_key=_PLACEHOLDER,
+        connection_string=_PLACEHOLDER,
+        auth_token=_PLACEHOLDER,
+        **{"x-api-key": _PLACEHOLDER},
+        # Pre-existing keys — must also still be absent
+        api_key=_PLACEHOLDER,
+        token=_PLACEHOLDER,
+        password=_PLACEHOLDER,
+        # Safe keys — must still be present
+        custom_tag="qodo-regression",
+    )
+    for key in (
+        "secret_access_key", "connection_string", "auth_token", "x-api-key",
+        "api_key", "token", "password",
+    ):
+        assert key not in result.metadata, (
+            f"{key!r} must not appear in FileObject.metadata"
+        )
+    assert result.metadata.get("custom_tag") == "qodo-regression"
