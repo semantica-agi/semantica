@@ -39,6 +39,36 @@ from ..utils.exceptions import ProcessingError, ValidationError
 from ..utils.logging import get_logger
 from ..utils.progress_tracker import get_progress_tracker
 
+# ---------------------------------------------------------------------------
+# Sensitive-key filter for FileObject.metadata (Hotspot 7)
+# ---------------------------------------------------------------------------
+# Credential-like option keys must never be copied into FileObject.metadata,
+# because metadata is a plain public dict that callers can inspect, serialize,
+# export to graph/CSV/JSON, or pass to downstream processors.
+# Matching is case-insensitive (see _safe_options usage in ingest_file).
+# This list mirrors the exclusion set in semantica/semantic_extract/cache.py
+# and the _SECRET_FIELD_NAMES contract in semantica/ingest/looker_ingestor.py.
+_SENSITIVE_METADATA_KEYS: frozenset = frozenset(
+    {
+        "api_key",
+        "apikey",
+        "api_secret",
+        "token",
+        "access_token",
+        "refresh_token",
+        "session_token",
+        "bearer_token",
+        "password",
+        "secret",
+        "client_secret",
+        "private_key",
+        "auth",
+        "authorization",
+        "credential",
+        "credentials",
+    }
+)
+
 
 @dataclass
 class FileObject:
@@ -631,6 +661,19 @@ class FileIngestor:
             # Detect MIME type for additional metadata
             mime_type, _ = mimetypes.guess_type(str(file_path))
 
+            # Strip credential-like keys before they reach FileObject.metadata.
+            # Sensitive kwargs (api_key, token, password, etc.) are accepted by
+            # the public API for forwarding to backends, but must never be copied
+            # into the returned object where they could be serialized, exported,
+            # or observed by downstream consumers.  Matching is case-insensitive
+            # so API_KEY and Authorization are caught as well as their lowercase
+            # forms.  Non-sensitive custom kwargs still reach metadata unchanged.
+            _safe_options = {
+                k: v
+                for k, v in options.items()
+                if k.lower() not in _SENSITIVE_METADATA_KEYS
+            }
+
             # Create and return FileObject with all metadata
             file_obj = FileObject(
                 path=str(file_path.absolute()),
@@ -644,7 +687,7 @@ class FileIngestor:
                     "parent": str(file_path.parent),
                     "is_supported": self.type_detector.is_supported(file_type),
                     "read_content": read_content,
-                    **options,  # Include any additional options as metadata
+                    **_safe_options,  # credential keys already stripped above
                 },
             )
 
