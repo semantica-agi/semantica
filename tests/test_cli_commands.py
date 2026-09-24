@@ -1881,12 +1881,80 @@ class TestOntology:
 # ─── export ───────────────────────────────────────────────────────────────────
 
 
+# The record shape the Neo4j and FalkorDB backends return: endpoints named
+# start_node_id/end_node_id, and get_nodes() nesting its fields under
+# "properties". The local store uses source_id/target_id, so a fixture written
+# against it hid the fact that the command fed the exporters a shape they could
+# not read (#1712).
+STORE_NODES = [
+    {"id": "n1", "type": "Person", "name": "Alice", "properties": {"name": "Alice"}}
+]
+STORE_RELATIONSHIP = {
+    "id": "r1",
+    "start_node_id": "n1",
+    "end_node_id": "n1",
+    "type": "KNOWS",
+    "properties": {},
+}
+
+# The extension each multi-file format is written under, checked against the
+# list the command refuses a single destination for.
+MULTI_FILE_EXTENSIONS = {"arrow": ".arrow", "csv": ".csv", "parquet": ".parquet"}
+
+
+def _patch_graph_store(monkeypatch, relationships, nodes=None) -> dict:
+    """Point the export command at a fake store, and count how often it reads."""
+    node_records = STORE_NODES if nodes is None else nodes
+    reads = {"nodes": 0}
+
+    def get_nodes(**kwargs):
+        reads["nodes"] += 1
+        return [dict(n) for n in node_records]
+
+    def get_relationships(**kwargs):
+        return [dict(r) for r in relationships]
+
+    class FakeGraphStore:
+        def get_nodes(self, **kwargs):
+            return get_nodes(**kwargs)
+
+        def get_relationships(self, **kwargs):
+            return get_relationships(**kwargs)
+
+    monkeypatch.setattr(
+        "semantica.graph_store.methods._get_store", lambda: FakeGraphStore()
+    )
+    for target in (
+        "semantica.graph_store.get_nodes",
+        "semantica.graph_store.methods.get_nodes",
+    ):
+        monkeypatch.setattr(target, get_nodes)
+    for target in (
+        "semantica.graph_store.get_relationships",
+        "semantica.graph_store.methods.get_relationships",
+    ):
+        monkeypatch.setattr(target, get_relationships)
+    return reads
+
+
+def test_multi_file_extensions_cover_what_the_command_lists():
+    from semantica.export import MULTI_FILE_FORMATS
+
+    assert set(MULTI_FILE_EXTENSIONS) == set(
+        MULTI_FILE_FORMATS
+    ), "a multi-file format was added or removed without updating these tests"
+
+
 class TestExport:
-    def test_help_shows_14_formats(self, runner):
+    def test_help_shows_the_offered_formats(self, runner):
         result = runner.invoke(cli_module.main, ["export", "--help"])
         _ok(result)
-        for fmt in ["turtle", "parquet", "csv", "graphml", "owl", "arangodb"]:
+        for fmt in cli_module._EXPORT_FORMATS:
             assert fmt in result.output
+        # These three need an ontology or an Explorer session, not a graph
+        # dump, so they are no longer offered (#1712).
+        for fmt in ["owl", "shacl", "distance-enriched"]:
+            assert fmt not in result.output
         for flag in ["--with-provenance", "--filter", "--compress", "--dry-run"]:
             assert flag in result.output
 
@@ -1908,78 +1976,7 @@ class TestExport:
         assert data["dry_run"] is True
 
     def test_real_export_runtime_path(self, runner, tmp_path, monkeypatch):
-        class FakeGraphStore:
-            def get_nodes(self, labels=None, properties=None, limit=100, **options):
-                return [
-                    {
-                        "id": "n1",
-                        "type": "Person",
-                        "name": "Alice",
-                        "properties": {"name": "Alice"},
-                    }
-                ]
-
-            def get_relationships(self, node_id=None, rel_type=None, direction="both", limit=100, **options):
-                return [
-                    {
-                        "id": "r1",
-                        "source": "n1",
-                        "target": "n1",
-                        "type": "KNOWS",
-                        "properties": {},
-                    }
-                ]
-
-        monkeypatch.setattr(
-            "semantica.graph_store.methods._get_store",
-            lambda: FakeGraphStore(),
-        )
-        monkeypatch.setattr(
-            "semantica.graph_store.get_nodes",
-            lambda **kwargs: [
-                {
-                    "id": "n1",
-                    "type": "Person",
-                    "name": "Alice",
-                    "properties": {"name": "Alice"},
-                }
-            ],
-        )
-        monkeypatch.setattr(
-            "semantica.graph_store.methods.get_nodes",
-            lambda **kwargs: [
-                {
-                    "id": "n1",
-                    "type": "Person",
-                    "name": "Alice",
-                    "properties": {"name": "Alice"},
-                }
-            ],
-        )
-        monkeypatch.setattr(
-            "semantica.graph_store.get_relationships",
-            lambda **kwargs: [
-                {
-                    "id": "r1",
-                    "source": "n1",
-                    "target": "n1",
-                    "type": "KNOWS",
-                    "properties": {},
-                }
-            ],
-        )
-        monkeypatch.setattr(
-            "semantica.graph_store.methods.get_relationships",
-            lambda **kwargs: [
-                {
-                    "id": "r1",
-                    "source": "n1",
-                    "target": "n1",
-                    "type": "KNOWS",
-                    "properties": {},
-                }
-            ],
-        )
+        _patch_graph_store(monkeypatch, [STORE_RELATIONSHIP])
 
         output_path = tmp_path / "export.json"
         result = runner.invoke(cli_module.main, ["export", "--format", "json", "--output", str(output_path)])
@@ -2001,6 +1998,82 @@ class TestExport:
             result = runner.invoke(cli_module.main, ["export", "--format", "json"])
         assert result.exit_code != 0
         assert "Traceback" not in result.output
+
+
+class TestExportMultiFileFormats:
+    """Formats that write one file per collection, driven through the command.
+
+    ``arrow``, ``csv`` and ``parquet`` take ``--output`` as a base name and
+    write ``graph_entities.*``/``graph_relationships.*`` next to it, so the
+    path the command was given is never created. It used to report that path as
+    written anyway, hand stdout an empty file, and compress a base file that
+    did not exist.
+    """
+
+    @pytest.mark.parametrize("fmt,ext", sorted(MULTI_FILE_EXTENSIONS.items()))
+    def test_reports_the_files_it_wrote(self, runner, tmp_path, monkeypatch, fmt, ext):
+        _patch_graph_store(monkeypatch, [STORE_RELATIONSHIP])
+        target = tmp_path / f"graph{ext}"
+
+        result = runner.invoke(
+            cli_module.main, ["export", "--format", fmt, "--output", str(target)]
+        )
+
+        _ok(result)
+        names = sorted(p.name for p in tmp_path.iterdir())
+        assert names == [f"graph_entities{ext}", f"graph_relationships{ext}"], names
+        for name in names:
+            assert name in result.output, f"{name} not reported: {result.output!r}"
+        assert not target.exists(), (
+            "the command was asked for a base name; it must not be reported as "
+            "the artifact"
+        )
+
+    @pytest.mark.parametrize("fmt,ext", sorted(MULTI_FILE_EXTENSIONS.items()))
+    @pytest.mark.parametrize(
+        "flags,mention",
+        [([], "--output"), (["--compress"], "--compress")],
+    )
+    def test_a_single_destination_is_refused(
+        self, runner, tmp_path, monkeypatch, fmt, ext, flags, mention
+    ):
+        reads = _patch_graph_store(monkeypatch, [STORE_RELATIONSHIP])
+
+        result = runner.invoke(cli_module.main, ["export", "--format", fmt] + flags)
+
+        assert result.exit_code != 0, f"{flags} exited 0: {result.output!r}"
+        assert mention in result.output, f"{result.output!r} does not mention {mention}"
+        assert reads["nodes"] == 0, "the store was read before the format was refused"
+
+    def test_arrow_without_relationships_still_exports(
+        self, runner, tmp_path, monkeypatch
+    ):
+        """A graph whose nodes have no edges between them is not an error."""
+        _patch_graph_store(monkeypatch, [])
+        target = tmp_path / "graph.arrow"
+
+        result = runner.invoke(
+            cli_module.main, ["export", "--format", "arrow", "--output", str(target)]
+        )
+
+        _ok(result)
+        assert (tmp_path / "graph_entities.arrow").exists()
+        assert not (tmp_path / "graph_relationships.arrow").exists()
+
+    @pytest.mark.parametrize("fmt,ext", sorted(MULTI_FILE_EXTENSIONS.items()))
+    def test_an_empty_store_writes_nothing_and_says_so(
+        self, runner, tmp_path, monkeypatch, fmt, ext
+    ):
+        _patch_graph_store(monkeypatch, [], nodes=[])
+        target = tmp_path / f"graph{ext}"
+
+        result = runner.invoke(
+            cli_module.main, ["export", "--format", fmt, "--output", str(target)]
+        )
+
+        _ok(result)
+        assert "Nothing written" in result.output, result.output
+        assert not list(tmp_path.iterdir())
 
 
 # ─── visualize ────────────────────────────────────────────────────────────────
