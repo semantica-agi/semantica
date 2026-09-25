@@ -78,7 +78,7 @@ License: MIT
 
 from datetime import datetime, timezone
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 from ..utils.logging import get_logger
 from ..utils.progress_tracker import get_progress_tracker
@@ -90,6 +90,7 @@ from ..kg.community_detector import CommunityDetector
 from ..kg.similarity_calculator import SimilarityCalculator
 from ..utils.exceptions import ValidationError
 from .truth_maintenance_filter import TruthMaintenanceContextFilter
+from .tiers import TierCalculator, TrustTier
 try:
     from ..kg.temporal_query import TemporalGraphQuery as _TemporalGraphQuery
     from ..kg.temporal_model import parse_temporal_value as _parse_temporal_value
@@ -148,6 +149,10 @@ class ContextRetriever:
                 - max_expansion_hops: Maximum graph expansion hops (default: 2)
                 - hybrid_alpha: Weight for hybrid retrieval (0=vector only, 1=graph
                   only, default: 0.5)
+                - tier_calculator: Optional TierCalculator override for
+                  evidence grading
+                - provenance_manager: Optional provenance manager for
+                  corroboration lookup by node id
         """
         self.logger = get_logger("context_retriever")
         self.config = config or {}
@@ -207,6 +212,13 @@ class ContextRetriever:
                 use_graph_features=True
             )
 
+        # Trust-tiering: grade each retrieved fact on evidence quality so
+        # downstream consumers can downrank or filter low-trust context. Tiers
+        # are derived on demand from signals already present in the retrieval
+        # result (graph node confidence + corroboration count), never persisted.
+        self.tier_calculator = self.config.get("tier_calculator") or TierCalculator()
+        self.provenance_manager = self.config.get("provenance_manager")
+
     def retrieve(
         self,
         query: str,
@@ -215,6 +227,7 @@ class ContextRetriever:
         min_relevance_score: float = 0.0,
         mode: str = "local",
         truth_filter: Optional[TruthMaintenanceContextFilter] = None,
+        min_trust_tier: Optional[TrustTier] = None,
         **options,
     ) -> List[RetrievedContext]:
         """
@@ -230,6 +243,15 @@ class ContextRetriever:
                 candidates are validated against a session snapshot before
                 ranking and the snapshot version is re-checked before
                 results are returned
+            min_trust_tier: Optional minimum TrustTier. When set, each result
+                is graded on evidence quality (see the "trust_tier" key in
+                RetrievedContext.metadata) and only results meeting the
+                minimum are returned. Graph facts without readable signals
+                grade to quarantine. In local mode, results that carry no
+                tier signal (vector chunks with neither a graph node id nor a
+                confidence reading) are excluded too; global, drift and
+                hybrid keep such unscored summaries so a threshold cannot
+                empty the response.
             **options: Additional options:
                 - entity_ids: Filter by entity IDs
                 - node_types: Filter by node types
@@ -254,6 +276,7 @@ class ContextRetriever:
                 max_results=max_results,
                 min_relevance_score=min_relevance_score,
                 as_contexts=True,
+                min_trust_tier=min_trust_tier,
                 **options,
             )
         elif norm_mode == "drift":
@@ -262,6 +285,7 @@ class ContextRetriever:
                 max_results=max_results,
                 min_relevance_score=min_relevance_score,
                 as_contexts=True,
+                min_trust_tier=min_trust_tier,
                 **options,
             )
         elif norm_mode == "hybrid":
@@ -271,6 +295,7 @@ class ContextRetriever:
                 use_graph_expansion=use_graph_expansion,
                 min_relevance_score=min_relevance_score,
                 mode="local",
+                min_trust_tier=min_trust_tier,
                 **options,
             )
             global_res = self.retrieve_global(
@@ -278,6 +303,7 @@ class ContextRetriever:
                 max_results=max_results * 2,
                 min_relevance_score=min_relevance_score,
                 as_contexts=True,
+                min_trust_tier=min_trust_tier,
                 **options,
             )
             merged = self._rank_and_merge(local_res + global_res, query)
@@ -287,6 +313,11 @@ class ContextRetriever:
                 else max(0.0, min(1.0, min_relevance_score))
             )
             filtered = [r for r in merged if r.score >= eff_min_score]
+            # Tiers were attached and the threshold applied inside each
+            # sub-retrieval: the local leg drops unscored items, while the
+            # global leg keeps structurally unscored summaries. Filtering the
+            # merged list again would strip those summaries out.
+            self._attach_trust_tiers(filtered)
             return filtered[:max_results]
         elif norm_mode != "local":
             raise ValueError(
@@ -374,6 +405,11 @@ class ContextRetriever:
             filtered_results = [
                 r for r in ranked_results if r.score >= eff_min_score
             ]
+            self._attach_trust_tiers(filtered_results)
+            if min_trust_tier is not None:
+                filtered_results = self.filter_by_tier(
+                    filtered_results, min_trust_tier
+                )
 
             if snapshot is not None:
                 truth_filter.assert_current(snapshot)
@@ -392,6 +428,142 @@ class ContextRetriever:
             )
             raise
 
+    # ------------------------------------------------------------------
+    # Trust tiering (issue #1557, phase 2)
+    # ------------------------------------------------------------------
+
+    def _tier_signals_for(
+        self, context: "RetrievedContext"
+    ) -> Tuple[Optional[int], Optional[float]]:
+        """
+        Pull the two signals a TrustTier needs from a retrieved context.
+
+        Corroboration count comes from the provenance manager when one is
+        wired and the context carries a node id; otherwise it falls back to a
+        ``corroboration_count`` already present in metadata. Confidence comes
+        from ``metadata["confidence"]``. Either signal may be None when the
+        retrieval source does not expose it (e.g. a vector chunk with no graph
+        provenance).
+
+        Args:
+            context: A retrieved context item.
+
+        Returns:
+            Tuple of (corroboration_count, confidence); None for a missing
+            signal.
+        """
+        node_id = context.metadata.get("node_id")
+        confidence = context.metadata.get("confidence")
+
+        corroboration: Optional[int] = None
+        if self.provenance_manager is not None and node_id:
+            try:
+                sources = self.provenance_manager.get_all_sources(node_id)
+                corroboration = len(sources) if sources is not None else 0
+            except Exception:
+                corroboration = None
+        if corroboration is None:
+            candidate = context.metadata.get("corroboration_count")
+            if isinstance(candidate, int):
+                corroboration = candidate
+
+        return corroboration, confidence
+
+    def _attach_trust_tiers(self, results: List["RetrievedContext"]) -> None:
+        """
+        Grade each result on evidence quality and record it in metadata.
+
+        Graph facts (results carrying a ``node_id``) always receive a tier:
+        when neither corroboration nor confidence is readable, the calculator
+        degrades them to quarantine instead of leaving the grade blank, so a
+        missing signal is never treated as if it had been measured. Other
+        results (for example vector chunks with neither a graph node id nor a
+        confidence reading) are left unscored. An existing ``trust_tier`` is
+        recomputed from current signals on every pass, so a grade cannot
+        outlive the evidence it was derived from.
+
+        The tier is recorded on a copy of the result's metadata. Metadata
+        dicts on retrieved contexts can be shared with the underlying vector
+        store or memory, and writing in place would persist a query-time
+        grade into stored state, where it would go stale as sources change.
+
+        Args:
+            results: Retrieved contexts to grade in place.
+        """
+        for context in results:
+            corroboration, confidence = self._tier_signals_for(context)
+            is_graph_fact = bool(context.metadata.get("node_id"))
+            if not is_graph_fact and corroboration is None and confidence is None:
+                continue
+            try:
+                tier = self.tier_calculator.calculate(corroboration, confidence)
+            except Exception:
+                continue
+            context.metadata = {**context.metadata, "trust_tier": tier.value}
+
+    def filter_by_tier(
+        self,
+        results: List["RetrievedContext"],
+        minimum: "TrustTier",
+        include_unscored: bool = False,
+    ) -> List["RetrievedContext"]:
+        """
+        Keep only results whose trust tier meets a minimum threshold.
+
+        Args:
+            results: Retrieved contexts, ideally already graded via
+                ``_attach_trust_tiers`` (or ``retrieve`` with tiering enabled).
+            minimum: Lowest acceptable tier.
+            include_unscored: When True, results that carry no tier at all are
+                also kept; when False (default) they are dropped, because a
+                caller asking for "at least silver" should not receive context
+                whose evidence quality is unknown.
+
+        Returns:
+            The subset of results meeting the threshold.
+
+        Raises:
+            TypeError: If minimum is not a TrustTier.
+
+        Example:
+            >>> from semantica.context.tiers import TrustTier
+            >>> r_gold = RetrievedContext(content="g", score=1.0,
+            ...     metadata={"trust_tier": "gold"})
+            >>> r_bronze = RetrievedContext(content="b", score=1.0,
+            ...     metadata={"trust_tier": "bronze"})
+            >>> r_none = RetrievedContext(content="n", score=1.0)
+            >>> retriever = ContextRetriever()
+            >>> kept = retriever.filter_by_tier(
+            ...     [r_gold, r_bronze, r_none], TrustTier.SILVER)
+            >>> [r.content for r in kept]
+            ['g']
+            >>> kept_all = retriever.filter_by_tier(
+            ...     [r_gold, r_bronze, r_none], TrustTier.SILVER,
+            ...     include_unscored=True)
+            >>> sorted(r.content for r in kept_all)
+            ['g', 'n']
+        """
+        if not isinstance(minimum, TrustTier):
+            raise TypeError(
+                f"minimum must be a TrustTier, got {type(minimum).__name__}"
+            )
+        kept: List[RetrievedContext] = []
+        for context in results:
+            raw = context.metadata.get("trust_tier")
+            if raw is None:
+                if include_unscored:
+                    kept.append(context)
+                continue
+            try:
+                tier = TrustTier(raw)
+            except ValueError:
+                if include_unscored:
+                    kept.append(context)
+                continue
+            if tier.meets(minimum):
+                kept.append(context)
+        return kept
+
     def retrieve_global(
         self,
         query: str,
@@ -399,6 +571,7 @@ class ContextRetriever:
         max_results: int = 5,
         min_relevance_score: float = 0.0,
         as_contexts: bool = False,
+        min_trust_tier: Optional["TrustTier"] = None,
         **options,
     ) -> Union[Any, List[RetrievedContext]]:
         """
@@ -411,6 +584,10 @@ class ContextRetriever:
             min_relevance_score: Minimum relevance score
             as_contexts: If True, return List[RetrievedContext];
                 if False, return GlobalSearchResult
+            min_trust_tier: Optional trust threshold. Global summaries carry no
+                per-fact evidence signal, so they are never graded and are
+                always kept when a threshold is set; only contexts that were
+                explicitly tiered by a caller are filtered out.
             **options: Additional options passed to GlobalGraphRetriever
 
         Returns:
@@ -455,6 +632,14 @@ class ContextRetriever:
                 c for c in res.to_retrieved_contexts()
                 if c.score >= context_threshold
             ]
+            self._attach_trust_tiers(contexts)
+            if min_trust_tier is not None:
+                # Global summaries are structurally ungradeable (no per-fact
+                # evidence signal), so dropping them for "missing tier" would
+                # empty the result. Keep them; only caller-tiered items filter.
+                contexts = self.filter_by_tier(
+                    contexts, min_trust_tier, include_unscored=True
+                )
             return contexts[:max_results]
         return res
 
@@ -465,6 +650,7 @@ class ContextRetriever:
         max_results: int = 5,
         min_relevance_score: float = 0.0,
         as_contexts: bool = False,
+        min_trust_tier: Optional["TrustTier"] = None,
         **options,
     ) -> Union[Any, List[RetrievedContext]]:
         """
@@ -477,6 +663,10 @@ class ContextRetriever:
             min_relevance_score: Minimum relevance score
             as_contexts: If True, return List[RetrievedContext];
                 if False, return DriftSearchResult
+            min_trust_tier: Optional trust threshold. DRIFT results blend
+                community-report summaries that carry no per-fact evidence
+                signal, so those summaries are always kept when a threshold is
+                set; only contexts explicitly tiered by a caller are filtered.
             **options: Additional options passed to DriftSearchEngine
 
         Returns:
@@ -523,6 +713,14 @@ class ContextRetriever:
                 c for c in res.to_retrieved_contexts()
                 if c.score >= context_threshold
             ]
+            self._attach_trust_tiers(contexts)
+            if min_trust_tier is not None:
+                # DRIFT blends community-report summaries that are structurally
+                # ungradeable; dropping them for "missing tier" would empty the
+                # result. Keep them; only caller-tiered items filter.
+                contexts = self.filter_by_tier(
+                    contexts, min_trust_tier, include_unscored=True
+                )
             return contexts[:max_results]
         return res
 

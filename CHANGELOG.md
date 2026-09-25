@@ -11,6 +11,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Trust-tier grading of retrieved context** (#1703, phase 2 of #1557) by @pkupt
+  - `ContextRetriever` now grades every retrieved fact on evidence quality and records the tier in `RetrievedContext.metadata["trust_tier"]` (`quarantine` / `bronze` / `silver` / `gold`). Tiers are computed at query time from signals already present in the result — graph node confidence and, when a `provenance_manager` is configured, the corroboration count from `ProvenanceTracker.get_all_sources` — and are never persisted, so grades stay current as source sets change
+  - New `filter_by_tier(minimum, include_unscored=False)` on `ContextRetriever`, alongside the existing score/type/date filters. Graph facts without readable signals grade to `quarantine` (missing evidence is never trusted as high confidence); community-report summaries from global and DRIFT search carry no per-fact signals and stay unscored, and a threshold keeps them rather than emptying the response
+  - `retrieve` accepts `min_trust_tier` in all four modes (local, global, drift, hybrid). The local leg drops unscored items, while the global, DRIFT and hybrid legs keep unscored summaries and still drop facts graded below the threshold
+
 - **`RelationalSchemaMapper`** (#1386, part 1) by @costajohnt
   - `semantica.kg.RelationalSchemaMapper` maps rows from a relational source (`DBIngestor`, `SnowflakeIngestor`, `DatabricksIngestor`, `PandasIngestor`, a DataFrame or plain row dicts) to the `{"entities", "relationships"}` shape `GraphBuilder` and `OntologyGenerator` consume: entity tables become entities keyed by primary key, foreign keys become typed relationships, junction tables become relationships only
   - Every entity and relationship is tagged with the `source` it came from so `ConflictDetector` can key credibility on it. New `tests/kg/test_schema_mapper.py`
