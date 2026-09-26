@@ -42,6 +42,10 @@ from .temporal_reasoning import (
     TemporalInterval,
     TemporalReasoningEngine,
 )
+from .temporal_truth_maintenance import (
+    TemporalFactSnapshot,
+    TemporalTruthMaintenanceAdapter,
+)
 from .truth_maintenance import TruthMaintenanceSession
 from .truth_maintenance_types import (
     Derivation,
@@ -89,6 +93,9 @@ __all__ = [
     "FactExplanation",
     "MaintenanceDelta",
     "TruthMaintenanceSnapshot",
+    # Temporal truth maintenance
+    "TemporalTruthMaintenanceAdapter",
+    "TemporalFactSnapshot",
     # Explanation
     "ExplanationGenerator",
     "Explanation",

@@ -149,6 +149,7 @@ previously returned results cannot mutate the session.
 
 ## Links
 
+- [Temporal Truth Maintenance](/reference/temporal_truth_maintenance) — an opt-in graph adapter for independent valid/known-time slices, expiration and late corrections.
 - [Reasoning](/reference/reasoning) — the rule engines this session builds on, including the `Rule` representation.
 - [Context](/reference/context#support-aware-retrieval-truth_filter) — `TruthMaintenanceContextFilter` consumes immutable snapshots to filter retrieved context by active support.
 - [Ontology](/reference/ontology) — ontology axioms and SHACL constraints.

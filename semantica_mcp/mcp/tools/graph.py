@@ -162,6 +162,8 @@ def handle_get_graph_summary(args: dict) -> dict:  # noqa: ARG001
                 edge_count = graph.edge_count()
             except Exception:
                 log.exception("graph.edge_count failed; defaulting edge_count to 0")
+        elif hasattr(graph, "stats"):
+            edge_count = graph.stats().get("edge_count", 0)
         return {
             "node_count": len(all_nodes),
             "edge_count": edge_count,

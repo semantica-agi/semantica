@@ -4,6 +4,11 @@ description: "Bi-temporal facts, point-in-time snapshots, Allen interval algebra
 icon: "clock"
 ---
 
+For rule-backed conclusions that must follow evidence expiration and corrections,
+see [Temporal Truth Maintenance](/reference/temporal_truth_maintenance). The opt-in
+adapter uses independent `valid_at` and `known_at` coordinates and keeps historical
+queries separate from the live reasoning state.
+
 Temporal Intelligence gives your knowledge graph a complete understanding of *when* — not just what is true, but when it was true in the real world, when it was recorded, and how facts have evolved over time.
 
 Shipped across **v0.3.0** (context temporal validity) and **v0.4.0** (full temporal stack), the system covers five layers:

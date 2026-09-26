@@ -5,22 +5,28 @@ This module provides clean, intuitive imports for LLM providers used in Semantic
 It wraps the underlying provider functionality from semantica.semantic_extract.providers
 to provide a cleaner API.
 
-Every provider wrapper exposes the same generation interface:
+Generative provider wrappers expose the same generation interface:
     - generate(prompt, **kwargs) -> str
     - generate_structured(prompt, **kwargs) -> dict | list
     - generate_typed(prompt, schema, max_retries=3, **kwargs) -> BaseModel
+    - is_available() -> bool
+
+Jev is the intentional decision-only exception. It exposes:
+    - decide(state, question, kind, **kwargs) -> JevDecisionResult
     - is_available() -> bool
 
 Supported Providers:
     - Groq: Groq API for fast inference
     - OpenAI: OpenAI API (GPT-3.5, GPT-4, etc.)
     - HuggingFaceLLM: HuggingFace Transformers for local LLM inference
-    - LiteLLM: Unified interface to 100+ LLM providers (OpenAI, Anthropic, Groq, Azure, Bedrock, Vertex AI, etc.)
+    - LiteLLM: Unified interface to 100+ LLM providers
+      (OpenAI, Anthropic, Groq, Azure, Bedrock, Vertex AI, etc.)
     - Anthropic: Anthropic Claude API (Claude sonnet, Opus, Haiku, etc.)
     - Gemini: Google Gemini API
     - Ollama: Local models served through Ollama
     - DeepSeek: DeepSeek's OpenAI-compatible API
     - Novita: Novita AI's OpenAI-compatible API
+    - Jev: TypeSafe System One typed decisions (Choice, Noul, and Score)
 
 Example Usage:
     >>> from semantica.llms import Groq, OpenAI, HuggingFaceLLM, LiteLLM, Anthropic
@@ -63,20 +69,30 @@ Example Usage:
     >>> # Novita provider
     >>> novita = Novita(model="deepseek/deepseek-v3.2", api_key="your-key")
     >>> response = novita.generate("Hello, world!")
+    >>>
+    >>> # TypeSafe Jev (decision-only; no text generation methods)
+    >>> jev = Jev(api_key="your-key")
+    >>> decision = jev.decide(
+    ...     state={"amount": 12500},
+    ...     question="Should this transaction be approved?",
+    ...     kind="choice",
+    ...     choices=["approve", "escalate"],
+    ... )
 
 Author: Semantica Contributors
 License: MIT
 """
 
+from .anthropic import Anthropic
+from .deepseek import DeepSeek
+from .gemini import Gemini
 from .groq import Groq
-from .openai import OpenAI
 from .huggingface import HuggingFaceLLM
 from .litellm import LiteLLM
-from .anthropic import Anthropic
-from .gemini import Gemini
-from .ollama import Ollama
-from .deepseek import DeepSeek
 from .novita import Novita
+from .ollama import Ollama
+from .openai import OpenAI
+from .typesafe import AsyncJev, Jev, JevDecisionResult
 
 __all__ = [
     "Groq",
@@ -88,4 +104,7 @@ __all__ = [
     "Ollama",
     "DeepSeek",
     "Novita",
+    "Jev",
+    "AsyncJev",
+    "JevDecisionResult",
 ]

@@ -13,6 +13,7 @@ from ..schemas import (
     ANALYZE_DECISION_IMPACT,
     FIND_PRECEDENTS,
     GET_CAUSAL_CHAIN,
+    LINK_DECISIONS,
     QUERY_DECISIONS,
     RECORD_DECISION,
 )
@@ -298,6 +299,31 @@ def handle_analyze_decision_impact(args: dict) -> dict:
         return {"error": str(exc)}
 
 
+def handle_link_decisions(args: dict) -> dict:
+    """Create a typed causal relationship between two recorded decisions."""
+    source = str(args.get("source") or "").strip()
+    target = str(args.get("target") or "").strip()
+    relationship = str(args.get("relationship") or "").strip()
+    if not source or not target:
+        return {"error": "source and target are required"}
+    if not relationship:
+        return {"error": "relationship is required"}
+    try:
+        graph = get_graph()
+        added = graph.add_causal_relationship(source, target, relationship)
+    except ValueError as exc:
+        return {"error": str(exc)}
+    except Exception as exc:
+        log.exception("link_decisions failed")
+        return {"error": str(exc)}
+    return {
+        "source": source,
+        "target": target,
+        "relationship": relationship,
+        "linked": added,
+    }
+
+
 DECISION_TOOLS = [
     {
         "name": "record_decision",
@@ -328,5 +354,11 @@ DECISION_TOOLS = [
         "description": "Analyse the downstream impact and influence of a decision across the knowledge graph.",
         "inputSchema": ANALYZE_DECISION_IMPACT,
         "_handler": handle_analyze_decision_impact,
+    },
+    {
+        "name": "link_decisions",
+        "description": "Create a typed causal relationship between two recorded decisions (CAUSED, INFLUENCED, or PRECEDENT_FOR). Use this after record_decision to connect decisions into a causal chain that get_causal_chain can then traverse.",
+        "inputSchema": LINK_DECISIONS,
+        "_handler": handle_link_decisions,
     },
 ]

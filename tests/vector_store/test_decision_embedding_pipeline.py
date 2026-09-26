@@ -226,7 +226,7 @@ class TestDecisionEmbeddingPipeline:
     
     def test_enrich_metadata(self):
         """Test metadata enrichment."""
-        enriched = self.pipeline._enrich_metadata(self.sample_decision)
+        enriched = self.pipeline._enrich_metadata(self.sample_decision, False)
         
         assert "pipeline_version" in enriched
         assert "embedding_generated_at" in enriched
@@ -236,7 +236,7 @@ class TestDecisionEmbeddingPipeline:
         
         assert enriched["semantic_weight"] == 0.7
         assert enriched["structural_weight"] == 0.3
-        assert enriched["has_structural_embedding"] == True
+        assert enriched["has_structural_embedding"] is False
     
     def test_find_similar_decisions(self):
         """Test finding similar decisions."""

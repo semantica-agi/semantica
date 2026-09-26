@@ -138,14 +138,19 @@ class DecisionEmbeddingPipeline:
 
         # Initialize node embedder if graph store provided
         if graph_store:
-            self.node_embedder = node_embedder or NodeEmbedder(
-                method="node2vec",
-                embedding_dimension=node_embedding_dimension,
-                walk_length=80,
-                num_walks=10,
-                p=1.0,
-                q=1.0
-            )
+            if node_embedder is None:
+                try:
+                    node_embedder = NodeEmbedder(
+                        method="node2vec",
+                        embedding_dimension=node_embedding_dimension,
+                        walk_length=80,
+                        num_walks=10,
+                        p=1.0,
+                        q=1.0
+                    )
+                except ImportError as e:
+                    self.logger.warning(f"Structural embeddings disabled: {e}")
+            self.node_embedder = node_embedder
 
             # Initialize advanced KG algorithms if enabled
             if self.use_graph_features:
@@ -198,7 +203,9 @@ class DecisionEmbeddingPipeline:
         )
         
         # Enrich metadata
-        enriched_metadata = self._enrich_metadata(decision_data)
+        enriched_metadata = self._enrich_metadata(
+            decision_data, structural_embedding is not None
+        )
         
         # Store embeddings if requested
         vector_id = None
@@ -709,7 +716,9 @@ class DecisionEmbeddingPipeline:
         
         return combined
     
-    def _enrich_metadata(self, decision_data: Dict[str, Any]) -> Dict[str, Any]:
+    def _enrich_metadata(
+        self, decision_data: Dict[str, Any], has_structural_embedding: bool
+    ) -> Dict[str, Any]:
         """Enrich decision metadata with additional information."""
         metadata = decision_data.copy()
         
@@ -719,7 +728,7 @@ class DecisionEmbeddingPipeline:
             "embedding_generated_at": datetime.now(timezone.utc).isoformat(),
             "semantic_weight": self.semantic_weight,
             "structural_weight": self.structural_weight,
-            "has_structural_embedding": self.graph_store is not None
+            "has_structural_embedding": has_structural_embedding
         })
         
         return metadata

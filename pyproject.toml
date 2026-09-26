@@ -99,9 +99,13 @@ llm-deepseek = ["openai>=1.0.0"]
 llm-novita = ["openai>=1.0.0"]
 llm-litellm = ["litellm>=1.83.9"]
 llm-instructor = ["instructor>=1.15.3"]
+# TypeSafe SDK has no Python 3.9 release. Jev is also early-access, so keep the
+# integration on the reviewed 0.7 response contract until compatibility with a
+# newer minor line is verified.
+llm-typesafe = ["typesafe-sdk>=0.7.0,<0.8.0; python_version >= '3.10'"]
 
 llm-all = [
-  "semantica[llm-openai,llm-groq,llm-gemini,llm-anthropic,llm-ollama,llm-deepseek,llm-novita,llm-litellm,llm-instructor]"
+  "semantica[llm-openai,llm-groq,llm-gemini,llm-anthropic,llm-ollama,llm-deepseek,llm-novita,llm-litellm,llm-instructor,llm-typesafe]"
 ]
 
 # ---- Document Parsing ----
@@ -127,15 +131,18 @@ db-databricks = ["databricks-sdk>=0.60.0", "databricks-sql-connector>=4.0.0"]
 db-arrow = ["pyarrow>=24.0.0"]
 db-salesforce = ["simple-salesforce>=1.12.0"]
 db-redshift = ["redshift-connector>=2.0.0"]
+db-cassandra = ["cassandra-driver>=3.29.0"]
 db-bigquery = ["google-cloud-bigquery>=3.0.0"]
+ingest-looker = ["looker-sdk>=24.0.0"]
 ingest-parquet = ["pyarrow>=24.0.0"]
 ingest-arrow = ["pyarrow>=24.0.0"]
 ingest-sap = ["requests>=2.28.0"]
+ingest-servicenow = ["requests>=2.28.0"]
 ingest-airflow = ["requests>=2.28.0"]
 ingest-git = ["GitPython>=3.1.58"]
 
 db-all = [
-  "semantica[db-snowflake,db-databricks,db-salesforce,db-redshift,db-bigquery,db-arrow]"
+  "semantica[db-snowflake,db-databricks,db-salesforce,db-redshift,db-cassandra,db-bigquery,db-arrow]"
 ]
 
 # ---- Embedding / Models ----

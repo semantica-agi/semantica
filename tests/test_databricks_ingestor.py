@@ -877,6 +877,151 @@ class TestDatabricksIngestor:
                     token="test_token",
                 )
 
+    # ------------------------------------------------------------------
+    # WHERE-clause validation regression tests
+    # ------------------------------------------------------------------
+
+    @patch("semantica.ingest.databricks_ingestor.DATABRICKS_AVAILABLE", True)
+    @patch("semantica.ingest.databricks_ingestor.databricks_sql")
+    def test_ingest_table_union_in_where_raises_validation_error(self, mock_sql):
+        """UNION in WHERE must raise ValidationError, not just block semicolons."""
+        from semantica.ingest.databricks_ingestor import DatabricksIngestor
+        from semantica.utils.exceptions import ValidationError
+
+        ingestor = DatabricksIngestor(
+            host="https://adb-xxx.azuredatabricks.net",
+            token="test_token",
+            http_path="/sql/1.0/warehouses/xxxx",
+        )
+        with pytest.raises(ValidationError):
+            ingestor.ingest_table("customers", where="1=1 UNION SELECT * FROM secrets")
+
+    @patch("semantica.ingest.databricks_ingestor.DATABRICKS_AVAILABLE", True)
+    @patch("semantica.ingest.databricks_ingestor.databricks_sql")
+    def test_ingest_table_comment_in_where_raises_validation_error(self, mock_sql):
+        """SQL comment sequences in WHERE must raise ValidationError."""
+        from semantica.ingest.databricks_ingestor import DatabricksIngestor
+        from semantica.utils.exceptions import ValidationError
+
+        ingestor = DatabricksIngestor(
+            host="https://adb-xxx.azuredatabricks.net",
+            token="test_token",
+            http_path="/sql/1.0/warehouses/xxxx",
+        )
+        with pytest.raises(ValidationError):
+            ingestor.ingest_table("customers", where="1=1 -- bypass")
+
+    @patch("semantica.ingest.databricks_ingestor.DATABRICKS_AVAILABLE", True)
+    @patch("semantica.ingest.databricks_ingestor.databricks_sql")
+    def test_ingest_table_quoted_literal_union_passes(
+        self, mock_sql, mock_databricks_connection
+    ):
+        """'union' inside a quoted string literal must NOT be rejected."""
+        from semantica.ingest.databricks_ingestor import DatabricksIngestor
+
+        mock_conn, mock_cursor = mock_databricks_connection
+        mock_sql.connect = Mock(return_value=mock_conn)
+
+        ingestor = DatabricksIngestor(
+            host="https://adb-xxx.azuredatabricks.net",
+            token="test_token",
+            http_path="/sql/1.0/warehouses/xxxx",
+        )
+        # 'Credit Union' is a data value, not SQL syntax — must pass
+        ingestor.ingest_table("customers", where="name = 'Credit Union'")
+
+        executed_query = mock_cursor.execute.call_args[0][0]
+        assert "WHERE name = 'Credit Union'" in executed_query
+
+    @patch("semantica.ingest.databricks_ingestor.DATABRICKS_AVAILABLE", True)
+    @patch("semantica.ingest.databricks_ingestor.databricks_sql")
+    def test_invalid_where_rejected_before_connect(
+        self, mock_sql, mock_databricks_connection
+    ):
+        """ValidationError must be raised before any connection is attempted."""
+        from semantica.ingest.databricks_ingestor import DatabricksIngestor
+        from semantica.utils.exceptions import ValidationError
+
+        mock_conn, _ = mock_databricks_connection
+        mock_sql.connect = Mock(return_value=mock_conn)
+
+        ingestor = DatabricksIngestor(
+            host="https://adb-xxx.azuredatabricks.net",
+            token="test_token",
+            http_path="/sql/1.0/warehouses/xxxx",
+        )
+        with pytest.raises(ValidationError):
+            ingestor.ingest_table("customers", where="1=1 UNION SELECT * FROM secrets")
+
+        mock_sql.connect.assert_not_called()
+
+    @patch("semantica.ingest.databricks_ingestor.DATABRICKS_AVAILABLE", True)
+    @patch("semantica.ingest.databricks_ingestor.databricks_sql")
+    def test_backtick_quoted_identifier_with_blocked_word_passes(
+        self, mock_sql, mock_databricks_connection
+    ):
+        """Backtick-quoted identifiers containing blocked words must not be rejected.
+
+        Databricks SQL uses backtick quoting for column names that collide
+        with reserved words or contain special characters, e.g.:
+            WHERE `union` = 1
+            WHERE `my--column` > 0
+        These are valid column references, not injection syntax.
+        """
+        from semantica.ingest.databricks_ingestor import DatabricksIngestor
+
+        mock_conn, mock_cursor = mock_databricks_connection
+        mock_sql.connect = Mock(return_value=mock_conn)
+
+        ingestor = DatabricksIngestor(
+            host="https://adb-xxx.azuredatabricks.net",
+            token="test_token",
+            http_path="/sql/1.0/warehouses/xxxx",
+        )
+        # backtick-quoted column name that happens to spell a blocked word
+        ingestor.ingest_table("events", where="`union` = 1")
+
+        executed_query = mock_cursor.execute.call_args[0][0]
+        assert "WHERE `union` = 1" in executed_query
+
+    @patch("semantica.ingest.databricks_ingestor.DATABRICKS_AVAILABLE", True)
+    @patch("semantica.ingest.databricks_ingestor.databricks_sql")
+    def test_backtick_quoted_identifier_with_comment_chars_passes(
+        self, mock_sql, mock_databricks_connection
+    ):
+        """Backtick-quoted identifier containing -- must not be rejected."""
+        from semantica.ingest.databricks_ingestor import DatabricksIngestor
+
+        mock_conn, mock_cursor = mock_databricks_connection
+        mock_sql.connect = Mock(return_value=mock_conn)
+
+        ingestor = DatabricksIngestor(
+            host="https://adb-xxx.azuredatabricks.net",
+            token="test_token",
+            http_path="/sql/1.0/warehouses/xxxx",
+        )
+        ingestor.ingest_table("events", where="`my--column` > 0")
+
+        executed_query = mock_cursor.execute.call_args[0][0]
+        assert "WHERE `my--column` > 0" in executed_query
+
+    @patch("semantica.ingest.databricks_ingestor.DATABRICKS_AVAILABLE", True)
+    @patch("semantica.ingest.databricks_ingestor.databricks_sql")
+    def test_bare_union_outside_backticks_still_rejected(
+        self, mock_sql, mock_databricks_connection
+    ):
+        """UNION outside any quoting must still raise ValidationError."""
+        from semantica.ingest.databricks_ingestor import DatabricksIngestor
+        from semantica.utils.exceptions import ValidationError
+
+        ingestor = DatabricksIngestor(
+            host="https://adb-xxx.azuredatabricks.net",
+            token="test_token",
+            http_path="/sql/1.0/warehouses/xxxx",
+        )
+        with pytest.raises(ValidationError):
+            ingestor.ingest_table("events", where="1=1 UNION SELECT * FROM secrets")
+
 
 class TestDatabricksData:
     """Test DatabricksData dataclass."""

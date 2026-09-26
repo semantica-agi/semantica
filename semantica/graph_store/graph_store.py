@@ -433,7 +433,7 @@ class GraphAnalytics:
         self,
         labels: Optional[List[str]] = None,
         **options,
-    ) -> Dict[str, Any]:
+    ) -> List[Dict[str, Any]]:
         """
         Find connected components in the graph.
 
@@ -445,7 +445,8 @@ class GraphAnalytics:
             **options: Additional options
 
         Returns:
-            Component information
+            List of component dicts, each with "component" (id) and
+            "nodes" (list of node ids).
         """
         backend_type = type(self.backend).__name__
 
@@ -460,8 +461,12 @@ class GraphAnalytics:
             """
             params = {"label": labels[0] if labels else "*"}
             result = self.backend.execute_query(query, params)
+            # execute_query returns a {"success", "records", "keys",
+            # "metadata"} envelope — iterate its records, not the envelope
+            # itself (same read as degree_centrality above).
             return [
-                {"component": r["componentId"], "nodes": r["nodes"]} for r in result
+                {"component": r["componentId"], "nodes": r["nodes"]}
+                for r in result.get("records", [])
             ]
 
         elif "NetworkX" in backend_type:

@@ -162,6 +162,24 @@ jobs:
           diff \
             <(grep -E '^[a-zA-Z0-9._-]+==' requirements-ci.txt | sed 's/ \\$//') \
             <(grep -E '^[a-zA-Z0-9._-]+==' /tmp/requirements-ci-check.txt)
+      - name: Verify open-ontologies-extra.txt is up to date
+        run: |
+          # Same freshness contract as requirements-ci.txt above, applied to
+          # the separately pinned open-ontologies extra. That extra is
+          # deliberately kept out of `all`, so the check above cannot see it:
+          # without this step a pyproject.toml change would leave the
+          # integration tests below running against a stale dependency graph.
+          # uv is already installed by the step above.
+          #
+          # The flags must match the header of the committed file exactly,
+          # --python-platform linux included, or the two resolutions can
+          # legitimately differ and this gate turns into noise.
+          uv pip compile pyproject.toml --python-version 3.11 --python-platform linux \
+            --extra open-ontologies --constraint requirements-ci.txt \
+            -o /tmp/open-ontologies-extra-check.txt
+          diff \
+            <(grep -E '^[a-zA-Z0-9._-]+==' .github/requirements/open-ontologies-extra.txt | sed 's/ \\$//') \
+            <(grep -E '^[a-zA-Z0-9._-]+==' /tmp/open-ontologies-extra-check.txt)
       - name: Verify uv.lock is up to date
         run: |
           # uv.lock backs the `uv sync` contributor workflow. It is a universal
@@ -195,3 +213,16 @@ jobs:
           PY
       - name: Run Google ADK Integration Tests
         run: pytest tests/integrations/google_adk/
+      # The open-ontologies extra is deliberately not part of `all`, so
+      # requirements-ci.txt does not carry it and these tests would otherwise
+      # be silently skipped by their `importorskip`. Install it explicitly so
+      # the verified-export gate is actually exercised.
+      #
+      # .github/requirements/open-ontologies-extra.txt is
+      # `uv pip compile pyproject.toml --extra open-ontologies --python-version 3.11 --python-platform linux --constraint requirements-ci.txt --generate-hashes`
+      # - regenerate it the same way if pyproject.toml's open-ontologies dep changes.
+      - name: Run Open Ontologies Integration Tests
+        run: |
+          pip install -r .github/requirements/open-ontologies-extra.txt --require-hashes
+          python -c "import open_ontologies_lite"  # fail loudly rather than skip
+          pytest tests/integrations/open_ontologies/

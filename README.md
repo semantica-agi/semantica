@@ -1548,6 +1548,7 @@ pip install "semantica[tripletstore-oxigraph]" # Embedded in-memory/on-disk RDF 
 pip install "semantica[db-snowflake]"       # Snowflake
 pip install "semantica[db-databricks]"      # Databricks (SDK + SQL connector)
 pip install "semantica[ingest-sap]"         # SAP OData
+pip install "semantica[ingest-servicenow]"  # ServiceNow Table API
 pip install "semantica[ingest-parquet]"     # Parquet / PyArrow
 pip install "semantica[ingest-arrow]"       # Apache Arrow, Feather, IPC
 pip install "semantica[watch]"              # Directory file watcher
