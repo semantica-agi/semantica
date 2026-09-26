@@ -268,7 +268,7 @@ class AgnoKGToolkit(_ToolkitBase):  # type: ignore[misc]
         Query the context graph in natural language or Cypher.
 
         For natural-language queries all nodes are retrieved and filtered by
-        whether ``query`` appears in their ``node_id``.  Pass a string starting
+        whether ``query`` appears in their ``id`` or ``type``.  Pass a string starting
         with ``"MATCH"`` for raw Cypher execution (requires a Neo4j / FalkorDB
         backend).
 
@@ -303,8 +303,8 @@ class AgnoKGToolkit(_ToolkitBase):  # type: ignore[misc]
                 out = []
                 for n in (all_nodes or []):
                     if isinstance(n, dict):
-                        node_id = n.get("node_id", "")
-                        node_type = n.get("node_type", "")
+                        node_id = n.get("id", "")
+                        node_type = n.get("type", "")
                     else:
                         node_id = getattr(n, "id", getattr(n, "label", str(n)))
                         node_type = getattr(n, "node_type", "")
@@ -344,7 +344,7 @@ class AgnoKGToolkit(_ToolkitBase):  # type: ignore[misc]
                         neighbours = self._graph.get_neighbors(node_id=e, hops=1)  # type: ignore[attr-defined]
                         for n in (neighbours or []):
                             if isinstance(n, dict):
-                                label = n.get("node_id", "")
+                                label = n.get("id", "")
                             else:
                                 label = getattr(n, "label", str(n))
                             if label and label not in visited:
@@ -397,8 +397,8 @@ class AgnoKGToolkit(_ToolkitBase):  # type: ignore[misc]
                 all_nodes = self._graph.find_nodes()  # type: ignore[attr-defined]
                 for node in (all_nodes or [])[:50]:
                     if isinstance(node, dict):
-                        label = node.get("node_id", "")
-                        ntype = node.get("node_type", "Entity")
+                        label = node.get("id", "")
+                        ntype = node.get("type", "Entity")
                     else:
                         label = getattr(node, "label", str(node))
                         ntype = getattr(node, "node_type", "Entity")
@@ -409,7 +409,7 @@ class AgnoKGToolkit(_ToolkitBase):  # type: ignore[misc]
 
         try:
             result = self._reasoner.infer_facts(fact_list, rule_list)
-            inferred = getattr(result, "inferred_facts", []) or []
+            inferred = result or []
             inferred_strs = [str(f) for f in inferred]
             logger.debug("infer_facts → %d new facts", len(inferred_strs))
             return json.dumps({"inferred_facts": inferred_strs, "count": len(inferred_strs)})
@@ -446,7 +446,9 @@ class AgnoKGToolkit(_ToolkitBase):  # type: ignore[misc]
             rdf_format = {"ttl": "turtle", "json-ld": "json-ld", "xml": "xml", "nt": "nt"}.get(
                 format, format
             )
-            output = exporter.export_to_rdf(self._graph, format=rdf_format)  # type: ignore[arg-type]
+            output = exporter.export_to_rdf(
+                self._graph.to_kg_dict(), format=rdf_format
+            )
             return json.dumps({"format": rdf_format, "data": output})
         except Exception as exc:
             logger.warning("export_subgraph failed: %s", exc)
@@ -456,7 +458,7 @@ class AgnoKGToolkit(_ToolkitBase):  # type: ignore[misc]
                 nodes = []
                 for n in (all_nodes or []):
                     if isinstance(n, dict):
-                        nodes.append({"id": n.get("node_id", ""), "label": n.get("node_id", "")})
+                        nodes.append({"id": n.get("id", ""), "label": n.get("id", "")})
                     else:
                         nodes.append(
                             {"id": getattr(n, "id", ""), "label": getattr(n, "label", "")}
