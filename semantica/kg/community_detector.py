@@ -469,8 +469,11 @@ class CommunityDetector:
 
         Args:
             graph: Input graph for community detection
-            algorithm: Community detection algorithm to use
-                      (supported: "louvain", "leiden", "overlapping")
+            algorithm: Community detection algorithm to use. Supported values
+                      are "louvain", "leiden", "overlapping" and
+                      "label_propagation".
+            method: Alias for ``algorithm``. A value that is not supported is
+                      ignored, which leaves ``algorithm`` in effect.
             **options: Additional detection options (passed to algorithm-specific method)
 
         Returns:
@@ -479,20 +482,24 @@ class CommunityDetector:
         Raises:
             ValueError: If algorithm is not supported
         """
+        handlers = {
+            "louvain": self.detect_communities_louvain,
+            "leiden": self.detect_communities_leiden,
+            "overlapping": self.detect_overlapping_communities,
+            "label_propagation": self.detect_communities_label_propagation,
+        }
+
         # 'method' is an alias for 'algorithm'
         if method is not None:
-            algorithm = method if method in ("louvain", "leiden", "overlapping") else "louvain"
+            algorithm = method if method in handlers else algorithm
 
         self.logger.info(f"Detecting communities using {algorithm} algorithm")
 
-        if algorithm == "louvain":
-            return self.detect_communities_louvain(graph, **options)
-        elif algorithm == "leiden":
-            return self.detect_communities_leiden(graph, **options)
-        elif algorithm == "overlapping":
-            return self.detect_overlapping_communities(graph, **options)
-        else:
+        handler = handlers.get(algorithm)
+        if handler is None:
             raise ValueError(f"Unsupported algorithm: {algorithm}")
+
+        return handler(graph, **options)
 
     def _build_adjacency(self, graph) -> Dict[str, List[str]]:
         """Build adjacency list from graph."""
@@ -863,11 +870,12 @@ class CommunityDetector:
 
         NetworkX exposes ``nodes`` as a callable view, while
         :class:`~semantica.context.context_graph.ContextGraph` exposes it as a
-        mapping keyed by node id.
+        mapping keyed by node id. A graph dictionary keeps its node records
+        under a ``"nodes"`` key, so those go through :func:`build_graph_view`.
         """
         nodes = getattr(graph, "nodes", None)
         if nodes is None:
-            return []
+            return list(build_graph_view(graph).nodes)
         if callable(nodes):
             return list(nodes())
         return list(nodes)
@@ -943,16 +951,24 @@ class CommunityDetector:
     ) -> Dict[str, List[str]]:
         """Build adjacency list filtered by nodes and relationship types."""
         adjacency = {}
-        
+
+        # A graph dictionary has no neighbour accessor, so build the whole
+        # map once, the way Louvain does through build_adjacency().
+        base_adjacency = (
+            {}
+            if hasattr(graph, "neighbors") or hasattr(graph, "get_neighbors")
+            else build_adjacency(graph)
+        )
+
         for node in nodes:
             neighbors = []
-            
+
             if hasattr(graph, 'neighbors'):
                 all_neighbors = list(graph.neighbors(node))
             elif hasattr(graph, 'get_neighbors'):
                 all_neighbors = graph.get_neighbors(node)
             else:
-                all_neighbors = []
+                all_neighbors = list(base_adjacency.get(node, []))
 
             if all_neighbors and isinstance(all_neighbors[0], dict):
                 all_neighbors = [
