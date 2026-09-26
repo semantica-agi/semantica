@@ -204,3 +204,86 @@ def _first_attribute(value: Any, *names: str) -> Any:
         if attribute not in (None, ""):
             return attribute
     return None
+
+
+def graph_node_ids(graph: Any) -> List[Any]:
+    """Return the node ids of any supported graph.
+
+    NetworkX exposes ``nodes`` as a callable view, while
+    :class:`~semantica.context.context_graph.ContextGraph` exposes it as a
+    mapping keyed by node id.
+    """
+    nodes = getattr(graph, "nodes", None)
+    if nodes is None:
+        return []
+    if callable(nodes):
+        return list(nodes())
+    return list(nodes)
+
+
+def graph_node_label(graph: Any, node: Any) -> Optional[str]:
+    """Read a node's label from either a mapping or an object.
+
+    NetworkX stores node attributes in a dict, while ``ContextGraph`` stores a
+    :class:`~semantica.context.context_graph.ContextNode` dataclass whose label
+    is ``node_type``.
+    """
+    node_data = graph.nodes[node]
+    if isinstance(node_data, dict):
+        return node_data.get("label") or node_data.get("type")
+    for attribute in ("node_type", "label", "type"):
+        label = getattr(node_data, attribute, None)
+        if label:
+            return label
+    return None
+
+
+def edge_types_between(graph: Any, source: Any, target: Any) -> Optional[Set[Any]]:
+    """Collect the relationship types of every edge between two nodes.
+
+    Returns ``None`` when the graph exposes no edge types at all, because a
+    caller cannot classify a link it has no metadata for. An empty set means the
+    two nodes are joined by edges that declare no type. Callers keep the
+    neighbour on ``None`` and apply the filter to a set.
+
+    ``ContextGraph`` keeps parallel edges and its ``get_edge_data()`` returns
+    only the first one, so the edge list is the only view that shows them all.
+    NetworkX returns plain attributes for a simple graph and a key-to-attributes
+    mapping for a multigraph.
+    """
+    edges = getattr(graph, "edges", None)
+    if isinstance(edges, (list, tuple)) and any(
+        hasattr(edge, "source_id") for edge in edges
+    ):
+        types: Set[Any] = set()
+        for edge in edges:
+            src = getattr(edge, "source_id", None)
+            dst = getattr(edge, "target_id", None)
+            if (src == source and dst == target) or (
+                src == target and dst == source
+            ):
+                edge_type = getattr(edge, "edge_type", None)
+                if edge_type:
+                    types.add(edge_type)
+        return types
+
+    if hasattr(graph, "get_edge_data"):
+        data = graph.get_edge_data(source, target)
+        if not isinstance(data, dict) or not data:
+            return set()
+        is_multigraph = getattr(graph, "is_multigraph", None)
+        if callable(is_multigraph) and is_multigraph():
+            candidates = data.values()
+        else:
+            candidates = [data]
+        types = set()
+        for attributes in candidates:
+            if isinstance(attributes, dict):
+                edge_type = attributes.get("type") or attributes.get(
+                    "relationship"
+                )
+                if edge_type:
+                    types.add(edge_type)
+        return types
+
+    return None
