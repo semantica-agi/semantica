@@ -8,9 +8,9 @@ agno==3.0.5 \
     --hash=sha256:14daedb4548d7c189eaf9922a722c790c506ff26bd6fd39d842111567a522f1d \
     --hash=sha256:52425d2e731b09badfdf64a50cb6fd7b580111ec1788e4a072de475578ad77a5
     # via semantica (pyproject.toml)
-agnoctl==0.2.0 \
-    --hash=sha256:eee03a1febcd11d80b524aac2da527ffa134d88d92c19a529b1862fa6f965d69 \
-    --hash=sha256:fcc5f150e1aab3e128815c79a28e03bad4446d46864f5c39d434985e89ea214f
+agnoctl==0.2.1 \
+    --hash=sha256:b53e9b3a4081548ac15233c5f52f70de5702c830a87a304c7797c1e22691530c \
+    --hash=sha256:b748ad43deb5d7acbf7f14988a868e22433c76fe059d6b955c34b5044e0e1ea4
     # via agno
 aiohappyeyeballs==2.7.1 \
     --hash=sha256:065665c041c42a5938ed220bdcd7230f22527fbec085e1853d2402c8a3615d9d \
