@@ -99,6 +99,14 @@ class GraphBuilder:
         if isinstance(_nested, dict):
             for _key, _value in _nested.items():
                 kwargs.setdefault(_key, _value)
+        # Screening options belong to this boundary, not to extraction backends.
+        self._screening_options = {
+            "screening": kwargs.pop("screening", False),
+            "screening_method": kwargs.pop("screening_method", "baseline"),
+            "screening_mode": kwargs.pop("screening_mode", "annotate"),
+        }
+        self._screening_reports: List[Dict[str, Any]] = []
+        self._screened_text_count = 0
         self.config = kwargs
         # unknown_relation_endpoint lives in the per-module build config
         # (semantica/kg/config.py); fall back to it so the option has a single
@@ -445,10 +453,61 @@ class GraphBuilder:
             )
         return remapped_count
 
+    def _screen_text(self, text: str, options: Dict[str, Any]) -> None:
+        """Screen once before extraction, consuming boundary-only options."""
+        config = {
+            key: options.pop(key, default)
+            for key, default in self._screening_options.items()
+        }
+        if not isinstance(config["screening"], bool):
+            raise ValueError("screening must be a bool")
+        if not config["screening"]:
+            return
+        mode = config["screening_mode"]
+        if mode not in ("log", "annotate"):
+            raise ValueError("screening_mode must be 'log' or 'annotate'")
+
+        from ..ingest.screening import get_scanner, validate_findings
+
+        scanner = get_scanner(config["screening_method"])
+        text_index = self._screened_text_count
+        self._screened_text_count += 1
+        report = {
+            "text_index": text_index,
+            "method": config["screening_method"],
+            "status": "ok",
+            "findings": [],
+        }
+        try:
+            findings = validate_findings(scanner(text), text)
+            if findings:
+                # Do not put source text, excerpts, or backend-controlled IDs
+                # into logs: ingested documents may contain sensitive data.
+                self.logger.warning(
+                    "Content screening flagged text %d (%d finding(s)); "
+                    "extraction continues unchanged",
+                    text_index,
+                    len(findings),
+                )
+            report["findings"] = [finding.to_dict() for finding in findings]
+        except Exception:
+            # This first slice is advisory. Keep failures distinguishable from
+            # successful scans with no matches, without logging payloads that
+            # a backend may include in its exception message.
+            report["status"] = "error"
+            self.logger.warning(
+                "Content screening failed for text %d; extraction continues unchanged",
+                text_index,
+            )
+        if mode == "annotate":
+            self._screening_reports.append(report)
+
     def _extract_from_text(self, text: str, all_entities: List[Any], all_relationships: List[Any], **options):
         """Helper to extract knowledge from text using configured methods."""
         if not options.get("extract", True):
             return
+
+        self._screen_text(text, options)
 
         from ..semantic_extract.ner_extractor import NERExtractor
         from ..semantic_extract.relation_extractor import RelationExtractor
@@ -551,6 +610,13 @@ class GraphBuilder:
                   that overrides the one configured on the builder.
                 - ``relationships`` (list): An explicit list of relationships
                   to include in addition to those found in *sources*.
+                - ``screening`` (bool): Screen raw text before extraction
+                  (default: ``False``). May also be set on the builder.
+                - ``screening_method`` (str): Registered ``screen`` method,
+                  or ``"baseline"`` (default).
+                - ``screening_mode`` (str): ``"annotate"`` (default) adds
+                  reports to ``metadata.content_screening``; ``"log"`` only
+                  logs finding counts and failures. Neither mode blocks text.
 
             Raw-text extraction uses local extractors by default and needs no
             provider or API key. To use LLM extraction, pass the methods
@@ -641,6 +707,8 @@ class GraphBuilder:
         }
         # Reset per-run rejection counter.
         self._rejected_relationships = 0
+        self._screening_reports = []
+        self._screened_text_count = 0
         
         tracking_id = self.progress_tracker.start_tracking(
             module="kg",
@@ -936,6 +1004,8 @@ class GraphBuilder:
                 },
             }
             structure_time = time.time() - structure_start
+            if self._screening_reports:
+                graph["metadata"]["content_screening"] = self._screening_reports
             self.logger.debug("Graph structure built in %.2fs", structure_time)
 
             # Persist to GraphStore if available
