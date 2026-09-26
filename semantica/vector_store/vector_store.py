@@ -521,13 +521,14 @@ class VectorStore:
         # Delegate to backend store if available
         if self._backend_store:
             # Handle different method names across backend stores
+            ids = None
             if hasattr(self._backend_store, 'add'):
-                return self._backend_store.add(vectors, metadata, **options)
+                ids = self._backend_store.add(vectors, metadata, **options)
             elif hasattr(self._backend_store, 'add_vectors'):
                 # FAISSStore and others use add_vectors with different signature
                 if hasattr(self._backend_store, 'store_vectors'):
                     # Some stores have store_vectors method
-                    return self._backend_store.store_vectors(vectors, metadata=metadata, **options)
+                    ids = self._backend_store.store_vectors(vectors, metadata=metadata, **options)
                 else:
                     try:
                         add_vectors_params = inspect.signature(self._backend_store.add_vectors).parameters
@@ -537,20 +538,23 @@ class VectorStore:
                     except (ValueError, TypeError):
                         supports_metadata = True
                     if supports_metadata:
-                        return self._backend_store.add_vectors(vectors, metadata=metadata, **options)
-                    return self._backend_store.add_vectors(vectors, **options)
+                        ids = self._backend_store.add_vectors(vectors, metadata=metadata, **options)
+                    else:
+                        ids = self._backend_store.add_vectors(vectors, **options)
             elif hasattr(self._backend_store, 'insert_vectors'):
                 # QdrantStore: insert_vectors(vectors, ids, payloads=None)
-                # upserts the points but returns the client's status dict,
-                # while this facade promises callers the stored vector IDs
-                # (decision storage indexes the result at position 0).
-                # metadata entries already carry the source document (folded
-                # in by store()), so they map directly to Qdrant payloads.
                 ids = options.pop('ids', None) or [str(uuid.uuid4()) for _ in range(len(vectors))]
                 self._backend_store.insert_vectors(vectors, ids, payloads=metadata, **options)
-                return ids
             else:
                 raise NotImplementedError(f"Backend store {type(self._backend_store).__name__} does not have add or add_vectors method")
+
+            if ids is not None:
+                metadata = metadata or [{}] * len(vectors)
+                with self._inmemory_lock:
+                    for i, vid in enumerate(ids):
+                        self.vectors[vid] = vectors[i]
+                        self.metadata[vid] = metadata[i]
+                return ids
         
         # Use in-memory implementation
         tracking_id = self.progress_tracker.start_tracking(
