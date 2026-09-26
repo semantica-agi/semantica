@@ -176,6 +176,50 @@ def handle_get_graph_summary(args: dict) -> dict:  # noqa: ARG001
         return {"error": str(exc), "graph_ready": False}
 
 
+def _top_rankings(payload, top_n: int) -> list:
+    """Return the first ``top_n`` entries of a centrality result.
+
+    ``CentralityCalculator`` returns ``{"centrality": {node: score},
+    "rankings": [...]}`` and the rankings list is already sorted, so the
+    handler only has to trim it.  PageRank emits ``(node, score)`` pairs
+    while the other measures emit ``{"node": ..., "score": ...}`` dicts;
+    both are normalised here so the tool returns one shape.
+    """
+    if not isinstance(payload, dict):
+        return []
+    rankings = payload.get("rankings")
+    if not isinstance(rankings, list):
+        centrality = payload.get("centrality")
+        if not isinstance(centrality, dict):
+            return []
+        rankings = sorted(centrality.items(), key=lambda item: item[1], reverse=True)
+    trimmed = []
+    for entry in rankings[:top_n]:
+        if isinstance(entry, dict):
+            trimmed.append(entry)
+        elif isinstance(entry, (list, tuple)) and len(entry) == 2:
+            trimmed.append({"node": entry[0], "score": entry[1]})
+    return trimmed
+
+
+def _community_groups(payload) -> list:
+    """Return the community groups of a ``detect_communities`` result.
+
+    The detector returns ``{"communities": [set, ...], ...}``; the groups
+    are sets, which the JSON transport cannot serialise, so each one is
+    returned as a sorted list.
+    """
+    if isinstance(payload, dict):
+        groups = payload.get("communities")
+    elif isinstance(payload, list):
+        groups = payload
+    else:
+        groups = None
+    if not isinstance(groups, list):
+        return []
+    return [sorted(group) if isinstance(group, (set, frozenset)) else group for group in groups]
+
+
 def handle_get_graph_analytics(args: dict) -> dict:
     """Compute centrality, community detection, and other graph metrics."""
     requested = args.get("metrics", ["all"])
@@ -189,32 +233,30 @@ def handle_get_graph_analytics(args: dict) -> dict:
         if compute_all or "pagerank" in requested:
             try:
                 pr = CentralityCalculator().calculate_pagerank(graph)
-                items = pr.items() if hasattr(pr, "items") else []
-                result["pagerank"] = sorted(items, key=lambda x: x[1], reverse=True)[:top_n]
+                result["pagerank"] = _top_rankings(pr, top_n)
             except Exception as exc:
                 result["pagerank_error"] = str(exc)
 
         if compute_all or "betweenness" in requested:
             try:
                 bc = CentralityCalculator().calculate_betweenness_centrality(graph)
-                items = bc.items() if hasattr(bc, "items") else []
-                result["betweenness"] = sorted(items, key=lambda x: x[1], reverse=True)[:top_n]
+                result["betweenness"] = _top_rankings(bc, top_n)
             except Exception as exc:
                 result["betweenness_error"] = str(exc)
 
         if compute_all or "communities" in requested:
             try:
                 comms = CommunityDetector().detect_communities(graph)
-                result["community_count"] = len(comms) if isinstance(comms, (list, dict)) else 0
-                result["communities"] = comms if isinstance(comms, list) else []
+                groups = _community_groups(comms)
+                result["community_count"] = len(groups)
+                result["communities"] = groups
             except Exception as exc:
                 result["communities_error"] = str(exc)
 
         if compute_all or "degree" in requested:
             try:
                 deg = CentralityCalculator().calculate_degree_centrality(graph)
-                items = deg.items() if hasattr(deg, "items") else []
-                result["degree"] = sorted(items, key=lambda x: x[1], reverse=True)[:top_n]
+                result["degree"] = _top_rankings(deg, top_n)
             except Exception as exc:
                 result["degree_error"] = str(exc)
 
