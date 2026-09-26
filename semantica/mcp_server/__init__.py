@@ -410,6 +410,24 @@ def _tool_run_reasoning(args: dict) -> dict:
     return {"derived_facts": derived if isinstance(derived, list) else list(derived)}
 
 
+def _pagerank_rankings(result: object) -> list:
+    """Return the ranked ``(node, score)`` pairs of a PageRank result.
+
+    ``CentralityCalculator.calculate_pagerank`` returns
+    ``{"centrality": {node: score}, "rankings": [...]}`` rather than a flat
+    ``{node: score}`` mapping, and its rankings list is already ordered.
+    """
+    if not isinstance(result, dict):
+        return []
+    rankings = result.get("rankings")
+    if isinstance(rankings, list):
+        return rankings
+    scores = result.get("centrality")
+    if not isinstance(scores, dict):
+        return []
+    return sorted(scores.items(), key=lambda item: item[1], reverse=True)
+
+
 def _tool_get_graph_analytics(args: dict) -> dict:
     """Compute graph analytics: centrality, community detection, metrics."""
     graph = _get_graph()
@@ -424,10 +442,7 @@ def _tool_get_graph_analytics(args: dict) -> dict:
         return {
             "node_count": node_count,
             "edge_count": edge_count,
-            "top_nodes_by_pagerank": sorted(
-                centrality.items() if hasattr(centrality, "items") else [],
-                key=lambda x: x[1], reverse=True
-            )[:10],
+            "top_nodes_by_pagerank": _pagerank_rankings(centrality)[:10],
             "community_count": len(communities) if isinstance(communities, (list, dict)) else 0,
         }
     except Exception as exc:
