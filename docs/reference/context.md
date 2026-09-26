@@ -991,7 +991,10 @@ verified context yourself with `ContextRetriever.retrieve(...,
 truth_filter=...)` and feed it to the model.
 
 See [Truth Maintenance](/reference/truth_maintenance) for the session model
-behind the filter.
+behind the filter. For assembling model-ready context with citation
+footnotes, snapshot-consistent re-checks, and bitemporal historical
+reads, see [Grounded Context
+Assembly](/reference/grounded_context).
 
 
 ## Data Structures

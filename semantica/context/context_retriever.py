@@ -294,7 +294,65 @@ class ContextRetriever:
                 "'local', 'global', 'drift', 'hybrid'"
             )
 
-        # Track context retrieval
+        if truth_filter is not None and not isinstance(
+            truth_filter, TruthMaintenanceContextFilter
+        ):
+            raise ValidationError(
+                "truth_filter must be a TruthMaintenanceContextFilter " "instance",
+                validation_context={"method": "ContextRetriever.retrieve"},
+            )
+        snapshot = truth_filter.snapshot() if truth_filter is not None else None
+
+        if truth_filter is not None:
+
+            def candidate_filter(candidates):
+                return truth_filter.filter_contexts(candidates, snapshot=snapshot)
+
+            def final_check():
+                truth_filter.assert_current(snapshot)
+
+        else:
+            candidate_filter = None
+            final_check = None
+
+        return self._retrieve_local(
+            query,
+            max_results=max_results,
+            use_graph_expansion=use_graph_expansion,
+            min_relevance_score=min_relevance_score,
+            candidate_filter=candidate_filter,
+            merge_duplicates=snapshot is None,
+            final_check=final_check,
+            **options,
+        )
+
+    def _retrieve_local(
+        self,
+        query: str,
+        *,
+        max_results: int = 5,
+        use_graph_expansion: bool | None = None,
+        min_relevance_score: float = 0.0,
+        candidate_filter=None,
+        merge_duplicates: bool = True,
+        limit_results: bool = True,
+        final_check=None,
+        **options,
+    ) -> list[RetrievedContext]:
+        """
+        Shared local-retrieval seam for retrieve and grounded assembly.
+
+        The public :meth:`retrieve` keeps mode dispatch, truth-filter
+        validation and snapshot capture, then delegates here. This helper
+        owns tracking, source collection, ranking, thresholding and top-k
+        selection. ``candidate_filter`` receives the combined candidate list
+        before ranking and returns the validated candidates to keep;
+        ``limit_results=False`` leaves the bounded collected pool untruncated
+        for budget admission; source collection limits are unchanged.
+        ``final_check`` runs after thresholding and before the tracker is
+        stopped successfully, so a stale view still fails the tracking unit.
+        """
+
         tracking_id = self.progress_tracker.start_tracking(
             file=None,
             module="context",
@@ -303,18 +361,6 @@ class ContextRetriever:
         )
 
         try:
-            if truth_filter is not None and not isinstance(
-                truth_filter, TruthMaintenanceContextFilter
-            ):
-                raise ValidationError(
-                    "truth_filter must be a TruthMaintenanceContextFilter "
-                    "instance",
-                    validation_context={"method": "ContextRetriever.retrieve"},
-                )
-            snapshot = (
-                truth_filter.snapshot() if truth_filter is not None else None
-            )
-
             use_expansion = (
                 use_graph_expansion
                 if use_graph_expansion is not None
@@ -357,12 +403,10 @@ class ContextRetriever:
             self.progress_tracker.update_tracking(
                 tracking_id, message="Ranking and merging results..."
             )
-            if snapshot is not None:
-                all_results = truth_filter.filter_contexts(
-                    all_results, snapshot=snapshot
-                )
+            if candidate_filter is not None:
+                all_results = candidate_filter(all_results)
             ranked_results = self._rank_and_merge(
-                all_results, query, merge_duplicates=snapshot is None
+                all_results, query, merge_duplicates=merge_duplicates
             )
 
             # Filter by minimum score
@@ -371,20 +415,20 @@ class ContextRetriever:
                 if min_relevance_score > 1.0
                 else max(0.0, min(1.0, min_relevance_score))
             )
-            filtered_results = [
-                r for r in ranked_results if r.score >= eff_min_score
-            ]
+            filtered_results = [r for r in ranked_results if r.score >= eff_min_score]
 
-            if snapshot is not None:
-                truth_filter.assert_current(snapshot)
+            if final_check is not None:
+                final_check()
 
+            results = (
+                filtered_results[:max_results] if limit_results else filtered_results
+            )
             self.progress_tracker.stop_tracking(
                 tracking_id,
                 status="completed",
-                message=f"Retrieved {len(filtered_results[:max_results])} results",
+                message=f"Retrieved {len(results)} results",
             )
-            # Return top results
-            return filtered_results[:max_results]
+            return results
 
         except Exception as e:
             self.progress_tracker.stop_tracking(
