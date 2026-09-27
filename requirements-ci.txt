@@ -2967,9 +2967,9 @@ lxml==6.1.2 \
     #   doclang
     #   python-docx
     #   python-pptx
-mail-parser==4.6.4 \
-    --hash=sha256:1929109b7934ee061c1533a897b18c57fd0adb3548b79b5e28d901819bade872 \
-    --hash=sha256:bc6e437b3afe38091893e7b6ea49c7f2188ad7616abdd4fa3059e85f1b69efce
+mail-parser==4.6.5 \
+    --hash=sha256:184100c23e136bd167b490791d4089f6294893cda5d5a88c5dd4999f559a4123 \
+    --hash=sha256:99ae29fb038d77a5e89a74366791ac3dbf2042244044c0390be403b6ede06765
     # via docling-slim
 markdown-it-py==4.2.0 \
     --hash=sha256:04a21681d6fbb623de53f6f364d352309d4094dd4194040a10fd51833e418d49 \
