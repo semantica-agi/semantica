@@ -23,6 +23,7 @@ License: MIT
 """
 
 import mimetypes
+import warnings
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -35,7 +36,7 @@ from ..utils.constants import (
     SUPPORTED_IMAGE_FORMATS,
     SUPPORTED_VIDEO_FORMATS,
 )
-from ..utils.exceptions import ProcessingError, ValidationError
+from ..utils.exceptions import PartialIngestionWarning, ProcessingError, ValidationError
 from ..utils.logging import get_logger
 from ..utils.progress_tracker import get_progress_tracker
 
@@ -533,13 +534,30 @@ class FileIngestor:
         """
         Ingest all files from a directory.
 
+        When ``fail_fast=False`` (the default) and one or more files cannot be
+        processed, the successfully ingested files are still returned and a
+        :class:`~semantica.utils.exceptions.PartialIngestionWarning` is emitted
+        so callers are not silently handed an incomplete result.  Use
+        ``warnings.catch_warnings()`` to capture or suppress it programmatically.
+
+        When ``fail_fast=True``, the first per-file failure raises a
+        :class:`~semantica.utils.exceptions.ProcessingError` immediately.
+
         Args:
             directory_path: Path to directory
-            recursive: Whether to scan subdirectories
-            **filters: File filtering criteria
+            recursive: Whether to scan subdirectories (default: True)
+            **filters: File filtering criteria (see :meth:`scan_directory`)
 
         Returns:
-            list: List of ingested file objects
+            list: List of successfully ingested file objects.  May be a subset
+            of the discovered files if some failed and ``fail_fast=False``.
+
+        Raises:
+            ValidationError: If *directory_path* does not exist or is not a directory.
+            ProcessingError: If a per-file failure occurs and ``fail_fast=True``.
+
+        Warns:
+            PartialIngestionWarning: If any files failed and ``fail_fast=False``.
         """
         directory_path = Path(directory_path)
 
@@ -563,7 +581,11 @@ class FileIngestor:
             files = self.scan_directory(directory_path, recursive=recursive, **filters)
 
             # Process each file
-            file_objects = []
+            file_objects: List[FileObject] = []
+            # Only paths are stored — retaining exception objects would pin
+            # their tracebacks (and all referenced frame locals) for the entire
+            # duration of the directory scan (Finding 2 fix).
+            failed_paths_list: List[str] = []
             total_files = len(files)
 
             self.progress_tracker.update_tracking(
@@ -571,10 +593,28 @@ class FileIngestor:
             )
 
             for idx, file_info in enumerate(files, 1):
-                try:
-                    file_obj = self.ingest_file(file_info["path"], **file_info)
-                    file_objects.append(file_obj)
+                file_path_str = file_info["path"]
 
+                # --- per-file ingestion (inner try) ---
+                # Only ingest_file() is inside this scope.  Post-success
+                # side-effects (progress, callback, logging) are separated so
+                # that a callback or display error cannot mis-classify a
+                # successfully returned FileObject as a failure (Finding 1 fix).
+                try:
+                    file_obj = self.ingest_file(file_path_str, **file_info)
+                except Exception as e:
+                    self.logger.error(f"Failed to ingest file {file_path_str}: {e}")
+                    if self.config.get("fail_fast", False):
+                        raise ProcessingError(f"Failed to ingest file: {e}") from e
+                    failed_paths_list.append(file_path_str)
+                    continue
+
+                # ingest_file() succeeded — record the result first, then run
+                # optional side-effects.  Errors here are logged but do not
+                # count the file as an ingestion failure.
+                file_objects.append(file_obj)
+
+                try:
                     # Track progress with ETA
                     self.progress_tracker.update_progress(
                         tracking_id,
@@ -582,7 +622,7 @@ class FileIngestor:
                         total=total_files,
                         message=(
                             f"Processing file {idx}/{total_files}: "
-                            f"{Path(file_info['path']).name}"
+                            f"{Path(file_path_str).name}"
                         ),
                     )
 
@@ -591,18 +631,41 @@ class FileIngestor:
                         self._progress_callback(idx, total_files, file_obj)
 
                     self.logger.debug(
-                        f"Ingested file {idx}/{total_files}: {file_info['path']}"
+                        f"Ingested file {idx}/{total_files}: {file_path_str}"
                     )
-
-                except Exception as e:
-                    self.logger.error(f"Failed to ingest file {file_info['path']}: {e}")
+                except Exception as side_e:
+                    # The file was successfully ingested and is already in
+                    # file_objects — do NOT add its path to failed_paths_list.
+                    self.logger.error(
+                        f"Post-ingestion side-effect failed for {file_path_str}: {side_e}"
+                    )
                     if self.config.get("fail_fast", False):
-                        raise ProcessingError(f"Failed to ingest file: {e}")
+                        raise ProcessingError(
+                            f"Post-ingestion operation failed for {file_path_str}: {side_e}"
+                        ) from side_e
 
+            # Surface partial failures to the caller via a warning so that
+            # downstream consumers are not silently handed an incomplete result.
+            if failed_paths_list:
+                failed_paths = ", ".join(failed_paths_list)
+                warnings.warn(
+                    f"{len(failed_paths_list)} of {total_files} file(s) could not be "
+                    f"ingested from '{directory_path}' and were skipped. "
+                    f"Successfully ingested: {len(file_objects)}. "
+                    f"Failed paths: {failed_paths}",
+                    PartialIngestionWarning,
+                    stacklevel=2,
+                )
+
+            status_message = (
+                f"Ingested {len(file_objects)}/{total_files} files"
+                if failed_paths_list
+                else f"Ingested {len(file_objects)} files"
+            )
             self.progress_tracker.stop_tracking(
                 tracking_id,
                 status="completed",
-                message=f"Ingested {len(file_objects)} files",
+                message=status_message,
             )
             return file_objects
 

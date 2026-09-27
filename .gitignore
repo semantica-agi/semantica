@@ -45,6 +45,7 @@ env/
 venv/
 ENV/
 .venv/
+.venv-cassandra/
 build/
 develop-eggs/
 dist/

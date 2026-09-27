@@ -179,6 +179,32 @@ class TemporalAmbiguityWarning(UserWarning):
     pass
 
 
+class PartialIngestionWarning(UserWarning):
+    """
+    Warning raised when a directory ingestion completes but one or more files
+    could not be processed.
+
+    The successfully ingested files are still returned by
+    ``FileIngestor.ingest_directory()``.  This warning carries the count of
+    failures and the list of failed paths so callers can decide whether the
+    partial result is acceptable.
+
+    Example::
+
+        import warnings
+        from semantica.ingest import FileIngestor
+        from semantica.utils.exceptions import PartialIngestionWarning
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always", PartialIngestionWarning)
+            files = FileIngestor().ingest_directory("./docs")
+        if caught:
+            print(caught[0].message)
+    """
+
+    pass
+
+
 class ProcessingError(SemanticaError):
     """
     Exception raised for data processing errors.

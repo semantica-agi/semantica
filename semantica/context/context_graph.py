@@ -654,7 +654,10 @@ class ContextGraph:
                 if self.config.get("community_detection", True):
                     self.kg_components["community_detector"] = CommunityDetector()
                 if self.config.get("node_embeddings", True):
-                    self.kg_components["node_embedder"] = NodeEmbedder()
+                    try:
+                        self.kg_components["node_embedder"] = NodeEmbedder()
+                    except ImportError as e:
+                        self.logger.warning(f"Node2Vec embeddings disabled: {e}")
                 self.kg_components["path_finder"] = PathFinder()
                 self.kg_components["similarity_calculator"] = SimilarityCalculator()
                 self.kg_components["connectivity_analyzer"] = ConnectivityAnalyzer()

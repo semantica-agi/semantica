@@ -419,6 +419,8 @@ def _tool_get_graph_analytics(args: dict) -> dict:
         communities = CommunityDetector().detect_communities(graph)
         node_count = len(list(graph.find_nodes()))
         edge_count = getattr(graph, "edge_count", lambda: 0)()
+        if not hasattr(graph, "edge_count") and hasattr(graph, "stats"):
+            edge_count = graph.stats().get("edge_count", 0)
         return {
             "node_count": node_count,
             "edge_count": edge_count,

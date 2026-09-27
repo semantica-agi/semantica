@@ -315,9 +315,28 @@ spacy, SPACY_AVAILABLE = safe_import("spacy")
 # Scoring Helper Functions
 # ============================================================================
 
-# Global cache for spacy model and text embedder to avoid reloading
+# Sentinel stored in _nlp_cache / _embedder_cache after a failed load attempt.
+# Waiting threads check for this value and immediately return None rather than
+# retrying the expensive (and already-failed) construction on every call.
+# Using a dedicated object instead of a string avoids any accidental truthiness
+# collision with a real model object.
+_LOAD_FAILED = object()
+
+# Global cache for spacy model and text embedder to avoid reloading.
+# Values are either None (not yet attempted), _LOAD_FAILED (attempted and
+# failed — callers get None without retrying), or the live model object.
 _nlp_cache = None
 _embedder_cache = None
+# Guards for _nlp_cache and _embedder_cache lazy init and pipeline use.
+# _nlp_cache_lock  — serializes the check + spacy.load() sequence so only one
+#                    thread ever constructs the model.
+# _nlp_call_lock   — serializes nlp(text) calls on the shared Language object;
+#                    spaCy Language instances are not safe to call concurrently.
+# _embedder_cache_lock — serializes the check + TextEmbedder() construction so
+#                        only one instance is ever built.
+_nlp_cache_lock = threading.Lock()
+_nlp_call_lock = threading.Lock()
+_embedder_cache_lock = threading.Lock()
 
 # Cache for models loaded by name, so extraction functions do not pay
 # spacy.load() on every call. Entries record the spacy module they were loaded
@@ -450,59 +469,78 @@ def clear_spacy_model_cache() -> None:
 def get_text_embedder():
     """
     Get or load the TextEmbedder model for high-accuracy semantic similarity.
+
+    Thread-safe: ``_embedder_cache_lock`` serializes the check + construction
+    so that concurrent threads never build more than one instance.
+
+    A failed construction stores ``_LOAD_FAILED`` so subsequent callers return
+    ``None`` immediately instead of each retrying the expensive construction.
     """
     global _embedder_cache
-    if _embedder_cache:
-        return _embedder_cache
-        
-    try:
-        from ..embeddings.text_embedder import TextEmbedder
-        # Use a lightweight but effective model for speed/accuracy balance
-        # BAAI/bge-small-en-v1.5 is excellent for semantic similarity
-        # Enable caching within the embedder if supported, or use our own
-        _embedder_cache = TextEmbedder(model_name="BAAI/bge-small-en-v1.5", normalize=True)
-        logger.info("Loaded TextEmbedder for high-accuracy similarity")
-        return _embedder_cache
-    except Exception as e:
-        logger.warning(f"Failed to load TextEmbedder: {e}")
-        return None
+    with _embedder_cache_lock:
+        if _embedder_cache is _LOAD_FAILED:
+            return None
+        if _embedder_cache:
+            return _embedder_cache
+
+        try:
+            from ..embeddings.text_embedder import TextEmbedder
+            # Use a lightweight but effective model for speed/accuracy balance
+            # BAAI/bge-small-en-v1.5 is excellent for semantic similarity
+            # Enable caching within the embedder if supported, or use our own
+            _embedder_cache = TextEmbedder(model_name="BAAI/bge-small-en-v1.5", normalize=True)
+            logger.info("Loaded TextEmbedder for high-accuracy similarity")
+            return _embedder_cache
+        except Exception as e:
+            logger.warning(f"Failed to load TextEmbedder: {e}")
+            _embedder_cache = _LOAD_FAILED
+            return None
 
 def get_nlp_model():
     """
     Get or load a spaCy model for similarity calculations.
     Prioritizes larger models for better vectors.
+
+    Thread-safe: ``_nlp_cache_lock`` serializes the check + spacy.load() so
+    that concurrent threads never load the model more than once.
+
+    A failed load stores ``_LOAD_FAILED`` so subsequent callers return ``None``
+    immediately instead of each retrying the expensive load attempt.
     """
     global _nlp_cache
-    if _nlp_cache:
-        return _nlp_cache
-    
-    if not SPACY_AVAILABLE:
-        return None
-        
-    try:
-        # Prefer larger models for vectors
-        # Note: 'en_core_web_lg' has true vectors. 'sm' only has context tensors.
-        for model_name in ["en_core_web_lg", "en_core_web_md", "en_core_web_sm"]:
-            if spacy.util.is_package(model_name):
-                try:
-                    # Disable parser/ner for speed if we only need vectors
-                    _nlp_cache = spacy.load(model_name, disable=["parser", "ner", "lemmatizer"])
-                    logger.info(f"Loaded spaCy model for similarity: {model_name}")
-                    return _nlp_cache
-                except Exception:
-                    continue
-        
-        # Try loading generic if specific ones fail
-        try:
-            _nlp_cache = spacy.load("en_core_web_sm", disable=["parser", "ner", "lemmatizer"])
+    with _nlp_cache_lock:
+        if _nlp_cache is _LOAD_FAILED:
+            return None
+        if _nlp_cache:
             return _nlp_cache
-        except Exception:
-            pass  # spacy.load raises OSError for a missing model
-            
-    except Exception as e:
-        logger.warning(f"Failed to load spaCy model for similarity: {e}")
-        pass
-    return None
+
+        if not SPACY_AVAILABLE:
+            return None
+
+        try:
+            # Prefer larger models for vectors
+            # Note: 'en_core_web_lg' has true vectors. 'sm' only has context tensors.
+            for model_name in ["en_core_web_lg", "en_core_web_md", "en_core_web_sm"]:
+                if spacy.util.is_package(model_name):
+                    try:
+                        # Disable parser/ner for speed if we only need vectors
+                        _nlp_cache = spacy.load(model_name, disable=["parser", "ner", "lemmatizer"])
+                        logger.info(f"Loaded spaCy model for similarity: {model_name}")
+                        return _nlp_cache
+                    except Exception:
+                        continue
+
+            # Try loading generic if specific ones fail
+            try:
+                _nlp_cache = spacy.load("en_core_web_sm", disable=["parser", "ner", "lemmatizer"])
+                return _nlp_cache
+            except Exception:
+                pass  # spacy.load raises OSError for a missing model
+
+        except Exception as e:
+            logger.warning(f"Failed to load spaCy model for similarity: {e}")
+        _nlp_cache = _LOAD_FAILED
+        return None
 
 # Common synonyms for entity matching optimization
 _ENTITY_SYNONYMS = {
@@ -668,17 +706,22 @@ def find_best_match_index(text: str, candidates: List[str]) -> Tuple[int, float]
         if nlp and nlp.vocab.vectors.shape[0] > 0:
             failing_candidate_idx = -1
             try:
-                doc = nlp(text)
-                if doc.vector_norm:
-                    for i, candidate in enumerate(candidates):
-                        failing_candidate_idx = i
-                        if not candidate: continue
-                        cand_doc = nlp(candidate)
-                        if cand_doc.vector_norm:
-                            score = doc.similarity(cand_doc)
-                            if score > vector_score:
-                                vector_score = score
-                                vector_idx = i
+                # _nlp_call_lock serializes all nlp(text) calls on the shared
+                # Language object — spaCy Language is not thread-safe to invoke
+                # concurrently.  The lock is acquired once for the entire
+                # doc + candidates batch so the pipeline state stays consistent.
+                with _nlp_call_lock:
+                    doc = nlp(text)
+                    if doc.vector_norm:
+                        for i, candidate in enumerate(candidates):
+                            failing_candidate_idx = i
+                            if not candidate: continue
+                            cand_doc = nlp(candidate)
+                            if cand_doc.vector_norm:
+                                score = doc.similarity(cand_doc)
+                                if score > vector_score:
+                                    vector_score = score
+                                    vector_idx = i
             except Exception:
                 logger.debug(
                     "Vector similarity calculation failed at candidate index %s; continuing with fallback scoring.",

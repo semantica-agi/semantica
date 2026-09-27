@@ -13,6 +13,8 @@ from semantica.ingest.repo_ingestor import (
 )
 from semantica.utils.exceptions import ValidationError
 
+pytestmark = pytest.mark.usefixtures("stub_git_module")
+
 
 def _fake_addrinfo(*addrs: str):
     """Build a getaddrinfo-shaped result list for the given IP strings."""

@@ -1,5 +1,6 @@
 import sys
 import types
+import warnings
 from unittest.mock import MagicMock
 
 # --- Mock missing cloud modules ---
@@ -40,6 +41,7 @@ from semantica.ingest.file_ingestor import (  # noqa: E402
     ProcessingError,
     ValidationError,
 )
+from semantica.utils.exceptions import PartialIngestionWarning  # noqa: E402
 
 
 # --- Fixtures ---
@@ -356,3 +358,211 @@ def test_scan_directory_filters(temp_files: Path) -> None:
 
     assert len(res_max) == 1  # Expect latin.txt
     assert len(res_min) >= 3
+
+
+# ---------------------------------------------------------------------------
+# Regression tests: partial-failure signalling in ingest_directory
+# (covers the fix for silent per-file data loss — Hotspot 6)
+# ---------------------------------------------------------------------------
+
+def test_ingest_directory_partial_failure_emits_warning(tmp_path: Path) -> None:
+    """
+    When fail_fast=False (default) and one file fails, ingest_directory must
+    emit a PartialIngestionWarning so the caller is not silently given an
+    incomplete result.
+    """
+    (tmp_path / "good1.txt").write_text("ok", encoding="utf-8")
+    (tmp_path / "bad.txt").write_text("will fail", encoding="utf-8")
+    (tmp_path / "good2.txt").write_text("ok", encoding="utf-8")
+
+    ingestor = FileIngestor()
+    original_ingest_file = ingestor.ingest_file
+
+    def selective_fail(*args, **opts):
+        # ingest_file receives path as the first positional argument
+        path = args[0] if args else opts.get("path", "")
+        if "bad" in str(path):
+            raise RuntimeError("Simulated per-file failure")
+        return original_ingest_file(*args, **opts)
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always", PartialIngestionWarning)
+        with patch.object(ingestor, "ingest_file", side_effect=selective_fail):
+            results = ingestor.ingest_directory(tmp_path)
+
+    # Exactly one PartialIngestionWarning must have been emitted.
+    partial_warnings = [w for w in caught if issubclass(w.category, PartialIngestionWarning)]
+    assert len(partial_warnings) == 1, (
+        "Expected exactly one PartialIngestionWarning; "
+        f"got {len(partial_warnings)}"
+    )
+
+
+def test_ingest_directory_partial_failure_warning_content(tmp_path: Path) -> None:
+    """
+    The emitted PartialIngestionWarning message must contain:
+    - the failed-file count
+    - the total-file count
+    - the path of the failed file
+    """
+    (tmp_path / "a.txt").write_text("ok", encoding="utf-8")
+    (tmp_path / "broken.txt").write_text("boom", encoding="utf-8")
+
+    ingestor = FileIngestor()
+    original_ingest_file = ingestor.ingest_file
+
+    def fail_broken(*args, **opts):
+        # ingest_file receives path as the first positional argument
+        path = args[0] if args else opts.get("path", "")
+        if "broken" in str(path):
+            raise OSError("permission denied")
+        return original_ingest_file(*args, **opts)
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always", PartialIngestionWarning)
+        with patch.object(ingestor, "ingest_file", side_effect=fail_broken):
+            ingestor.ingest_directory(tmp_path)
+
+    assert caught, "No PartialIngestionWarning was emitted"
+    msg = str(caught[0].message)
+    assert "1 of 2" in msg, f"Expected '1 of 2' in warning message; got: {msg!r}"
+    assert "broken.txt" in msg, f"Expected failed path in warning message; got: {msg!r}"
+
+
+def test_ingest_directory_partial_failure_successes_still_returned(tmp_path: Path) -> None:
+    """
+    When fail_fast=False and one file fails, the successfully ingested files
+    are still present in the return value.
+    """
+    (tmp_path / "good1.txt").write_text("hello", encoding="utf-8")
+    (tmp_path / "bad.txt").write_text("will fail", encoding="utf-8")
+    (tmp_path / "good2.txt").write_text("world", encoding="utf-8")
+
+    ingestor = FileIngestor()
+    original_ingest_file = ingestor.ingest_file
+
+    def selective_fail(*args, **opts):
+        # ingest_file receives path as the first positional argument
+        path = args[0] if args else opts.get("path", "")
+        if "bad" in str(path):
+            raise RuntimeError("Simulated per-file failure")
+        return original_ingest_file(*args, **opts)
+
+    with warnings.catch_warnings(record=True):
+        warnings.simplefilter("always", PartialIngestionWarning)
+        with patch.object(ingestor, "ingest_file", side_effect=selective_fail):
+            results = ingestor.ingest_directory(tmp_path)
+
+    result_names = {r.name for r in results}
+    assert "good1.txt" in result_names, "good1.txt should be in results"
+    assert "good2.txt" in result_names, "good2.txt should be in results"
+    assert "bad.txt" not in result_names, "bad.txt must not appear in results"
+    assert len(results) == 2
+
+
+def test_ingest_directory_fail_fast_true_raises_and_no_warning(tmp_path: Path) -> None:
+    """
+    When fail_fast=True, the first per-file failure must raise ProcessingError
+    immediately without emitting a PartialIngestionWarning.
+    """
+    (tmp_path / "good.txt").write_text("ok", encoding="utf-8")
+    (tmp_path / "bad.txt").write_text("boom", encoding="utf-8")
+
+    ingestor = FileIngestor(fail_fast=True)
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always", PartialIngestionWarning)
+        with patch.object(ingestor, "ingest_file", side_effect=Exception("Boom")):
+            with pytest.raises(ProcessingError):
+                ingestor.ingest_directory(tmp_path)
+
+    partial_warnings = [w for w in caught if issubclass(w.category, PartialIngestionWarning)]
+    assert partial_warnings == [], (
+        "No PartialIngestionWarning should be emitted when fail_fast=True; "
+        f"got {partial_warnings}"
+    )
+
+def test_ingest_directory_callback_error_fail_fast_false_does_not_count_as_ingestion_failure(
+    tmp_path: Path,
+) -> None:
+    """
+    Regression test for Qodo Finding 1 — fail_fast=False path.
+
+    A successfully ingested file must NOT appear in failed_paths_list /
+    PartialIngestionWarning merely because the post-ingestion callback raises.
+    With fail_fast=False the error is logged and processing continues; the
+    file stays in the returned results.
+    """
+    (tmp_path / "good.txt").write_text("content", encoding="utf-8")
+
+    ingestor = FileIngestor()  # fail_fast defaults to False
+
+    def exploding_callback(idx, total, file_obj):
+        raise RuntimeError("callback exploded")
+
+    ingestor.set_progress_callback(exploding_callback)
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always", PartialIngestionWarning)
+        results = ingestor.ingest_directory(tmp_path)
+
+    # File was successfully ingested — must be in results.
+    assert len(results) == 1, (
+        f"Expected 1 result; got {len(results)}. "
+        "A callback error must not remove the file from the result."
+    )
+    assert results[0].name == "good.txt"
+
+    # No ingestion failure → no PartialIngestionWarning.
+    partial_warnings = [w for w in caught if issubclass(w.category, PartialIngestionWarning)]
+    assert partial_warnings == [], (
+        "A callback error must not trigger PartialIngestionWarning; "
+        f"got: {[str(w.message) for w in partial_warnings]}"
+    )
+
+
+def test_ingest_directory_callback_error_fail_fast_true_raises_processing_error(
+    tmp_path: Path,
+) -> None:
+    """
+    Regression test for Qodo Finding 1 — fail_fast=True path.
+
+    When fail_fast=True, a post-ingestion callback failure must raise
+    ProcessingError (preserving fail_fast semantics), but the successfully
+    ingested file must NOT be added to failed_paths_list — i.e. the error
+    must not be labelled as an ingestion failure.
+
+    The ProcessingError message must NOT say "Failed to ingest file" (that
+    wording is reserved for actual ingest_file() failures).
+    """
+    (tmp_path / "good.txt").write_text("content", encoding="utf-8")
+
+    ingestor = FileIngestor(fail_fast=True)
+
+    def exploding_callback(idx, total, file_obj):
+        raise RuntimeError("callback exploded")
+
+    ingestor.set_progress_callback(exploding_callback)
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always", PartialIngestionWarning)
+        with pytest.raises(ProcessingError) as exc_info:
+            ingestor.ingest_directory(tmp_path)
+
+    # The error must be chained from the original callback exception.
+    assert exc_info.value.__cause__ is not None
+    assert "callback exploded" in str(exc_info.value.__cause__)
+
+    # The ProcessingError must distinguish a side-effect failure from an
+    # ingestion failure — it must NOT say "Failed to ingest file".
+    assert "Failed to ingest file" not in str(exc_info.value), (
+        "fail_fast side-effect error must not be labelled as an ingestion failure"
+    )
+
+    # No PartialIngestionWarning should be emitted — the failure was not
+    # an ingestion failure, and fail_fast raised before the warning point.
+    partial_warnings = [w for w in caught if issubclass(w.category, PartialIngestionWarning)]
+    assert partial_warnings == [], (
+        "No PartialIngestionWarning should be emitted for a callback failure; "
+        f"got: {[str(w.message) for w in partial_warnings]}"
+    )
