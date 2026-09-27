@@ -67,6 +67,35 @@ def _fake_relation(src="Tesla", rel="FOUNDED_BY", tgt="Elon Musk", conf=0.85):
     return r
 
 
+class _DataclassNER:
+    """Returns Semantica's real ``Entity`` dataclass shape (text/label, no name)."""
+
+    def extract_entities(self, text):
+        from semantica.semantic_extract.types import Entity
+
+        return [
+            Entity(text="Tesla", label="ORG", start_char=0, end_char=5),
+            Entity(text="Elon Musk", label="PERSON", start_char=17, end_char=26),
+        ]
+
+
+class _DataclassRelExtractor:
+    """Returns Semantica's real ``Relation`` dataclass shape (subject/object)."""
+
+    def extract_relations(self, text, entities=None):
+        from semantica.semantic_extract.types import Entity, Relation
+
+        return [
+            Relation(
+                subject=Entity(text="Tesla", label="ORG", start_char=0, end_char=5),
+                predicate="FOUNDED_BY",
+                object=Entity(
+                    text="Elon Musk", label="PERSON", start_char=17, end_char=26
+                ),
+            )
+        ]
+
+
 class _FakeNER:
     def extract_entities(self, text):
         return [_fake_entity("Tesla"), _fake_entity("Elon Musk", "PERSON")]
@@ -387,6 +416,37 @@ class TestExportSubgraph(unittest.TestCase):
         result = json.loads(result_str)
         # Either the real export or the fallback JSON — both are valid
         self.assertIsInstance(result, dict)
+
+
+class TestAgnoKGToolkitDataclassShapes(unittest.TestCase):
+    """Real Semantica ``Entity``/``Relation`` dataclasses (text/label,
+    subject/object) instead of MagicMock-shaped fakes."""
+
+    def setUp(self):
+        self.kit = AgnoKGToolkit(
+            ner_extractor=_DataclassNER(),
+            relation_extractor=_DataclassRelExtractor(),
+            reasoner=_FakeReasoner(),
+        )
+
+    def test_extract_entities_reads_text_label(self):
+        result = json.loads(
+            self.kit.extract_entities("Tesla founded by Elon Musk")
+        )
+        self.assertEqual(result["count"], 2)
+        self.assertEqual(result["entities"][0]["name"], "Tesla")
+        self.assertEqual(result["entities"][0]["type"], "ORG")
+        self.assertEqual(result["entities"][1]["name"], "Elon Musk")
+        self.assertEqual(result["entities"][1]["type"], "PERSON")
+
+    def test_extract_relations_reads_subject_object(self):
+        result = json.loads(
+            self.kit.extract_relations("Tesla founded by Elon Musk")
+        )
+        self.assertEqual(result["count"], 1)
+        self.assertEqual(result["relations"][0]["source"], "Tesla")
+        self.assertEqual(result["relations"][0]["relation"], "FOUNDED_BY")
+        self.assertEqual(result["relations"][0]["target"], "Elon Musk")
 
 
 if __name__ == "__main__":

@@ -154,8 +154,8 @@ class AgnoKGToolkit(_ToolkitBase):  # type: ignore[misc]
 
             entities = [
                 {
-                    "name": getattr(e, "name", str(e)),
-                    "type": getattr(e, "type", ""),
+                    "name": getattr(e, "text", str(e)),
+                    "type": getattr(e, "label", ""),
                     "confidence": _conf(getattr(e, "confidence", None)),
                 }
                 for e in raw
@@ -193,9 +193,9 @@ class AgnoKGToolkit(_ToolkitBase):  # type: ignore[misc]
             raw = self._rel.extract_relations(text, entities=entity_list) or []
             relations = [
                 {
-                    "source": getattr(r, "source", ""),
-                    "relation": getattr(r, "type", getattr(r, "relation", "")),
-                    "target": getattr(r, "target", ""),
+                    "source": getattr(getattr(r, "subject", None), "text", ""),
+                    "relation": getattr(r, "predicate", ""),
+                    "target": getattr(getattr(r, "object", None), "text", ""),
                     "confidence": round(float(getattr(r, "confidence", 1.0)), 4),
                 }
                 for r in raw
