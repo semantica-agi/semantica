@@ -270,7 +270,7 @@ def test_backend_mirroring_and_save(tmp_path):
     import os
     
     # We use sqlite since it doesn't require an external service
-    vs = VectorStore(backend="sqlite")
+    vs = VectorStore(backend="sqlite", config={"db_path": str(tmp_path / "test1.db")})
     
     vecs = [np.array([0.1, 0.2], dtype=np.float32)]
     meta = [{"test": "true"}]
@@ -287,7 +287,7 @@ def test_backend_mirroring_and_save(tmp_path):
     assert os.path.exists(os.path.join(save_dir, "store_data.json"))
     
     # load() should restore mirror
-    vs2 = VectorStore(backend="sqlite")
+    vs2 = VectorStore(backend="sqlite", config={"db_path": str(tmp_path / "test2.db")})
     vs2.load(save_dir)
     assert ids[0] in vs2.vectors
     assert ids[0] in vs2.metadata
