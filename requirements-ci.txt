@@ -1124,8 +1124,8 @@ cuda-bindings==13.3.1 \
 cuda-pathfinder==1.8.1 \
     --hash=sha256:ae0137ff9e56ea97499bcbf54f5f2778ec25f3266715ac86da192a795af982a8
     # via cuda-bindings
-cuda-toolkit==13.0.3.0 \
-    --hash=sha256:d693caaa261214ddd7dbb60d68e71cbed884e68c2be7509778f3051da0b91c3f
+cuda-toolkit==13.4.2 \
+    --hash=sha256:2e79d99df4f3c5b3102fa4a5a69eb4c37a06ebf06b9aef92c18078c26e8db004
     # via torch
 cycler==0.12.1 \
     --hash=sha256:85cef7cff222d8644161529808465972e51340599459b8ac3ccbac5a854e0d30 \
