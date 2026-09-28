@@ -7348,9 +7348,9 @@ weasel==1.0.0 \
     --hash=sha256:7b129b44c90cc543b760532974ca1e4eb30dad2aa2026f57bdce66354ae610fc \
     --hash=sha256:89518acee027f49d743126c3502d35e6dd14f5768be5c37c9af47c171b6005cc
     # via spacy
-weaviate-client==4.16.2 \
-    --hash=sha256:c236adca30d18667943544ad89fcd9157947af95dfc6de4a8ecf9e7619f1c979 \
-    --hash=sha256:eb7107a3221a5ad68d604cafc65195bd925a9709512ea0b6fe0dd212b0678fab
+weaviate-client==4.23.1 \
+    --hash=sha256:0c0f249b5a5b813d7e98d9eb33e17a0eb06a3bff047de23a3e41311aa82feb0d \
+    --hash=sha256:d1e0c86ff86dfb4c3a483a4f58deec438274acc94f5c77570534c5572e44a53a
     # via semantica (pyproject.toml)
 webcolors==25.10.0 \
     --hash=sha256:032c727334856fc0b968f63daa252a1ac93d33db2f5267756623c210e57a4f1d \
