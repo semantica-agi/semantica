@@ -712,19 +712,18 @@ class VectorStore:
         # written before this field was added, or written before a deletion
         # that lowered the count) cannot produce IDs that collide with
         # existing vectors (issue #1029).
-        if True:  # Apply for all backends
-            _vec_nums = [
-                int(v[4:]) + 1
-                for v in self.vectors
-                if v.startswith("vec_") and v[4:].isdigit()
-            ]
-            _inferred = max(_vec_nums) if _vec_nums else 0
-            persisted_next_id = data.get("next_id")
-            if persisted_next_id is not None:
-                self._next_id = max(int(persisted_next_id), _inferred)
-            else:
-                # Older store files lack this field; use the safe inferred value.
-                self._next_id = _inferred
+        _vec_nums = [
+            int(v[4:]) + 1
+            for v in self.vectors
+            if v.startswith("vec_") and v[4:].isdigit()
+        ]
+        _inferred = max(_vec_nums) if _vec_nums else 0
+        persisted_next_id = data.get("next_id")
+        if persisted_next_id is not None:
+            self._next_id = max(int(persisted_next_id), _inferred)
+        else:
+            # Older store files lack this field; use the safe inferred value.
+            self._next_id = _inferred
         
         # Restore backend-specific index
         indexer = getattr(self, "indexer", None)
@@ -891,7 +890,7 @@ class VectorStore:
             else:
                 raise NotImplementedError(f"Backend store {type(self._backend_store).__name__} does not have delete or delete_vectors method")
             
-            with getattr(self, "_inmemory_lock", threading.RLock()):
+            with self._inmemory_lock:
                 for vec_id in vector_ids:
                     self.vectors.pop(vec_id, None)
                     self.metadata.pop(vec_id, None)

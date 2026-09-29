@@ -4,6 +4,7 @@ import tempfile
 import unittest
 from unittest.mock import MagicMock, patch
 import numpy as np
+import pytest
 from semantica.vector_store.vector_store import VectorStore
 
 class TestVectorStore(unittest.TestCase):
@@ -265,10 +266,12 @@ def test_backend_mirroring_and_save(tmp_path):
     Test that backend-backed vector stores maintain a synchronized in-memory mirror
     for serialization by save(). This covers #1698 regression.
     """
+    pytest.importorskip("sqlite_vec")
+
     import numpy as np
     from semantica.vector_store import VectorStore
     import os
-    
+
     # We use sqlite since it doesn't require an external service
     vs = VectorStore(backend="sqlite", config={"db_path": str(tmp_path / "test1.db")})
     
