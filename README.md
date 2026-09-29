@@ -361,6 +361,7 @@ Expand any module below for its runnable example.
 Ingest from files, web, databases, APIs, streams, email, Git repos, Parquet, Databricks, Snowflake, SAP, or MCP servers, all through a unified interface.
 
 ```python
+# WebIngestor needs the documents extra: pip install "semantica[documents]"
 from semantica.ingest import FileIngestor, WebIngestor, ParquetIngestor, DBIngestor
 
 # Ingest an entire directory of contracts (PDF, DOCX, HTML, TXT)
@@ -803,9 +804,9 @@ canonical = EntityNormalizer().normalize_entity("ACME Corp.")
 dt    = DateNormalizer().normalize_date("3 weeks ago")
 # → datetime(2026, 7, 1, tzinfo=UTC)
 
-# Unit conversion and currency normalization
-price = NumberNormalizer().normalize_number("$1.25M USD")
-# → NormalizedNumber(value=1_250_000, currency="USD")
+# Numbers with currency symbols and magnitude suffixes
+price = NumberNormalizer().normalize_number("$1.25M")
+# → 1250000.0
 
 # Deduplicate, validate, and impute missing values across a dataset
 clean = DataCleaner().clean_data(records, remove_duplicates=True, handle_missing=True)
@@ -929,7 +930,7 @@ jsonld_str = rdf.export_to_rdf(kg, format="json-ld")
 
 rdf.export(kg, "kg_audit.ttl",    format="turtle")
 rdf.export(kg, "kg_audit.jsonld", format="json-ld")
-rdf.export(kg, "kg_audit.nt",     format="n-triples")
+rdf.export(kg, "kg_audit.nt",     format="ntriples")
 
 # Columnar analytics - Snappy-compressed Parquet (writes kg_snapshot_entities.parquet
 # and kg_snapshot_relationships.parquet)
@@ -1055,12 +1056,12 @@ docs = FileIngestor().ingest_directory("./docs/", recursive=True)
 
 # 2. Entity-aware chunking - never splits an entity across a chunk boundary
 splitter = TextSplitter(method="entity_aware", chunk_size=1000)
-chunks   = [splitter.split(doc["text"]) for doc in docs]
+chunks   = [splitter.split(doc.text) for doc in docs]
 
 # 3. Extract entities and relations
 ner      = NamedEntityRecognizer(confidence_threshold=0.7)
 rel_ext  = RelationExtractor(confidence_threshold=0.6)
-entities = [ner.extract_entities(chunk) for chunk_group in chunks for chunk in chunk_group]
+entities = [ner.extract_entities(chunk.text) for chunk_group in chunks for chunk in chunk_group]
 
 # 4. Build KG
 kg = GraphBuilder(merge_entities=True, enable_temporal=True).build(docs)
