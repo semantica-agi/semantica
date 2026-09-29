@@ -404,6 +404,7 @@ class TestPandasIngestor:
         except ImportError:
             pytest.skip("Pandas not installed")
 
+@pytest.mark.usefixtures("stub_git_module")
 class TestRepoIngestor:
     def test_ingest_repository(self):
         # Create a real temp dir and populate it

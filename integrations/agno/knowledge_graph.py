@@ -328,9 +328,9 @@ class AgnoKnowledgeGraph(_KnowledgeBase):  # type: ignore[misc]
             neighbours = self._graph.get_neighbors(node_id=entity, hops=1)
             for n in (neighbours or [])[:10]:
                 if isinstance(n, dict):
-                    node_id = n.get("node_id", "")
-                    ntype = n.get("node_type", "")
-                    edge_type = n.get("edge_type", "related_to")
+                    node_id = n.get("id", "")
+                    ntype = n.get("type", "")
+                    edge_type = n.get("relationship", "related_to")
                     suffix = f" (type: {ntype})" if ntype else ""
                     lines.append(f"  --[{edge_type}]--> {node_id}{suffix}")
                 else:
@@ -458,9 +458,9 @@ class AgnoKnowledgeGraph(_KnowledgeBase):  # type: ignore[misc]
                 neighbours = self._graph.get_neighbors(node_id=entity, hops=1)
                 for n in (neighbours or [])[:3]:
                     if isinstance(n, dict):
-                        node_id = n.get("node_id", "")
-                        ntype = n.get("node_type", "")
-                        edge_type = n.get("edge_type", "related_to")
+                        node_id = n.get("id", "")
+                        ntype = n.get("type", "")
+                        edge_type = n.get("relationship", "related_to")
                         lines.append(
                             f"- {entity} --[{edge_type}]--> {node_id}"
                             + (f" ({ntype})" if ntype else "")

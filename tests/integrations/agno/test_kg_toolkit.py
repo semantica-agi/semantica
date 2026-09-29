@@ -79,28 +79,26 @@ class _FakeRelExtractor:
 
 class _FakeReasoner:
     def infer_facts(self, facts, rules):
-        result = MagicMock()
-        result.inferred_facts = ["Human(EthicalAI)"]
-        return result
+        return ["Human(EthicalAI)"]
 
 
 class _FakeGraph:
     """Fake ContextGraph whose signatures match the real ContextGraph API."""
 
     def __init__(self):
-        self._node_store: dict = {}   # node_id -> {"node_id": ..., "node_type": ...}
+        self._node_store: dict = {}
         self._edge_store: list = []
 
     # ContextGraph.find_nodes(node_type=None) -> List[Dict]
     def find_nodes(self, node_type=None):
         nodes = list(self._node_store.values())
         if node_type:
-            nodes = [n for n in nodes if n.get("node_type") == node_type]
+            nodes = [n for n in nodes if n.get("type") == node_type]
         return nodes
 
     # ContextGraph.add_node(node_id, node_type, content=None, **props) -> bool
     def add_node(self, node_id, node_type="Entity", content=None, **props):
-        self._node_store[node_id] = {"node_id": node_id, "node_type": node_type}
+        self._node_store[node_id] = {"id": node_id, "type": node_type}
         return True
 
     # ContextGraph.add_edge(source_id, target_id, edge_type, **props) -> bool
@@ -110,7 +108,7 @@ class _FakeGraph:
 
     # ContextGraph.get_neighbors(node_id, hops=1, ...) -> List[Dict]
     def get_neighbors(self, node_id, hops=1, relationship_types=None, min_weight=0.0):
-        return [{"node_id": f"Neighbour_of_{node_id}", "node_type": "Entity"}]
+        return [{"id": f"Neighbour_of_{node_id}", "type": "Entity", "relationship": "related_to"}]
 
 
 class TestAgnoKGToolkitInit(unittest.TestCase):

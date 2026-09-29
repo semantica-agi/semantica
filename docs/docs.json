@@ -111,6 +111,7 @@
               "integrations/salesforce",
               "integrations/airflow",
               "integrations/redshift",
+              "integrations/cassandra",
               "integrations/powerbi",
               "integrations/servicenow",
               "integrations/looker"

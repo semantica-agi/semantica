@@ -5391,7 +5391,7 @@ def mcp_start(cli_ctx: CLIContext, transport: str, port: int) -> None:
 
     \b
     Example:
-      semantica mcp start --transport http --port 3000
+      semantica mcp start --transport stdio
     """
     cli_ctx = _require_ctx(cli_ctx)
 
@@ -5399,7 +5399,7 @@ def mcp_start(cli_ctx: CLIContext, transport: str, port: int) -> None:
         import subprocess as sp
         cmd = [sys.executable, "-m", "semantica_mcp.mcp.server"]
         if transport == "http":
-            cmd += ["--port", str(port)]
+            raise click.ClickException("HTTP transport is not supported (stdio only).")
         proc = sp.Popen(cmd)
         _write_pid("mcp", proc.pid)
         _ok(cli_ctx, f"MCP server started (pid {proc.pid})")

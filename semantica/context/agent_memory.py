@@ -521,32 +521,38 @@ class AgentMemory:
                             query=query, limit=max_results * 2
                         )
 
-                        for result in vector_results:
-                            memory_id = result.id
+                    with self._memory_lock:
+                        vector_to_memory = {
+                            vector_id: memory_id
+                            for memory_id, vector_ids in self._vector_ids.items()
+                            for vector_id in vector_ids
+                        }
+                    for result in vector_results:
+                        memory_id = vector_to_memory.get(str(result.id), result.id)
 
-                            # Skip if already found in short-term
-                            if memory_id in seen_ids:
+                        # Skip if already found in short-term
+                        if memory_id in seen_ids:
+                            continue
+
+                        if memory_id in self.memory_items:
+                            memory_item = self.memory_items[memory_id]
+
+                            # Apply filters
+                            if not self._matches_filters(memory_item, filters):
                                 continue
 
-                            if memory_id in self.memory_items:
-                                memory_item = self.memory_items[memory_id]
-
-                                # Apply filters
-                                if not self._matches_filters(memory_item, filters):
-                                    continue
-
-                                results.append(
-                                    {
-                                        "memory_id": memory_id,
-                                        "content": memory_item.content,
-                                        "score": result.score,
-                                        "timestamp": memory_item.timestamp.isoformat(),
-                                        "metadata": memory_item.metadata,
-                                        "entities": memory_item.entities,
-                                        "relationships": memory_item.relationships,
-                                    }
-                                )
-                                seen_ids.add(memory_id)
+                            results.append(
+                                {
+                                    "memory_id": memory_id,
+                                    "content": memory_item.content,
+                                    "score": result.score,
+                                    "timestamp": memory_item.timestamp.isoformat(),
+                                    "metadata": memory_item.metadata,
+                                    "entities": memory_item.entities,
+                                    "relationships": memory_item.relationships,
+                                }
+                            )
+                            seen_ids.add(memory_id)
                 except Exception as e:
                     self.logger.warning(f"Vector retrieval failed: {e}")
 

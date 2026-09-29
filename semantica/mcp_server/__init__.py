@@ -410,6 +410,41 @@ def _tool_run_reasoning(args: dict) -> dict:
     return {"derived_facts": derived if isinstance(derived, list) else list(derived)}
 
 
+def _pagerank_rankings(result: object) -> list:
+    """Return the ranked ``(node, score)`` pairs of a PageRank result.
+
+    ``CentralityCalculator.calculate_pagerank`` returns
+    ``{"centrality": {node: score}, "rankings": [...]}`` rather than a flat
+    ``{node: score}`` mapping, and its rankings list is already ordered.
+    """
+    if not isinstance(result, dict):
+        return []
+    rankings = result.get("rankings")
+    if isinstance(rankings, list):
+        return rankings
+    scores = result.get("centrality")
+    if not isinstance(scores, dict):
+        return []
+    return sorted(scores.items(), key=lambda item: item[1], reverse=True)
+
+
+def _community_count(result: object) -> int:
+    """Return the number of communities in a ``detect_communities`` result.
+
+    ``CommunityDetector.detect_communities`` returns a wrapper dict
+    (``communities``, ``node_assignments``, ``modularity``, ``algorithm``), so
+    taking ``len()`` of the whole result gives the key count, which is 4 for
+    every graph and every algorithm. A bare list of groups is still accepted.
+    """
+    if isinstance(result, dict):
+        groups = result.get("communities")
+    elif isinstance(result, list):
+        groups = result
+    else:
+        return 0
+    return len(groups) if isinstance(groups, list) else 0
+
+
 def _tool_get_graph_analytics(args: dict) -> dict:
     """Compute graph analytics: centrality, community detection, metrics."""
     graph = _get_graph()
@@ -419,14 +454,13 @@ def _tool_get_graph_analytics(args: dict) -> dict:
         communities = CommunityDetector().detect_communities(graph)
         node_count = len(list(graph.find_nodes()))
         edge_count = getattr(graph, "edge_count", lambda: 0)()
+        if not hasattr(graph, "edge_count") and hasattr(graph, "stats"):
+            edge_count = graph.stats().get("edge_count", 0)
         return {
             "node_count": node_count,
             "edge_count": edge_count,
-            "top_nodes_by_pagerank": sorted(
-                centrality.items() if hasattr(centrality, "items") else [],
-                key=lambda x: x[1], reverse=True
-            )[:10],
-            "community_count": len(communities) if isinstance(communities, (list, dict)) else 0,
+            "top_nodes_by_pagerank": _pagerank_rankings(centrality)[:10],
+            "community_count": _community_count(communities),
         }
     except Exception as exc:
         return {"error": str(exc)}

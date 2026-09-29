@@ -1227,5 +1227,262 @@ class TestMCPServerMutationPersistence(unittest.TestCase):
             self._restore_mcp_graph()
 
 
+# ---------------------------------------------------------------------------
+# Part N: Self-match regression — exact scenario must be found at default
+# threshold even when reasoning and entities are much longer (#1716 / #1140)
+# ---------------------------------------------------------------------------
+
+class TestSelfMatchRegressionPR1716(unittest.TestCase):
+    """End-to-end regression for the dilution bug fixed by PR #1716.
+
+    Before the fix, find_precedents_by_scenario computed Jaccard over the
+    concatenation of scenario + reasoning + entities.  When reasoning and
+    entities were substantially longer than the scenario, the union grew large
+    and the intersection share of the scenario words fell below the 0.5 default
+    threshold.  A decision was therefore unreachable by its own scenario.
+
+    The fix scores the decision's own scenario field first and uses the full-
+    text score only as a discounted (0.8×) secondary signal.  A query that
+    is identical to a stored scenario must now always score content_sim == 1.0,
+    giving combined_sim == 0.7 * 1.0 == 0.70, which exceeds the 0.5 default.
+    """
+
+    def _make_verbose_decision_graph(self):
+        """Return a graph with one decision whose reasoning and entities dwarf
+        the scenario, reproducing the exact dilution conditions from #1140."""
+        g = ContextGraph(advanced_analytics=False)
+        g.record_decision(
+            category="architecture",
+            scenario="web framework selection for microservices",
+            reasoning=(
+                "After an extensive evaluation cycle covering Django REST Framework, "
+                "FastAPI, Flask, Spring Boot, Express.js, Ktor, and Micronaut the "
+                "team converged on FastAPI for the following reasons: native async "
+                "support gives lower p99 latency under the expected concurrency "
+                "profile; automatic OpenAPI generation reduces maintenance overhead; "
+                "Pydantic validation catches schema mismatches at the boundary; the "
+                "internal Python expertise makes hiring and onboarding straightforward. "
+                "Django was ruled out due to the ORM coupling and synchronous-first "
+                "request model. Flask was ruled out for lack of built-in validation "
+                "and the additional boilerplate required at scale."
+            ),
+            outcome="approved",
+            confidence=0.92,
+            entities=[
+                "Django", "FastAPI", "Flask", "Spring Boot", "Express.js",
+                "Ktor", "Micronaut", "microservices", "async", "pydantic",
+                "openapi", "latency", "concurrency", "python", "hiring",
+                "onboarding", "orm", "validation", "boilerplate",
+            ],
+        )
+        return g
+
+    def test_exact_scenario_returned_at_default_threshold(self):
+        """A decision must be findable by its own exact scenario at the default
+        similarity_threshold (0.5) even when reasoning and entities are long.
+
+        This test would FAIL against the old full-text-only Jaccard because:
+          |scenario ∩ full_text| / |scenario ∪ full_text| ≈ 6/35 ≈ 0.17
+          combined_sim ≈ 0.7 × 0.17 ≈ 0.12  <  0.50  → not returned.
+
+        With the fix:
+          content_sim = Jaccard(query, scenario) = 1.0
+          combined_sim = 0.7 × 1.0 = 0.70  ≥  0.50  → returned.
+        """
+        g = self._make_verbose_decision_graph()
+        results = g.find_precedents_by_scenario(
+            "web framework selection for microservices"
+            # Note: no similarity_threshold override — using the default 0.5
+        )
+        self.assertGreater(
+            len(results), 0,
+            "Decision must be returned when queried by its exact scenario at the "
+            "default threshold (0.5). A score of 0.70 is expected; if this fails "
+            "the full-text dilution bug has been reintroduced.",
+        )
+
+    def test_exact_scenario_content_similarity_is_one(self):
+        """content_similarity in the result dict must be exactly 1.0 for an
+        exact-string scenario match, regardless of reasoning length."""
+        g = self._make_verbose_decision_graph()
+        results = g.find_precedents_by_scenario(
+            "web framework selection for microservices"
+        )
+        self.assertGreater(len(results), 0, "prerequisite: decision must be returned")
+        content_sim = results[0]["content_similarity"]
+        self.assertEqual(
+            content_sim, 1.0,
+            f"content_similarity must be 1.0 for an exact scenario match, got {content_sim}",
+        )
+
+    def test_combined_similarity_value_for_exact_match(self):
+        """Pin the combined_sim value so any change to the 0.7/0.3 weighting
+        or the scoring formula is immediately visible.
+
+        With advanced_analytics=False, structural_sim=0, so:
+          combined_sim = 0.7 × content_sim + 0.3 × 0.0 = 0.70 exactly.
+
+        The 'similarity' field returned to callers is combined_sim, not
+        content_sim.  A caller expecting 1.0 from the PR description should
+        read 'content_similarity', not 'similarity'.
+        """
+        g = self._make_verbose_decision_graph()
+        results = g.find_precedents_by_scenario(
+            "web framework selection for microservices"
+        )
+        self.assertGreater(len(results), 0, "prerequisite: decision must be returned")
+        combined = results[0]["similarity"]
+        self.assertAlmostEqual(
+            combined, 0.70, places=9,
+            msg=(
+                f"combined similarity for exact scenario match must be 0.70 "
+                f"(= 0.7 × content_sim with no structural component), got {combined}. "
+                "Update this test if the 0.7/0.3 weighting formula changes."
+            ),
+        )
+
+
+# ---------------------------------------------------------------------------
+# Part N+1: 0.8× secondary-signal regression — intentional de-emphasis of
+# reasoning-only matches must remain stable (#1716)
+# ---------------------------------------------------------------------------
+
+class TestFullTextDiscountPR1716(unittest.TestCase):
+    """Regression tests pinning the intentional 0.8× discount on full-text
+    (scenario + reasoning + entities) similarity introduced by PR #1716.
+
+    Design intent:
+      The primary matching signal is the decision's own scenario field.
+      The full decision text (scenario + reasoning + entities) is a secondary
+      signal, deliberately discounted by 0.8× so that decisions whose scenario
+      is unrelated to the query but whose reasoning happens to restate the query
+      words are ranked lower than scenario-level matches.
+
+      word_sim = max(Jaccard(query, scenario), 0.8 × Jaccard(query, full_text))
+
+    These tests ensure:
+      1. A query that matches only reasoning (not scenario) produces a score
+         that is visibly 20% lower than the raw full-text Jaccard.
+      2. A query that matches the scenario produces the undiscounted score.
+      3. The scenario-match result outranks the reasoning-only match.
+
+    If the 0.8 constant changes, these tests will fail — that is intentional.
+    """
+
+    def _sim(self, query, decision_scenario, decision_reasoning="", entities=None):
+        """Call _calculate_decision_content_similarity with exact control."""
+        g = ContextGraph(advanced_analytics=False)
+        decision = {
+            "scenario": decision_scenario,
+            "reasoning": decision_reasoning,
+            "entities": entities or [],
+        }
+        return g._calculate_decision_content_similarity(query, decision)
+
+    def test_reasoning_only_match_is_discounted_by_0_8(self):
+        """When query words appear only in reasoning (not in the scenario),
+        content_sim equals 0.8 × full_text_jaccard, not the raw value.
+
+        Concrete arithmetic (verified):
+          query          = "data governance policy"   (3 words)
+          scenario       = "vendor selection criteria" (0 overlap with query)
+          reasoning      = "data governance policy reviewed"
+          full_text words = {vendor, selection, criteria, data, governance,
+                             policy, reviewed}  (7 unique)
+          Jaccard(query, full_text) = 3/7 ≈ 0.4286
+          expected content_sim     = 0.8 × 3/7 ≈ 0.3429
+
+        The same Jaccard without the 0.8 discount would be 0.4286.
+        """
+        cs = self._sim(
+            "data governance policy",
+            "vendor selection criteria",       # zero overlap with query
+            "data governance policy reviewed", # all three query words here
+        )
+        expected = 0.8 * (3 / 7)
+        self.assertAlmostEqual(
+            cs, expected, places=9,
+            msg=(
+                f"Reasoning-only match content_sim must equal 0.8 × full_text_jaccard "
+                f"= {expected:.6f}, got {cs:.6f}. "
+                "If the 0.8 discount constant has changed, update this test "
+                "and the PR #1716 CHANGELOG entry."
+            ),
+        )
+
+    def test_reasoning_only_match_lower_than_scenario_match(self):
+        """A decision whose scenario matches the query must rank above a
+        decision whose scenario is unrelated but reasoning contains the query.
+
+        This is the core ordering invariant: scenario relevance > reasoning
+        relevance when querying by scenario.
+        """
+        query = "data governance policy"
+
+        # Decision A: scenario matches the query exactly
+        sim_a = self._sim(query, "data governance policy", "internal process")
+        # Decision B: scenario unrelated, reasoning restates the query
+        sim_b = self._sim(
+            query,
+            "vendor selection criteria",
+            "data governance policy reviewed",
+        )
+        self.assertGreater(
+            sim_a, sim_b,
+            "Scenario-level match must score higher than reasoning-only match.",
+        )
+
+    def test_scenario_match_is_not_discounted(self):
+        """When query words appear in the scenario, the primary (undiscounted)
+        Jaccard is used, not the 0.8× discounted value.
+
+        For identical scenario and query, content_sim must be 1.0 —
+        not 0.8 × 1.0 = 0.8.
+        """
+        cs = self._sim(
+            "data governance policy",
+            "data governance policy",  # scenario identical to query
+            "unrelated reasoning text about infrastructure",
+        )
+        self.assertEqual(
+            cs, 1.0,
+            "content_sim for an exact scenario match must be 1.0 (undiscounted), "
+            f"got {cs}.",
+        )
+
+    def test_reasoning_only_content_sim_below_find_similar_threshold(self):
+        """Document the threshold boundary introduced by the 0.8× discount.
+
+        For a reasoning-only match with full_text_jaccard = 3/7 ≈ 0.4286:
+          content_sim = 0.8 × 0.4286 ≈ 0.3429
+          combined_sim = 0.7 × 0.3429 ≈ 0.2400
+
+        This falls below find_similar_decisions' default threshold of 0.3,
+        so such a decision is NOT returned.  Before PR #1716 the same
+        decision would have been returned (combined_sim was 0.7 × 0.4286 ≈ 0.30).
+
+        This test documents that the exclusion is intentional: a decision
+        whose scenario title bears no relation to the query should not surface
+        just because its reasoning restates the query verbatim.
+        """
+        cs = self._sim(
+            "data governance policy",
+            "vendor selection criteria",
+            "data governance policy reviewed",
+        )
+        combined_sim = 0.7 * cs  # structural_sim=0 (advanced_analytics=False)
+        find_similar_default_threshold = 0.3
+        self.assertLess(
+            combined_sim, find_similar_default_threshold,
+            msg=(
+                f"A reasoning-only match (full_text_jaccard=3/7, scenario_jaccard=0) "
+                f"must produce combined_sim ({combined_sim:.4f}) below the "
+                f"find_similar_decisions default threshold ({find_similar_default_threshold}). "
+                "This exclusion is intentional (PR #1716). If the 0.8 discount "
+                "constant or threshold defaults change, revisit this boundary."
+            ),
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

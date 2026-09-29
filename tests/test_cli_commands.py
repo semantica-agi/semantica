@@ -2768,15 +2768,14 @@ class TestMCP:
             result = runner.invoke(cli_module.main, ["mcp", "start"])
         _ok(result)
 
-    def test_start_http_includes_port(self, runner):
+    def test_start_http_is_rejected(self, runner):
         mock_proc = MagicMock()
         mock_proc.pid = 33334
         with patch("subprocess.Popen", return_value=mock_proc) as mock_popen:
             result = runner.invoke(cli_module.main, ["mcp", "start", "--transport", "http",
                                           "--port", "4000"])
-        _ok(result)
-        call_args = mock_popen.call_args[0][0]
-        assert "4000" in call_args
+        assert result.exit_code != 0
+        assert not mock_popen.called
 
     def test_stop_when_not_running(self, runner, monkeypatch):
         monkeypatch.setattr(cli_module, "_read_pid", lambda n: None)

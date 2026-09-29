@@ -49,6 +49,7 @@ try:
         ServiceUnavailable,
         TransactionError,
     )
+    from neo4j.graph import Node, Relationship
 
     NEO4J_AVAILABLE = True
 except (ImportError, OSError):
@@ -58,6 +59,53 @@ except (ImportError, OSError):
     AuthError = Exception
     ServiceUnavailable = Exception
     TransactionError = Exception
+    Node = None  # type: ignore[assignment,misc]
+    Relationship = None  # type: ignore[assignment,misc]
+
+
+def _convert_query_value(value: Any) -> Any:
+    """Convert a Neo4j record value to plain Python data, recursively.
+
+    Node and Relationship implement the Mapping protocol while __iter__
+    yields property *keys*, so entities must be matched before the
+    generic branches — otherwise they degrade to a list of property
+    names (#1727). Entities are expanded to a plain dict of their stored
+    properties plus identity metadata under reserved, underscore-prefixed
+    keys: "_labels" (sorted list) for nodes, "_type" (string) for
+    relationships, and "_element_id" (string) for both.
+
+    The "_"-prefixed namespace is reserved by convention so user
+    properties named "labels", "type", or "element_id" (no underscore)
+    are never shadowed. User properties that themselves start with "_"
+    (e.g. "_labels", "_type", "_element_id") will be overwritten by the
+    corresponding identity key; such names should not be used as Neo4j
+    property names in schemas managed by this library.
+
+    Scalar Neo4j property values that have no Python built-in equivalent
+    (neo4j.time.DateTime, Date, Time) are returned as-is from the driver
+    and are NOT JSON-serializable. Properties that are tuples internally
+    (neo4j.time.Duration, neo4j.spatial.Point) are expanded to lists by
+    the generic ``__iter__`` branch and ARE JSON-serializable. String,
+    integer, float, bool, and None properties are always JSON-safe.
+
+    Containers (list, dict, Cypher maps) and nested entity values are
+    converted recursively. neo4j.graph.Path objects are iterable over
+    their relationships only; all path-node data is absent from the
+    converted output (see notes on Path in the module docstring).
+    """
+    if NEO4J_AVAILABLE and isinstance(value, (Node, Relationship)):
+        converted = dict(value)
+        if isinstance(value, Node):
+            converted["_labels"] = sorted(value.labels)
+        else:
+            converted["_type"] = value.type
+        converted["_element_id"] = value.element_id
+        return converted
+    if hasattr(value, "items"):
+        return {key: _convert_query_value(v) for key, v in value.items()}
+    if hasattr(value, "__iter__") and not isinstance(value, (str, dict)):
+        return [_convert_query_value(v) for v in value]
+    return value
 
 
 class Neo4jDriver:
@@ -807,7 +855,15 @@ class Neo4jStore:
             **options: Additional options
 
         Returns:
-            Query results
+            Query results: dict with "success", "records", "keys" and
+            "metadata". Record values are converted recursively by
+            ``_convert_query_value``: Node and Relationship objects
+            become plain dicts of their stored properties plus identity
+            keys "_labels" / "_type" and "_element_id"; lists and Cypher
+            maps are recursed into. Scalar Neo4j temporal values
+            (DateTime, Date, Time) pass through as driver objects and
+            are not JSON-serializable; all other common property types
+            (str, int, float, bool, None, Duration, Point) are.
         """
         tracking_id = self.progress_tracker.start_tracking(
             module="graph_store",
@@ -826,17 +882,9 @@ class Neo4jStore:
                     if not keys:
                         keys = list(record.keys())
 
-                    row = {}
-                    for key in keys:
-                        value = record[key]
-                        # Convert Neo4j types to Python types
-                        if hasattr(value, "__iter__") and not isinstance(value, (str, dict)):
-                            row[key] = list(value)
-                        elif hasattr(value, "items"):
-                            row[key] = dict(value)
-                        else:
-                            row[key] = value
-                    records.append(row)
+                    records.append(
+                        {key: _convert_query_value(record[key]) for key in keys}
+                    )
 
                 self.progress_tracker.stop_tracking(
                     tracking_id,

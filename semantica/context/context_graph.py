@@ -654,7 +654,10 @@ class ContextGraph:
                 if self.config.get("community_detection", True):
                     self.kg_components["community_detector"] = CommunityDetector()
                 if self.config.get("node_embeddings", True):
-                    self.kg_components["node_embedder"] = NodeEmbedder()
+                    try:
+                        self.kg_components["node_embedder"] = NodeEmbedder()
+                    except ImportError as e:
+                        self.logger.warning(f"Node2Vec embeddings disabled: {e}")
                 self.kg_components["path_finder"] = PathFinder()
                 self.kg_components["similarity_calculator"] = SimilarityCalculator()
                 self.kg_components["connectivity_analyzer"] = ConnectivityAnalyzer()
@@ -3900,14 +3903,9 @@ class ContextGraph:
             relationship_type: Type of relationship (CAUSED, INFLUENCED, PRECEDENT_FOR)
 
         Returns:
-            True when a new causal edge was inserted.
-            False when the operation was skipped without inserting an edge:
-              - source or target decision ID is not present in the graph;
-              - source or target node exists but is not a decision node;
-              - an equivalent causal relationship (same source, target, and
-                normalized relationship type) already exists.
-            Skipped operations are logged at WARNING level. Invalid
-            relationship types raise ValueError instead of returning False.
+            True when the edge was added; False when it was skipped because a
+            decision ID is unknown or a node is not a decision (logged as a
+            warning so callers no longer mistake the skip for success).
         """
         # Normalize so callers may use either vocabulary's spelling
         # ("causes" from CausalChainAnalyzer, or "CAUSED" from this module's
@@ -3947,22 +3945,8 @@ class ContextGraph:
             weight=1.0,
             metadata={"recorded_at": datetime.utcnow().isoformat()},
         )
-        # Guard against semantic duplicates: two calls with the same
-        # (source, target, relationship_type) triple represent the same causal
-        # link regardless of when they are recorded.  The content-derived
-        # edge_id includes recorded_at, so _add_internal_edge cannot detect
-        # this.  The duplicate check and the insertion are held under the same
-        # lock acquisition so no concurrent call can slip through between them.
-        # self._lock is an RLock, so the nested acquisition inside
-        # _add_internal_edge by the same thread is safe.
-        with self._lock:
-            existing = self._adjacency.get(source_decision_id, [])
-            if any(
-                e.target_id == target_decision_id and e.edge_type == relationship_type
-                for e in existing
-            ):
-                return False
-            return self._add_internal_edge(edge)
+        self._add_internal_edge(edge)
+        return True
 
     def get_causal_chain(
         self,
@@ -5310,6 +5294,34 @@ class ContextGraph:
     def _calculate_decision_content_similarity(self, scenario: str, decision: Dict[str, Any]) -> float:
         """Calculate content similarity between scenario and decision.
 
+        Signal hierarchy (applies to both the word and bigram channels):
+
+          PRIMARY   — Jaccard(query, decision.scenario)
+            The scenario field is the authoritative description of what the
+            decision was about.  Scoring against it first means a query that
+            is identical or very close to a stored scenario always scores high,
+            regardless of how long the reasoning or entity list is.
+
+          SECONDARY — 0.8 × Jaccard(query, scenario + reasoning + entities)
+            The full decision text is a useful fallback when the query overlaps
+            with reasoning or entity context rather than the scenario title.
+            The 0.8× discount is intentional: decisions whose scenario is
+            unrelated to the query but whose reasoning happens to restate the
+            query words are ranked lower than genuine scenario-level matches.
+            This also prevents verbose reasoning from diluting exact-scenario
+            queries below any reasonable threshold (#1140).
+
+            Practical consequence: a reasoning-only match scores at most
+            0.8 × full_text_jaccard.  At the find_similar_decisions default
+            threshold of 0.3 (combined_sim = 0.7 × content_sim), the
+            full_text_jaccard must be ≥ 0.54 to survive, compared to ≥ 0.43
+            without the discount.  Callers that depend on reasoning-heavy
+            matching should lower their threshold accordingly.
+
+          FINAL     — max(primary, secondary)
+            The higher of the two signals wins so that neither channel can
+            suppress a strong match from the other.
+
         Uses word-level Jaccard for space-separated languages.  For text where
         whitespace tokenisation is unreliable (CJK/Japanese/Korean scripts, or
         a query with no whitespace at all) a character-bigram Jaccard is
@@ -5334,16 +5346,23 @@ class ContextGraph:
                 f"{decision['scenario']} {decision['reasoning']} "
                 f"{' '.join(decision['entities'])}"
             )
+            decision_scenario_text = str(decision.get("scenario", ""))
+
+            def _word_jaccard(text: str) -> float:
+                words = set(text.lower().split())
+                union = scenario_words | words
+                return len(scenario_words & words) / len(union) if union else 0.0
 
             # --- word-level Jaccard (primary metric for Latin/space-delimited) ---
             scenario_words = set(scenario.lower().split())
-            decision_words = set(decision_text.lower().split())
-            word_union = scenario_words | decision_words
-            word_sim = (
-                len(scenario_words & decision_words) / len(word_union)
-                if word_union
-                else 0.0
-            )
+            # Jaccard against the full decision text is diluted by the reasoning
+            # and entity words: a query naming a decision's exact scenario could
+            # score below every reasonable threshold and return no precedent at
+            # all (#1140). Score the decision's own scenario first and keep the
+            # full-text score as a discounted secondary signal.
+            word_sim = _word_jaccard(decision_scenario_text)
+            full_text_word_sim = _word_jaccard(decision_text)
+            word_sim = max(word_sim, 0.8 * full_text_word_sim)
 
             # --- character-bigram Jaccard (CJK / very-short-query fallback) ---
             # Only used when whitespace tokenisation can't do the job: CJK-like
@@ -5357,7 +5376,13 @@ class ContextGraph:
             )
             if needs_bigram_fallback:
                 scenario_bigrams = self._char_bigrams(scenario)
-                decision_bigrams = self._char_bigrams(decision_text)
+
+                def _bigram_jaccard(text: str) -> float:
+                    bigrams = self._char_bigrams(text)
+                    if not bigrams:
+                        return 0.0
+                    union = scenario_bigrams | bigrams
+                    return len(scenario_bigrams & bigrams) / len(union) if union else 0.0
 
                 # Require at least 3 bigrams in the query before the bigram
                 # signal is used.  A 2-char query produces only 1 bigram; that
@@ -5366,12 +5391,13 @@ class ContextGraph:
                 # coefficient.  3 bigrams correspond to a 4-char stripped query
                 # (e.g. two CJK characters produce 1 bigram each → need ≥3
                 # chars stripped).
-                if len(scenario_bigrams) >= 3 and decision_bigrams:
-                    bigram_union = scenario_bigrams | decision_bigrams
-                    bigram_sim = (
-                        len(scenario_bigrams & decision_bigrams) / len(bigram_union)
-                        if bigram_union
-                        else 0.0
+                if len(scenario_bigrams) >= 3:
+                    # Same scenario-vs-full-text treatment as the word channel
+                    # above: the decision's own scenario must not be diluted
+                    # below threshold by its reasoning text (#1140).
+                    bigram_sim = max(
+                        _bigram_jaccard(decision_scenario_text),
+                        0.8 * _bigram_jaccard(decision_text),
                     )
 
             return max(word_sim, bigram_sim)

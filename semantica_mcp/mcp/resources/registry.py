@@ -31,6 +31,8 @@ def _read_graph_summary(uri: str) -> dict:
                 edge_count = graph.edge_count()
             except Exception as exc:
                 log.debug("Unable to read graph edge_count(); defaulting to 0: %s", exc)
+        elif hasattr(graph, "stats"):
+            edge_count = graph.stats().get("edge_count", 0)
         data = {
             "node_count": len(all_nodes),
             "edge_count": edge_count,

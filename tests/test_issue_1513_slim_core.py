@@ -251,6 +251,51 @@ def test_node_embedder_gensim_missing_hint():
             NodeEmbedder()
 
 
+def test_agent_context_with_graph_builds_without_gensim():
+    with patch("semantica.kg.node_embeddings.GENSIM_AVAILABLE", False):
+        from semantica.context import AgentContext, ContextGraph
+        from semantica.vector_store import VectorStore
+
+        ctx = AgentContext(
+            vector_store=VectorStore(backend="inmemory", dimension=64),
+            knowledge_graph=ContextGraph(),
+            decision_tracking=True,
+        )
+        decision_id = ctx.record_decision(
+            category="loan",
+            scenario="small business loan",
+            reasoning="strong cash flow",
+            outcome="approved",
+            confidence=0.9,
+        )
+
+    assert decision_id
+    assert ctx.retriever.decision_pipeline.node_embedder is None
+
+    processed = ctx.retriever.decision_pipeline.process_decision(
+        {"scenario": "small business loan"}, store_embeddings=False
+    )
+    assert processed["structural_embedding"] is None
+    assert processed["metadata"]["has_structural_embedding"] is False
+
+
+def test_graph_components_without_gensim_keep_everything_but_node2vec():
+    with patch("semantica.kg.node_embeddings.GENSIM_AVAILABLE", False):
+        from semantica.context import ContextGraph, DecisionQuery
+
+        graph_components = ContextGraph(advanced_analytics=True).kg_components
+        query_components = DecisionQuery(graph_store=ContextGraph()).kg_components
+
+    for components in (graph_components, query_components):
+        assert "node_embedder" not in components
+        assert {
+            "centrality_calculator",
+            "community_detector",
+            "path_finder",
+            "similarity_calculator",
+        } <= set(components)
+
+
 def test_faiss_store_missing_hint():
     with patch("semantica.vector_store.faiss_store.FAISS_AVAILABLE", False):
         from semantica.vector_store.faiss_store import FAISSIndexBuilder, FAISSStore
