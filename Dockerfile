@@ -47,8 +47,8 @@ WORKDIR /app
 #
 # --only-upgrade scopes this to just the named packages instead of a
 # blanket `apt-get upgrade` (terrascan AC_DOCKER_0052 - that breaks build
-# reproducibility), but deliberately WITHOUT a `pkg=version` pin like the setuptools
-# pin below: unlike PyPI, Debian's live mirrors only ever serve the current
+# reproducibility), but deliberately WITHOUT a `pkg=version` pin like the
+# setuptools pin below: unlike PyPI, Debian's live mirrors only ever serve the current
 # point release of a package, not every historical one. A pin to today's
 # fixed version (e.g. perl-base=5.40.1-6+deb13u1) would 404 the day Debian
 # ships deb13u2 and break every build that hits this layer - CI, Cloud
@@ -61,6 +61,9 @@ RUN apt-get update \
         libpcre2-8-0 \
         libsqlite3-0 \
         gzip \
+        openssl \
+        libssl3t64 \
+        openssl-provider-legacy \
     && rm -rf /var/lib/apt/lists/*
 
 RUN groupadd --system semantica \
