@@ -228,8 +228,8 @@ class AgnoContextStore(_MemoryDbBase):  # type: ignore[misc]
             kg = getattr(self._context, "knowledge_graph", None)
             if kg is not None:
                 for ent in entities:
-                    name = getattr(ent, "name", str(ent))
-                    ntype = getattr(ent, "type", "Entity")
+                    name = getattr(ent, "text", getattr(ent, "name", str(ent)))
+                    ntype = getattr(ent, "label", getattr(ent, "type", "Entity"))
                     try:
                         kg.add_node(node_id=name, node_type=ntype)
                     except Exception:

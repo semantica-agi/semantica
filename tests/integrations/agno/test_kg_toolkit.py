@@ -82,16 +82,22 @@ class _DataclassNER:
 class _DataclassRelExtractor:
     """Returns Semantica's real ``Relation`` dataclass shape (subject/object).
 
-    Validates ``entities`` the way the real extractor's input contract
-    requires (a non-empty list of ``Entity`` objects), so a caller that
-    still passes ``None`` or bare name strings fails here too (#1737).
+    Validates that ``entities`` is a list of real ``Entity`` objects, not
+    ``None`` or bare name strings (#1737). The non-empty check is intentionally
+    omitted: when the caller filters all entities out the real extractor returns
+    ``[]`` from its ``if not entities: return []`` guard; asserting non-empty
+    here would turn that into a caught ``AssertionError`` and mask the path.
     """
 
     def extract_relations(self, text, entities=None):
         from semantica.semantic_extract.types import Entity, Relation
 
-        assert isinstance(entities, list) and entities, "entities must be a non-empty list"
+        assert isinstance(entities, list), "entities must be a list"
         assert all(isinstance(e, Entity) for e in entities), "entities must be Entity objects"
+
+        # Mirror the real extractor: return nothing when the caller has no entities.
+        if not entities:
+            return []
 
         return [
             Relation(
