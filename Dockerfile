@@ -9,17 +9,10 @@ RUN npm ci
 COPY explorer/ ./
 RUN mkdir -p /app/semantica && npm run build
 
-# CVE-2026-14456 (OpenSSL QUIC-server DoS, flagged against this base image's
-# openssl/libssl3t64/openssl-provider-legacy): the Debian fix
-# (3.5.7-1~deb13u2) is only in trixie-proposed-updates as of this writing,
-# not yet promoted to trixie-security, so there's no package to pin here
-# today. Deliberately NOT running `apt-get upgrade` to chase it - that
-# breaks build reproducibility (terrascan AC_DOCKER_0052) and still
-# wouldn't reach a proposed-updates-only package. Once Debian ships the fix
-# and rebuilds this tag, the docker Dependabot ecosystem in
-# .github/dependabot.yml opens a PR bumping the digest pin above. Also: this
-# image only serves plain HTTP via uvicorn and never opens a QUIC listener,
-# so the bug isn't reachable here regardless.
+# OpenSSL (openssl, libssl3t64, openssl-provider-legacy) is patched in the
+# runtime stage's --only-upgrade layer below, not by bumping this digest:
+# Debian ships fixes to trixie-security well before the python:3.13-slim tag
+# is rebuilt on top of them.
 #
 # Pinned to 3.13, NOT 3.14. The image must stay inside the supported range in
 # pyproject.toml (`requires-python = ">=3.10,<3.14"`, Install Matrix 3.10-3.13)
@@ -41,14 +34,20 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app
 
 # Debian trixie-security already ships fixed builds for these base-image OS
-# packages (Trivy library/semantica alerts #6151-#6162, all CVE-2026-*):
-# perl-base (7 CVEs across perl core, Storable, Archive::Tar and IO::Compress
-# - all fixed by the same upstream perl source upload), libpcre2-8-0 (2 CVEs),
-# libsqlite3-0 (2 CVEs, FTS5), and gzip (1 CVE, LZH decompression).
+# packages (Trivy library/semantica alerts, all CVE-2026-*):
+# - #6151-#6162: perl-base (7 CVEs across perl core, Storable, Archive::Tar
+#   and IO::Compress - all fixed by the same upstream perl source upload),
+#   libpcre2-8-0 (2 CVEs), libsqlite3-0 (2 CVEs, FTS5), and gzip (1 CVE, LZH
+#   decompression).
+# - #6167-#6172: openssl, libssl3t64 and openssl-provider-legacy (one source
+#   package, fixed in 3.5.7-1~deb13u3) for CVE-2026-84782 (DTLS handshake
+#   retransmission out-of-bounds read) and CVE-2026-75804 (QUIC connection
+#   flow control not enforced). Neither is reachable here - uvicorn serves
+#   plain HTTP/TCP, no DTLS or QUIC - but patching clears the alerts.
 #
-# --only-upgrade scopes this to just the 4 named packages instead of a
-# blanket `apt-get upgrade` (terrascan AC_DOCKER_0052, see the OpenSSL note
-# above), but deliberately WITHOUT a `pkg=version` pin like the setuptools
+# --only-upgrade scopes this to just the named packages instead of a
+# blanket `apt-get upgrade` (terrascan AC_DOCKER_0052 - that breaks build
+# reproducibility), but deliberately WITHOUT a `pkg=version` pin like the setuptools
 # pin below: unlike PyPI, Debian's live mirrors only ever serve the current
 # point release of a package, not every historical one. A pin to today's
 # fixed version (e.g. perl-base=5.40.1-6+deb13u1) would 404 the day Debian
