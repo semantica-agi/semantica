@@ -379,7 +379,7 @@ class AgnoKnowledgeGraph(_KnowledgeBase):  # type: ignore[misc]
             ner_result: List[Any] = []
             try:
                 ner_result = self._ner.extract_entities(chunk) or []
-                chunk_entities = [getattr(e, "name", str(e)) for e in ner_result]
+                chunk_entities = [getattr(e, "text", str(e)) for e in ner_result]
                 all_entities.extend(chunk_entities)
             except Exception as exc:
                 logger.debug("NER failed for chunk in '%s': %s", source, exc)

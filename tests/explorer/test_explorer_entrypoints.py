@@ -96,7 +96,18 @@ def test_legacy_server_mounts_editable_markdown_routes(monkeypatch):
 
     from semantica import server
 
-    paths = {route.path for route in server.app.routes}
+    # fastapi>=0.141 nests included routers in app.routes as _IncludedRouter
+    # entries whose own routes only appear via original_router — expand them
+    # so mounted paths stay visible on every fastapi version.
+    def _iter_paths(routes):
+        for route in routes:
+            nested = getattr(route, "original_router", None)
+            if nested is not None:
+                yield from _iter_paths(nested.routes)
+            elif hasattr(route, "path"):
+                yield route.path
+
+    paths = set(_iter_paths(server.app.routes))
     assert "/api/markdown/{kind}/{resource_id:path}" in paths
     assert "/api/memories" in paths
     assert "/ws/graph-updates" in paths

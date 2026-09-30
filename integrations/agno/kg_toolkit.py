@@ -154,8 +154,8 @@ class AgnoKGToolkit(_ToolkitBase):  # type: ignore[misc]
 
             entities = [
                 {
-                    "name": getattr(e, "name", str(e)),
-                    "type": getattr(e, "type", ""),
+                    "name": getattr(e, "text", str(e)),
+                    "type": getattr(e, "label", ""),
                     "confidence": _conf(getattr(e, "confidence", None)),
                 }
                 for e in raw
@@ -182,20 +182,30 @@ class AgnoKGToolkit(_ToolkitBase):  # type: ignore[misc]
         str
             JSON list of ``{"source": str, "relation": str, "target": str, "confidence": float}``.
         """
-        entity_list: Optional[List[str]] = None
+        requested_names: Optional[List[str]] = None
         if entities:
             try:
-                entity_list = json.loads(entities)
+                requested_names = json.loads(entities)
             except json.JSONDecodeError:
-                entity_list = [e.strip() for e in entities.split(",") if e.strip()]
+                requested_names = [e.strip() for e in entities.split(",") if e.strip()]
 
         try:
-            raw = self._rel.extract_relations(text, entities=entity_list) or []
+            # RelationExtractor.extract_relations() needs real Entity objects
+            # (it reads len(entities) and each entity's .text), not None or
+            # bare name strings, so run NER first and hand it those (#1737).
+            entity_objs = self._ner.extract_entities(text) or []
+            if requested_names:
+                wanted = {name.strip().lower() for name in requested_names}
+                entity_objs = [
+                    e for e in entity_objs
+                    if getattr(e, "text", str(e)).strip().lower() in wanted
+                ]
+            raw = self._rel.extract_relations(text, entities=entity_objs) or []
             relations = [
                 {
-                    "source": getattr(r, "source", ""),
-                    "relation": getattr(r, "type", getattr(r, "relation", "")),
-                    "target": getattr(r, "target", ""),
+                    "source": getattr(getattr(r, "subject", None), "text", ""),
+                    "relation": getattr(r, "predicate", ""),
+                    "target": getattr(getattr(r, "object", None), "text", ""),
                     "confidence": round(float(getattr(r, "confidence", 1.0)), 4),
                 }
                 for r in raw
