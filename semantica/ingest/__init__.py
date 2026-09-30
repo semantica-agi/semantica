@@ -271,6 +271,10 @@ _LAZY_EXPORTS: Dict[str, Tuple[str, str]] = {
     "SalesforceIngestor": (".salesforce_ingestor", "SalesforceIngestor"),
     "SalesforceData": (".salesforce_ingestor", "SalesforceData"),
     "SalesforceConnector": (".salesforce_ingestor", "SalesforceConnector"),
+    # Tableau ingestion
+    "TableauIngestor": (".tableau_ingestor", "TableauIngestor"),
+    "TableauData": (".tableau_ingestor", "TableauData"),
+    "TableauConnector": (".tableau_ingestor", "TableauConnector"),
     # Redshift ingestion
     "RedshiftIngestor": (".redshift_ingestor", "RedshiftIngestor"),
     "RedshiftData": (".redshift_ingestor", "RedshiftData"),
@@ -336,7 +340,11 @@ _OPTIONAL_DEPENDENCY_MESSAGES = {
     ".airflow_ingestor": (
         "Apache Airflow ingestion requires optional dependency 'requests'. "
         "Install it with: "
-        "pip install \"semantica[ingest-airflow]\""
+        'pip install \"semantica[ingest-airflow]\"'
+    ),
+    ".tableau_ingestor": (
+        "Tableau ingestion requires optional dependency 'tableauserverclient'. "
+        "Install it with: pip install 'semantica[ingest-tableau]'"
     ),
     ".redshift_ingestor": (
         "Redshift ingestion requires optional dependency 'redshift-connector'. "
@@ -419,6 +427,15 @@ def __getattr__(name: str) -> Any:
         "SalesforceConnector",
     }:
         if not getattr(module, "SALESFORCE_AVAILABLE", True):
+            message = _OPTIONAL_DEPENDENCY_MESSAGES.get(module_name)
+            if message:
+                raise ImportError(message)
+
+    if module_name == ".tableau_ingestor" and name in {
+        "TableauIngestor",
+        "TableauConnector",
+    }:
+        if not getattr(module, "TABLEAU_AVAILABLE", True):
             message = _OPTIONAL_DEPENDENCY_MESSAGES.get(module_name)
             if message:
                 raise ImportError(message)
@@ -558,6 +575,10 @@ __all__ = [
     "SalesforceIngestor",
     "SalesforceData",
     "SalesforceConnector",
+    # Tableau ingestion
+    "TableauIngestor",
+    "TableauData",
+    "TableauConnector",
     # Redshift ingestion
     "RedshiftIngestor",
     "RedshiftData",

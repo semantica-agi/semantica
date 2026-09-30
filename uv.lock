@@ -3860,6 +3860,15 @@ wheels = [
 ]
 
 [[package]]
+name = "langdetect"
+version = "1.0.9"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "six" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/0e/72/a3add0e4eec4eb9e2569554f7c70f4a3c27712f40e3284d483e88094cc0e/langdetect-1.0.9.tar.gz", hash = "sha256:cbc1fef89f8d062739774bd51eda3da3274006b3661d199c2655f6b3f6d605a0", size = 981474, upload-time = "2021-05-07T07:54:13.562Z" }
+
+[[package]]
 name = "langsmith"
 version = "0.13.0"
 source = { registry = "https://pypi.org/simple" }
@@ -8270,6 +8279,7 @@ all = [
     { name = "ipywidgets" },
     { name = "kafka-python" },
     { name = "langchain-core" },
+    { name = "langdetect" },
     { name = "librosa", version = "0.11.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
     { name = "librosa", version = "1.0.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
     { name = "litellm" },
@@ -8446,6 +8456,9 @@ ingest-sap = [
 ingest-servicenow = [
     { name = "requests" },
 ]
+ingest-tableau = [
+    { name = "tableauserverclient" },
+]
 langchain = [
     { name = "langchain-core" },
 ]
@@ -8504,6 +8517,9 @@ monitoring = [
     { name = "opentelemetry-sdk" },
     { name = "opentelemetry-semantic-conventions" },
     { name = "prometheus-client" },
+]
+nlp-langdetect = [
+    { name = "langdetect" },
 ]
 nlp-spacy = [
     { name = "spacy" },
@@ -8640,6 +8656,7 @@ requires-dist = [
     { name = "ipywidgets", marker = "extra == 'viz'", specifier = ">=8.0.0" },
     { name = "kafka-python", marker = "extra == 'infra'", specifier = ">=3.0.2" },
     { name = "langchain-core", marker = "extra == 'langchain'", specifier = ">=0.3.0" },
+    { name = "langdetect", marker = "extra == 'nlp-langdetect'", specifier = ">=1.0.9" },
     { name = "librosa", marker = "extra == 'media'", specifier = ">=0.9.0" },
     { name = "litellm", marker = "extra == 'llm-litellm'", specifier = ">=1.83.9" },
     { name = "loguru", specifier = ">=0.7.3" },
@@ -8706,7 +8723,7 @@ requires-dist = [
     { name = "semantica", extras = ["llm-openai", "llm-groq", "llm-gemini", "llm-anthropic", "llm-ollama", "llm-deepseek", "llm-novita", "llm-litellm", "llm-instructor", "llm-typesafe"], marker = "extra == 'llm-all'" },
     { name = "semantica", extras = ["split-tiktoken", "split-community", "split-topic"], marker = "extra == 'split-all'" },
     { name = "semantica", extras = ["vectorstore-qdrant", "vectorstore-weaviate", "vectorstore-pinecone", "vectorstore-milvus", "vectorstore-pgvector", "vectorstore-sqlite", "vectorstore-faiss"], marker = "extra == 'vectorstore-all'" },
-    { name = "semantica", extras = ["viz", "media", "infra", "cloud", "monitoring", "watch", "llm-all", "models-huggingface", "embeddings-local", "nlp-spacy", "documents", "ingest-git", "graph-embeddings", "split-all", "graph-all", "tripletstore-oxigraph", "vectorstore-all", "parse-docling", "parse-pdf", "ingest-parquet", "ingest-arrow", "shacl", "explorer", "agno", "langchain", "google-adk"], marker = "extra == 'all'" },
+    { name = "semantica", extras = ["viz", "media", "infra", "cloud", "monitoring", "watch", "llm-all", "models-huggingface", "embeddings-local", "nlp-spacy", "nlp-langdetect", "documents", "ingest-git", "graph-embeddings", "split-all", "graph-all", "tripletstore-oxigraph", "vectorstore-all", "parse-docling", "parse-pdf", "ingest-parquet", "ingest-arrow", "shacl", "explorer", "agno", "langchain", "google-adk"], marker = "extra == 'all'" },
     { name = "sentence-transformers", marker = "extra == 'embeddings-local'", specifier = ">=2.2.0" },
     { name = "simple-salesforce", marker = "extra == 'db-salesforce'", specifier = ">=1.12.0" },
     { name = "snowflake-connector-python", marker = "extra == 'db-snowflake'", specifier = ">=4.6.0" },
@@ -8716,6 +8733,7 @@ requires-dist = [
     { name = "streamlit", marker = "extra == 'explorer-lite'", specifier = ">=1.25.0" },
     { name = "streamlit-agraph", marker = "extra == 'explorer-lite'", specifier = ">=0.0.45" },
     { name = "structlog", specifier = ">=22.1.0" },
+    { name = "tableauserverclient", marker = "extra == 'ingest-tableau'", specifier = ">=0.25" },
     { name = "tiktoken", marker = "extra == 'split-tiktoken'", specifier = ">=0.5.0" },
     { name = "tokenizers", marker = "extra == 'embeddings-local'", specifier = ">=0.15.0" },
     { name = "toml", specifier = ">=0.10.0" },
@@ -8729,7 +8747,7 @@ requires-dist = [
     { name = "weaviate-client", marker = "extra == 'vectorstore-weaviate'", specifier = ">=4.0.0" },
     { name = "websockets", marker = "extra == 'explorer'", specifier = ">=15.0.1" },
 ]
-provides-extras = ["llm-openai", "llm-groq", "llm-gemini", "llm-anthropic", "llm-ollama", "llm-deepseek", "llm-novita", "llm-litellm", "llm-instructor", "llm-typesafe", "llm-all", "documents", "parse-docling", "parse-pdf", "shacl", "db-snowflake", "db-databricks", "db-arrow", "db-salesforce", "db-redshift", "db-cassandra", "db-bigquery", "ingest-looker", "ingest-parquet", "ingest-arrow", "ingest-sap", "ingest-servicenow", "ingest-airflow", "ingest-git", "db-all", "models-huggingface", "embeddings-local", "nlp-spacy", "graph-neo4j", "graph-falkordb", "graph-amazon-neptune", "graph-apache-age", "graph-embeddings", "graph-all", "tripletstore-oxigraph", "vectorstore-faiss", "vectorstore-qdrant", "vectorstore-weaviate", "vectorstore-pinecone", "vectorstore-milvus", "vectorstore-pgvector", "vectorstore-sqlite", "vectorstore-all", "infra", "cloud", "monitoring", "viz", "media", "gpu", "agno", "langchain", "google-adk", "open-ontologies", "watch", "split-tiktoken", "split-community", "split-topic", "split-all", "explorer", "explorer-lite", "all"]
+provides-extras = ["llm-openai", "llm-groq", "llm-gemini", "llm-anthropic", "llm-ollama", "llm-deepseek", "llm-novita", "llm-litellm", "llm-instructor", "llm-typesafe", "llm-all", "documents", "parse-docling", "parse-pdf", "shacl", "db-snowflake", "db-databricks", "db-arrow", "db-salesforce", "db-redshift", "db-cassandra", "db-bigquery", "ingest-looker", "ingest-parquet", "ingest-arrow", "ingest-tableau", "ingest-sap", "ingest-servicenow", "ingest-airflow", "ingest-git", "db-all", "models-huggingface", "embeddings-local", "nlp-spacy", "nlp-langdetect", "graph-neo4j", "graph-falkordb", "graph-amazon-neptune", "graph-apache-age", "graph-embeddings", "graph-all", "tripletstore-oxigraph", "vectorstore-faiss", "vectorstore-qdrant", "vectorstore-weaviate", "vectorstore-pinecone", "vectorstore-milvus", "vectorstore-pgvector", "vectorstore-sqlite", "vectorstore-all", "infra", "cloud", "monitoring", "viz", "media", "gpu", "agno", "langchain", "google-adk", "open-ontologies", "watch", "split-tiktoken", "split-community", "split-topic", "split-all", "explorer", "explorer-lite", "all"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -9316,6 +9334,22 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/83/d3/803453b36afefb7c2bb238361cd4ae6125a569b4db67cd9e79846ba2d68c/sympy-1.14.0.tar.gz", hash = "sha256:d3d3fe8df1e5a0b42f0e7bdf50541697dbe7d23746e894990c030e2b05e72517", size = 7793921, upload-time = "2025-04-27T18:05:01.611Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/a2/09/77d55d46fd61b4a135c444fc97158ef34a095e5681d0a6c10b75bf356191/sympy-1.14.0-py3-none-any.whl", hash = "sha256:e091cc3e99d2141a0ba2847328f5479b05d94a6635cb96148ccb3f34671bd8f5", size = 6299353, upload-time = "2025-04-27T18:04:59.103Z" },
+]
+
+[[package]]
+name = "tableauserverclient"
+version = "0.41"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "defusedxml" },
+    { name = "packaging" },
+    { name = "requests" },
+    { name = "typing-extensions" },
+    { name = "urllib3" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/6e/28/7a2263194b8aca4efb77705c1255370c0cb2dc94b3b62ed16e01d659a028/tableauserverclient-0.41.tar.gz", hash = "sha256:e491975b9f0e19467fb6423b814511a9f549c22bce78c868079a25fbe81a0e95", size = 639331, upload-time = "2026-06-25T23:41:19.292Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/8b/b6/3a91c755bf64c07f29a50bad69006a98606da122491894e047a475c81979/tableauserverclient-0.41-py3-none-any.whl", hash = "sha256:c1d5bed75d22899847f44c7ee0fdf9b12cf8f4a855c49d6100f2f6c6ea4fe2a3", size = 214856, upload-time = "2026-06-25T23:41:18.095Z" },
 ]
 
 [[package]]

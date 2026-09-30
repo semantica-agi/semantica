@@ -110,6 +110,7 @@
               "integrations/bigquery",
               "integrations/salesforce",
               "integrations/airflow",
+              "integrations/tableau",
               "integrations/redshift",
               "integrations/cassandra",
               "integrations/powerbi",

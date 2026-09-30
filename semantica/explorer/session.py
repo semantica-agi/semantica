@@ -11,6 +11,8 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, Iterable, Iterator, List, Optional
 
+import networkx as nx
+
 from ..context.context_graph import ContextGraph, _resolve_edge_identity
 from .search_index import GraphSearchIndex
 from ..utils.skos import is_skos_hierarchy_edge, validate_skos_hierarchy
@@ -722,6 +724,44 @@ class GraphSession:
             self._cached_embeddings = None
             self._cached_graph_revision = -1
 
+    def build_nx_graph(self) -> nx.DiGraph:
+        """Build a NetworkX view of the session graph for PathFinder traversal.
+
+        ``build_graph_dict`` returns the ``{"entities", "relationships"}`` shape
+        that the KG analytics modules consume.  ``PathFinder`` cannot traverse
+        that shape — it duck-types against ``has_node``/``neighbors``/
+        ``get_edge_data``, and needs ``to_undirected`` for ``directed=False``
+        traversal — so path queries get this view instead (#1725).
+
+        Isolated nodes are preserved, and edge ``weight`` is carried over so
+        ``dijkstra_shortest_path`` sees real weights rather than defaults.
+        """
+        nodes, _ = self.get_nodes(skip=0, limit=999_999)
+        edges, _ = self.get_edges(skip=0, limit=999_999)
+
+        graph = nx.DiGraph()
+        for node in nodes:
+            node_id = node.get("id")
+            if node_id is not None:
+                graph.add_node(node_id)
+        for edge in edges:
+            source = edge.get("source")
+            target = edge.get("target")
+            if source is None or target is None:
+                continue
+            try:
+                weight = float(edge.get("weight", 1.0))
+            except (TypeError, ValueError):
+                weight = 1.0
+            # ContextGraph allows parallel edges between the same pair; a
+            # DiGraph holds one. Keep the lowest weight so the collapse is
+            # deterministic and matches how PathFinder reads weight (as cost).
+            existing = graph.get_edge_data(source, target)
+            if existing is not None:
+                weight = min(weight, existing.get("weight", weight))
+            graph.add_edge(source, target, weight=weight)
+        return graph
+
     def build_graph_dict(self, node_ids: Optional[list] = None) -> dict:
         nodes, _ = self.get_nodes(skip=0, limit=999_999)
         edges, _ = self.get_edges(skip=0, limit=999_999)
@@ -773,10 +813,20 @@ class GraphSession:
                     if edge.target_id == target_id
                 ]
                 if not candidates:
+                    # An undirected traversal can walk a stored edge backwards,
+                    # so a hop with no outgoing edge may still have an incoming
+                    # one to report (#1725).
+                    candidates = [
+                        edge for edge in self.graph._adjacency.get(target_id, [])
+                        if edge.target_id == source_id
+                    ]
+                if not candidates:
                     continue
+                # Lowest weight first, matching the edge build_nx_graph keeps
+                # and therefore the one the path was actually costed against.
                 candidates.sort(
                     key=lambda edge: (
-                        -float(edge.weight),
+                        float(edge.weight),
                         str(edge.edge_type),
                         str(edge.edge_id),
                     )

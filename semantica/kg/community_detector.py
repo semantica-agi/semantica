@@ -49,7 +49,13 @@ from typing import Any, Dict, List, Optional
 
 from ..utils.logging import get_logger
 from ..utils.progress_tracker import get_progress_tracker
-from ._graph_view import build_adjacency, build_graph_view
+from ._graph_view import (
+    build_adjacency,
+    build_graph_view,
+    edge_types_between,
+    graph_node_ids,
+    graph_node_label,
+)
 
 
 def _is_hashable(value: Any) -> bool:
@@ -844,96 +850,17 @@ class CommunityDetector:
     
     def _filter_nodes_by_labels(self, graph: Any, node_labels: Optional[List[str]]) -> List[str]:
         """Filter nodes by specified labels."""
-        nodes = self._graph_node_ids(graph)
+        nodes = graph_node_ids(graph)
 
         if node_labels is None:
             return nodes
 
         filtered_nodes = []
         for node in nodes:
-            node_label = self._node_label(graph, node)
-            if node_label in node_labels:
+            if graph_node_label(graph, node) in node_labels:
                 filtered_nodes.append(node)
 
         return filtered_nodes
-
-    @staticmethod
-    def _graph_node_ids(graph: Any) -> List[str]:
-        """Return node ids for any supported graph.
-
-        NetworkX exposes ``nodes`` as a callable view, while
-        :class:`~semantica.context.context_graph.ContextGraph` exposes it as a
-        mapping keyed by node id.
-        """
-        nodes = getattr(graph, "nodes", None)
-        if nodes is None:
-            return []
-        if callable(nodes):
-            return list(nodes())
-        return list(nodes)
-
-    @staticmethod
-    def _node_label(graph: Any, node: str) -> Optional[str]:
-        """Read a node's label from either a mapping or an object.
-
-        NetworkX stores node attributes in a dict, while ``ContextGraph``
-        stores a :class:`~semantica.context.context_graph.ContextNode` dataclass
-        whose label is ``node_type``.
-        """
-        node_data = graph.nodes[node]
-        if isinstance(node_data, dict):
-            return node_data.get("label") or node_data.get("type")
-        for attribute in ("node_type", "label", "type"):
-            label = getattr(node_data, attribute, None)
-            if label:
-                return label
-        return None
-
-    @staticmethod
-    def _edge_types_between(graph: Any, source: str, target: str) -> set:
-        """Collect the relationship types of every edge between two nodes.
-
-        ``ContextGraph`` keeps parallel edges and its ``get_edge_data()``
-        returns only the first one, so the edge list is the only view that
-        shows them all. NetworkX returns plain attributes for a simple graph
-        and a key-to-attributes mapping for a multigraph.
-        """
-        edges = getattr(graph, "edges", None)
-        if isinstance(edges, (list, tuple)) and any(
-            hasattr(edge, "source_id") for edge in edges
-        ):
-            types = set()
-            for edge in edges:
-                src = getattr(edge, "source_id", None)
-                dst = getattr(edge, "target_id", None)
-                if (src == source and dst == target) or (
-                    src == target and dst == source
-                ):
-                    edge_type = getattr(edge, "edge_type", None)
-                    if edge_type:
-                        types.add(edge_type)
-            return types
-
-        if hasattr(graph, "get_edge_data"):
-            data = graph.get_edge_data(source, target)
-            if not isinstance(data, dict) or not data:
-                return set()
-            is_multigraph = getattr(graph, "is_multigraph", None)
-            if callable(is_multigraph) and is_multigraph():
-                candidates = data.values()
-            else:
-                candidates = [data]
-            types = set()
-            for attributes in candidates:
-                if isinstance(attributes, dict):
-                    edge_type = attributes.get("type") or attributes.get(
-                        "relationship"
-                    )
-                    if edge_type:
-                        types.add(edge_type)
-            return types
-
-        return set()
 
     def _build_filtered_adjacency(
         self, 
@@ -960,12 +887,15 @@ class CommunityDetector:
                     if isinstance(n, dict) and n.get("id")
                 ]
             
-            # Filter by relationship types if specified
+            # Filter by relationship types if specified. A graph whose edge
+            # types cannot be read keeps its neighbours, so the filter never
+            # turns an unclassifiable link into a silent removal.
             if relationship_types is not None and hasattr(graph, 'get_edge_data'):
                 wanted = set(relationship_types)
                 for neighbor in all_neighbors:
                     if neighbor in nodes:  # Only include filtered nodes
-                        if self._edge_types_between(graph, node, neighbor) & wanted:
+                        types = edge_types_between(graph, node, neighbor)
+                        if types is None or types & wanted:
                             neighbors.append(neighbor)
             else:
                 # Include all neighbors that are in the filtered node set

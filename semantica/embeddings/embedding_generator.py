@@ -68,12 +68,19 @@ class EmbeddingGenerator:
         self.logger = get_logger("embedding_generator")
 
         # Merge configuration
-        self.config = config or {}
+        self.config = dict(config or {})
         self.config.update(kwargs)
 
         # Initialize embedders for different data types
         # These are lazy-loaded and only initialized when needed
-        text_config = self.config.get("text", {})
+        text_config = dict(self.config.get("text", {}))
+        # EmbeddingGenerator(method=..., model_name=...) is the obvious way to
+        # pick a model, but only config["text"] used to reach the TextEmbedder,
+        # so those were dropped and the default fastembed model (or the hash
+        # fallback) was used instead. Forward them unless "text" sets them too.
+        for key in ("method", "model_name", "device", "normalize"):
+            if key in self.config and key not in text_config:
+                text_config[key] = self.config[key]
 
         self.text_embedder = TextEmbedder(**text_config)
 

@@ -311,6 +311,9 @@ def split_by_tokens(
             )
         )
 
+        if end_idx >= len(tokens):
+            break
+
         # Move to next chunk with overlap
         start_idx = max(start_idx + 1, end_idx - chunk_overlap)
         text_start = text_end - chunk_overlap * 4  # Approximate
@@ -530,6 +533,9 @@ def split_by_characters(
             )
         )
 
+        if end >= text_length:
+            break
+
         start = max(start + 1, end - chunk_overlap)
 
     return chunks
@@ -579,6 +585,9 @@ def split_by_words(
                 },
             )
         )
+
+        if end_idx >= len(words):
+            break
 
         start_idx = max(start_idx + 1, end_idx - chunk_overlap)
 

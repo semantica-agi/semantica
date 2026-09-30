@@ -347,16 +347,21 @@ class HybridSearch:
 
             # Resolve vector store data if not provided
             if vectors is None and self.vector_store:
-                if hasattr(self.vector_store, "vectors"):
-                    # In-memory backend exposes its corpus directly
+                if getattr(self.vector_store, "backend", None) == "inmemory":
+                    # In-memory backend: read corpus directly from the local dicts.
+                    # We must NOT use this path for persistent backends (faiss,
+                    # weaviate, qdrant, milvus, pgvector, sqlite) even though
+                    # self.vector_store.vectors now exists as a mirror — the mirror
+                    # only reflects writes made through the facade in the current
+                    # session and would miss pre-existing backend data entirely.
                     vector_ids = list(self.vector_store.vectors.keys())
                     vectors = [self.vector_store.vectors[vid] for vid in vector_ids]
                     metadata = [self.vector_store.metadata.get(vid, {}) for vid in vector_ids]
                 else:
-                    # Backend-agnostic path: other backends (faiss, weaviate,
-                    # qdrant, milvus, pinecone, pgvector, sqlite) don't expose
-                    # a raw `.vectors` dict, so delegate similarity search to
-                    # the store's public API instead.
+                    # Backend-agnostic path: all persistent backends (faiss, weaviate,
+                    # qdrant, milvus, pinecone, pgvector, sqlite) must go through the
+                    # store's public search API to cover the full index, including
+                    # data that predates the current session or was written externally.
                     self.progress_tracker.update_tracking(
                         tracking_id, message="Performing vector similarity search..."
                     )

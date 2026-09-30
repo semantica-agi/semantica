@@ -171,7 +171,7 @@ fields = fact.to_relationship_fields()
 `TemporalReasoningEngine` implements **all 13 Allen relations** deterministically — no LLM, no probability. It operates on `TemporalInterval` objects (not plain dicts):
 
 ```python
-from semantica.kg import (
+from semantica.reasoning import (
     TemporalReasoningEngine, TemporalInterval, IntervalRelation
 )
 from datetime import datetime, timezone
@@ -243,6 +243,9 @@ from semantica.kg import TemporalVersionManager
 versioner = TemporalVersionManager()
 
 # author and description are required for create_snapshot
+versioner.create_snapshot(kg, version_label="2023-Q4",
+                          author="user@example.com",
+                          description="Q4 2023 baseline")
 versioner.create_snapshot(kg, version_label="2024-Q1",
                           author="user@example.com",
                           description="Q1 2024 baseline")
@@ -311,7 +314,7 @@ for node_id in similar:
     closeness   = calculator.calculate_closeness_centrality(graph)
 
     # Get the top 10 most important nodes
-    top_nodes = calculator.get_top_nodes(pagerank, top_k=10)
+    top_nodes = pagerank["rankings"][:10]  # (node, score) pairs, highest first
     ```
 
     | Method | Best for |

@@ -1637,6 +1637,53 @@ class TestDecision:
         result = runner.invoke(cli_module.main, ["decision", "list", "--format", "json"])
         _ok(result)
 
+    # (filter, matching category, decoy category the mangled filter also hits)
+    # lstrip("tag:") strips leading t/a/g/: characters, so "tag:auth" became
+    # "uth" — which still substring-matches "auth", but ALSO matches "south".
+    @pytest.mark.parametrize("tag,decoy", [
+        ("auth", "south"),
+        ("git", "editor"),
+        ("testing", "nesting"),
+        ("tag", "anything-at-all"),
+    ])
+    def test_query_tag_filter_does_not_match_on_mangled_prefix(
+        self, runner, monkeypatch, tag, decoy
+    ):
+        """--filter tag:<value> must strip the prefix, not leading characters."""
+        fake_dq = MagicMock()
+
+        def _decision(did, category):
+            d = MagicMock()
+            d.decision_id, d.scenario, d.category = did, "T", category
+            d.outcome, d.confidence = "ok", 1.0
+            return d
+
+        fake_dq.find_by_time_range.return_value = [
+            _decision("d1", tag), _decision("d2", decoy),
+        ]
+        monkeypatch.setitem(__import__("sys").modules,
+                            "semantica.context.decision_query",
+                            _fake_module(DecisionQuery=lambda *a, **kw: fake_dq))
+        monkeypatch.setitem(__import__("sys").modules, "semantica.graph_store",
+                            _fake_module(GraphStore=MagicMock(return_value=MagicMock())))
+
+        result = runner.invoke(
+            cli_module.main,
+            ["decision", "query", "--filter", f"tag:{tag}", "--format", "json"],
+        )
+        _ok(result)
+        ids = [d["id"] for d in json.loads(result.output)]
+        assert ids == ["d1"], (
+            f"tag:{tag} matched {decoy!r} too — the prefix was stripped as "
+            f"characters, leaving a shorter filter"
+        )
+
+    def test_query_tag_filter_value_strips_prefix_only(self):
+        assert cli_module._tag_filter_value("tag:auth") == "auth"
+        assert cli_module._tag_filter_value("tag:git") == "git"
+        assert cli_module._tag_filter_value("tag:tag") == "tag"
+        assert cli_module._tag_filter_value("plain") == "plain"
+
     def test_trace_import_error_is_clean(self, runner):
         with patch("builtins.__import__", side_effect=lambda n, *a, **k: (
             (_ for _ in ()).throw(ImportError(n))

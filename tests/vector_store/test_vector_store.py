@@ -4,6 +4,7 @@ import tempfile
 import unittest
 from unittest.mock import MagicMock, patch
 import numpy as np
+import pytest
 from semantica.vector_store.vector_store import VectorStore
 
 class TestVectorStore(unittest.TestCase):
@@ -259,3 +260,43 @@ class TestCreateIndexFunction(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+def test_backend_mirroring_and_save(tmp_path):
+    """
+    Test that backend-backed vector stores maintain a synchronized in-memory mirror
+    for serialization by save(). This covers #1698 regression.
+    """
+    pytest.importorskip("sqlite_vec")
+
+    import numpy as np
+    from semantica.vector_store import VectorStore
+    import os
+
+    # We use sqlite since it doesn't require an external service
+    vs = VectorStore(backend="sqlite", config={"db_path": str(tmp_path / "test1.db")})
+    
+    vecs = [np.array([0.1, 0.2], dtype=np.float32)]
+    meta = [{"test": "true"}]
+    
+    # store_vectors should populate mirror
+    ids = vs.store_vectors(vecs, metadata=meta)
+    assert len(ids) == 1
+    assert ids[0] in vs.vectors
+    assert ids[0] in vs.metadata
+    
+    # save() should persist mirror
+    save_dir = str(tmp_path / "vs_save")
+    vs.save(save_dir)
+    assert os.path.exists(os.path.join(save_dir, "store_data.json"))
+    
+    # load() should restore mirror
+    vs2 = VectorStore(backend="sqlite", config={"db_path": str(tmp_path / "test2.db")})
+    vs2.load(save_dir)
+    assert ids[0] in vs2.vectors
+    assert ids[0] in vs2.metadata
+    assert np.array_equal(vs2.vectors[ids[0]], vecs[0])
+    
+    # delete_vectors should update mirror
+    vs.delete_vectors(ids)
+    assert ids[0] not in vs.vectors
+    assert ids[0] not in vs.metadata

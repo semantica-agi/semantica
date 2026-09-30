@@ -51,7 +51,13 @@ from scipy import sparse
 
 from ..utils.logging import get_logger
 from ..utils.progress_tracker import get_progress_tracker
-from ._graph_view import build_adjacency, build_graph_view
+from ._graph_view import (
+    build_adjacency,
+    build_graph_view,
+    edge_types_between,
+    graph_node_ids,
+    graph_node_label,
+)
 
 
 class CentralityCalculator:
@@ -599,7 +605,8 @@ class CentralityCalculator:
         a page to determine a rough estimate of how important the website is.
         
         Args:
-            graph: Graph object (NetworkX or similar)
+            graph: Graph object (NetworkX, ContextGraph, or a plain
+                ``{"entities": [...], "relationships": [...]}`` mapping)
             node_labels: List of node labels to include (None for all)
             relationship_types: List of relationship types to consider (None for all)
             max_iterations: Maximum number of iterations for convergence
@@ -622,15 +629,10 @@ class CentralityCalculator:
         try:
             self.logger.info("Calculating PageRank scores")
 
-            # ContextGraph.nodes is a dict rather than a NetworkX NodeView,
-            # so an attribute presence test would skip the conversion and the
-            # node filter below would then call that dict.
-            needs_conversion = not callable(getattr(graph, "nodes", None))
-            if needs_conversion and hasattr(self, "_to_networkx"):
-                try:
-                    graph = self._to_networkx(graph)
-                except Exception:
-                    pass
+            # No conversion here. _to_networkx re-adds nodes by id alone, so
+            # converting first would strip every label and every relationship
+            # type the filters below need. The _graph_view helpers read a
+            # ContextGraph and a plain graph dictionary directly instead.
 
             # Filter nodes by labels if specified
             nodes = self._filter_nodes_by_labels(graph, node_labels)
@@ -698,21 +700,16 @@ class CentralityCalculator:
     
     def _filter_nodes_by_labels(self, graph: Any, node_labels: Optional[List[str]]) -> List[str]:
         """Filter nodes by specified labels."""
+        nodes = graph_node_ids(graph)
+
         if node_labels is None:
-            return list(graph.nodes()) if hasattr(graph, 'nodes') else []
-        
+            return nodes
+
         filtered_nodes = []
-        for node in graph.nodes():
-            if hasattr(graph, 'nodes'):
-                node_data = graph.nodes[node]
-                if isinstance(node_data, dict):
-                    node_label = node_data.get('label') or node_data.get('type')
-                    if node_label in node_labels:
-                        filtered_nodes.append(node)
-                else:
-                    # Fallback - include all nodes if no label information
-                    filtered_nodes.append(node)
-        
+        for node in nodes:
+            if graph_node_label(graph, node) in node_labels:
+                filtered_nodes.append(node)
+
         return filtered_nodes
     
     def _get_filtered_neighbors(
@@ -722,7 +719,12 @@ class CentralityCalculator:
         relationship_types: Optional[List[str]]
     ) -> List[str]:
         """Get neighbors filtered by relationship types."""
-        if hasattr(graph, 'neighbors'):
+        if isinstance(graph, dict):
+            # A plain graph dictionary has no neighbour walk of its own, so the
+            # outgoing adjacency comes from the same dict-aware builder the rest
+            # of the analytics use.
+            neighbors = build_adjacency(graph, directed=True).get(node, [])
+        elif hasattr(graph, 'neighbors'):
             _raw = list(graph.neighbors(node))
             neighbors = [n.get("id") if isinstance(n, dict) else n for n in _raw]
         elif hasattr(graph, 'get_neighbors'):
@@ -735,15 +737,19 @@ class CentralityCalculator:
         else:
             neighbors = []
         
-        # Filter by relationship types if specified
-        if relationship_types is not None and hasattr(graph, 'get_edge_data'):
-            filtered_neighbors = []
-            for neighbor in neighbors:
-                edge_data = graph.get_edge_data(node, neighbor)
-                if edge_data and isinstance(edge_data, dict):
-                    edge_type = edge_data.get('type') or edge_data.get('relationship')
-                    if edge_type in relationship_types:
-                        filtered_neighbors.append(neighbor)
-            return filtered_neighbors
-        
-        return neighbors
+        if relationship_types is None:
+            return neighbors
+
+        # Filter by relationship types if specified. The edge list is the only
+        # view that shows every parallel edge of a pair, and a graph whose edge
+        # types cannot be read keeps its neighbours rather than dropping them.
+        # The neighbours come from an outgoing walk, so the lookup has to read
+        # the edges in that direction: a reverse edge of another type is not a
+        # link this node follows, and counting it flattens the ranking.
+        wanted = set(relationship_types)
+        filtered_neighbors = []
+        for neighbor in neighbors:
+            types = edge_types_between(graph, node, neighbor, directed=True)
+            if types is None or types & wanted:
+                filtered_neighbors.append(neighbor)
+        return filtered_neighbors

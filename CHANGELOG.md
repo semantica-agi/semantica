@@ -17,6 +17,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `semantica.kg.RelationalSchemaMapper` maps rows from a relational source (`DBIngestor`, `SnowflakeIngestor`, `DatabricksIngestor`, `PandasIngestor`, a DataFrame or plain row dicts) to the `{"entities", "relationships"}` shape `GraphBuilder` and `OntologyGenerator` consume: entity tables become entities keyed by primary key, foreign keys become typed relationships, junction tables become relationships only
   - Every entity and relationship is tagged with the `source` it came from so `ConflictDetector` can key credibility on it. New `tests/kg/test_schema_mapper.py`
 
+### Fixed
+
+- **Explorer path routes returned 404 for every node pair on a `ContextGraph` session** (fixes #1725) by @sakshi04-ui
+  - `GET /api/graph/path`, `GET /api/graph/node/{id}/path` and `POST /api/graph/distance-matrix` handed `PathFinder` the `{"entities", "relationships"}` dict from `build_graph_dict`. `PathFinder` duck-types against `has_node`/`neighbors`/`get_edge_data`, so `"a" in graph_dict` tested the two top-level keys and raised `Source node a not found` — surfacing as a 404 on the path routes, and as every pair landing in `unreachable` on the distance matrix
+  - Adds `GraphSession.build_nx_graph()`, a NetworkX view that preserves isolated nodes and carries edge `weight` through for `dijkstra_shortest_path`, and points the three `PathFinder` call sites at it. The `{"entities", "relationships"}` dict is still used for the edge-weight index and the centrality sub-graph, which consume that shape
+  - The route tests previously patched `build_graph_dict` to return an `nx.DiGraph`, so the production shape was never exercised; the patch is removed and the existing bidirectional suite (#469) now runs against a real `ContextGraph`
+  - `alternative_path_count` was always `0`: the enrichment called `find_k_shortest_paths(..., directed=directed)`, which takes no `directed` argument, so it raised `TypeError` into a DEBUG log. The undirected case now passes an undirected view instead. The 404 masked this until the routes started returning paths
+  - `PathFinder` returns a plain list, never a dict, so the `isinstance(result, dict)` branches that read `total_weight` off it were dead: `total_weight` was `0.0` on every path response, and `POST /api/graph/distance-matrix` with `metric="weighted"` raised `AttributeError` into the same swallowing `except` and returned `null` for every pair. Both now sum edge weights along the resolved path
+  - `POST /api/graph/distance-matrix` mirrored one `src`→`tgt` result into both matrix cells, reporting the reverse direction as reachable on a directed graph. Each direction is now searched independently, so the matrix may be asymmetric and `unreachable_pairs` lists the specific ordered pairs that have no path
+  - Undirected traversal (`directed=false`) can walk a stored edge backwards; `total_weight` costed those hops against the directed view and fell back to the default `1.0`, and `resolve_path_edge_ids` scanned only outgoing adjacency so the hop contributed no id. Both now resolve reverse hops, and the reported edge is the lowest-weight parallel edge — the one the path is costed against
+  - `POST /api/graph/distance-matrix` rebuilt the whole graph once per node pair; it is now built once per request
+
 ## [0.7.0] - 2026-09-22
 
 ### Added

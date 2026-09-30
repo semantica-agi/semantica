@@ -3147,6 +3147,17 @@ def decision_list(cli_ctx: CLIContext, limit: int, fmt: str, local_json: bool) -
     _run_with_error_handling(_action)
 
 
+def _tag_filter_value(filter_str: str) -> str:
+    """Return the value part of a ``tag:<value>`` decision filter, lowercased.
+
+    ``str.lstrip("tag:")`` strips any leading ``t``, ``a``, ``g`` or ``:``
+    *characters*, not the prefix: ``tag:auth`` became ``uth`` and ``tag:git``
+    became ``it``, so the filter silently matched the wrong text. Anything
+    without the prefix is passed through unchanged.
+    """
+    return filter_str.removeprefix("tag:").lower()
+
+
 @decision.command("query")
 @click.option("--filter", "filter_str", default=None, help="e.g. tag:finance")
 @click.option("--since", default=None, help="ISO 8601 date.")
@@ -3170,7 +3181,7 @@ def decision_query(cli_ctx: CLIContext, filter_str: Optional[str],
                  "outcome": d.outcome, "confidence": d.confidence}
                 for d in (raw or [])
                 if filter_str is None
-                or filter_str.lstrip("tag:").lower() in d.category.lower()
+                or _tag_filter_value(filter_str) in d.category.lower()
             ]
         except ImportError as exc:
             raise click.ClickException(f"Context module not available: {exc}") from exc
