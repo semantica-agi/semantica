@@ -95,9 +95,19 @@ COPY --from=frontend-builder /app/semantica/static ./semantica/static
 # build-system.requires; installing it first and passing
 # --no-build-isolation makes pip reuse those hash-verified copies instead
 # of fetching its own.
+#
+# pip itself is uninstalled once it's done: nothing in the running app
+# shells out to it, and it carries its own vendored urllib3 in
+# pip/_vendor that the hash-pinned urllib3==2.8.0 above can't replace.
+# pip 26.2.1 (the latest release, and what the base image ships) vendors
+# urllib3 2.7.0, which Trivy flags for CVE-2026-97689 (unbounded chunk-size
+# buffering) and CVE-2026-97687 (HTTPS proxy TLS settings override) -
+# alerts #6173/#6174. Removing pip clears both, and keeps the next vendored
+# CVE out of the image too, rather than waiting on a pip release.
 RUN pip install --no-cache-dir -r explorer-extra-py313.txt -r pep517-build.txt --require-hashes \
     && pip install --no-cache-dir --no-deps --no-build-isolation . \
     && rm -f explorer-extra-py313.txt pep517-build.txt \
+    && python -m pip uninstall --yes pip \
     && chown -R semantica:semantica /app
 
 USER semantica
