@@ -59,7 +59,7 @@
     "vite": "^6.4.2"
   },
   "overrides": {
-    "dompurify": "^3.4.0",
+    "dompurify": "^3.4.16",
     "uuid": "^13.0.1",
     "esbuild": "^0.28.1"
   }
