@@ -336,6 +336,14 @@ include = ["semantica*", "integrations*", "semantica_mcp*"]
 # static/* covers index.html / favicon; static/assets/* covers all JS/CSS chunks.
 "semantica" = ["static/*", "static/assets/*", "ontology/vocabulary/*.ttl"]
 
+[tool.uv]
+# databricks-sql-connector (latest 4.6.0) still caps oauthlib<4.0.0, but the
+# fixes for GHSA PKCE timing / RevocationEndpoint JSONP only ship in 4.0.0.
+# The connector only uses WebApplicationClient (prepare_authorization_request,
+# parse_request_uri_response, prepare_request_body, prepare_refresh_body),
+# which is unchanged in 4.0.0. Drop this once the connector lifts its cap.
+override-dependencies = ["oauthlib>=4.0.0"]
+
 [tool.black]
 line-length = 88
 

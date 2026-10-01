@@ -102,7 +102,10 @@ jobs:
           # Tooling AFTER the pinned set: installing it first would let the
           # pinned requirements overwrite the tooling's own transitive deps.
           pip install -r .github/requirements/pip-audit.txt --require-hashes
-          pip install -r .github/requirements/security-scan-tools.txt --require-hashes
+          # --no-deps: security-scan-tools.txt overrides semgrep's pyjwt pin
+          # (see security-scan-tools-overrides.txt), which pip's resolver would
+          # otherwise reject. The file already hash-pins every transitive dep.
+          pip install -r .github/requirements/security-scan-tools.txt --require-hashes --no-deps
 
       - name: Run pip-audit (Package Vulnerabilities)
         continue-on-error: true
