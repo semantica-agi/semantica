@@ -123,6 +123,18 @@ updates:
     allow:
       - dependency-type: "production"
       - dependency-type: "development"
+    # Every explorer bump lands in package.json and package-lock.json, so each
+    # single-dependency PR goes stale as soon as another one merges. Grouping
+    # the minor and patch bumps keeps them on one branch instead. `applies-to`
+    # is left at its default, so this only affects version updates, and majors
+    # stay out on purpose: those need a decision each and keep arriving alone.
+    groups:
+      explorer-frontend:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
 
   # Docker dependencies (if you use Docker)
   - package-ecosystem: "docker"
