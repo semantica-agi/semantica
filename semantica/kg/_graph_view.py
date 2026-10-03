@@ -185,10 +185,25 @@ def _edge_type_of(edge: Any) -> Any:
 
 def _dict_edge_types(
     graph: Dict[str, Any], source: Any, target: Any, directed: bool
-) -> Set[Any]:
-    """Collect the types of every declared edge between two nodes."""
+) -> Optional[Set[Any]]:
+    """Collect the types of every declared edge between two nodes.
+
+    Returns ``None`` when none of the graph's edge records declares a type,
+    matching :func:`edge_types_between`: a dictionary whose edges are bare
+    pairs exposes no edge types at all, so a caller filtering on relationship
+    types has nothing to classify a link with and keeps it. An empty set means
+    the pair is joined by edges that declare no type while other records in the
+    same graph do declare one.
+    """
+    edges = _extract_edges(graph)
+    if not any(_edge_type_of(edge) for edge in edges):
+        return None
+
     types: Set[Any] = set()
-    for edge in _extract_edges(graph):
+    for edge in edges:
+        edge_type = _edge_type_of(edge)
+        if not edge_type:
+            continue
         endpoints = _edge_endpoints(edge)
         if endpoints is None:
             continue
@@ -197,9 +212,7 @@ def _dict_edge_types(
         backwards = src == target and dst == source
         if not (forwards or (backwards and not directed)):
             continue
-        edge_type = _edge_type_of(edge)
-        if edge_type:
-            types.add(edge_type)
+        types.add(edge_type)
     return types
 
 

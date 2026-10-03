@@ -475,8 +475,11 @@ class CommunityDetector:
 
         Args:
             graph: Input graph for community detection
-            algorithm: Community detection algorithm to use
-                      (supported: "louvain", "leiden", "overlapping")
+            algorithm: Community detection algorithm to use. Supported values
+                      are "louvain", "leiden", "overlapping" and
+                      "label_propagation".
+            method: Alias for ``algorithm``. A value that is not supported is
+                      ignored, which leaves ``algorithm`` in effect.
             **options: Additional detection options (passed to algorithm-specific method)
 
         Returns:
@@ -485,20 +488,24 @@ class CommunityDetector:
         Raises:
             ValueError: If algorithm is not supported
         """
+        handlers = {
+            "louvain": self.detect_communities_louvain,
+            "leiden": self.detect_communities_leiden,
+            "overlapping": self.detect_overlapping_communities,
+            "label_propagation": self.detect_communities_label_propagation,
+        }
+
         # 'method' is an alias for 'algorithm'
         if method is not None:
-            algorithm = method if method in ("louvain", "leiden", "overlapping") else "louvain"
+            algorithm = method if method in handlers else algorithm
 
         self.logger.info(f"Detecting communities using {algorithm} algorithm")
 
-        if algorithm == "louvain":
-            return self.detect_communities_louvain(graph, **options)
-        elif algorithm == "leiden":
-            return self.detect_communities_leiden(graph, **options)
-        elif algorithm == "overlapping":
-            return self.detect_overlapping_communities(graph, **options)
-        else:
+        handler = handlers.get(algorithm)
+        if handler is None:
             raise ValueError(f"Unsupported algorithm: {algorithm}")
+
+        return handler(graph, **options)
 
     def _build_adjacency(self, graph) -> Dict[str, List[str]]:
         """Build adjacency list from graph."""
@@ -779,11 +786,16 @@ class CommunityDetector:
         # Initialize labels for all nodes
         labels = {node: i for i, node in enumerate(nodes)}
         
-        # Build adjacency in chunks
+        # Build adjacency in chunks. Every chunk's rows are built against the
+        # full node set, so an edge that crosses two chunks still counts; the
+        # membership it was filtered by used to be the chunk alone, which
+        # dropped every such edge.
         adjacency = {}
         for i in range(0, len(nodes), chunk_size):
             chunk_nodes = nodes[i:i + chunk_size]
-            chunk_adjacency = self._build_filtered_adjacency(graph, chunk_nodes, relationship_types)
+            chunk_adjacency = self._build_filtered_adjacency(
+                graph, nodes, relationship_types, iterate=chunk_nodes
+            )
             adjacency.update(chunk_adjacency)
         
         # Run label propagation with memory-efficient updates
@@ -841,7 +853,7 @@ class CommunityDetector:
         result = {
             "communities": communities,
             "node_assignments": node_assignments,
-            "algorithm": "label_propagation_chunked",
+            "algorithm": "label_propagation",
             "iterations": iteration + 1 if 'iteration' in locals() else max_iterations
         }
         
@@ -866,20 +878,36 @@ class CommunityDetector:
         self, 
         graph: Any, 
         nodes: List[str], 
-        relationship_types: Optional[List[str]]
+        relationship_types: Optional[List[str]],
+        iterate: Optional[List[str]] = None
     ) -> Dict[str, List[str]]:
-        """Build adjacency list filtered by nodes and relationship types."""
+        """Build adjacency list filtered by nodes and relationship types.
+
+        ``nodes`` is the set a neighbour has to belong to. ``iterate`` limits
+        which rows are built, so the chunked path can cover the graph in pieces
+        without losing the edges that run between the pieces.
+        """
         adjacency = {}
-        
-        for node in nodes:
+        member = set(nodes)
+        rows = nodes if iterate is None else iterate
+
+        # A graph dictionary has no neighbour accessor, so build the whole
+        # map once, the way Louvain does through build_adjacency().
+        base_adjacency = (
+            {}
+            if hasattr(graph, "neighbors") or hasattr(graph, "get_neighbors")
+            else build_adjacency(graph)
+        )
+
+        for node in rows:
             neighbors = []
-            
+
             if hasattr(graph, 'neighbors'):
                 all_neighbors = list(graph.neighbors(node))
             elif hasattr(graph, 'get_neighbors'):
                 all_neighbors = graph.get_neighbors(node)
             else:
-                all_neighbors = []
+                all_neighbors = list(base_adjacency.get(node, []))
 
             if all_neighbors and isinstance(all_neighbors[0], dict):
                 all_neighbors = [
@@ -887,19 +915,26 @@ class CommunityDetector:
                     if isinstance(n, dict) and n.get("id")
                 ]
             
-            # Filter by relationship types if specified. A graph whose edge
-            # types cannot be read keeps its neighbours, so the filter never
-            # turns an unclassifiable link into a silent removal.
-            if relationship_types is not None and hasattr(graph, 'get_edge_data'):
+            # Filter by relationship types if specified. A graph dictionary has
+            # no get_edge_data, so the shared graph view answers from the edge
+            # records it declares; a graph whose edge types cannot be read keeps
+            # its neighbours, so the filter never turns an unclassifiable link
+            # into a silent removal.
+            if relationship_types is not None and (
+                hasattr(graph, 'get_edge_data') or isinstance(graph, dict)
+            ):
                 wanted = set(relationship_types)
                 for neighbor in all_neighbors:
-                    if neighbor in nodes:  # Only include filtered nodes
-                        types = edge_types_between(graph, node, neighbor)
-                        if types is None or types & wanted:
-                            neighbors.append(neighbor)
+                    if neighbor not in member:  # Only include filtered nodes
+                        continue
+                    types = edge_types_between(graph, node, neighbor)
+                    if types is None or types & wanted:
+                        neighbors.append(neighbor)
             else:
                 # Include all neighbors that are in the filtered node set
-                neighbors = [neighbor for neighbor in all_neighbors if neighbor in nodes]
+                neighbors = [
+                    neighbor for neighbor in all_neighbors if neighbor in member
+                ]
             
             adjacency[node] = neighbors
         
