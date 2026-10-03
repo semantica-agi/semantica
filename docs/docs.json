@@ -204,6 +204,7 @@
             "group": "Context & Intelligence",
             "pages": [
               "reference/context",
+              "reference/grounded_context",
               "reference/kg",
               "reference/temporal",
               "reference/distance",
