@@ -38,6 +38,7 @@ Example:
     'not_configured'
 """
 
+import contextlib
 import copy
 import inspect
 from dataclasses import dataclass, field
@@ -454,6 +455,8 @@ class ErasureCoordinator:
             }
 
         accepted, detail = _interpret_delete_result(deleted)
+        if accepted:
+            _drop_from_facade_mirror(self.vector_store, ids)
         result: Dict[str, Any] = {
             "status": STATUS_ERASED if accepted else STATUS_FAILED,
             "backend": backend,
@@ -773,6 +776,25 @@ def _vector_delete_capability(store: Any) -> Tuple[Optional[str], Any]:
         if callable(getattr(target, name, None)):
             return name, target
     return None, target
+
+
+def _drop_from_facade_mirror(store: Any, ids: Sequence[Any]) -> None:
+    """Remove erased ids from the ``VectorStore`` facade's in-process mirror.
+
+    The delete goes to the backend store directly (see
+    ``_vector_delete_capability``), which skips the mirror cleanup in
+    ``VectorStore.delete_vectors()``. Left alone, the facade keeps serving the
+    erased vectors and ``save()`` writes them back to disk (#1832).
+    """
+    vectors = getattr(store, "vectors", None)
+    metadata = getattr(store, "metadata", None)
+    if not isinstance(vectors, dict) or not isinstance(metadata, dict):
+        return
+    lock = getattr(store, "_inmemory_lock", None)
+    with lock if lock is not None else contextlib.nullcontext():
+        for vector_id in ids:
+            vectors.pop(vector_id, None)
+            metadata.pop(vector_id, None)
 
 
 def _vector_backend_name(store: Any) -> str:

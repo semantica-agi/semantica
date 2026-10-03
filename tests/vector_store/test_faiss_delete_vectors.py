@@ -635,6 +635,24 @@ class TestFAISSErasureCoordinator:
         receipt = coord.erase_entity("vec_0", vector_ids=["vec_0"])
         assert receipt.complete
 
+    def test_erasure_drops_ids_from_the_facade_mirror(self, tmp_path):
+        """Erasure deletes on the backend store directly, so the facade's
+        vectors/metadata mirror must be cleaned too, or save() re-persists the
+        erased ids (#1832)."""
+        vs = self._faiss_vector_store()
+        coord = ErasureCoordinator(vector_store=vs)
+        receipt = coord.erase_entity("vec_0", vector_ids=["vec_0"])
+        assert receipt.stores["vectors"]["status"] == STATUS_ERASED
+
+        assert set(vs.vectors) == {"vec_1", "vec_2"}
+        assert set(vs.metadata) == {"vec_1", "vec_2"}
+
+        vs.save(str(tmp_path))
+        reloaded = VectorStore(backend="faiss", config={"dimension": 3})
+        reloaded.load(str(tmp_path))
+        assert "vec_0" not in reloaded.vectors
+        assert "vec_0" not in reloaded.metadata
+
     def test_erasure_hnsw_reports_unsupported(self):
         """HNSW deletion raises NotImplementedError; coordinator must report unsupported."""
         faiss = pytest.importorskip("faiss")
