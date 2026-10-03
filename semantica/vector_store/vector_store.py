@@ -854,11 +854,28 @@ class VectorStore:
         # Delegate to backend store if available
         if self._backend_store:
             if hasattr(self._backend_store, 'update'):
-                return self._backend_store.update(ids=vector_ids, vectors=new_vectors, metadata=metadata, **options)
+                result = self._backend_store.update(ids=vector_ids, vectors=new_vectors, metadata=metadata, **options)
             elif hasattr(self._backend_store, 'update_vectors'):
-                return self._backend_store.update_vectors(vector_ids, new_vectors, **options)
+                result = self._backend_store.update_vectors(vector_ids, new_vectors, **options)
             else:
                 raise NotImplementedError(f"Backend store {type(self._backend_store).__name__} does not have update or update_vectors method")
+
+            # A backend that rejects the update keeps its old values, so
+            # leave the mirror untouched and pass the result through.
+            if result is False:
+                return result
+
+            # Keep the facade mirror in step with the backend, as
+            # delete_vectors does, so save() persists the updated values.
+            with self._inmemory_lock:
+                for vec_id, new_vec in zip(vector_ids, new_vectors):
+                    if vec_id in self.vectors:
+                        self.vectors[vec_id] = new_vec
+                if metadata:
+                    for vec_id, meta in zip(vector_ids, metadata):
+                        if vec_id in self.metadata:
+                            self.metadata[vec_id] = meta
+            return result
 
         with self._inmemory_lock:
             for vec_id, new_vec in zip(vector_ids, new_vectors):

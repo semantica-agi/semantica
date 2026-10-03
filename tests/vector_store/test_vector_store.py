@@ -300,3 +300,68 @@ def test_backend_mirroring_and_save(tmp_path):
     vs.delete_vectors(ids)
     assert ids[0] not in vs.vectors
     assert ids[0] not in vs.metadata
+
+
+def test_update_vectors_syncs_backend_mirror_before_save(tmp_path):
+    """update_vectors() on a backend store must refresh the facade mirror.
+
+    save() serialises self.vectors / self.metadata, so a stale mirror makes it
+    persist the pre-update values (#1833).
+    """
+    import os
+
+    class FakeBackend:
+        def add(self, vectors, metadata, **options):
+            return [f"id{i}" for i in range(len(vectors))]
+
+        def update(self, ids, vectors, metadata=None, **options):
+            return True
+
+    vs = VectorStore(backend="inmemory", dimension=2)
+    vs._backend_store = FakeBackend()
+
+    ids = vs.store_vectors(
+        [np.array([0.1, 0.2], dtype=np.float32)], metadata=[{"label": "original"}]
+    )
+
+    new_vec = np.array([0.9, 0.9], dtype=np.float32)
+    assert vs.update_vectors(ids, [new_vec], metadata=[{"label": "updated"}]) is True
+
+    assert np.array_equal(vs.vectors[ids[0]], new_vec)
+    assert vs.metadata[ids[0]] == {"label": "updated"}
+
+    vs.save(str(tmp_path))
+    with open(os.path.join(str(tmp_path), "store_data.json"), encoding="utf-8") as f:
+        saved = json.load(f)
+    assert saved["vectors"][ids[0]] == pytest.approx([0.9, 0.9])
+    assert saved["metadata"][ids[0]] == {"label": "updated"}
+
+
+def test_update_vectors_leaves_mirror_when_backend_rejects(tmp_path):
+    """If the backend update returns False, the mirror must keep the originals."""
+    import os
+
+    class RejectingBackend:
+        def add(self, vectors, metadata, **options):
+            return [f"id{i}" for i in range(len(vectors))]
+
+        def update(self, ids, vectors, metadata=None, **options):
+            return False
+
+    vs = VectorStore(backend="inmemory", dimension=2)
+    vs._backend_store = RejectingBackend()
+
+    original = np.array([0.1, 0.2], dtype=np.float32)
+    ids = vs.store_vectors([original], metadata=[{"label": "original"}])
+
+    new_vec = np.array([0.9, 0.9], dtype=np.float32)
+    assert vs.update_vectors(ids, [new_vec], metadata=[{"label": "updated"}]) is False
+
+    assert np.array_equal(vs.vectors[ids[0]], original)
+    assert vs.metadata[ids[0]] == {"label": "original"}
+
+    vs.save(str(tmp_path))
+    with open(os.path.join(str(tmp_path), "store_data.json"), encoding="utf-8") as f:
+        saved = json.load(f)
+    assert saved["vectors"][ids[0]] == pytest.approx([0.1, 0.2])
+    assert saved["metadata"][ids[0]] == {"label": "original"}
