@@ -154,10 +154,55 @@ else:
 # ─────────────────────────────────────────────────────────────────────────────
 print("GROUP: extract")
 help_ok("extract")
-for mode in ["ner", "relations", "triplets", "events"]:
+
+# Derive the mode list straight from the Click command's `choices` so this loop
+# can never drift from the real set again. A hardcoded list that silently
+# omitted `all` — the *default* mode — is exactly what let #1789 ship broken
+# and go unnoticed (#1850).
+_extract_mode_opt = next(
+    p for p in cli_mod.extract.params if getattr(p, "name", None) == "mode"
+)
+EXTRACT_MODES = list(_extract_mode_opt.type.choices)
+assert "all" in EXTRACT_MODES, (
+    f"'all' (the default mode) missing from extract --mode choices: {EXTRACT_MODES}"
+)
+for mode in EXTRACT_MODES:
     code, _, _ = run(["extract", "--mode", mode, "--help"])
-    assert code == 0
-ok("extract: all modes in --help")
+    assert code == 0, f"extract --mode {mode} --help exited {code}"
+ok(f"extract: every --mode choice in --help ({', '.join(EXTRACT_MODES)})")
+
+# Exercise the default mode for real, not just at the --help level: #1789 broke
+# `--mode all` on every bare invocation, so assert exit 0 and that all four
+# stages land in the JSON payload. `--method pattern` keeps this hermetic
+# (no model load / network) and fast.
+code, _, cli = run(
+    ["extract", "Alice works at Acme Corp.", "--mode", "all", "--json",
+     "--method", "pattern"]
+)
+assert code == 0, f"extract --mode all --json exited {code}: {cli[:200]}"
+# Progress log lines are interleaved into stdout (pre-existing), so pick the
+# JSON object out rather than assuming the whole stream is JSON.
+_json_lines = [ln for ln in cli.splitlines() if ln.lstrip().startswith("{")]
+assert _json_lines, f"extract --mode all --json produced no JSON line: {cli[:200]}"
+_payload = json.loads(_json_lines[-1])
+assert set(_payload) == {"ner", "relations", "triplets", "events"}, (
+    f"extract --mode all missing stages: {sorted(_payload)}"
+)
+ok("extract --mode all --json: exit 0 with ner/relations/triplets/events")
+
+# `coreference` is listed in --mode's choices but has no runtime extractor yet,
+# so it must fail loudly with a clean error instead of pretending to succeed
+# (#1850). Drop this check once coreference is actually wired.
+code, rich, _ = run(
+    ["extract", "Alice works at Acme Corp.", "--mode", "coreference",
+     "--method", "pattern"]
+)
+assert code != 0 and "not yet wired" in rich.lower(), (
+    f"extract --mode coreference should be a clean placeholder error, "
+    f"got exit {code}: {rich[:200]}"
+)
+ok("extract --mode coreference: clean 'not yet wired' placeholder error")
+
 # NOTE: logging output pollutes --json stdout — pre-existing issue
 skip("extract --json ner", "pre-existing: log messages pollute JSON stdout")
 

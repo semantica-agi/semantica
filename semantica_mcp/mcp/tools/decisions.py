@@ -310,18 +310,65 @@ def handle_link_decisions(args: dict) -> dict:
         return {"error": "relationship is required"}
     try:
         graph = get_graph()
-        added = graph.add_causal_relationship(source, target, relationship)
-    except ValueError as exc:
-        return {"error": str(exc)}
     except Exception as exc:
         log.exception("link_decisions failed")
         return {"error": str(exc)}
+
+    # Hold the graph lock from the add through the save (and any rollback) so a
+    # concurrent caller can't slip an edge in between: a failed save must only
+    # undo the edge this call made, never someone else's.
+    with graph._lock:
+        try:
+            edge_count = len(graph.edges)
+            added = graph.add_causal_relationship(source, target, relationship)
+            new_edges = list(graph.edges)[edge_count:]
+        except ValueError as exc:
+            return {"error": str(exc)}
+        except Exception as exc:
+            log.exception("link_decisions failed")
+            return {"error": str(exc)}
+
+        # Persist like record_decision / add_relationship do, so the link survives a
+        # server restart. A skipped link (added=False) changed nothing to save.
+        persisted = False
+        kg_path = os.environ.get("SEMANTICA_KG_PATH", "").strip()
+        if added and kg_path:
+            if not is_persistence_safe():
+                _drop_edges(graph, new_edges)
+                return {
+                    "error": (
+                        "Persistence blocked: the configured SEMANTICA_KG_PATH "
+                        "could not be loaded at startup. Restart the server with "
+                        "a readable graph file to re-enable persistence."
+                    )
+                }
+            try:
+                graph.save_to_file(kg_path)
+                persisted = True
+            except Exception as save_exc:
+                _drop_edges(graph, new_edges)
+                log.exception("save_to_file failed after link_decisions; mutation rolled back")
+                return {"error": f"Mutation rolled back: could not persist graph: {save_exc}"}
     return {
         "source": source,
         "target": target,
         "relationship": relationship,
         "linked": added,
+        "persisted": persisted,
     }
+
+
+def _drop_edges(graph, edges) -> None:
+    """Undo add_causal_relationship: drop exactly the given edges."""
+    try:
+        with graph._lock:
+            for edge in edges:
+                graph._drop_edge_from_indexes(edge)
+                # _drop_edge_from_indexes leaves _edge_index alone; without this a
+                # retry of the same link would be treated as a duplicate and skipped
+                graph._edge_index.pop(edge.edge_id, None)
+    except Exception:
+        log.exception("could not roll back link_decisions")
 
 
 DECISION_TOOLS = [
