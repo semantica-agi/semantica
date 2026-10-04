@@ -290,5 +290,115 @@ class TestMCPPackageMutationPersistence(unittest.TestCase):
         self.assertEqual(result.get("status"), "added")
 
 
+class TestLinkDecisionsPersistence(unittest.TestCase):
+    """#1811: link_decisions must persist like record_decision / add_relationship."""
+
+    def _record(self, label):
+        from semantica_mcp.mcp.tools.decisions import handle_record_decision
+
+        result = handle_record_decision({
+            "category": "link_persistence",
+            "scenario": label,
+            "reasoning": "r",
+            "outcome": "o",
+            "confidence": 0.9,
+        })
+        self.assertNotIn("error", result, result)
+        return result["decision_id"]
+
+    def test_link_survives_a_reload(self):
+        from semantica_mcp.mcp.tools.decisions import handle_link_decisions
+
+        with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as f:
+            path = f.name
+        try:
+            with _IsolatedSession():
+                with patch.dict(os.environ, {"SEMANTICA_KG_PATH": path}):
+                    a, b = self._record("A"), self._record("B")
+                    result = handle_link_decisions(
+                        {"source": a, "target": b, "relationship": "CAUSED"}
+                    )
+            self.assertNotIn("error", result, result)
+            self.assertTrue(result["linked"])
+            self.assertTrue(result["persisted"])
+
+            g2 = ContextGraph(advanced_analytics=False)
+            g2.load_from_file(path)
+            chain = g2.get_causal_chain(b, direction="upstream")
+            self.assertIn(a, [d.decision_id for d in chain])
+        finally:
+            os.unlink(path)
+
+    def test_failed_save_rolls_the_link_back(self):
+        from semantica_mcp.mcp.tools.decisions import handle_link_decisions
+
+        with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as f:
+            path = f.name
+        try:
+            with _IsolatedSession():
+                with patch.dict(os.environ, {"SEMANTICA_KG_PATH": path}):
+                    a, b = self._record("A"), self._record("B")
+                    graph = _session.get_graph()
+                    edges_before = len(graph.edges)
+                    with patch.object(type(graph), "save_to_file", side_effect=OSError("disk full")):
+                        result = handle_link_decisions(
+                            {"source": a, "target": b, "relationship": "CAUSED"}
+                        )
+                    self.assertIn("rolled back", result.get("error", ""))
+                    self.assertEqual(len(graph.edges), edges_before)
+                    # the same link can be made again once saving works
+                    retry = handle_link_decisions(
+                        {"source": a, "target": b, "relationship": "CAUSED"}
+                    )
+            self.assertTrue(retry["linked"], retry)
+            self.assertTrue(retry["persisted"], retry)
+        finally:
+            os.unlink(path)
+
+    def test_failed_save_keeps_another_callers_link(self):
+        from semantica_mcp.mcp.tools.decisions import handle_link_decisions
+
+        with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as f:
+            path = f.name
+        try:
+            with _IsolatedSession():
+                with patch.dict(os.environ, {"SEMANTICA_KG_PATH": path}):
+                    a, b = self._record("A"), self._record("B")
+                    c, d = self._record("C"), self._record("D")
+                    graph = _session.get_graph()
+
+                    def other_caller_links_then_save_fails(*_args, **_kwargs):
+                        # another link lands after this call's edge, then the save fails
+                        graph.add_causal_relationship(c, d, "CAUSED")
+                        raise OSError("disk full")
+
+                    with patch.object(
+                        type(graph), "save_to_file",
+                        side_effect=other_caller_links_then_save_fails,
+                    ):
+                        result = handle_link_decisions(
+                            {"source": a, "target": b, "relationship": "CAUSED"}
+                        )
+                    self.assertIn("rolled back", result.get("error", ""))
+                    pairs = {(e.source_id, e.target_id) for e in graph.edges}
+                    self.assertNotIn((a, b), pairs)
+                    self.assertIn((c, d), pairs)
+        finally:
+            os.unlink(path)
+
+    def test_no_kg_path_links_without_persisting(self):
+        from semantica_mcp.mcp.tools.decisions import handle_link_decisions
+
+        with _IsolatedSession():
+            env = {k: v for k, v in os.environ.items() if k != "SEMANTICA_KG_PATH"}
+            with patch.dict(os.environ, env, clear=True):
+                a, b = self._record("A"), self._record("B")
+                result = handle_link_decisions(
+                    {"source": a, "target": b, "relationship": "CAUSED"}
+                )
+        self.assertTrue(result["linked"])
+        self.assertFalse(result["persisted"])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -22,7 +22,7 @@ Example Usage:
     >>> from semantica.vector_store import HybridSearch, MetadataFilter
     >>> search = HybridSearch()
     >>> filter = MetadataFilter().eq("category", "science").gt("year", 2020)
-    >>> results = search.search(query_vector, vectors, metadata, vector_ids, filter=filter, k=10)
+    >>> results = search.search(query_vector, vectors, metadata, vector_ids, metadata_filter=filter, k=10)
     >>> 
     >>> from semantica.vector_store import SearchRanker
     >>> ranker = SearchRanker(strategy="reciprocal_rank_fusion")
@@ -35,6 +35,7 @@ Author: Semantica Contributors
 License: MIT
 """
 
+import warnings
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
@@ -135,6 +136,38 @@ class MetadataFilter:
                 return False
 
         return True
+
+
+def pop_legacy_filter(
+    options: Dict[str, Any],
+    metadata_filter: Optional["MetadataFilter"],
+    stacklevel: int = 3,
+) -> Optional["MetadataFilter"]:
+    """Take a ``MetadataFilter`` passed as ``filter=`` out of ``options``.
+
+    ``filter=`` is what the docs used to show, but the parameter is
+    ``metadata_filter``, so the filter went into ``**options`` and the search
+    ran unfiltered (#1802). Only a ``MetadataFilter`` is treated as the alias:
+    anything else (a plain dict, say) stays in ``options`` and is forwarded to
+    the backend as its native filter, as before. ``stacklevel`` points the
+    deprecation warning at the caller's line (3 = the caller of the function
+    that calls this helper).
+    """
+    legacy = options.get("filter")
+    if not isinstance(legacy, MetadataFilter):
+        return metadata_filter
+    if metadata_filter is not None:
+        raise TypeError(
+            "HybridSearch.search() got both 'filter' and 'metadata_filter'; "
+            "pass metadata_filter only"
+        )
+    del options["filter"]
+    warnings.warn(
+        "HybridSearch.search(filter=...) is deprecated, use metadata_filter=...",
+        DeprecationWarning,
+        stacklevel=stacklevel,
+    )
+    return legacy
 
 
 class SearchRanker:
@@ -305,6 +338,7 @@ class HybridSearch:
         # that and raises "got multiple values for keyword argument".
         if "top_k" in options:
             k = options.pop("top_k")
+        metadata_filter = pop_legacy_filter(options, metadata_filter, stacklevel=3)
         # query_vector is derived from `query` above; drop any stray value
         # passed in **options so it doesn't collide with that derivation.
         # (**options is a fresh dict per call, so this can't affect the caller.)
