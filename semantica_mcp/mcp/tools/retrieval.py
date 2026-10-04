@@ -418,7 +418,11 @@ def handle_retrieve_context(args: dict) -> dict:
     if not query:
         return {"error": "query is required", "results": []}
     try:
-        top_k = max(1, min(int(args.get("top_k", 5)), MAX_TOP_K))
+        # max_results is the name the Python retrieve_context API uses
+        limit = args.get("top_k")
+        if limit is None:
+            limit = args.get("max_results", 5)
+        top_k = max(1, min(int(limit), MAX_TOP_K))
     except (TypeError, ValueError):
         top_k = 5
     project = str(args.get("project", "")).strip() or None
