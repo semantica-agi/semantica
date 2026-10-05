@@ -1738,9 +1738,9 @@ google-adk==2.7.0 \
     --hash=sha256:283e16dc5ffab7684e17098f7282470339e88a3d16ecfa62b4025680672c906b \
     --hash=sha256:6517c0383d9449484b6398a5b60c6408dbd4de369e957eebc3b9d8d0c90736e9
     # via semantica (pyproject.toml)
-google-api-core==2.34.0 \
-    --hash=sha256:98a779fe72de956eb1c9c2f47ff4c4432a668ece1a002ec38bed07ec2698ae59 \
-    --hash=sha256:cdf9c67e7ca2402d86ccbfde5f2503fc83e3cc3f58cc78456ae96cad24a6d2de
+google-api-core==2.40.0 \
+    --hash=sha256:4b9e0a80024c269ae173136d5439f4ed284651d6e5e2773ba5c694f481f9c0f4 \
+    --hash=sha256:ebee7d1b138b5362beecec260e6e8988ac97346562c7382ccb6f0ad8435c599f
     # via
     #   google-cloud-core
     #   google-cloud-storage
