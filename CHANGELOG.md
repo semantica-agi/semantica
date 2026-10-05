@@ -19,6 +19,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`calculate_pagerank` rebuilt the adjacency once per node for a plain graph dictionary** (fixes #1842)
+  - `_get_filtered_neighbors` called `build_adjacency(graph, directed=True)` for every node, making neighbour resolution O(N * (N + E)). `calculate_pagerank` now builds it once before the node loop and passes it in through a new optional `adjacency` argument; scores are unchanged. New `tests/kg/test_centrality_pagerank_adjacency_reuse.py`
+
 - **Explorer path routes returned 404 for every node pair on a `ContextGraph` session** (fixes #1725) by @sakshi04-ui
   - `GET /api/graph/path`, `GET /api/graph/node/{id}/path` and `POST /api/graph/distance-matrix` handed `PathFinder` the `{"entities", "relationships"}` dict from `build_graph_dict`. `PathFinder` duck-types against `has_node`/`neighbors`/`get_edge_data`, so `"a" in graph_dict` tested the two top-level keys and raised `Source node a not found` — surfacing as a 404 on the path routes, and as every pair landing in `unreachable` on the distance matrix
   - Adds `GraphSession.build_nx_graph()`, a NetworkX view that preserves isolated nodes and carries edge `weight` through for `dijkstra_shortest_path`, and points the three `PathFinder` call sites at it. The `{"entities", "relationships"}` dict is still used for the edge-weight index and the centrality sub-graph, which consume that shape
