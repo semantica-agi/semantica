@@ -2,7 +2,10 @@ name: Security Scan
 
 on:
   schedule:
-    - cron: '30 1 * * 1,4'  # Mon/Thu 7 AM IST
+    # Daily, so a newly published advisory against a pinned dependency
+    # fails here on main first, instead of surfacing as a failure on
+    # whichever PR happens to run next.
+    - cron: '30 1 * * *'  # Daily 7 AM IST
   workflow_dispatch:
   push:
     branches: [main]
@@ -81,6 +84,9 @@ jobs:
       # pull_request (not pull_request_target): GitHub always forces a
       # read-only token for PRs from forks regardless of this permission.
       pull-requests: write
+      # Needed for the "Report Scheduled Failure" step below, which opens or
+      # updates a tracking issue when the scheduled run on main fails.
+      issues: write
 
     steps:
       - name: Checkout repository
@@ -208,6 +214,13 @@ jobs:
             jq -r '.dependencies[] | select(has("skip_reason")) | "  - \(.name): \(.skip_reason)"' pip-audit-report.json
           fi
 
+          # Clearing an advisory: bump the package to the latest release with
+          # no known advisories, not to the first fixed version. #1924 moved
+          # docling only to 2.131.0, the first release fixing one advisory,
+          # and three more advisories against <2.132.0 failed every PR a day
+          # later. Ignoring an ID below is for findings that are reviewed
+          # and genuinely non-actionable, never a way to get CI green.
+          #
           # Vulnerability IDs reviewed and accepted as non-actionable for this
           # project:
           # - GHSA-4j2p-28q2-5m79 (aka CVE-2026-69112): accelerate<=1.14.0
@@ -465,7 +478,7 @@ jobs:
               '',
               '---',
               '',
-              '*This security scan runs automatically on source-code PRs and bi-weekly (skipped for doc/markdown-only changes).*',
+              '*This security scan runs automatically on source-code PRs and daily (skipped for doc/markdown-only changes).*',
               '',
               '📊 **Security Policy**: CI fails on pip-audit vulnerabilities and Bandit HIGH-severity findings. Semgrep findings above are informational and do not block merge.',
             ].join('\n');
@@ -490,3 +503,161 @@ jobs:
             echo "::error::pip-audit scan failed. See the pip-audit output and uploaded reports above."
             exit 1
           fi
+
+      # Runs after the gate so failure() also sees a pip-audit failure (the
+      # audit step itself is continue-on-error; the gate above re-raises it).
+      # Scheduled runs have no PR to comment on, so without this a failure on
+      # main is only visible to whoever opens the Actions tab.
+      - name: Report Scheduled Failure
+        if: failure() && github.event_name == 'schedule'
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
+        with:
+          script: |
+            const fs = require('fs');
+
+            // One tracking issue, found by this label, collects every
+            // scheduled failure until someone closes it. Later failures add a
+            // comment instead of opening duplicates.
+            const label = 'security-scan-failure';
+            const { owner, repo } = context.repo;
+            const runUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
+
+            // Same exclusion list the gate applied (exported through
+            // $GITHUB_ENV), so the issue lists exactly what failed the gate.
+            const ignoredVulnIds = (process.env.IGNORED_VULN_IDS || '')
+              .split(',')
+              .map((id) => id.trim())
+              .filter(Boolean);
+
+            // 'missing' (no file), 'invalid' (unparseable, or not the shape
+            // the gate's Guard 2 accepts) or 'valid'. Only a valid report may
+            // be summarised as having no actionable vulnerabilities.
+            let reportState = 'valid';
+            let findings = [];
+            let report;
+            try {
+              report = JSON.parse(fs.readFileSync('pip-audit-report.json', 'utf8'));
+            } catch (e) {
+              reportState = e.code === 'ENOENT' ? 'missing' : 'invalid';
+            }
+            if (reportState === 'valid') {
+              const dependencies = report && report.dependencies;
+              const wellFormed = Array.isArray(dependencies) && dependencies.length > 0 &&
+                dependencies.every((dependency) =>
+                  dependency && typeof dependency === 'object' &&
+                  (Array.isArray(dependency.vulns) || typeof dependency.skip_reason === 'string')
+                );
+              if (!wellFormed) reportState = 'invalid';
+            }
+            if (reportState === 'valid') {
+              findings = report.dependencies.flatMap((dependency) =>
+                (dependency.vulns || [])
+                  .filter((vulnerability) =>
+                    ![vulnerability.id, ...(vulnerability.aliases || [])].some((id) => ignoredVulnIds.includes(id))
+                  )
+                  .map((vulnerability) => {
+                    const aliases = (vulnerability.aliases || []).join(', ');
+                    const fixes = (vulnerability.fix_versions || []).join(', ');
+                    return `| \`${dependency.name}\` | ${dependency.version} | ${vulnerability.id} | ${aliases || '—'} | ${fixes || 'none yet'} |`;
+                  })
+              );
+            }
+
+            // The failure may not come from pip-audit at all (Bandit, a
+            // dependency install, a missing report), so name the failed steps
+            // too: a scheduled failure must never go unreported.
+            let failedSteps = [];
+            try {
+              const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRun, {
+                owner, repo, run_id: context.runId,
+              });
+              failedSteps = jobs.flatMap((job) =>
+                (job.steps || [])
+                  .filter((step) => step.conclusion === 'failure')
+                  .map((step) => `${job.name} / ${step.name}`)
+              );
+            } catch (e) {
+              console.log('Could not list failed steps:', e.message);
+            }
+
+            let vulnSection;
+            if (reportState === 'missing') {
+              vulnSection = '⚠️ `pip-audit-report.json` is missing — the audit did not complete. Check the run logs.';
+            } else if (reportState === 'invalid') {
+              vulnSection = '⚠️ pip-audit report was empty or invalid — the audit result cannot be trusted. Check the run logs.';
+            } else if (findings.length === 0) {
+              vulnSection = 'pip-audit reported no actionable vulnerabilities; the failure is in another step (see above).';
+            } else {
+              vulnSection = [
+                '| Package | Version | ID | Aliases | First fixed |',
+                '|---|---|---|---|---|',
+                ...findings,
+              ].join('\n');
+            }
+
+            const body = [
+              `Scheduled Security Scan failed on \`${context.ref}\` at \`${context.sha.slice(0, 7)}\`: ${runUrl}`,
+              '',
+              '**Failed steps:** ' + (failedSteps.length ? failedSteps.map((s) => `\`${s}\``).join(', ') : 'unknown (see run)'),
+              '',
+              '### Vulnerable dependencies',
+              vulnSection,
+              '',
+              'When clearing an advisory, bump to the latest release with no known advisories, not the first fixed version — see the note above `IGNORED_VULN_IDS` in `.github/workflows/security-scan.yml`.',
+            ].join('\n');
+
+            try {
+              await github.rest.issues.createLabel({ owner, repo, name: label, color: 'b60205' });
+            } catch (e) {
+              // 422: the label already exists.
+            }
+
+            // Open tracking issues, oldest first. PRs share the issues API
+            // and can carry the label, so they are excluded.
+            const listOpen = async () =>
+              (await github.paginate(github.rest.issues.listForRepo, {
+                owner, repo, state: 'open', labels: label,
+              }))
+                .filter((issue) => !issue.pull_request)
+                .sort((a, b) => a.number - b.number);
+
+            const [existing] = await listOpen();
+
+            if (existing) {
+              await github.rest.issues.createComment({
+                owner, repo, issue_number: existing.number, body,
+              });
+              console.log(`Updated #${existing.number}`);
+            } else {
+              const { data: created } = await github.rest.issues.create({
+                owner, repo,
+                title: 'Scheduled Security Scan is failing on main',
+                labels: [label],
+                body,
+              });
+              console.log(`Opened #${created.number}`);
+
+              // Two runs that both found no issue can each open one. Keep
+              // the lowest-numbered issue and close the rest, so every run
+              // converges on the same tracking issue.
+              const [keep, ...duplicates] = await listOpen();
+              if (keep && duplicates.length) {
+                if (keep.number !== created.number) {
+                  await github.rest.issues.createComment({
+                    owner, repo, issue_number: keep.number, body,
+                  });
+                  console.log(`Moved this run's report to #${keep.number}`);
+                }
+                for (const duplicate of duplicates) {
+                  await github.rest.issues.createComment({
+                    owner, repo, issue_number: duplicate.number,
+                    body: `Duplicate of #${keep.number}, opened by a concurrent scheduled run. Closing; this run's details are tracked there.`,
+                  });
+                  await github.rest.issues.update({
+                    owner, repo, issue_number: duplicate.number,
+                    state: 'closed', state_reason: 'not_planned',
+                  });
+                  console.log(`Closed duplicate #${duplicate.number}`);
+                }
+              }
+            }
