@@ -529,10 +529,28 @@ jobs:
               .map((id) => id.trim())
               .filter(Boolean);
 
-            let findings;
+            // 'missing' (no file), 'invalid' (unparseable, or not the shape
+            // the gate's Guard 2 accepts) or 'valid'. Only a valid report may
+            // be summarised as having no actionable vulnerabilities.
+            let reportState = 'valid';
+            let findings = [];
+            let report;
             try {
-              const report = JSON.parse(fs.readFileSync('pip-audit-report.json', 'utf8'));
-              findings = (report.dependencies || []).flatMap((dependency) =>
+              report = JSON.parse(fs.readFileSync('pip-audit-report.json', 'utf8'));
+            } catch (e) {
+              reportState = e.code === 'ENOENT' ? 'missing' : 'invalid';
+            }
+            if (reportState === 'valid') {
+              const dependencies = report && report.dependencies;
+              const wellFormed = Array.isArray(dependencies) && dependencies.length > 0 &&
+                dependencies.every((dependency) =>
+                  dependency && typeof dependency === 'object' &&
+                  (Array.isArray(dependency.vulns) || typeof dependency.skip_reason === 'string')
+                );
+              if (!wellFormed) reportState = 'invalid';
+            }
+            if (reportState === 'valid') {
+              findings = report.dependencies.flatMap((dependency) =>
                 (dependency.vulns || [])
                   .filter((vulnerability) =>
                     ![vulnerability.id, ...(vulnerability.aliases || [])].some((id) => ignoredVulnIds.includes(id))
@@ -543,8 +561,6 @@ jobs:
                     return `| \`${dependency.name}\` | ${dependency.version} | ${vulnerability.id} | ${aliases || '—'} | ${fixes || 'none yet'} |`;
                   })
               );
-            } catch (e) {
-              findings = null;
             }
 
             // The failure may not come from pip-audit at all (Bandit, a
@@ -565,8 +581,10 @@ jobs:
             }
 
             let vulnSection;
-            if (findings === null) {
-              vulnSection = '⚠️ `pip-audit-report.json` is missing or unreadable — the audit did not complete. Check the run logs.';
+            if (reportState === 'missing') {
+              vulnSection = '⚠️ `pip-audit-report.json` is missing — the audit did not complete. Check the run logs.';
+            } else if (reportState === 'invalid') {
+              vulnSection = '⚠️ pip-audit report was empty or invalid — the audit result cannot be trusted. Check the run logs.';
             } else if (findings.length === 0) {
               vulnSection = 'pip-audit reported no actionable vulnerabilities; the failure is in another step (see above).';
             } else {
@@ -594,10 +612,16 @@ jobs:
               // 422: the label already exists.
             }
 
-            const open = await github.paginate(github.rest.issues.listForRepo, {
-              owner, repo, state: 'open', labels: label,
-            });
-            const existing = open.find((issue) => !issue.pull_request);
+            // Open tracking issues, oldest first. PRs share the issues API
+            // and can carry the label, so they are excluded.
+            const listOpen = async () =>
+              (await github.paginate(github.rest.issues.listForRepo, {
+                owner, repo, state: 'open', labels: label,
+              }))
+                .filter((issue) => !issue.pull_request)
+                .sort((a, b) => a.number - b.number);
+
+            const [existing] = await listOpen();
 
             if (existing) {
               await github.rest.issues.createComment({
@@ -605,11 +629,35 @@ jobs:
               });
               console.log(`Updated #${existing.number}`);
             } else {
-              const { data } = await github.rest.issues.create({
+              const { data: created } = await github.rest.issues.create({
                 owner, repo,
                 title: 'Scheduled Security Scan is failing on main',
                 labels: [label],
                 body,
               });
-              console.log(`Opened #${data.number}`);
+              console.log(`Opened #${created.number}`);
+
+              // Two runs that both found no issue can each open one. Keep
+              // the lowest-numbered issue and close the rest, so every run
+              // converges on the same tracking issue.
+              const [keep, ...duplicates] = await listOpen();
+              if (keep && duplicates.length) {
+                if (keep.number !== created.number) {
+                  await github.rest.issues.createComment({
+                    owner, repo, issue_number: keep.number, body,
+                  });
+                  console.log(`Moved this run's report to #${keep.number}`);
+                }
+                for (const duplicate of duplicates) {
+                  await github.rest.issues.createComment({
+                    owner, repo, issue_number: duplicate.number,
+                    body: `Duplicate of #${keep.number}, opened by a concurrent scheduled run. Closing; this run's details are tracked there.`,
+                  });
+                  await github.rest.issues.update({
+                    owner, repo, issue_number: duplicate.number,
+                    state: 'closed', state_reason: 'not_planned',
+                  });
+                  console.log(`Closed duplicate #${duplicate.number}`);
+                }
+              }
             }
