@@ -1803,6 +1803,21 @@ class AgentContext:
         if not self._decision_backend:
             raise RuntimeError("Decision tracking is not enabled")
 
+        def _safe_parse_timestamp(value: Any) -> datetime:
+            if isinstance(value, datetime):
+                return value
+            if not value:
+                return datetime.now()
+            if isinstance(value, (int, float)):
+                try:
+                    return datetime.fromtimestamp(value)
+                except (OverflowError, OSError, ValueError):
+                    return datetime.now()
+            try:
+                return datetime.fromisoformat(str(value))
+            except Exception:
+                return datetime.now()
+
         # Delegate to ContextGraph if available
         if self._decision_backend == "context_graph" and hasattr(self.knowledge_graph, "find_precedents_by_scenario"):
             try:
@@ -1829,7 +1844,7 @@ class AgentContext:
                         reasoning=decision_data["reasoning"],
                         outcome=decision_data["outcome"],
                         confidence=decision_data["confidence"],
-                        timestamp=datetime.fromtimestamp(decision_data["timestamp"]),
+                        timestamp=_safe_parse_timestamp(decision_data["timestamp"]),
                         decision_maker=decision_data.get("decision_maker"),
                         valid_from=decision_data.get("valid_from"),
                         valid_until=decision_data.get("valid_until"),
@@ -1855,16 +1870,6 @@ class AgentContext:
             return self._decision_query._find_precedents_basic(scenario, category, limit)
 
         results: List[Decision] = []
-
-        def _safe_parse_timestamp(value: Any) -> datetime:
-            if isinstance(value, datetime):
-                return value
-            if not value:
-                return datetime.now()
-            try:
-                return datetime.fromisoformat(str(value))
-            except Exception:
-                return datetime.now()
 
         if use_hybrid_search and hasattr(self.vector_store, "search_decisions"):
             filters = {"category": category} if category else None

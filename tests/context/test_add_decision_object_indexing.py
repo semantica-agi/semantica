@@ -171,3 +171,26 @@ def test_utc_marker_is_timezone_independent():
     offset = ContextGraph._decision_sort_ts("2026-04-01T00:00:00+00:00")
     expected = datetime(2026, 4, 1, tzinfo=timezone.utc).timestamp()
     assert utc == offset == expected
+
+
+def test_agent_context_precedents_with_mixed_add_paths():
+    from unittest.mock import Mock
+
+    from semantica.context.agent_context import AgentContext
+
+    g = ContextGraph()
+    g.add_decision(_decision("OBJ", ts=datetime(2026, 4, 1)))
+    kw_id = g.add_decision(
+        category="terms", scenario=SCENARIO, reasoning="r",
+        outcome="o", confidence=1.0,
+    )
+    ctx = AgentContext(
+        vector_store=Mock(), knowledge_graph=g, decision_tracking=True
+    )
+    precedents = ctx.find_precedents(SCENARIO, use_hybrid_search=False)
+    by_id = {d.decision_id: d for d in precedents}
+    assert set(by_id) == {"OBJ", kw_id}
+    assert by_id["OBJ"].timestamp == datetime(2026, 4, 1)
+    assert by_id[kw_id].timestamp == datetime.fromtimestamp(
+        g._decisions[kw_id]["timestamp"]
+    )
