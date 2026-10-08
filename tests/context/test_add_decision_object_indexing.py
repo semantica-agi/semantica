@@ -6,7 +6,7 @@ analysis, causality tracing and insights all behaved as if the decision did
 not exist until the graph was round-tripped through ``to_dict``/``from_dict``.
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 import pytest
 
@@ -99,3 +99,75 @@ def test_indexes_match_round_trip():
     g2 = ContextGraph()
     g2.from_dict(g.to_dict())
     assert before == _precedent_ids(g2)
+
+
+# --- Review follow-ups -------------------------------------------------------
+
+
+def test_influence_score_with_two_object_decisions():
+    g = ContextGraph()
+    g.add_decision(_decision("A", ts=datetime(2026, 4, 1)))
+    g.add_decision(_decision("B", ts=datetime(2026, 4, 2)))
+    score = g._calculate_decision_influence_score("A", "B")
+    assert score["category_score"] == 1.0
+    assert score["time_score"] == pytest.approx(1.0 - 1 / 30)
+    assert score["score"] > 0
+
+
+def test_influence_score_with_mixed_add_paths():
+    g = ContextGraph()
+    g.add_decision(_decision("A", ts=datetime.now()))
+    kw_id = g.add_decision(
+        category="terms", scenario=SCENARIO, reasoning="r",
+        outcome="o", confidence=1.0,
+    )
+    score = g._calculate_decision_influence_score("A", kw_id)
+    assert score["category_score"] == 1.0
+    assert score["time_score"] > 0.9
+
+
+def test_causality_compares_iso_and_epoch_timestamps():
+    g = ContextGraph()
+    old = _decision("OLD", ts=datetime(2025, 1, 1))
+    old.metadata = {"entities": ["acme"]}
+    g.add_decision(old)
+    new_id = g.add_decision(
+        category="terms", scenario=SCENARIO, reasoning="r",
+        outcome="o", confidence=1.0, entities=["acme"],
+    )
+    g.trace_decision_causality(new_id)
+
+
+def test_metadata_cannot_override_core_fields():
+    g = ContextGraph()
+    d = _decision()
+    d.metadata = {"confidence": "high", "category": ["x"], "note": "kept"}
+    g.add_decision(d)
+    props = g.nodes["D1"].properties
+    assert props["confidence"] == 1.0
+    assert props["category"] == "terms"
+    assert props["note"] == "kept"
+    assert "D1" in g._decision_index["terms"]
+
+
+def test_invalid_values_rejected_before_graph_mutation():
+    g = ContextGraph()
+    d = _decision()
+    d.metadata = {"entities": [["unhashable"]]}
+    with pytest.raises(ValueError):
+        g.add_decision(d)
+    assert "D1" not in g.nodes
+    assert "D1" not in getattr(g, "_decisions", {})
+
+    d = _decision()
+    d.category = ["unhashable"]
+    with pytest.raises(ValueError):
+        g.add_decision(d)
+    assert "D1" not in g.nodes
+
+
+def test_utc_marker_is_timezone_independent():
+    utc = ContextGraph._decision_sort_ts("2026-04-01T00:00:00Z")
+    offset = ContextGraph._decision_sort_ts("2026-04-01T00:00:00+00:00")
+    expected = datetime(2026, 4, 1, tzinfo=timezone.utc).timestamp()
+    assert utc == offset == expected

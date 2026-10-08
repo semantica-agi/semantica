@@ -3873,6 +3873,27 @@ class ContextGraph:
         # Handle None metadata
         metadata = decision.metadata or {}
 
+        # Validate the values the decision indexes need before touching graph
+        # state, so a bad value can't leave a stored but unindexed node.
+        try:
+            hash(decision.category)
+            float(decision.confidence)
+        except (TypeError, ValueError) as e:
+            raise ValueError(
+                f"Decision {node_id!r} has an invalid category or confidence: {e}"
+            ) from e
+        meta_entities = metadata.get("entities")
+        if meta_entities is not None:
+            if not isinstance(meta_entities, list):
+                raise ValueError("Decision metadata 'entities' must be a list")
+            try:
+                for entity in meta_entities:
+                    hash(entity)
+            except TypeError as e:
+                raise ValueError(
+                    "Decision metadata 'entities' must contain hashable values"
+                ) from e
+
         # Normalize timestamp to ensure consistent storage format
         normalized_timestamp = self._normalize_timestamp(decision.timestamp)
 
@@ -3881,7 +3902,10 @@ class ContextGraph:
             node_type="Decision",
             content=decision.scenario,
             properties={
+                # Metadata first so it can't override the Decision's own fields.
+                **metadata,
                 "category": decision.category,
+                "scenario": decision.scenario,
                 "reasoning": decision.reasoning,
                 "outcome": decision.outcome,
                 "confidence": decision.confidence,
@@ -3889,7 +3913,6 @@ class ContextGraph:
                 "decision_maker": decision.decision_maker,
                 "reasoning_embedding": decision.reasoning_embedding,
                 "node2vec_embedding": decision.node2vec_embedding,
-                **metadata
             },
             valid_from=decision.valid_from,
             valid_until=decision.valid_until,
@@ -4866,7 +4889,7 @@ class ContextGraph:
                     for other_decision_id in self._entity_index.get(entity, set()):
                         if other_decision_id != current_id and other_decision_id not in explicit_cause_ids:
                             other_decision = self._decisions[other_decision_id]
-                            if other_decision["timestamp"] < current_decision["timestamp"]:
+                            if self._decision_sort_ts(other_decision["timestamp"]) < self._decision_sort_ts(current_decision["timestamp"]):
                                 potential_causes[other_decision_id] = None
 
                 for cause_id in potential_causes:
@@ -5143,7 +5166,8 @@ class ContextGraph:
 
         Accepts epoch numbers (``record_decision``) and ISO strings
         (``add_decision`` with a ``Decision`` object); anything unparseable
-        sorts as ``0.0``.
+        sorts as ``0.0``. A trailing ``Z`` is read as UTC; other naive values
+        use local time, matching ``record_decision``'s ``datetime.now()``.
         """
         if isinstance(raw_ts, datetime):
             return raw_ts.timestamp()
@@ -5153,7 +5177,10 @@ class ContextGraph:
             pass
         if isinstance(raw_ts, str):
             try:
-                return datetime.fromisoformat(raw_ts.rstrip("Z")).timestamp()
+                text = raw_ts.strip()
+                if text.endswith(("Z", "z")):
+                    text = text[:-1] + "+00:00"
+                return datetime.fromisoformat(text).timestamp()
             except ValueError:
                 pass
         return 0.0
@@ -5576,7 +5603,12 @@ class ContextGraph:
             category_score = 1.0 if source_decision["category"] == target_decision["category"] else 0.0
             
             # Temporal proximity (more recent decisions have higher influence)
-            time_diff = abs(source_decision["timestamp"] - target_decision["timestamp"])
+            # Timestamps may be epoch floats (record_decision) or ISO strings
+            # (add_decision with a Decision object); compare as epoch seconds.
+            time_diff = abs(
+                self._decision_sort_ts(source_decision["timestamp"])
+                - self._decision_sort_ts(target_decision["timestamp"])
+            )
             time_score = max(0.0, 1.0 - time_diff / (30 * 24 * 3600))  # 30 days window
             
             # Combined score
