@@ -115,7 +115,7 @@ documents = [
   "lxml>=6.1.1",
   "beautifulsoup4>=4.15.0"
 ]
-parse-docling = ["docling>=2.107.0"]
+parse-docling = ["docling>=2.132.0"]
 # pdfplumber powers the default PDFParser; not pulled in by any other extra.
 parse-pdf = ["pdfplumber>=0.10.0"]
 
