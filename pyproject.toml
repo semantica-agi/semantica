@@ -354,4 +354,5 @@ profile = "black"
 testpaths = ["tests"]
 markers = [
     "integration: marks tests that require external services or API keys (deselect with '-m not integration')",
+    "no_gensim: marks tests that must still run when gensim is absent (e.g. they assert the missing-dependency behaviour)",
 ]

@@ -128,13 +128,11 @@ tests/test_arrow_exporter.py::TestArrowExporter::test_progress_tracking
 tests/vector_store/test_backward_compatibility.py::TestVectorStoreBackwardCompatibility::test_progress_tracking_unchanged
 
 # --- Assertion drift in the test or its expectation ---------------------------
-tests/context/test_decision_causal_edge_regression.py::test_add_causal_relationship_returns_false_for_duplicate
 tests/export/test_distance_exporter.py::test_hop_distance_no_warning_when_kg_unavailable
 tests/ingest/test_repo_ingestor_security.py::TestIsReservedNAT64Regression::test_nat64_local_prefix_not_blocked
 tests/integrations/agno/test_context_store.py::TestAgnoContextStoreUpsertNERAttributes::test_upsert_indexes_entity_label_as_type
 tests/integrations/agno/test_context_store.py::TestAgnoContextStoreUpsertNERAttributes::test_upsert_indexes_entity_text_not_repr
 tests/semantic_extract/test_cache_backends.py::test_zero_ttl_expires_immediately_on_both_backends
-tests/test_mcp_decisions_link.py::TestLinkDecisionsEndToEnd::test_duplicate_link_returns_false
 tests/vector_store/test_hybrid_similarity.py::TestHybridSimilarityCalculator::test_pearson_similarity_calculation
 tests/vector_store/test_vector_store.py::test_backend_mirroring_and_save
 

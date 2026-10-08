@@ -3394,11 +3394,8 @@ def decision_record(cli_ctx: CLIContext, title: str, tags: Optional[str],
                         # ContextGraph tracks node validity itself, so pass the
                         # dates as validity rather than leaving them in
                         # metadata, where they would not bound the node.
-                        # They must also be REMOVED from the metadata: it is
-                        # splatted into add_node() alongside these arguments,
-                        # and a duplicate key raises a TypeError that
-                        # record_decision logs and swallows, leaving an empty
-                        # graph behind a successful exit code.
+                        # They are kept out of the metadata as well, since the
+                        # graph ignores metadata keys that name node fields.
                         metadata={
                             k: v for k, v in cross_ctx.items()
                             if k not in ("valid_from", "valid_until")

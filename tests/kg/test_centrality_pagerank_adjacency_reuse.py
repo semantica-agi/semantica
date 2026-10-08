@@ -4,7 +4,7 @@
 every node, so neighbour resolution cost O(N * (N + E)) instead of O(N + E).
 """
 
-from semantica.kg import CentralityCalculator, centrality_calculator
+from semantica.kg import CentralityCalculator, _graph_view, centrality_calculator
 
 
 def _graph_dict(n=30):
@@ -30,6 +30,30 @@ def test_pagerank_builds_the_adjacency_once_for_a_graph_dict(monkeypatch):
     CentralityCalculator().calculate_pagerank(_graph_dict())
 
     assert len(calls) == 1
+
+
+def test_pagerank_reads_a_graph_dicts_edge_types_once(monkeypatch):
+    # The relationship filter used to rescan every edge record for every
+    # neighbour it classified, which made filtering O(E^2). The number of
+    # scans must not grow with the graph.
+    calls = []
+    real = _graph_view._extract_edges
+
+    def counting(graph):
+        calls.append(graph)
+        return real(graph)
+
+    monkeypatch.setattr(_graph_view, "_extract_edges", counting)
+
+    scans = []
+    for n in (10, 40):
+        calls.clear()
+        CentralityCalculator().calculate_pagerank(
+            _graph_dict(n), relationship_types=["next"]
+        )
+        scans.append(len(calls))
+
+    assert scans[0] == scans[1]
 
 
 def test_pagerank_scores_are_unchanged_by_adjacency_reuse():

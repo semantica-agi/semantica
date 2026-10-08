@@ -52,7 +52,9 @@ from scipy import sparse
 from ..utils.logging import get_logger
 from ..utils.progress_tracker import get_progress_tracker
 from ._graph_view import (
+    EdgeTypeIndex,
     build_adjacency,
+    build_edge_type_index,
     build_graph_view,
     edge_types_between,
     graph_node_ids,
@@ -662,11 +664,22 @@ class CentralityCalculator:
                 if isinstance(graph, dict)
                 else None
             )
+            # Its edge types are read once too, so the relationship filter
+            # costs O(E) rather than one edge-list scan per neighbour.
+            edge_types = (
+                build_edge_type_index(graph)
+                if relationship_types is not None and isinstance(graph, dict)
+                else None
+            )
 
             for node in nodes:
                 source_idx = node_index[node]
                 neighbors = self._get_filtered_neighbors(
-                    graph, node, relationship_types, adjacency=adjacency
+                    graph,
+                    node,
+                    relationship_types,
+                    adjacency=adjacency,
+                    edge_types=edge_types,
                 )
                 
                 # Distribute PageRank equally among the neighbours that survive
@@ -750,11 +763,14 @@ class CentralityCalculator:
         node: str, 
         relationship_types: Optional[List[str]],
         adjacency: Optional[Dict[str, List[str]]] = None,
+        edge_types: Optional[EdgeTypeIndex] = None,
     ) -> List[str]:
         """Get neighbors filtered by relationship types.
 
         ``adjacency`` is an optional prebuilt outgoing adjacency for a plain
         graph dictionary, so a caller looping over nodes builds it once.
+        ``edge_types`` is the matching prebuilt edge-type index, for the same
+        reason.
         """
         if isinstance(graph, dict):
             # A plain graph dictionary has no neighbour walk of its own, so the
@@ -788,7 +804,9 @@ class CentralityCalculator:
         wanted = set(relationship_types)
         filtered_neighbors = []
         for neighbor in neighbors:
-            types = edge_types_between(graph, node, neighbor, directed=True)
+            types = edge_types_between(
+                graph, node, neighbor, directed=True, edge_types=edge_types
+            )
             if types is None or types & wanted:
                 filtered_neighbors.append(neighbor)
         return filtered_neighbors

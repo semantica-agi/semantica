@@ -252,3 +252,50 @@ def test_relationship_types_filter_a_plain_graph_dict():
     scores = ranked["centrality"]
     assert scores["bob"] > scores["alice"]
     assert scores["bob"] > scores["acme"]
+
+
+def test_relationship_types_keep_the_edges_of_an_untyped_graph_dict():
+    """A dictionary whose edges declare no type cannot answer the filter.
+
+    Its links are kept rather than all dropped, so the ranking matches the
+    unfiltered one instead of collapsing to a uniform score.
+    """
+    graph = {
+        "nodes": ["alice", "bob", "acme"],
+        "edges": [("alice", "bob"), ("bob", "acme")],
+    }
+    calculator = CentralityCalculator()
+
+    filtered = calculator.calculate_pagerank(graph, relationship_types=["knows"])
+    plain = calculator.calculate_pagerank(graph)
+
+    assert filtered["centrality"] == pytest.approx(plain["centrality"])
+    assert filtered["centrality"]["acme"] > filtered["centrality"]["alice"]
+
+
+def test_relationship_types_keep_an_untyped_edge_beside_typed_ones():
+    """Classifiability is decided per edge, not for the whole dictionary.
+
+    ``bob -> acme`` declares no type, so it is kept beside the typed
+    ``alice -> bob``; the ranking matches the graph where both edges match.
+    """
+    mixed = {
+        "nodes": ["alice", "bob", "acme"],
+        "edges": [
+            {"source": "alice", "target": "bob", "type": "knows"},
+            {"source": "bob", "target": "acme"},
+        ],
+    }
+    matching = {
+        "nodes": ["alice", "bob", "acme"],
+        "edges": [
+            {"source": "alice", "target": "bob", "type": "knows"},
+            {"source": "bob", "target": "acme", "type": "knows"},
+        ],
+    }
+    calculator = CentralityCalculator()
+
+    ranked = calculator.calculate_pagerank(mixed, relationship_types=["knows"])
+    expected = calculator.calculate_pagerank(matching, relationship_types=["knows"])
+
+    assert ranked["centrality"] == pytest.approx(expected["centrality"])

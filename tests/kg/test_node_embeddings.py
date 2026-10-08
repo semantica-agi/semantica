@@ -12,6 +12,23 @@ from unittest.mock import Mock, patch
 from semantica.kg.node_embeddings import NodeEmbedder
 
 
+@pytest.fixture(autouse=True)
+def require_gensim(request):
+    """Skip tests that need a working NodeEmbedder when gensim is absent.
+
+    gensim is the optional ``graph-embeddings`` extra and
+    ``NodeEmbedder.__init__`` raises ImportError without it, so these tests
+    fail instead of skipping on a core install.
+
+    Tests marked ``no_gensim`` keep running: one asserts that ImportError
+    itself, and skipping it on exactly the install where it applies would
+    remove the only coverage of the missing-dependency path. Same shape as
+    ``require_adk`` in tests/integrations/google_adk/.
+    """
+    if request.node.get_closest_marker("no_gensim") is None:
+        pytest.importorskip("gensim")
+
+
 class TestNodeEmbedder:
     """Test cases for NodeEmbedder class."""
     
@@ -56,11 +73,16 @@ class TestNodeEmbedder:
         assert embedder.p == 2.0
         assert embedder.q == 0.5
     
+    @pytest.mark.no_gensim
     def test_init_invalid_method(self):
-        """Test NodeEmbedder initialization with invalid method."""
+        """Test NodeEmbedder initialization with invalid method.
+
+        The method check runs before the gensim check, so this needs no extra.
+        """
         with pytest.raises(ValueError, match="Unsupported embedding method"):
             NodeEmbedder(method="invalid_method")
     
+    @pytest.mark.no_gensim
     @patch('semantica.kg.node_embeddings.GENSIM_AVAILABLE', False)
     def test_init_gensim_unavailable(self):
         """Test NodeEmbedder initialization when gensim is unavailable."""
