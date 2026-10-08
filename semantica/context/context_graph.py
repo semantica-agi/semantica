@@ -3894,7 +3894,11 @@ class ContextGraph:
             valid_from=decision.valid_from,
             valid_until=decision.valid_until,
         )
-        self._add_internal_node(node)
+        with self._lock:
+            if self._add_internal_node(node):
+                # Register in the decision indexes so precedent search,
+                # influence, causality and insights can see this decision.
+                self._sync_decision_from_node(node_id)
         return node_id
 
     def add_causal_relationship(
@@ -5133,6 +5137,27 @@ class ContextGraph:
         "valid_from", "valid_until", "content",
     })
 
+    @staticmethod
+    def _decision_sort_ts(raw_ts: Any) -> float:
+        """Epoch seconds for ``_temporal_index`` ordering.
+
+        Accepts epoch numbers (``record_decision``) and ISO strings
+        (``add_decision`` with a ``Decision`` object); anything unparseable
+        sorts as ``0.0``.
+        """
+        if isinstance(raw_ts, datetime):
+            return raw_ts.timestamp()
+        try:
+            return float(raw_ts)
+        except (TypeError, ValueError):
+            pass
+        if isinstance(raw_ts, str):
+            try:
+                return datetime.fromisoformat(raw_ts.rstrip("Z")).timestamp()
+            except ValueError:
+                pass
+        return 0.0
+
     def _rebuild_decision_indexes(self) -> None:
         """Rebuild all derived decision indexes from the current node store.
 
@@ -5171,10 +5196,7 @@ class ContextGraph:
             # The temporal index uses it for sorting; downstream code handles
             # both types via _normalize_timestamp.
             raw_ts = meta.get("timestamp", 0.0)
-            try:
-                sort_ts = float(raw_ts)
-            except (TypeError, ValueError):
-                sort_ts = 0.0
+            sort_ts = self._decision_sort_ts(raw_ts)
 
             # Entities may be stored as a list in meta or inferred from
             # outgoing "involves" edges if the list field is absent/empty.
@@ -5273,10 +5295,7 @@ class ContextGraph:
         meta.update(getattr(node, "properties", {}) or {})
 
         raw_ts = meta.get("timestamp", 0.0)
-        try:
-            sort_ts = float(raw_ts)
-        except (TypeError, ValueError):
-            sort_ts = 0.0
+        sort_ts = self._decision_sort_ts(raw_ts)
 
         entities = meta.get("entities") or []
         if not isinstance(entities, list):
