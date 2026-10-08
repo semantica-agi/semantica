@@ -214,6 +214,13 @@ jobs:
             jq -r '.dependencies[] | select(has("skip_reason")) | "  - \(.name): \(.skip_reason)"' pip-audit-report.json
           fi
 
+          # Clearing an advisory: bump the package to the latest release with
+          # no known advisories, not to the first fixed version. #1924 moved
+          # docling only to 2.131.0, the first release fixing one advisory,
+          # and three more advisories against <2.132.0 failed every PR a day
+          # later. Ignoring an ID below is for findings that are reviewed
+          # and genuinely non-actionable, never a way to get CI green.
+          #
           # Vulnerability IDs reviewed and accepted as non-actionable for this
           # project:
           # - GHSA-4j2p-28q2-5m79 (aka CVE-2026-69112): accelerate<=1.14.0

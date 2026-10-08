@@ -260,6 +260,11 @@ the lockfile changes only when `pyproject.toml` changes intentionally.
 CI fails if `requirements-ci.txt` is stale relative to `pyproject.toml`
 (the version-line comparison detects new/removed/changed dependencies).
 
+When the Security Scan's pip-audit gate flags a pinned dependency, bump it
+to the latest release with no known advisories, not the first fixed
+version: a minimal bump tends to land just inside the range of the next
+advisory. Regenerate with `--upgrade-package <name>` so other pins stay put.
+
 Build-system pins: `[build-system].requires` is pinned to exact versions
 (`setuptools==84.0.0`, `wheel==0.48.0`) and release builds run
 `python -m build --no-isolation` against the lockfile — no unpinned
