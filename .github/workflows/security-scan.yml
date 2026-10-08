@@ -84,6 +84,9 @@ jobs:
       # pull_request (not pull_request_target): GitHub always forces a
       # read-only token for PRs from forks regardless of this permission.
       pull-requests: write
+      # Needed for the "Report Scheduled Failure" step below, which opens or
+      # updates a tracking issue when the scheduled run on main fails.
+      issues: write
 
     steps:
       - name: Checkout repository
@@ -493,3 +496,113 @@ jobs:
             echo "::error::pip-audit scan failed. See the pip-audit output and uploaded reports above."
             exit 1
           fi
+
+      # Runs after the gate so failure() also sees a pip-audit failure (the
+      # audit step itself is continue-on-error; the gate above re-raises it).
+      # Scheduled runs have no PR to comment on, so without this a failure on
+      # main is only visible to whoever opens the Actions tab.
+      - name: Report Scheduled Failure
+        if: failure() && github.event_name == 'schedule'
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
+        with:
+          script: |
+            const fs = require('fs');
+
+            // One tracking issue, found by this label, collects every
+            // scheduled failure until someone closes it. Later failures add a
+            // comment instead of opening duplicates.
+            const label = 'security-scan-failure';
+            const { owner, repo } = context.repo;
+            const runUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
+
+            // Same exclusion list the gate applied (exported through
+            // $GITHUB_ENV), so the issue lists exactly what failed the gate.
+            const ignoredVulnIds = (process.env.IGNORED_VULN_IDS || '')
+              .split(',')
+              .map((id) => id.trim())
+              .filter(Boolean);
+
+            let findings;
+            try {
+              const report = JSON.parse(fs.readFileSync('pip-audit-report.json', 'utf8'));
+              findings = (report.dependencies || []).flatMap((dependency) =>
+                (dependency.vulns || [])
+                  .filter((vulnerability) =>
+                    ![vulnerability.id, ...(vulnerability.aliases || [])].some((id) => ignoredVulnIds.includes(id))
+                  )
+                  .map((vulnerability) => {
+                    const aliases = (vulnerability.aliases || []).join(', ');
+                    const fixes = (vulnerability.fix_versions || []).join(', ');
+                    return `| \`${dependency.name}\` | ${dependency.version} | ${vulnerability.id} | ${aliases || '—'} | ${fixes || 'none yet'} |`;
+                  })
+              );
+            } catch (e) {
+              findings = null;
+            }
+
+            // The failure may not come from pip-audit at all (Bandit, a
+            // dependency install, a missing report), so name the failed steps
+            // too: a scheduled failure must never go unreported.
+            let failedSteps = [];
+            try {
+              const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRun, {
+                owner, repo, run_id: context.runId,
+              });
+              failedSteps = jobs.flatMap((job) =>
+                (job.steps || [])
+                  .filter((step) => step.conclusion === 'failure')
+                  .map((step) => `${job.name} / ${step.name}`)
+              );
+            } catch (e) {
+              console.log('Could not list failed steps:', e.message);
+            }
+
+            let vulnSection;
+            if (findings === null) {
+              vulnSection = '⚠️ `pip-audit-report.json` is missing or unreadable — the audit did not complete. Check the run logs.';
+            } else if (findings.length === 0) {
+              vulnSection = 'pip-audit reported no actionable vulnerabilities; the failure is in another step (see above).';
+            } else {
+              vulnSection = [
+                '| Package | Version | ID | Aliases | First fixed |',
+                '|---|---|---|---|---|',
+                ...findings,
+              ].join('\n');
+            }
+
+            const body = [
+              `Scheduled Security Scan failed on \`${context.ref}\` at \`${context.sha.slice(0, 7)}\`: ${runUrl}`,
+              '',
+              '**Failed steps:** ' + (failedSteps.length ? failedSteps.map((s) => `\`${s}\``).join(', ') : 'unknown (see run)'),
+              '',
+              '### Vulnerable dependencies',
+              vulnSection,
+              '',
+              'When clearing an advisory, bump to the latest release with no known advisories, not the first fixed version — see the note above `IGNORED_VULN_IDS` in `.github/workflows/security-scan.yml`.',
+            ].join('\n');
+
+            try {
+              await github.rest.issues.createLabel({ owner, repo, name: label, color: 'b60205' });
+            } catch (e) {
+              // 422: the label already exists.
+            }
+
+            const open = await github.paginate(github.rest.issues.listForRepo, {
+              owner, repo, state: 'open', labels: label,
+            });
+            const existing = open.find((issue) => !issue.pull_request);
+
+            if (existing) {
+              await github.rest.issues.createComment({
+                owner, repo, issue_number: existing.number, body,
+              });
+              console.log(`Updated #${existing.number}`);
+            } else {
+              const { data } = await github.rest.issues.create({
+                owner, repo,
+                title: 'Scheduled Security Scan is failing on main',
+                labels: [label],
+                body,
+              });
+              console.log(`Opened #${data.number}`);
+            }
