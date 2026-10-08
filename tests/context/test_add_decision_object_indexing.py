@@ -194,3 +194,11 @@ def test_agent_context_precedents_with_mixed_add_paths():
     assert by_id[kw_id].timestamp == datetime.fromtimestamp(
         g._decisions[kw_id]["timestamp"]
     )
+
+
+def test_utc_marker_kept_on_add_decision_path():
+    g = ContextGraph()
+    g.add_decision(_decision("Z1", ts="2026-04-01T00:00:00Z"))
+    expected = datetime(2026, 4, 1, tzinfo=timezone.utc).timestamp()
+    assert g.nodes["Z1"].properties["timestamp"] == "2026-04-01T00:00:00+00:00"
+    assert g._temporal_index == [("Z1", expected)]

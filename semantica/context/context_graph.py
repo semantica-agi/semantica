@@ -3895,7 +3895,10 @@ class ContextGraph:
                 ) from e
 
         # Normalize timestamp to ensure consistent storage format
-        normalized_timestamp = self._normalize_timestamp(decision.timestamp)
+        raw_timestamp = decision.timestamp
+        if isinstance(raw_timestamp, str) and raw_timestamp.strip().endswith(("Z", "z")):
+            raw_timestamp = raw_timestamp.strip()[:-1] + "+00:00"
+        normalized_timestamp = self._normalize_timestamp(raw_timestamp)
 
         node = ContextNode(
             node_id=node_id,
