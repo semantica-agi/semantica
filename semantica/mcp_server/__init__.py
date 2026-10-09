@@ -745,12 +745,12 @@ TOOLS = [
     },
     {
         "name": "get_causal_chain",
-        "description": "Trace the causal chain upstream or downstream from a decision.",
+        "description": "Trace the causal chain upstream, downstream or both from a decision.",
         "inputSchema": {
             "type": "object",
             "properties": {
                 "decision_id": {"type": "string", "description": "Decision ID to trace"},
-                "direction":   {"type": "string", "enum": ["upstream", "downstream"], "description": "Trace direction"},
+                "direction":   {"type": "string", "enum": ["upstream", "downstream", "both"], "description": "Trace direction"},
                 "max_depth":   {"type": "integer", "description": "Max chain depth (default 5)"},
             },
             "required": ["decision_id"],

@@ -19,6 +19,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`get_causal_chain` rejected `direction="both"`, which the MCP tool schema advertises** (fixes #1815) by @costajohnt
+  - `ContextGraph.get_causal_chain` and `CausalChainAnalyzer.get_causal_chain` now accept `"both"` and return the upstream chain followed by the downstream one, each walked up to `max_depth`. Causes come farthest first and effects nearest first on both backends, each decision is listed once (at its nearest distance, as upstream if reachable both ways) and carries `metadata["causal_direction"]`. The MCP `get_causal_chain` tool (and the legacy `semantica.mcp_server` one, whose schema now lists `"both"`) no longer errors for this value.
+
 - **`calculate_pagerank` rebuilt the adjacency once per node for a plain graph dictionary** (fixes #1842)
   - `_get_filtered_neighbors` called `build_adjacency(graph, directed=True)` for every node, making neighbour resolution O(N * (N + E)). `calculate_pagerank` now builds it once before the node loop and passes it in through a new optional `adjacency` argument; scores are unchanged. New `tests/kg/test_centrality_pagerank_adjacency_reuse.py`
 

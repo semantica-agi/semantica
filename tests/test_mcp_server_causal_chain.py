@@ -80,6 +80,14 @@ class TestGetCausalChainTool(unittest.TestCase):
             {"Require BAA from vendors": 1, "Host on AWS": 2},
         )
 
+    def test_both_directions(self):
+        # The legacy schema lists "both" too (#1815).
+        chain = self._call(decision_id=self.ids[1], direction="both")
+        self.assertEqual(
+            [(d["scenario"], d["metadata"]["causal_direction"]) for d in chain],
+            [("Adopt HIPAA program", "upstream"), ("Host on AWS", "downstream")],
+        )
+
     def test_entries_are_plain_decision_dicts(self):
         chain = self._call(decision_id=self.ids[2], direction="upstream")
         for entry in chain:
