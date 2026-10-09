@@ -4466,9 +4466,9 @@ pinecone==10.0.0 \
     --hash=sha256:995c06e905940b10bb2aefe653225340b5a3f56f3efb373fe07f4e57b5043705 \
     --hash=sha256:d482ed27a805cbd4aca2660da212008dd6e41d87d255279f405ff13b725970e2
     # via semantica (pyproject.toml)
-platformdirs==4.11.7 \
-    --hash=sha256:4f41487eeeeeb07f3a6625e61d9bc0ae6809f92d3386dbd74392fbb76108104d \
-    --hash=sha256:8a02cb259042c79d1cd0450facc2fe6dc9d303ae7901afbe33bf8ea0b188cef6
+platformdirs==4.12.3 \
+    --hash=sha256:080f3b39423b5abfca9a23d84c4e9795f54d395cd8459867a8ded44084fcd5f8 \
+    --hash=sha256:427fc0bb321ae0c5b037fa03238ca74820437be162e78b4848c4d4055b9b766c
     # via
     #   black
     #   jupyter-core
