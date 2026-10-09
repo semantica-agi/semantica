@@ -32,4 +32,4 @@ Then register it with your MCP client of choice (stdio transport). See [MCP Serv
 
 ## Requirements
 
-- Python 3.9.2+ (`pyproject.toml` requires-python) with `pip install semantica`
+- Python 3.10+ (`pyproject.toml` requires-python) with `pip install semantica`

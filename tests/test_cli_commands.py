@@ -15,6 +15,7 @@ Strategy:
 
 import json
 import os
+import time
 import re
 import stat
 import types
@@ -651,6 +652,135 @@ class TestExtract:
             cli_module.main, ["extract", "-", "--mode", "ner", "--json"], input="Alice\n"
         )
         _ok(result)
+
+    def test_default_mode_runs_every_extractor(self, runner, monkeypatch):
+        """#1789 — the default --mode all must dispatch, not raise."""
+        _ner_result = [MagicMock(text="Alice", label="PER", confidence=0.9,
+                                  start_char=0, end_char=5, metadata={})]
+        fake_ext = _fake_module(
+            NERExtractor=lambda **kw: MagicMock(extract=lambda text, **kw2: _ner_result),
+            RelationExtractor=lambda **kw: MagicMock(extract=lambda text, **kw2: []),
+            TripletExtractor=lambda **kw: MagicMock(extract=lambda text, **kw2: []),
+            EventDetector=lambda **kw: MagicMock(extract=lambda text, **kw2: []),
+        )
+        monkeypatch.setitem(
+            __import__("sys").modules, "semantica.semantic_extract", fake_ext
+        )
+        # No --mode: fall back to the command default.
+        result = runner.invoke(
+            cli_module.main, ["extract", "Alice works at Acme.", "--json"]
+        )
+        _ok(result)
+        data = _json_output(result)
+        assert set(data) == {"ner", "relations", "triplets", "events"}
+
+    def test_mode_choices_include_all_and_coreference(self):
+        """#1850 — every advertised mode must be a real `--mode` choice.
+
+        `all` is the *default* mode, yet the smoke loop in
+        ``tests/verify_rich_cli.py`` used to hardcode a list that silently
+        omitted it — which is why #1789 shipped unnoticed. Pin the full
+        ``choices`` set (and the default) so that loop stays aligned with the
+        command contract.
+        """
+        mode_param = next(
+            p for p in cli_module.extract.params if p.name == "mode"
+        )
+        choices = list(mode_param.type.choices)
+        assert mode_param.default == "all"
+        assert "all" in choices, f"'all' missing from choices: {choices}"
+        assert set(choices) == {
+            "ner", "relations", "triplets", "events", "coreference", "all",
+        }
+
+    def test_explicit_all_mode_returns_every_stage(self, runner, monkeypatch):
+        """#1850 — an explicit `--mode all` (not just the default) runs all stages."""
+        _ner_result = [MagicMock(text="Alice", label="PER", confidence=0.9,
+                                  start_char=0, end_char=5, metadata={})]
+        fake_ext = _fake_module(
+            NERExtractor=lambda **kw: MagicMock(extract=lambda text, **kw2: _ner_result),
+            RelationExtractor=lambda **kw: MagicMock(extract=lambda text, **kw2: []),
+            TripletExtractor=lambda **kw: MagicMock(extract=lambda text, **kw2: []),
+            EventDetector=lambda **kw: MagicMock(extract=lambda text, **kw2: []),
+        )
+        monkeypatch.setitem(
+            __import__("sys").modules, "semantica.semantic_extract", fake_ext
+        )
+        result = runner.invoke(
+            cli_module.main,
+            ["extract", "Alice works at Acme.", "--mode", "all", "--json"],
+        )
+        _ok(result)
+        assert set(_json_output(result)) == {"ner", "relations", "triplets", "events"}
+
+    def test_coreference_mode_is_a_clean_placeholder_error(self, runner, monkeypatch):
+        """#1850 — `coreference` is a listed choice but has no extractor yet.
+
+        Until it is wired it must fail with a clean "not yet wired" error (and
+        no traceback), rather than silently succeeding or crashing.
+        """
+        fake_ext = _fake_module(
+            NERExtractor=lambda **kw: MagicMock(extract=lambda text, **kw2: []),
+            RelationExtractor=lambda **kw: MagicMock(extract=lambda text, **kw2: []),
+            TripletExtractor=lambda **kw: MagicMock(extract=lambda text, **kw2: []),
+            EventDetector=lambda **kw: MagicMock(extract=lambda text, **kw2: []),
+        )
+        monkeypatch.setitem(
+            __import__("sys").modules, "semantica.semantic_extract", fake_ext
+        )
+        result = runner.invoke(
+            cli_module.main,
+            ["extract", "Alice works at Acme.", "--mode", "coreference"],
+        )
+        assert result.exit_code != 0
+        assert "Traceback" not in result.output
+        assert "not yet wired" in _flatten(result.output)
+
+    def test_all_mode_reuses_ner_and_relations(self, runner, monkeypatch):
+        """#1789 (Qodo) — 'all' must not recompute NER/relations per stage."""
+        calls = {"ner": 0, "relations": 0, "triplets": 0}
+        seen = {}
+        ner_result = [MagicMock(text="Alice", label="PER", confidence=0.9,
+                                start_char=0, end_char=5, metadata={})]
+        relation_result = [MagicMock(subject="Alice", predicate="works_at",
+                                     object="Acme", confidence=0.9, metadata={})]
+
+        def _triplet_extract(text, entities=None, relations=None, **kw):
+            seen["entities"] = entities
+            seen["relations"] = relations
+            return []
+
+        fake_ext = _fake_module(
+            NERExtractor=lambda **kw: (
+                calls.__setitem__("ner", calls["ner"] + 1)
+                or MagicMock(extract=lambda text, **kw2: ner_result)
+            ),
+            RelationExtractor=lambda **kw: (
+                calls.__setitem__("relations", calls["relations"] + 1)
+                or MagicMock(extract=lambda text, entities=None, **kw2: relation_result)
+            ),
+            TripletExtractor=lambda **kw: (
+                calls.__setitem__("triplets", calls["triplets"] + 1)
+                or MagicMock(extract=_triplet_extract)
+            ),
+            EventDetector=lambda **kw: MagicMock(extract=lambda text, **kw2: []),
+        )
+        monkeypatch.setitem(
+            __import__("sys").modules, "semantica.semantic_extract", fake_ext
+        )
+        result = runner.invoke(
+            cli_module.main, ["extract", "Alice works at Acme.", "--json"]
+        )
+        _ok(result)
+        # NER (for the ner stage) and relations run once each; the triplet
+        # stage reuses their output instead of building a second NER/relation
+        # extractor of its own.
+        assert calls["ner"] == 1
+        assert calls["relations"] == 1
+        assert calls["triplets"] == 1
+        # ...and the triplet stage actually received that shared output.
+        assert seen["entities"] is ner_result
+        assert seen["relations"] is relation_result
 
     def test_import_error_is_clean(self, runner):
         with patch("builtins.__import__", side_effect=lambda n, *a, **k: (
@@ -1634,8 +1764,83 @@ class TestDecision:
                             "semantica.context.decision_query", fake_decision_query)
         monkeypatch.setitem(__import__("sys").modules,
                             "semantica.graph_store", fake_graph_store)
-        result = runner.invoke(cli_module.main, ["decision", "list", "--format", "json"])
+        result = runner.invoke(
+            cli_module.main, ["decision", "list", "--format", "json"]
+        )
         _ok(result)
+
+    # (filter, matching category, decoy category the mangled filter also hits)
+    # lstrip("tag:") strips leading t/a/g/: characters, so "tag:auth" became
+    # "uth" — which still substring-matches "auth", but ALSO matches "south".
+    @pytest.mark.parametrize("tag,decoy", [
+        ("auth", "south"),
+        ("git", "editor"),
+        ("testing", "nesting"),
+        ("tag", "anything-at-all"),
+    ])
+    def test_query_tag_filter_does_not_match_on_mangled_prefix(
+        self, runner, monkeypatch, tag, decoy
+    ):
+        """--filter tag:<value> must strip the prefix, not leading characters."""
+        fake_dq = MagicMock()
+
+        def _decision(did, category):
+            d = MagicMock()
+            d.decision_id, d.scenario, d.category = did, "T", category
+            d.outcome, d.confidence = "ok", 1.0
+            return d
+
+        fake_dq.find_by_time_range.return_value = [
+            _decision("d1", tag), _decision("d2", decoy),
+        ]
+        monkeypatch.setitem(__import__("sys").modules,
+                            "semantica.context.decision_query",
+                            _fake_module(DecisionQuery=lambda *a, **kw: fake_dq))
+        monkeypatch.setitem(__import__("sys").modules, "semantica.graph_store",
+                            _fake_module(GraphStore=MagicMock(return_value=MagicMock())))
+
+        # --store neo4j: these mock DecisionQuery/GraphStore, so they must name
+        # the database path explicitly rather than inherit the default backend,
+        # which is memory and would read an empty ContextGraph.
+        result = runner.invoke(
+            cli_module.main,
+            ["--store", "neo4j", "decision", "query", "--filter", f"tag:{tag}",
+             "--format", "json"],
+        )
+        _ok(result)
+        ids = [d["id"] for d in json.loads(result.output)]
+        assert ids == ["d1"], (
+            f"tag:{tag} matched {decoy!r} too — the prefix was stripped as "
+            f"characters, leaving a shorter filter"
+        )
+
+    def test_query_tag_filter_value_strips_prefix_only(self):
+        assert cli_module._tag_filter_value("tag:auth") == "auth"
+        assert cli_module._tag_filter_value("tag:git") == "git"
+        assert cli_module._tag_filter_value("tag:tag") == "tag"
+        assert cli_module._tag_filter_value("plain") == "plain"
+
+    @pytest.mark.parametrize("filter_str", ["tag:", ""])
+    def test_query_empty_tag_filter_is_rejected(self, runner, monkeypatch, filter_str):
+        """An empty tag value matched every decision; it must be a usage error."""
+        fake_dq = MagicMock()
+        monkeypatch.setitem(
+            __import__("sys").modules,
+            "semantica.context.decision_query",
+            _fake_module(DecisionQuery=lambda *a, **kw: fake_dq),
+        )
+        monkeypatch.setitem(
+            __import__("sys").modules,
+            "semantica.graph_store",
+            _fake_module(GraphStore=MagicMock(return_value=MagicMock())),
+        )
+
+        result = runner.invoke(
+            cli_module.main,
+            ["decision", "query", "--filter", filter_str, "--format", "json"],
+        )
+        assert result.exit_code != 0
+        fake_dq.find_by_time_range.assert_not_called()
 
     def test_trace_import_error_is_clean(self, runner):
         with patch("builtins.__import__", side_effect=lambda n, *a, **k: (
@@ -1654,6 +1859,359 @@ class TestDecision:
     def test_sub_requires_id(self, runner, sub):
         result = runner.invoke(cli_module.main, ["decision", sub])
         assert result.exit_code != 0
+
+
+class TestMemoryGraphBackend:
+    """The `memory` backend routes through ContextGraph instead of GraphStore.
+
+    GraphStore has no `memory` backend, so before #1481 every one of these
+    commands died with `ValidationError: Unknown backend: memory` — which is
+    what `semantica init` writes by default.
+    """
+
+    @pytest.fixture
+    def memory_cfg(self, tmp_path):
+        cfg = tmp_path / "cfg.yaml"
+        cfg.write_text(
+            "graph_db:\n"
+            "  backend: memory\n"
+            f"  path: {tmp_path / 'graph.json'}\n"
+        )
+        return str(cfg)
+
+    def _record(self, runner, memory_cfg, title, tags, rationale=None):
+        args = ["--config", memory_cfg, "decision", "record", "--title", title,
+                "--tags", tags]
+        if rationale:
+            args += ["--rationale", rationale]
+        result = runner.invoke(cli_module.main, args)
+        _ok(result)
+        return result
+
+    def test_record_then_list_persists_across_invocations(self, runner, memory_cfg):
+        """A CLI is one process per command, so the graph must be written back."""
+        self._record(runner, memory_cfg, "Adopt Postgres", "database", "cheaper")
+        result = runner.invoke(
+            cli_module.main,
+            ["--config", memory_cfg, "decision", "list", "--format", "json"],
+        )
+        _ok(result)
+        rows = json.loads(result.output)
+        assert [r["title"] for r in rows] == ["Adopt Postgres"]
+        assert rows[0]["tags"] == ["database"]
+
+    def test_record_without_rationale_succeeds(self, runner, memory_cfg):
+        """--rationale is optional; ContextGraph rejects empty reasoning."""
+        self._record(runner, memory_cfg, "Use OAuth", "auth")
+        result = runner.invoke(
+            cli_module.main,
+            ["--config", memory_cfg, "decision", "list", "--format", "json"],
+        )
+        _ok(result)
+        assert [r["title"] for r in json.loads(result.output)] == ["Use OAuth"]
+
+    def test_query_filters_by_tag(self, runner, memory_cfg):
+        self._record(runner, memory_cfg, "Adopt Postgres", "database", "cheaper")
+        self._record(runner, memory_cfg, "Use OAuth", "auth", "standard")
+        result = runner.invoke(
+            cli_module.main,
+            ["--config", memory_cfg, "decision", "query", "--filter", "tag:database",
+             "--format", "json"],
+        )
+        _ok(result)
+        rows = json.loads(result.output)
+        assert [r["scenario"] for r in rows] == ["Adopt Postgres"]
+
+    def test_export_reads_the_context_graph(self, runner, memory_cfg):
+        self._record(runner, memory_cfg, "Adopt Postgres", "database", "cheaper")
+        result = runner.invoke(
+            cli_module.main, ["--config", memory_cfg, "export", "--format", "json"]
+        )
+        _ok(result)
+        payload = json.loads(result.output)
+        titles = [e.get("text") or e.get("name") for e in payload["entities"]]
+        assert "Adopt Postgres" in titles
+
+    def test_list_is_empty_before_anything_is_recorded(self, runner, memory_cfg):
+        """A missing graph file is an empty graph, not an error."""
+        result = runner.invoke(
+            cli_module.main,
+            ["--config", memory_cfg, "decision", "list", "--format", "json"],
+        )
+        _ok(result)
+        assert json.loads(result.output) == []
+
+    def test_check_names_the_decision_when_absent(self, runner, memory_cfg):
+        result = runner.invoke(
+            cli_module.main, ["--config", memory_cfg, "decision", "check", "nope"]
+        )
+        assert result.exit_code != 0
+        assert "nope" in result.output
+        assert "Traceback" not in result.output
+
+    def test_doctor_reports_memory_without_probing_a_server(self, runner, memory_cfg):
+        result = runner.invoke(cli_module.main, ["--config", memory_cfg, "doctor"])
+        graph_rows = [
+            line for line in result.output.splitlines() if "Graph store" in line
+        ]
+        assert graph_rows, result.output
+        assert "memory" in graph_rows[0]
+        assert "Neo4j" not in graph_rows[0]
+
+    def _ctx(self, memory_cfg, store_backend=None):
+        cfg = cli_module._build_runtime_config(memory_cfg, None)
+        return cli_module.CLIContext(
+            config_path=memory_cfg, config=cfg, log_level="INFO",
+            store_backend=store_backend,
+        )
+
+    def test_resolve_backend_reads_the_config(self, memory_cfg):
+        ctx = self._ctx(memory_cfg)
+        assert cli_module._resolve_graph_backend(ctx) == "memory"
+        assert cli_module._uses_memory_graph(ctx) is True
+
+    def test_resolve_backend_prefers_the_store_flag(self, memory_cfg):
+        """--store must win over the config file, as it does for every command."""
+        ctx = self._ctx(memory_cfg, store_backend="neo4j")
+        assert cli_module._resolve_graph_backend(ctx) == "neo4j"
+        assert cli_module._uses_memory_graph(ctx) is False
+
+    def test_graph_path_is_configurable(self, memory_cfg, tmp_path):
+        ctx = self._ctx(memory_cfg)
+        assert cli_module._memory_graph_path(ctx) == tmp_path / "graph.json"
+
+    def test_validity_flags_reach_the_graph_not_just_metadata(
+        self, runner, memory_cfg, tmp_path
+    ):
+        """ContextGraph tracks node validity itself (Qodo #2 on PR #1765).
+
+        Passing --valid-from/--valid-until only inside metadata left the
+        decision active outside its window.
+        """
+        result = runner.invoke(cli_module.main, [
+            "--config", memory_cfg, "decision", "record", "--title", "Trial run",
+            "--tags", "pilot", "--rationale", "time-boxed",
+            "--valid-from", "2026-01-01T00:00:00",
+            "--valid-until", "2026-02-01T00:00:00",
+        ])
+        _ok(result)
+        saved = json.loads((tmp_path / "graph.json").read_text())
+        blob = json.dumps(saved)
+        assert "2026-01-01" in blob and "2026-02-01" in blob
+
+    def test_check_sees_the_stored_reasoning_and_decision_maker(
+        self, runner, memory_cfg
+    ):
+        """check_decision_rules indexes decision["reasoning"] (Qodo #4).
+
+        The display mapping used by list/query omits it, so policy checks were
+        evaluating a decision that looked emptier than what was stored.
+        """
+        self._record(runner, memory_cfg, "Adopt Postgres", "database",
+                     "cheaper to operate")
+        ctx = self._ctx(memory_cfg)
+        stored = cli_module._memory_decisions(ctx)
+        assert stored, "nothing recorded"
+        assert stored[0]["reasoning"] == "cheaper to operate"
+        assert "decision_maker" in stored[0]
+
+    def test_concurrent_records_do_not_lose_each_other(self, memory_cfg, tmp_path):
+        """Two processes recording at once must not drop a decision (Qodo #1).
+
+        record is a load-modify-save of the whole graph, so without a lock the
+        later save replaces the earlier decision, silently.
+        """
+        import subprocess
+        import sys as _sys
+
+        procs = [
+            subprocess.Popen(
+                [_sys.executable, "-m", "semantica.cli", "--config", memory_cfg,
+                 "decision", "record", "--title", f"Decision {i}",
+                 "--tags", f"tag{i}", "--rationale", "concurrent"],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            )
+            for i in range(4)
+        ]
+        assert all(p.wait(timeout=120) == 0 for p in procs)
+
+        ctx = self._ctx(memory_cfg)
+        titles = {d["scenario"] for d in cli_module._memory_decisions(ctx)}
+        assert titles == {f"Decision {i}" for i in range(4)}, titles
+
+    def test_an_old_lock_held_by_a_live_writer_is_not_stolen(self, memory_cfg):
+        """Age must never grant entry while the holder is alive.
+
+        An mtime-based "reclaim a lock older than N" rule lets a second writer
+        into the critical section whenever the first is merely slow or
+        suspended. The second saves, the first then saves its older snapshot,
+        and the second decision disappears with no error anywhere.
+        """
+        import subprocess
+        import sys as _sys
+
+        ctx = self._ctx(memory_cfg)
+        lock = cli_module._memory_graph_path(ctx).with_suffix(".lock")
+
+        with cli_module._memory_graph_lock(ctx):
+            graph = cli_module._load_context_graph(ctx)
+            graph.record_decision(category="a", scenario="A", reasoning="r",
+                                  outcome="recorded", confidence=1.0)
+            # Make the lock look ancient while this writer still holds it.
+            lock.touch()
+            old = time.time() - 86_400
+            os.utime(lock, (old, old))
+
+            other = subprocess.run(
+                [_sys.executable, "-m", "semantica.cli", "--config", memory_cfg,
+                 "decision", "record", "--title", "B", "--tags", "b",
+                 "--rationale", "r"],
+                capture_output=True, text=True, timeout=120,
+            )
+            # B must be kept out, not allowed in to have its write erased.
+            assert other.returncode != 0, other.stdout + other.stderr
+            assert cli_module._memory_decisions(ctx) == [] or all(
+                d["scenario"] != "B" for d in cli_module._memory_decisions(ctx)
+            )
+            cli_module._save_context_graph(ctx, graph)
+
+        assert [d["scenario"] for d in cli_module._memory_decisions(ctx)] == ["A"]
+
+    def test_lock_is_released_when_the_holder_exits(self, memory_cfg):
+        """The OS drops an advisory lock on process death, so no timeout guess."""
+        ctx = self._ctx(memory_cfg)
+        with cli_module._memory_graph_lock(ctx):
+            pass
+        with cli_module._memory_graph_lock(ctx):  # immediately re-acquirable
+            pass
+
+    def test_init_then_plain_commands_need_no_config_flag(
+        self, runner, monkeypatch, tmp_path
+    ):
+        """The workflow #1481 is actually about: init, then plain commands.
+
+        `semantica init` writes ~/.semantica/config.yaml, but nothing read it,
+        so accepting its `memory` default still left every command on the
+        built-in fallback. Supplying --config in tests hid this entirely.
+        """
+        home = tmp_path / "home"
+        home.mkdir()
+        monkeypatch.setattr(cli_module.Path, "home", staticmethod(lambda: home))
+
+        init = runner.invoke(cli_module.main, ["init"], input="memory\nfaiss\nnone\n")
+        _ok(init)
+        assert "backend: memory" in (home / ".semantica" / "config.yaml").read_text()
+
+        # No --config from here on.
+        rec = runner.invoke(cli_module.main, [
+            "decision", "record", "--title", "First", "--tags", "pilot",
+            "--rationale", "trying it out",
+        ])
+        _ok(rec)
+        listed = runner.invoke(
+            cli_module.main, ["decision", "list", "--format", "json"]
+        )
+        _ok(listed)
+        assert [d["title"] for d in json.loads(listed.output)] == ["First"]
+
+        exported = runner.invoke(cli_module.main, ["export", "--format", "json"])
+        _ok(exported)
+        assert "First" in exported.output
+
+    def test_default_backend_is_memory_with_no_config_at_all(
+        self, runner, monkeypatch, tmp_path
+    ):
+        """A user who never ran init gets a working local graph, not a Neo4j error."""
+        home = tmp_path / "empty-home"
+        home.mkdir()
+        monkeypatch.setattr(cli_module.Path, "home", staticmethod(lambda: home))
+        result = runner.invoke(
+            cli_module.main, ["decision", "list", "--format", "json"]
+        )
+        _ok(result)
+        assert json.loads(result.output) == []
+
+    def test_explicit_config_still_wins_over_the_default_file(
+        self, runner, monkeypatch, tmp_path
+    ):
+        home = tmp_path / "home2"
+        (home / ".semantica").mkdir(parents=True)
+        (home / ".semantica" / "config.yaml").write_text(
+            "graph_db:\n  backend: memory\n"
+        )
+        monkeypatch.setattr(cli_module.Path, "home", staticmethod(lambda: home))
+        explicit = tmp_path / "explicit.yaml"
+        explicit.write_text("graph_db:\n  backend: falkordb\n")
+        ctx_cfg = cli_module._build_runtime_config(str(explicit), None)
+        ctx = cli_module.CLIContext(
+            config_path=str(explicit), config=ctx_cfg, log_level="INFO"
+        )
+        assert cli_module._resolve_graph_backend(ctx) == "falkordb"
+
+    @staticmethod
+    def _init_home(monkeypatch, tmp_path, name):
+        """A HOME whose ~/.semantica/config.yaml selects the memory backend."""
+        home = tmp_path / name
+        (home / ".semantica").mkdir(parents=True)
+        (home / ".semantica" / "config.yaml").write_text(
+            "graph_db:\n  backend: memory\nvector_store:\n  backend: faiss\n"
+        )
+        monkeypatch.setattr(cli_module.Path, "home", staticmethod(lambda: home))
+        return home
+
+    def test_store_override_constructs_the_real_backend(self, monkeypatch, tmp_path):
+        """--store must reach GraphStore, not die assembling its arguments.
+
+        `store_backend or graph_db.pop("backend", ...)` short-circuits, so an
+        override left the configured backend in the kwargs and GraphStore got
+        `backend` twice. Auto-loading ~/.semantica/config.yaml made plain
+        `init` + `--store` hit it, so this asserts on construction rather than
+        on _resolve_graph_backend().
+        """
+        self._init_home(monkeypatch, tmp_path, "home-override")
+        seen = {}
+
+        class FakeGraphStore:
+            def __init__(self, backend=None, **kwargs):
+                seen["backend"] = backend
+                seen["kwargs"] = kwargs
+
+        monkeypatch.setitem(
+            __import__("sys").modules, "semantica.graph_store",
+            _fake_module(GraphStore=FakeGraphStore),
+        )
+        cfg = cli_module._build_runtime_config(None, None)
+        ctx = cli_module.CLIContext(
+            config_path=None, config=cfg, log_level="INFO", store_backend="neo4j",
+        )
+        store = cli_module._get_graph_store(ctx)
+        assert isinstance(store, FakeGraphStore)
+        assert seen["backend"] == "neo4j"
+        assert "backend" not in seen["kwargs"], seen["kwargs"]
+
+    @pytest.mark.parametrize("args", [
+        ["decision", "list", "--format", "json"],
+        ["export", "--format", "json"],
+    ])
+    def test_store_override_after_init_does_not_fail_on_arguments(
+        self, runner, monkeypatch, tmp_path, args
+    ):
+        """init then `--store neo4j <cmd>` must not raise a TypeError."""
+        self._init_home(monkeypatch, tmp_path, f"home-{args[0]}")
+        result = runner.invoke(cli_module.main, ["--store", "neo4j"] + args)
+        # Rich wraps the error inside a box, so collapse whitespace before
+        # matching: the literal phrase is split across lines in result.output.
+        flat = " ".join(result.output.split())
+        assert "multiple values for keyword argument" not in flat, flat[:300]
+        assert "TypeError" not in flat, flat[:300]
+        assert "Traceback" not in result.output
+
+    def test_get_graph_store_refuses_memory_with_a_clear_message(self, memory_cfg):
+        """Safety net: a future caller that forgets to route memory gets told."""
+        import click as _click
+        with pytest.raises(_click.ClickException) as exc:
+            cli_module._get_graph_store(self._ctx(memory_cfg))
+        assert "ContextGraph" in str(exc.value)
 
 
 # ─── temporal ─────────────────────────────────────────────────────────────────
@@ -1881,12 +2439,80 @@ class TestOntology:
 # ─── export ───────────────────────────────────────────────────────────────────
 
 
+# The record shape the Neo4j and FalkorDB backends return: endpoints named
+# start_node_id/end_node_id, and get_nodes() nesting its fields under
+# "properties". The local store uses source_id/target_id, so a fixture written
+# against it hid the fact that the command fed the exporters a shape they could
+# not read (#1712).
+STORE_NODES = [
+    {"id": "n1", "type": "Person", "name": "Alice", "properties": {"name": "Alice"}}
+]
+STORE_RELATIONSHIP = {
+    "id": "r1",
+    "start_node_id": "n1",
+    "end_node_id": "n1",
+    "type": "KNOWS",
+    "properties": {},
+}
+
+# The extension each multi-file format is written under, checked against the
+# list the command refuses a single destination for.
+MULTI_FILE_EXTENSIONS = {"arrow": ".arrow", "csv": ".csv", "parquet": ".parquet"}
+
+
+def _patch_graph_store(monkeypatch, relationships, nodes=None) -> dict:
+    """Point the export command at a fake store, and count how often it reads."""
+    node_records = STORE_NODES if nodes is None else nodes
+    reads = {"nodes": 0}
+
+    def get_nodes(**kwargs):
+        reads["nodes"] += 1
+        return [dict(n) for n in node_records]
+
+    def get_relationships(**kwargs):
+        return [dict(r) for r in relationships]
+
+    class FakeGraphStore:
+        def get_nodes(self, **kwargs):
+            return get_nodes(**kwargs)
+
+        def get_relationships(self, **kwargs):
+            return get_relationships(**kwargs)
+
+    monkeypatch.setattr(
+        "semantica.graph_store.methods._get_store", lambda: FakeGraphStore()
+    )
+    for target in (
+        "semantica.graph_store.get_nodes",
+        "semantica.graph_store.methods.get_nodes",
+    ):
+        monkeypatch.setattr(target, get_nodes)
+    for target in (
+        "semantica.graph_store.get_relationships",
+        "semantica.graph_store.methods.get_relationships",
+    ):
+        monkeypatch.setattr(target, get_relationships)
+    return reads
+
+
+def test_multi_file_extensions_cover_what_the_command_lists():
+    from semantica.export import MULTI_FILE_FORMATS
+
+    assert set(MULTI_FILE_EXTENSIONS) == set(
+        MULTI_FILE_FORMATS
+    ), "a multi-file format was added or removed without updating these tests"
+
+
 class TestExport:
-    def test_help_shows_14_formats(self, runner):
+    def test_help_shows_the_offered_formats(self, runner):
         result = runner.invoke(cli_module.main, ["export", "--help"])
         _ok(result)
-        for fmt in ["turtle", "parquet", "csv", "graphml", "owl", "arangodb"]:
+        for fmt in cli_module._EXPORT_FORMATS:
             assert fmt in result.output
+        # These three need an ontology or an Explorer session, not a graph
+        # dump, so they are no longer offered (#1712).
+        for fmt in ["owl", "shacl", "distance-enriched"]:
+            assert fmt not in result.output
         for flag in ["--with-provenance", "--filter", "--compress", "--dry-run"]:
             assert flag in result.output
 
@@ -1908,81 +2534,13 @@ class TestExport:
         assert data["dry_run"] is True
 
     def test_real_export_runtime_path(self, runner, tmp_path, monkeypatch):
-        class FakeGraphStore:
-            def get_nodes(self, labels=None, properties=None, limit=100, **options):
-                return [
-                    {
-                        "id": "n1",
-                        "type": "Person",
-                        "name": "Alice",
-                        "properties": {"name": "Alice"},
-                    }
-                ]
-
-            def get_relationships(self, node_id=None, rel_type=None, direction="both", limit=100, **options):
-                return [
-                    {
-                        "id": "r1",
-                        "source": "n1",
-                        "target": "n1",
-                        "type": "KNOWS",
-                        "properties": {},
-                    }
-                ]
-
-        monkeypatch.setattr(
-            "semantica.graph_store.methods._get_store",
-            lambda: FakeGraphStore(),
-        )
-        monkeypatch.setattr(
-            "semantica.graph_store.get_nodes",
-            lambda **kwargs: [
-                {
-                    "id": "n1",
-                    "type": "Person",
-                    "name": "Alice",
-                    "properties": {"name": "Alice"},
-                }
-            ],
-        )
-        monkeypatch.setattr(
-            "semantica.graph_store.methods.get_nodes",
-            lambda **kwargs: [
-                {
-                    "id": "n1",
-                    "type": "Person",
-                    "name": "Alice",
-                    "properties": {"name": "Alice"},
-                }
-            ],
-        )
-        monkeypatch.setattr(
-            "semantica.graph_store.get_relationships",
-            lambda **kwargs: [
-                {
-                    "id": "r1",
-                    "source": "n1",
-                    "target": "n1",
-                    "type": "KNOWS",
-                    "properties": {},
-                }
-            ],
-        )
-        monkeypatch.setattr(
-            "semantica.graph_store.methods.get_relationships",
-            lambda **kwargs: [
-                {
-                    "id": "r1",
-                    "source": "n1",
-                    "target": "n1",
-                    "type": "KNOWS",
-                    "properties": {},
-                }
-            ],
-        )
+        _patch_graph_store(monkeypatch, [STORE_RELATIONSHIP])
 
         output_path = tmp_path / "export.json"
-        result = runner.invoke(cli_module.main, ["export", "--format", "json", "--output", str(output_path)])
+        result = runner.invoke(cli_module.main, [
+            "--store", "neo4j", "export", "--format", "json",
+            "--output", str(output_path),
+        ])
         _ok(result)
         exported = output_path.read_text(encoding="utf-8")
         assert "Alice" in exported
@@ -1998,9 +2556,90 @@ class TestExport:
             (_ for _ in ()).throw(ImportError(n))
             if "semantica.export" in n else original_import(n, *a, **k)
         )):
-            result = runner.invoke(cli_module.main, ["export", "--format", "json"])
+            result = runner.invoke(
+                cli_module.main, ["--store", "neo4j", "export", "--format", "json"]
+            )
         assert result.exit_code != 0
         assert "Traceback" not in result.output
+
+
+class TestExportMultiFileFormats:
+    """Formats that write one file per collection, driven through the command.
+
+    ``arrow``, ``csv`` and ``parquet`` take ``--output`` as a base name and
+    write ``graph_entities.*``/``graph_relationships.*`` next to it, so the
+    path the command was given is never created. It used to report that path as
+    written anyway, hand stdout an empty file, and compress a base file that
+    did not exist.
+    """
+
+    @pytest.mark.parametrize("fmt,ext", sorted(MULTI_FILE_EXTENSIONS.items()))
+    def test_reports_the_files_it_wrote(self, runner, tmp_path, monkeypatch, fmt, ext):
+        _patch_graph_store(monkeypatch, [STORE_RELATIONSHIP])
+        target = tmp_path / f"graph{ext}"
+
+        result = runner.invoke(
+            cli_module.main,
+            ["--store", "neo4j", "export", "--format", fmt, "--output", str(target)]
+        )
+
+        _ok(result)
+        names = sorted(p.name for p in tmp_path.iterdir())
+        assert names == [f"graph_entities{ext}", f"graph_relationships{ext}"], names
+        for name in names:
+            assert name in result.output, f"{name} not reported: {result.output!r}"
+        assert not target.exists(), (
+            "the command was asked for a base name; it must not be reported as "
+            "the artifact"
+        )
+
+    @pytest.mark.parametrize("fmt,ext", sorted(MULTI_FILE_EXTENSIONS.items()))
+    @pytest.mark.parametrize(
+        "flags,mention",
+        [([], "--output"), (["--compress"], "--compress")],
+    )
+    def test_a_single_destination_is_refused(
+        self, runner, tmp_path, monkeypatch, fmt, ext, flags, mention
+    ):
+        reads = _patch_graph_store(monkeypatch, [STORE_RELATIONSHIP])
+
+        result = runner.invoke(cli_module.main, ["export", "--format", fmt] + flags)
+
+        assert result.exit_code != 0, f"{flags} exited 0: {result.output!r}"
+        assert mention in result.output, f"{result.output!r} does not mention {mention}"
+        assert reads["nodes"] == 0, "the store was read before the format was refused"
+
+    def test_arrow_without_relationships_still_exports(
+        self, runner, tmp_path, monkeypatch
+    ):
+        """A graph whose nodes have no edges between them is not an error."""
+        _patch_graph_store(monkeypatch, [])
+        target = tmp_path / "graph.arrow"
+
+        result = runner.invoke(
+            cli_module.main,
+            ["--store", "neo4j", "export", "--format", "arrow", "--output", str(target)]
+        )
+
+        _ok(result)
+        assert (tmp_path / "graph_entities.arrow").exists()
+        assert not (tmp_path / "graph_relationships.arrow").exists()
+
+    @pytest.mark.parametrize("fmt,ext", sorted(MULTI_FILE_EXTENSIONS.items()))
+    def test_an_empty_store_writes_nothing_and_says_so(
+        self, runner, tmp_path, monkeypatch, fmt, ext
+    ):
+        _patch_graph_store(monkeypatch, [], nodes=[])
+        target = tmp_path / f"graph{ext}"
+
+        result = runner.invoke(
+            cli_module.main,
+            ["--store", "neo4j", "export", "--format", fmt, "--output", str(target)]
+        )
+
+        _ok(result)
+        assert "Nothing written" in result.output, result.output
+        assert not list(tmp_path.iterdir())
 
 
 # ─── visualize ────────────────────────────────────────────────────────────────
@@ -2695,15 +3334,14 @@ class TestMCP:
             result = runner.invoke(cli_module.main, ["mcp", "start"])
         _ok(result)
 
-    def test_start_http_includes_port(self, runner):
+    def test_start_http_is_rejected(self, runner):
         mock_proc = MagicMock()
         mock_proc.pid = 33334
         with patch("subprocess.Popen", return_value=mock_proc) as mock_popen:
             result = runner.invoke(cli_module.main, ["mcp", "start", "--transport", "http",
                                           "--port", "4000"])
-        _ok(result)
-        call_args = mock_popen.call_args[0][0]
-        assert "4000" in call_args
+        assert result.exit_code != 0
+        assert not mock_popen.called
 
     def test_stop_when_not_running(self, runner, monkeypatch):
         monkeypatch.setattr(cli_module, "_read_pid", lambda n: None)

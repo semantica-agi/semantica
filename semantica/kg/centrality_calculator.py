@@ -36,7 +36,7 @@ Example Usage:
     >>> calculator = CentralityCalculator()
     >>> centrality = calculator.calculate_degree_centrality(graph)
     >>> all_centrality = calculator.calculate_all_centrality(graph)
-    >>> pagerank_scores = calculator.calculate_pagerank(graph, damping_factor=0.85)
+    >>> pagerank_result = calculator.calculate_pagerank(graph, damping_factor=0.85)
     >>> top_nodes = calculator.get_top_nodes(centrality, top_k=10)
 
 Author: Semantica Contributors
@@ -51,7 +51,15 @@ from scipy import sparse
 
 from ..utils.logging import get_logger
 from ..utils.progress_tracker import get_progress_tracker
-from ._graph_view import build_adjacency, build_graph_view
+from ._graph_view import (
+    EdgeTypeIndex,
+    build_adjacency,
+    build_edge_type_index,
+    build_graph_view,
+    edge_types_between,
+    graph_node_ids,
+    graph_node_label,
+)
 
 
 class CentralityCalculator:
@@ -584,13 +592,13 @@ class CentralityCalculator:
         graph: Any,
         node_labels: Optional[List[str]] = None,
         relationship_types: Optional[List[str]] = None,
-        max_iterations: int = 20,
+        max_iterations: int = 100,
         damping_factor: float = 0.85,
         tolerance: float = 1e-6,
         # Aliases used by some callers
         alpha: Optional[float] = None,
         max_iter: Optional[int] = None,
-    ) -> Dict[str, float]:
+    ) -> Dict[str, Any]:
         """
         Calculate PageRank scores for nodes in the graph.
         
@@ -599,15 +607,24 @@ class CentralityCalculator:
         a page to determine a rough estimate of how important the website is.
         
         Args:
-            graph: Graph object (NetworkX or similar)
+            graph: Graph object (NetworkX, ContextGraph, or a plain
+                ``{"entities": [...], "relationships": [...]}`` mapping)
             node_labels: List of node labels to include (None for all)
             relationship_types: List of relationship types to consider (None for all)
-            max_iterations: Maximum number of iterations for convergence
+            max_iterations: Maximum power-iteration steps. 20 is enough for small
+                undirected graphs, but a directed graph with sink nodes needs far
+                more before the per-node values settle (at tolerance=1e-6 a
+                10-node directed chain needs ~33 steps and a 10-leaf directed
+                star ~85). The default of 100 lets those graphs converge without
+                the caller raising the cap. The scores always sum to 1 whether or
+                not convergence was reached.
             damping_factor: Probability of continuing random walk (0.85 is typical)
             tolerance: Convergence tolerance for PageRank values
             
         Returns:
-            Dictionary mapping node IDs to PageRank scores
+            Dictionary containing:
+                - centrality: Mapping of node IDs to PageRank scores
+                - rankings: List of ``(node_id, score)`` tuples sorted highest first
             
         Raises:
             ValueError: If graph is empty or parameters are invalid
@@ -622,11 +639,10 @@ class CentralityCalculator:
         try:
             self.logger.info("Calculating PageRank scores")
 
-            if not hasattr(graph, "nodes") and hasattr(self, "_to_networkx"):
-                try:
-                    graph = self._to_networkx(graph)
-                except Exception:
-                    pass
+            # No conversion here. _to_networkx re-adds nodes by id alone, so
+            # converting first would strip every label and every relationship
+            # type the filters below need. The _graph_view helpers read a
+            # ContextGraph and a plain graph dictionary directly instead.
 
             # Filter nodes by labels if specified
             nodes = self._filter_nodes_by_labels(graph, node_labels)
@@ -641,20 +657,46 @@ class CentralityCalculator:
             row_indices = []
             col_indices = []
             data = []
+            has_outgoing = np.zeros(n, dtype=bool)
             
+            # A plain graph dictionary has its adjacency built once for the
+            # whole loop rather than once per node.
+            adjacency = (
+                build_adjacency(graph, directed=True)
+                if isinstance(graph, dict)
+                else None
+            )
+            # Its edge types are read once too, so the relationship filter
+            # costs O(E) rather than one edge-list scan per neighbour.
+            edge_types = (
+                build_edge_type_index(graph)
+                if relationship_types is not None and isinstance(graph, dict)
+                else None
+            )
+
             for node in nodes:
                 source_idx = node_index[node]
-                neighbors = self._get_filtered_neighbors(graph, node, relationship_types)
+                neighbors = self._get_filtered_neighbors(
+                    graph,
+                    node,
+                    relationship_types,
+                    adjacency=adjacency,
+                    edge_types=edge_types,
+                )
                 
-                # Distribute PageRank equally among neighbors
-                if neighbors:
-                    weight = 1.0 / len(neighbors)
-                    for neighbor in neighbors:
-                        if neighbor in node_index:  # Only include filtered nodes
-                            target_idx = node_index[neighbor]
-                            row_indices.append(target_idx)
-                            col_indices.append(source_idx)
-                            data.append(weight)
+                # Distribute PageRank equally among the neighbours that survive
+                # the node filter. Counting the filtered-out ones too would send
+                # part of the mass to nodes outside the matrix, where it vanishes
+                # (issue #1759).
+                retained = [n for n in neighbors if n in node_index]
+                if retained:
+                    weight = 1.0 / len(retained)
+                    for neighbour in retained:
+                        target_idx = node_index[neighbour]
+                        row_indices.append(target_idx)
+                        col_indices.append(source_idx)
+                        data.append(weight)
+                        has_outgoing[source_idx] = True
             
             # Create sparse matrix
             adjacency = sparse.csr_matrix((data, (row_indices, col_indices)), shape=(n, n))
@@ -666,8 +708,19 @@ class CentralityCalculator:
             for iteration in range(max_iterations):
                 prev_pagerank = pagerank.copy()
                 
-                # PageRank formula: PR = (1 - d) * 1/n + d * A * PR
-                pagerank = (1 - damping_factor) / n + damping_factor * adjacency.dot(prev_pagerank)
+                # A node with no outgoing edge inside the current node set (a
+                # leaf, or a node whose neighbours were filtered out) has an
+                # empty column in the transition matrix, so its mass cannot
+                # flow on. Redistribute it uniformly, as standard PageRank does,
+                # otherwise the scores drift below 1 on a directed graph.
+                dangling_mass = prev_pagerank[~has_outgoing].sum()
+
+                # PageRank formula: PR = (1 - d) / n + d * A * PR + d * dangling / n
+                pagerank = (
+                    (1 - damping_factor) / n
+                    + damping_factor * adjacency.dot(prev_pagerank)
+                    + damping_factor * dangling_mass / n
+                )
                 
                 # Check convergence
                 diff = np.linalg.norm(pagerank - prev_pagerank)
@@ -694,31 +747,41 @@ class CentralityCalculator:
     
     def _filter_nodes_by_labels(self, graph: Any, node_labels: Optional[List[str]]) -> List[str]:
         """Filter nodes by specified labels."""
+        nodes = graph_node_ids(graph)
+
         if node_labels is None:
-            return list(graph.nodes()) if hasattr(graph, 'nodes') else []
-        
+            return nodes
+
         filtered_nodes = []
-        for node in graph.nodes():
-            if hasattr(graph, 'nodes'):
-                node_data = graph.nodes[node]
-                if isinstance(node_data, dict):
-                    node_label = node_data.get('label') or node_data.get('type')
-                    if node_label in node_labels:
-                        filtered_nodes.append(node)
-                else:
-                    # Fallback - include all nodes if no label information
-                    filtered_nodes.append(node)
-        
+        for node in nodes:
+            if graph_node_label(graph, node) in node_labels:
+                filtered_nodes.append(node)
+
         return filtered_nodes
     
     def _get_filtered_neighbors(
         self, 
         graph: Any, 
         node: str, 
-        relationship_types: Optional[List[str]]
+        relationship_types: Optional[List[str]],
+        adjacency: Optional[Dict[str, List[str]]] = None,
+        edge_types: Optional[EdgeTypeIndex] = None,
     ) -> List[str]:
-        """Get neighbors filtered by relationship types."""
-        if hasattr(graph, 'neighbors'):
+        """Get neighbors filtered by relationship types.
+
+        ``adjacency`` is an optional prebuilt outgoing adjacency for a plain
+        graph dictionary, so a caller looping over nodes builds it once.
+        ``edge_types`` is the matching prebuilt edge-type index, for the same
+        reason.
+        """
+        if isinstance(graph, dict):
+            # A plain graph dictionary has no neighbour walk of its own, so the
+            # outgoing adjacency comes from the same dict-aware builder the rest
+            # of the analytics use.
+            if adjacency is None:
+                adjacency = build_adjacency(graph, directed=True)
+            neighbors = adjacency.get(node, [])
+        elif hasattr(graph, 'neighbors'):
             _raw = list(graph.neighbors(node))
             neighbors = [n.get("id") if isinstance(n, dict) else n for n in _raw]
         elif hasattr(graph, 'get_neighbors'):
@@ -731,15 +794,21 @@ class CentralityCalculator:
         else:
             neighbors = []
         
-        # Filter by relationship types if specified
-        if relationship_types is not None and hasattr(graph, 'get_edge_data'):
-            filtered_neighbors = []
-            for neighbor in neighbors:
-                edge_data = graph.get_edge_data(node, neighbor)
-                if edge_data and isinstance(edge_data, dict):
-                    edge_type = edge_data.get('type') or edge_data.get('relationship')
-                    if edge_type in relationship_types:
-                        filtered_neighbors.append(neighbor)
-            return filtered_neighbors
-        
-        return neighbors
+        if relationship_types is None:
+            return neighbors
+
+        # Filter by relationship types if specified. The edge list is the only
+        # view that shows every parallel edge of a pair, and a graph whose edge
+        # types cannot be read keeps its neighbours rather than dropping them.
+        # The neighbours come from an outgoing walk, so the lookup has to read
+        # the edges in that direction: a reverse edge of another type is not a
+        # link this node follows, and counting it flattens the ranking.
+        wanted = set(relationship_types)
+        filtered_neighbors = []
+        for neighbor in neighbors:
+            types = edge_types_between(
+                graph, node, neighbor, directed=True, edge_types=edge_types
+            )
+            if types is None or types & wanted:
+                filtered_neighbors.append(neighbor)
+        return filtered_neighbors

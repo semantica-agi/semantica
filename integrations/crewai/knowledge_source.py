@@ -8,7 +8,7 @@ graph knowledge during the kickoff.
 
 Install
 -------
-    pip install semantica[crewai]
+    pip install "crewai>=0.80.0"  # not a semantica extra — see integrations/crewai/README.md
 
 Example
 -------

@@ -3,16 +3,68 @@
 from unittest.mock import MagicMock, patch
 
 import pytest
+import requests
 import urllib3.connectionpool as pool
 
 from semantica.ingest.api_ingestor import RESTIngestor
 from semantica.ingest.ssrf import (
+    _apply_connection_pin,
+    _format_host_header,
     parse_bool,
     request_with_ssrf_guard,
     validate_url_for_request,
 )
 from semantica.ingest.web_ingestor import SitemapCrawler, WebIngestor
 from semantica.utils.exceptions import ValidationError
+
+
+class TestFormatHostHeader:
+    """The shared authority formatter brackets IPv6 and elides default ports."""
+
+    def test_ipv6_literal_without_explicit_port(self):
+        assert _format_host_header("2001:db8::1", None, "https") == "[2001:db8::1]"
+        assert _format_host_header("2001:db8::1", 443, "https") == "[2001:db8::1]"
+
+    def test_ipv6_literal_with_explicit_non_default_port(self):
+        assert _format_host_header("2001:db8::1", 8443, "https") == "[2001:db8::1]:8443"
+        assert _format_host_header("2001:db8::1", 8080, "http") == "[2001:db8::1]:8080"
+
+    def test_ipv4_literal_is_unchanged(self):
+        assert _format_host_header("93.184.216.34", None, "https") == "93.184.216.34"
+        assert _format_host_header("93.184.216.34", 443, "https") == "93.184.216.34"
+        assert (
+            _format_host_header("93.184.216.34", 8443, "https") == "93.184.216.34:8443"
+        )
+
+    def test_unknown_scheme_falls_back_to_port_80(self):
+        assert _format_host_header("example.com", 80, "ftp") == "example.com"
+        assert _format_host_header("example.com", 8080, "ftp") == "example.com:8080"
+
+
+class TestApplyConnectionPinHostHeader:
+    """The shared guarded path emits a valid authority for IPv6 targets."""
+
+    @pytest.mark.parametrize(
+        ("url", "expected_host"),
+        [
+            ("https://[2001:db8::1]/x", "[2001:db8::1]"),
+            ("https://[2001:db8::1]:8443/x", "[2001:db8::1]:8443"),
+        ],
+    )
+    def test_ipv6_authority_is_bracketed(self, url, expected_host):
+        session = requests.Session()
+
+        _apply_connection_pin(
+            session,
+            url,
+            ["2001:db8::1"],
+            requests.adapters.HTTPAdapter(),
+            requests.adapters.HTTPAdapter(),
+            False,
+            None,
+        )
+
+        assert session.headers["Host"] == expected_host
 
 
 class TestParseBool:

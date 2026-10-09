@@ -402,6 +402,20 @@ class TestSemanticaKGToolDataclassShapes(unittest.TestCase):
         self.assertEqual(result["relations"][0]["relation"], "FOUNDED_BY")
         self.assertEqual(result["relations"][0]["target"], "Elon Musk")
 
+    def test_extract_relations_passes_entity_objects_to_relation_extractor(self):
+        """RelationExtractor needs the NER entities; without them the real
+        extractor raises TypeError (#1849)."""
+        from semantica.semantic_extract.types import Entity
+
+        self.tool._run(action="extract_relations", text="Tesla founded by Elon Musk")
+
+        self.assertIsNotNone(self.rel.received_entities)
+        self.assertEqual(
+            [e.text for e in self.rel.received_entities], ["Tesla", "Elon Musk"]
+        )
+        for e in self.rel.received_entities:
+            self.assertIsInstance(e, Entity)
+
     def test_add_to_graph_passes_entity_objects_to_relation_extractor(self):
         result = json.loads(
             self.tool._run(action="add_to_graph", text="Tesla founded by Elon Musk")

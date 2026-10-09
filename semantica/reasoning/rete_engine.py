@@ -85,6 +85,41 @@ def _build_condition_regex(
     return f"^{p_regex}$"
 
 
+def _count_pattern_arity(pattern: str) -> int:
+    """Return the number of top-level arguments in a condition pattern.
+
+    Walks the argument section of ``pattern`` while tracking parenthesis
+    depth so that commas inside nested calls (e.g. ``f(?x, g(?y, ?z))``)
+    are not counted as top-level argument separators.
+
+    Args:
+        pattern: A condition pattern string such as ``"knows(?x, ?y)"`` or
+            ``"pred(a, f(?z), ?w)"``.
+
+    Returns:
+        The number of top-level arguments (0 for patterns with no opening
+        parenthesis or for the empty-args form ``"pred()"``).
+    """
+    paren_pos = pattern.find("(")
+    if paren_pos == -1:
+        return 0  # No argument list at all.
+    args_section = pattern[paren_pos + 1 :]
+    if args_section.startswith(")"):
+        return 0  # Empty argument list: pred().
+    depth = 0
+    top_level_commas = 0
+    for ch in args_section:
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            if depth == 0:
+                break  # Reached the closing paren of the top-level call.
+            depth -= 1
+        elif ch == "," and depth == 0:
+            top_level_commas += 1
+    return top_level_commas + 1
+
+
 def unify_condition(
     condition: Any,
     fact: Fact,
@@ -114,6 +149,13 @@ def unify_condition(
     bindings = dict(initial_bindings or {})
     pattern = condition if isinstance(condition, str) else str(condition)
     fact_str = str(fact)
+
+    # Structural arity check: compare the parsed argument count from the
+    # condition pattern against the actual Fact.arguments list.  This uses
+    # only structured data (Fact.arguments) and a one-time pattern walk, so
+    # it is immune to commas inside argument values or nested calls.
+    if _count_pattern_arity(pattern) != len(fact.arguments):
+        return None
 
     # Build the anchored regex once (variables already bound are inlined as
     # literals). See ``_build_condition_regex`` for the segment handling.
@@ -201,6 +243,12 @@ class AlphaNode(ReteNode):
         # and every incoming fact reuses this compiled matcher instead of
         # rebuilding it (avoids repeated regex construction overhead).
         pattern = condition if isinstance(condition, str) else str(condition)
+        # Parse the expected argument count once from the pattern so that
+        # _matches() can reject arity-mismatched facts before running the
+        # compiled regex.  This uses structural pattern information (a
+        # paren-depth walk), not fact string rendering, so it is immune to
+        # commas inside argument values.
+        self._condition_arity: int = _count_pattern_arity(pattern)
         self._compiled: Optional[re.Pattern] = None
         try:
             self._compiled = re.compile(_build_condition_regex(pattern))
@@ -236,6 +284,12 @@ class AlphaNode(ReteNode):
         matches, otherwise ``None``. An empty dict signals a match with no
         variables (still distinct from ``None``).
         """
+        # Fast structural arity gate: reject before running the regex.
+        # Uses Fact.arguments (structured) vs self._condition_arity (parsed
+        # once at init time from the pattern).  Immune to commas inside
+        # argument values because it never touches the rendered fact string.
+        if len(fact.arguments) != self._condition_arity:
+            return None
         if self._compiled is None:
             # Compilation failed at build time; treat as non-matching.
             return None

@@ -191,6 +191,7 @@ from .graph_exporter import GraphExporter
 from .json_exporter import JSONExporter
 from .lpg_exporter import LPGExporter
 from .methods import (
+    MULTI_FILE_FORMATS,
     export_arango,
     export_arrow,
     export_csv,
@@ -265,6 +266,7 @@ __all__ = [
     "export_arango",
     "generate_report",
     "get_export_method",
+    "MULTI_FILE_FORMATS",
     "list_available_methods",
     # Configuration
     "ExportConfig",

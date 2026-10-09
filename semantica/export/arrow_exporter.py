@@ -213,7 +213,7 @@ class ArrowExporter:
         file_path: Union[str, Path],
         schema: Optional["pa.Schema"] = None,
         **options,
-    ) -> None:
+    ) -> List[Path]:
         """
         Export data to Arrow IPC file(s).
 
@@ -227,6 +227,11 @@ class ArrowExporter:
             file_path: Output file path (base path for dict exports)
             schema: Arrow schema to use (default: auto-select based on data)
             **options: Additional options
+
+        Returns:
+            The files written. A dictionary is written one file per key, so
+            this is how a caller learns which files a multi-file export
+            produced; a list is written to ``file_path``.
 
         Raises:
             ValidationError: If data type is unsupported
@@ -264,6 +269,17 @@ class ArrowExporter:
                 )
                 for key, value in data.items():
                     if isinstance(value, list):
+                        if not value:
+                            # An empty collection has nothing to write and
+                            # _write_arrow refuses it, which aborts the call
+                            # and leaves the remaining collections unwritten.
+                            # export_knowledge_graph() below and
+                            # ParquetExporter's dictionary branch skip it the
+                            # same way.
+                            self.logger.debug(
+                                f"Skipping key '{key}': collection is empty"
+                            )
+                            continue
                         output_path = file_path.parent / f"{file_path.stem}_{key}.arrow"
 
                         # Select schema based on key
@@ -292,6 +308,7 @@ class ArrowExporter:
                     status="completed",
                     message=f"Exported {len(exported_files)} Arrow files",
                 )
+                return exported_files
             elif isinstance(data, list):
                 # Single Arrow file
                 self.progress_tracker.update_tracking(
@@ -305,6 +322,7 @@ class ArrowExporter:
                     status="completed",
                     message=f"Exported Arrow to: {file_path}",
                 )
+                return [file_path]
             else:
                 raise ValidationError(
                     f"Unsupported data type: {type(data)}. "
@@ -515,7 +533,7 @@ class ArrowExporter:
 
     def export_knowledge_graph(
         self, knowledge_graph: Dict[str, Any], base_path: Union[str, Path], **options
-    ) -> None:
+    ) -> List[Path]:
         """
         Export knowledge graph to multiple Arrow IPC files.
 
@@ -534,6 +552,11 @@ class ArrowExporter:
             base_path: Base path for output files (without extension)
             **options: Additional options passed to export methods
 
+        Returns:
+            The files written, in the order they were exported. An empty
+            collection is not written, so a graph with no relationships
+            produces one file rather than two.
+
         Example:
             >>> kg = {
             ...     "entities": [...],
@@ -548,7 +571,7 @@ class ArrowExporter:
             f"Exporting knowledge graph to Arrow files: base_path={base_path}"
         )
 
-        exported_files = []
+        exported_files: List[Path] = []
 
         # Export entities
         entities = knowledge_graph.get("entities", [])
@@ -581,6 +604,8 @@ class ArrowExporter:
             )
         else:
             self.logger.warning("No data found in knowledge graph to export")
+
+        return exported_files
 
     def _dict_to_struct(self, metadata: Dict[str, Any]) -> Dict[str, List]:
         """

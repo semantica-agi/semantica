@@ -13,7 +13,7 @@ SemanticaKnowledgeSource— CrewAI ``BaseKnowledgeSource`` giving crews graph kn
 
 Quick start
 -----------
-    pip install semantica[crewai]
+    pip install "crewai>=0.80.0"  # not a semantica extra — see integrations/crewai/README.md
 
     >>> from integrations.crewai import (
     ...     SemanticaKGTool,

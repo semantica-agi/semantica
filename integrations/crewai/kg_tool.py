@@ -7,7 +7,7 @@ reasoning loop.
 
 Install
 -------
-    pip install semantica[crewai]
+    pip install "crewai>=0.80.0"  # not a semantica extra — see integrations/crewai/README.md
 
 Example
 -------
@@ -367,7 +367,12 @@ class SemanticaKGTool(_BaseTool):  # type: ignore[misc]
     def _extract_relations(self, text: str) -> str:
         """Extract relationships between entities in ``text``."""
         try:
-            raw = self.relation_extractor.extract_relations(text) or []
+            # RelationExtractor.extract_relations() requires the entities to
+            # relate, so run NER first, as _add_from_text() does (#1849).
+            entities = self.ner_extractor.extract_entities(text) or []
+            raw = (
+                self.relation_extractor.extract_relations(text, entities=entities) or []
+            )
             relations = [
                 {
                     "source": self._relation_source(r),

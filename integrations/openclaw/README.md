@@ -134,7 +134,7 @@ You have access to `semantica_kg`. Use it to:
 
 ## Requirements
 
-- Python 3.8+
+- Python 3.10+
 - `pip install semantica` (core)
 - `pip install semantica[openclaw]` (adds `requests` for the REST path)
 - OpenClaw ≥ latest — [openclaw.ai](https://openclaw.ai)

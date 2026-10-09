@@ -6,10 +6,21 @@ enabling users to interact with the framework via terminal commands.
 """
 
 import json
+import contextlib
 import os
 import re
 import sys
 import time
+
+try:  # POSIX advisory locking
+    import fcntl
+except ImportError:  # pragma: no cover - Windows
+    fcntl = None  # type: ignore[assignment]
+
+try:  # Windows advisory locking
+    import msvcrt
+except ImportError:  # pragma: no cover - POSIX
+    msvcrt = None  # type: ignore[assignment]
 
 # Reconfigure stdout/stderr to UTF-8 on Windows before any other import
 # captures sys.stdout (Rich, Click). This prevents UnicodeEncodeError from
@@ -22,7 +33,9 @@ if sys.platform == "win32":
 
 from dataclasses import asdict, dataclass, field, is_dataclass
 from pathlib import Path, PurePosixPath, PureWindowsPath
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional, Sequence, Tuple
+from types import SimpleNamespace
+from typing import (TYPE_CHECKING, Any, Callable, Dict, Iterator, List,
+                    Optional, Sequence, Tuple)
 
 import yaml
 
@@ -44,6 +57,25 @@ if TYPE_CHECKING:
     from .core.orchestrator import Semantica
 
 console = Console()
+
+# Supported interpreter range: ``requires-python = ">=3.10,<3.14"`` in
+# pyproject.toml. tests/test_python_support_policy.py fails if the two drift.
+MIN_PYTHON = (3, 10)
+MAX_PYTHON_EXCLUSIVE = (3, 14)
+
+
+def _python_version_check(version: Sequence[int]) -> Tuple[str, Optional[str]]:
+    """Return ``(status, hint)`` for an interpreter ``(major, minor, ...)``."""
+    supported = (
+        f"{MIN_PYTHON[0]}.{MIN_PYTHON[1]}"
+        f"-{MAX_PYTHON_EXCLUSIVE[0]}.{MAX_PYTHON_EXCLUSIVE[1] - 1}"
+    )
+    major_minor = (version[0], version[1])
+    if major_minor < MIN_PYTHON:
+        return "fail", f"upgrade to Python {supported}"
+    if major_minor >= MAX_PYTHON_EXCLUSIVE:
+        return "warn", f"Python {supported} is supported; newer versions are untested"
+    return "ok", None
 
 # ─── Visual style constants ───────────────────────────────────────────────────
 _BRAND    = "bold blue"
@@ -173,6 +205,24 @@ def _load_config_data(file_path: Path) -> Dict[str, Any]:
     return config_data
 
 
+def default_config_path() -> Path:
+    """The config file `semantica init` writes, loaded when --config is absent."""
+    return Path.home() / ".semantica" / "config.yaml"
+
+
+def _resolve_config_path(config_path: Optional[str]) -> Optional[str]:
+    """Return the config file to load: --config, else init's file if it exists.
+
+    Without this, `semantica init` wrote ``~/.semantica/config.yaml`` and nothing
+    ever read it — so accepting its defaults still left every command using the
+    built-in fallback rather than the backend the user had just chosen (#1481).
+    """
+    if config_path:
+        return config_path
+    default = default_config_path()
+    return str(default) if default.is_file() else None
+
+
 def _build_runtime_config(
     config_path: Optional[str],
     log_level: Optional[str],
@@ -180,8 +230,9 @@ def _build_runtime_config(
     """Resolve CLI config from file plus global flag overrides."""
     config_manager = ConfigManager()
 
-    if config_path:
-        config_data = _load_config_data(Path(config_path))
+    resolved_path = _resolve_config_path(config_path)
+    if resolved_path:
+        config_data = _load_config_data(Path(resolved_path))
     else:
         config_data = {}
 
@@ -390,7 +441,7 @@ def _run_build_command(
             allow_file_fallback=False,
         )
         command_ctx = CLIContext(
-            config_path=command_config_path,
+            config_path=_resolve_config_path(command_config_path),
             config=cmd_config,
             log_level=cli_ctx.log_level,
             log_level_override=cli_ctx.log_level_override,
@@ -497,9 +548,7 @@ def _show_startup(cli_ctx: CLIContext) -> None:
     if cli_ctx.quiet or cli_ctx.json_output:
         return
     cfg = cli_ctx.config.to_dict()
-    graph_store = (
-        cli_ctx.store_backend or cfg.get("graph_db", {}).get("backend", "neo4j")
-    )
+    graph_store = _resolve_graph_backend(cli_ctx)
     vector_store = (
         cli_ctx.vector_store_backend
         or cfg.get("vector_store", {}).get("backend", "faiss")
@@ -608,7 +657,7 @@ def main(
             global console  # noqa: PLW0603
             console = Console(no_color=True)
         ctx.obj = CLIContext(
-            config_path=config_path,
+            config_path=_resolve_config_path(config_path),
             config=config,
             log_level=effective_log_level,
             log_level_override=log_level.upper() if log_level else None,
@@ -869,9 +918,9 @@ def doctor(cli_ctx: CLIContext, local_json: bool, deep_embeddings: bool) -> None
 
         # Python version
         pv = sys.version_info
-        checks.append(("Python", "ok" if pv >= (3, 8) else "fail",
-                        f"{pv.major}.{pv.minor}.{pv.micro}",
-                        "upgrade to Python 3.8+" if pv < (3, 8) else None))
+        py_status, py_hint = _python_version_check(pv)
+        checks.append(("Python", py_status,
+                        f"{pv.major}.{pv.minor}.{pv.micro}", py_hint))
 
         # Semantica version
         checks.append(("semantica", "ok", __version__, None))
@@ -883,8 +932,14 @@ def doctor(cli_ctx: CLIContext, local_json: bool, deep_embeddings: bool) -> None
 
         # Graph store reachability
         def _graph() -> str:
-            cfg = cli_ctx.config.to_dict()
-            backend = cli_ctx.store_backend or cfg.get("graph_db", {}).get("backend", "neo4j")
+            backend = _resolve_graph_backend(cli_ctx)
+            if backend == MEMORY_GRAPH_BACKEND:
+                # No server to reach; prove the graph file is readable instead,
+                # which is the only way this backend can actually fail.
+                # Keep this short: the Note column truncates at 80 columns.
+                graph = _load_context_graph(cli_ctx)
+                count = len(graph.get_nodes_by_label("decision"))
+                return f"memory, {count} decision(s)"
             gs = _get_graph_store(cli_ctx)
             gs.ping() if hasattr(gs, "ping") else gs.connect()
             return f"{backend} reachable"
@@ -1204,13 +1259,241 @@ def build_alias(
 # ─── Graph store helper ──────────────────────────────────────────────────────
 
 
+MEMORY_GRAPH_BACKEND = "memory"
+_NO_RATIONALE = "(no rationale provided)"
+_LOCK_TIMEOUT_SECONDS = 10.0
+# `semantica init` offers memory as its default and ContextGraph serves it
+# without any server, so it is also the fallback when nothing is configured.
+_DEFAULT_GRAPH_BACKEND = MEMORY_GRAPH_BACKEND
+
+
+def _resolve_graph_backend(cli_ctx: CLIContext) -> str:
+    """Return the graph backend this invocation will actually use.
+
+    Single source of truth for the three places that used to resolve this
+    independently (status, ``doctor`` and ``_get_graph_store``) with two
+    different defaults — the inconsistency behind #1481.
+    """
+    graph_db = cli_ctx.config.to_dict().get("graph_db", {})
+    return cli_ctx.store_backend or graph_db.get(
+        "backend", _DEFAULT_GRAPH_BACKEND
+    )
+
+
+def _uses_memory_graph(cli_ctx: CLIContext) -> bool:
+    """True when decisions and exports are served by an in-process ContextGraph.
+
+    ``GraphStore`` has no ``memory`` backend — it supports neo4j, falkordb,
+    age and neptune — so ``memory`` is served by ``ContextGraph``, which
+    already works in memory and is what the Python quickstart uses.
+    """
+    return _resolve_graph_backend(cli_ctx) == MEMORY_GRAPH_BACKEND
+
+
+def _memory_graph_path(cli_ctx: CLIContext) -> Path:
+    """Where the memory backend's graph is persisted between invocations.
+
+    The CLI is one process per command, so an in-memory graph that is never
+    written back would make ``decision record`` pointless. Defaults to
+    ``~/.semantica/context_graph.json`` (beside ``config.yaml``); override with
+    ``graph_db.path`` in the config.
+    """
+    configured = cli_ctx.config.to_dict().get("graph_db", {}).get("path")
+    if configured:
+        return Path(configured).expanduser()
+    return Path.home() / ".semantica" / "context_graph.json"
+
+
+def _load_context_graph(cli_ctx: CLIContext) -> Any:
+    """Return the persisted ContextGraph, or an empty one if none exists yet."""
+    from .context import ContextGraph
+
+    graph = ContextGraph()
+    path = _memory_graph_path(cli_ctx)
+    if path.exists():
+        try:
+            graph.load_from_file(path)
+        except Exception as exc:
+            raise click.ClickException(
+                f"Could not read the graph at {path}: {exc}"
+            ) from exc
+    return graph
+
+
+def _save_context_graph(cli_ctx: CLIContext, graph: Any) -> None:
+    """Persist the ContextGraph so the next command sees this one's writes."""
+    path = _memory_graph_path(cli_ctx)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    graph.save_to_file(path)
+
+
+def _try_lock_exclusive(fd: int) -> bool:
+    """Take an exclusive advisory lock on ``fd`` without blocking."""
+    if fcntl is not None:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            return True
+        except OSError:
+            return False
+    if msvcrt is not None:  # pragma: no cover - Windows only
+        try:
+            os.lseek(fd, 0, os.SEEK_SET)
+            msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
+            return True
+        except OSError:
+            return False
+    # No locking primitive available: proceed rather than refuse to record.
+    return True
+
+
+def _unlock(fd: int) -> None:
+    """Release the advisory lock held on ``fd``."""
+    if fcntl is not None:
+        fcntl.flock(fd, fcntl.LOCK_UN)
+    elif msvcrt is not None:  # pragma: no cover - Windows only
+        os.lseek(fd, 0, os.SEEK_SET)
+        msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
+
+
+@contextlib.contextmanager
+def _memory_graph_lock(cli_ctx: CLIContext) -> Iterator[None]:
+    """Serialise read-modify-write of the memory graph across CLI processes.
+
+    ``decision record`` loads the whole graph, adds a node and writes it back.
+    Two invocations that load before either saves would silently lose the
+    earlier decision — ``save_to_file`` replaces the file atomically, so the
+    write is never torn, but the lost update is invisible.
+
+    Uses an OS advisory lock (``flock``, or ``msvcrt.locking`` on Windows) on a
+    sidecar ``.lock`` file. The kernel releases it when the holder exits, so
+    there is no staleness timeout to guess at and a crashed writer cannot wedge
+    the CLI. Deliberately never unlinks the file: removing it would let a
+    second process create a fresh inode and lock that instead, re-introducing
+    the double-entry this prevents — which is exactly what an mtime-based
+    "reclaim an old lock" rule does to a writer that is merely slow or
+    suspended.
+    """
+    lock_path = _memory_graph_path(cli_ctx).with_suffix(".lock")
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    fd = os.open(str(lock_path), os.O_CREAT | os.O_RDWR, 0o600)
+    deadline = time.monotonic() + _LOCK_TIMEOUT_SECONDS
+    try:
+        while not _try_lock_exclusive(fd):
+            if time.monotonic() >= deadline:
+                raise click.ClickException(
+                    f"Timed out waiting for another semantica command to finish "
+                    f"writing {_memory_graph_path(cli_ctx)}."
+                )
+            time.sleep(0.05)
+        try:
+            yield
+        finally:
+            _unlock(fd)
+    finally:
+        os.close(fd)
+
+
+def _decision_from_node(node: Dict[str, Any]) -> Dict[str, Any]:
+    """Normalise a ContextGraph decision node to the CLI's decision shape.
+
+    Mirrors the fields the ``GraphStore`` path reads off a ``Decision``
+    (``decision_id``, ``scenario``, ``category``, ``outcome``, ``confidence``)
+    so both backends print identically.
+    """
+    meta = node.get("metadata", {}) or {}
+    # Carry every stored field, not just the ones the tables print:
+    # check_decision_rules() indexes decision["reasoning"] and reads
+    # decision_maker, valid_from/valid_until and nested metadata.
+    decision = {
+        "id": node.get("id", ""),
+        "decision_id": node.get("id", ""),
+        "scenario": meta.get("scenario", node.get("content", "")),
+        "category": meta.get("category", ""),
+        "outcome": meta.get("outcome", ""),
+        "confidence": meta.get("confidence", 0.0),
+        "timestamp": meta.get("timestamp", 0.0),
+        "recorded_at": meta.get("recorded_at", ""),
+        "reasoning": meta.get("reasoning", ""),
+        "decision_maker": meta.get("decision_maker") or "",
+    }
+    for key in ("valid_from", "valid_until", "metadata"):
+        if key in meta:
+            decision[key] = meta[key]
+    return decision
+
+
+def _memory_decisions(cli_ctx: CLIContext, limit: Optional[int] = None) -> List[Dict[str, Any]]:
+    """Decisions from the memory backend, newest first."""
+    graph = _load_context_graph(cli_ctx)
+    decisions = [
+        _decision_from_node(n) for n in graph.get_nodes_by_label("decision")
+    ]
+    decisions.sort(key=lambda d: d.get("timestamp") or 0.0, reverse=True)
+    return decisions[:limit] if limit is not None else decisions
+
+
+def _memory_decision_records(
+    cli_ctx: CLIContext,
+    limit: Optional[int] = None,
+    since_ts: Optional[float] = None,
+) -> List[SimpleNamespace]:
+    """Memory-backend decisions as records with a ``Decision``-shaped surface.
+
+    The commands read ``.decision_id`` / ``.scenario`` / ``.category`` /
+    ``.outcome`` / ``.confidence`` off whatever the store returns, so matching
+    that surface lets both backends share one formatting path.
+    """
+    rows = [
+        d for d in _memory_decisions(cli_ctx)
+        if since_ts is None or (d.get("timestamp") or 0.0) >= since_ts
+    ]
+    if limit is not None:
+        rows = rows[:limit]
+    return [
+        SimpleNamespace(
+            decision_id=d["id"], scenario=d["scenario"], category=d["category"],
+            outcome=d["outcome"], confidence=d["confidence"],
+        )
+        for d in rows
+    ]
+
+
 def _get_graph_store(cli_ctx: CLIContext) -> Any:
     """Return a GraphStore instance wired from the current CLIContext config."""
     from .graph_store import GraphStore
     cfg = cli_ctx.config.to_dict()
     graph_db = dict(cfg.get("graph_db", {}))
-    backend = cli_ctx.store_backend or graph_db.pop("backend", "neo4j")
+    graph_db.pop("path", None)
+    # Pop unconditionally: `store_backend or graph_db.pop(...)` short-circuits,
+    # so an override left the configured backend in the kwargs and GraphStore
+    # received it twice.
+    configured = graph_db.pop("backend", None)
+    backend = cli_ctx.store_backend or configured or _DEFAULT_GRAPH_BACKEND
+    if backend == MEMORY_GRAPH_BACKEND:
+        # Reached only if a new caller forgets to route memory through
+        # ContextGraph; GraphStore would raise "Unknown backend: memory".
+        raise click.ClickException(
+            "The 'memory' backend is served by ContextGraph, not GraphStore — "
+            "this command has not been wired for it yet. Use --store neo4j "
+            "(or falkordb/age/neptune) for a real graph database."
+        )
     return GraphStore(backend=backend, **graph_db)
+
+
+def _load_policy_rules(path: str) -> Dict[str, Any]:
+    """Load a decision policy rules file as a mapping.
+
+    Distinct from ``_load_rule_definitions()``, which loads reasoning rules as a
+    list of strings. ``ContextGraph.check_decision_rules()`` takes a mapping of
+    policy constraints, so anything else is a usage error worth naming.
+    """
+    data = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
+    if not isinstance(data, dict):
+        raise click.ClickException(
+            f"Policy rules file '{path}' must be a YAML mapping of rules; "
+            f"got {type(data).__name__}."
+        )
+    return data
 
 
 def _load_rule_definitions(path: str) -> List[str]:
@@ -2223,29 +2506,56 @@ def extract(
             if model:
                 extractor_config["llm_model"] = model
 
-            def _run_extraction() -> Any:
-                if mode == "triplets":
+            def _run_single(
+                target: str,
+                *,
+                entities: Optional[List[Any]] = None,
+                relations: Optional[List[Any]] = None,
+            ) -> Any:
+                if target == "triplets":
                     extractor = TripletExtractor(
                         method=method, include_temporal=temporal, **extractor_config
                     )
-                    return extractor.extract(text)
-                elif mode == "relations":
-                    ner = NERExtractor(method=method, **extractor_config)
-                    entities = ner.extract(text)
+                    return extractor.extract(text, entities=entities, relations=relations)
+                if target == "relations":
+                    if entities is None:
+                        ner = NERExtractor(method=method, **extractor_config)
+                        entities = ner.extract(text)
                     extractor = RelationExtractor(
                         method=method, confidence_threshold=confidence, **extractor_config
                     )
                     return extractor.extract(text, entities=entities)
-                elif mode == "ner":
+                if target == "ner":
                     extractor = NERExtractor(method=method, **extractor_config)
                     return extractor.extract(text)
-                elif mode == "events":
+                if target == "events":
                     extractor = EventDetector(method=method, **extractor_config)
                     return extractor.extract(text)
-                else:
-                    raise click.ClickException(
-                        f"Extraction mode '{mode}' is not yet wired to a runtime extractor."
+                raise click.ClickException(
+                    f"Extraction mode '{target}' is not yet wired to a runtime extractor."
+                )
+
+            def _run_extraction() -> Any:
+                # 'all' is the default, so it must not be the one value that
+                # raises. Run every mode that has a runtime extractor and nest
+                # each result under its own key (#1789).
+                if mode == "all":
+                    # Reuse each stage's output instead of recomputing it: the
+                    # triplet stage would otherwise run its own NER + relation
+                    # pass on top of the ones already run here, tripling the
+                    # inference cost of the default command.
+                    entities = _run_single("ner")
+                    relations = _run_single("relations", entities=entities)
+                    triplets = _run_single(
+                        "triplets", entities=entities, relations=relations
                     )
+                    return {
+                        "ner": entities,
+                        "relations": relations,
+                        "triplets": triplets,
+                        "events": _run_single("events"),
+                    }
+                return _run_single(mode)
 
             if cli_ctx.quiet or cli_ctx.json_output:
                 result = _run_extraction()
@@ -3060,7 +3370,6 @@ def decision_record(cli_ctx: CLIContext, title: str, tags: Optional[str],
             return
         try:
             from .context.decision_methods import record_decision
-            graph_store = _get_graph_store(cli_ctx)
             cross_ctx: Dict[str, Any] = {"tags": tag_list}
             if valid_from:
                 cross_ctx["valid_from"] = valid_from
@@ -3069,15 +3378,42 @@ def decision_record(cli_ctx: CLIContext, title: str, tags: Optional[str],
             # Map CLI flags to API: title→scenario, rationale→reasoning,
             # first tag (if any)→category, outcome and confidence use defaults.
             category = tag_list[0] if tag_list else "general"
-            result = record_decision(
-                graph_store,
-                category=category,
-                scenario=title,
-                reasoning=rationale or "",
-                outcome="recorded",
-                confidence=1.0,
-                cross_system_context=cross_ctx,
-            )
+            # --rationale is optional, but ContextGraph rejects empty reasoning.
+            # Normalise once so both backends store the same thing rather than
+            # one storing "" and the other refusing the command.
+            reasoning = rationale or _NO_RATIONALE
+            if _uses_memory_graph(cli_ctx):
+                with _memory_graph_lock(cli_ctx):
+                    graph = _load_context_graph(cli_ctx)
+                    result = graph.record_decision(
+                        category=category,
+                        scenario=title,
+                        reasoning=reasoning,
+                        outcome="recorded",
+                        confidence=1.0,
+                        # ContextGraph tracks node validity itself, so pass the
+                        # dates as validity rather than leaving them in
+                        # metadata, where they would not bound the node.
+                        # They are kept out of the metadata as well, since the
+                        # graph ignores metadata keys that name node fields.
+                        metadata={
+                            k: v for k, v in cross_ctx.items()
+                            if k not in ("valid_from", "valid_until")
+                        },
+                        valid_from=valid_from,
+                        valid_until=valid_until,
+                    )
+                    _save_context_graph(cli_ctx, graph)
+            else:
+                result = record_decision(
+                    _get_graph_store(cli_ctx),
+                    category=category,
+                    scenario=title,
+                    reasoning=reasoning,
+                    outcome="recorded",
+                    confidence=1.0,
+                    cross_system_context=cross_ctx,
+                )
         except ImportError as exc:
             raise click.ClickException(f"Context module not available: {exc}") from exc
         if _is_json(cli_ctx, local_json):
@@ -3099,13 +3435,16 @@ def decision_list(cli_ctx: CLIContext, limit: int, fmt: str, local_json: bool) -
 
     def _action() -> None:
         try:
-            from .context.decision_query import DecisionQuery
-            dq = DecisionQuery(_get_graph_store(cli_ctx))
-            results_raw = dq.find_by_time_range(
-                __import__("datetime").datetime.min,
-                __import__("datetime").datetime.now(),
-                limit=limit,
-            )
+            if _uses_memory_graph(cli_ctx):
+                results_raw = _memory_decision_records(cli_ctx, limit=limit)
+            else:
+                from .context.decision_query import DecisionQuery
+                dq = DecisionQuery(_get_graph_store(cli_ctx))
+                results_raw = dq.find_by_time_range(
+                    __import__("datetime").datetime.min,
+                    __import__("datetime").datetime.now(),
+                    limit=limit,
+                )
             results = [
                 {"id": d.decision_id, "title": d.scenario, "tags": [d.category]}
                 for d in (results_raw or [])
@@ -3128,6 +3467,24 @@ def decision_list(cli_ctx: CLIContext, limit: int, fmt: str, local_json: bool) -
     _run_with_error_handling(_action)
 
 
+def _tag_filter_value(filter_str: str) -> str:
+    """Return the value part of a ``tag:<value>`` decision filter, lowercased.
+
+    ``str.lstrip("tag:")`` strips any leading ``t``, ``a``, ``g`` or ``:``
+    *characters*, not the prefix: ``tag:auth`` became ``uth`` and ``tag:git``
+    became ``it``, so the filter silently matched the wrong text. Anything
+    without the prefix is passed through unchanged. An empty value is rejected,
+    since ``"" in category`` is true for every decision.
+    """
+    value = filter_str.removeprefix("tag:").lower()
+    if not value:
+        raise click.BadParameter(
+            "tag: filter requires a non-empty value, e.g. tag:finance",
+            param_hint="'--filter'",
+        )
+    return value
+
+
 @decision.command("query")
 @click.option("--filter", "filter_str", default=None, help="e.g. tag:finance")
 @click.option("--since", default=None, help="ISO 8601 date.")
@@ -3140,18 +3497,24 @@ def decision_query(cli_ctx: CLIContext, filter_str: Optional[str],
     cli_ctx = _require_ctx(cli_ctx)
 
     def _action() -> None:
+        tag_value = _tag_filter_value(filter_str) if filter_str is not None else None
         try:
-            from .context.decision_query import DecisionQuery
             import datetime as _dt
-            dq = DecisionQuery(_get_graph_store(cli_ctx))
             since_dt = _dt.datetime.fromisoformat(since) if since else _dt.datetime.min
-            raw = dq.find_by_time_range(since_dt, _dt.datetime.now(), limit=500)
+            if _uses_memory_graph(cli_ctx):
+                raw = _memory_decision_records(
+                    cli_ctx, limit=500,
+                    since_ts=since_dt.timestamp() if since else None,
+                )
+            else:
+                from .context.decision_query import DecisionQuery
+                dq = DecisionQuery(_get_graph_store(cli_ctx))
+                raw = dq.find_by_time_range(since_dt, _dt.datetime.now(), limit=500)
             results: List[Dict[str, Any]] = [
                 {"id": d.decision_id, "category": d.category, "scenario": d.scenario,
                  "outcome": d.outcome, "confidence": d.confidence}
                 for d in (raw or [])
-                if filter_str is None
-                or filter_str.lstrip("tag:").lower() in d.category.lower()
+                if tag_value is None or tag_value in d.category.lower()
             ]
         except ImportError as exc:
             raise click.ClickException(f"Context module not available: {exc}") from exc
@@ -3180,8 +3543,11 @@ def decision_trace(cli_ctx: CLIContext, decision_id: str, fmt: str, local_json: 
 
     def _action() -> None:
         try:
-            from .context.decision_methods import get_causal_chain
-            chain_raw = get_causal_chain(_get_graph_store(cli_ctx), decision_id)
+            if _uses_memory_graph(cli_ctx):
+                chain_raw = _load_context_graph(cli_ctx).get_causal_chain(decision_id)
+            else:
+                from .context.decision_methods import get_causal_chain
+                chain_raw = get_causal_chain(_get_graph_store(cli_ctx), decision_id)
             chain: Any = [
                 {"id": d.decision_id, "scenario": d.scenario, "outcome": d.outcome}
                 for d in chain_raw
@@ -3208,7 +3574,14 @@ def decision_similar(cli_ctx: CLIContext, decision_id: str, top_k: int, local_js
     def _action() -> None:
         try:
             from .context.decision_methods import find_precedents
-            raw = find_precedents(_get_graph_store(cli_ctx), decision_id, limit=top_k)
+            if _uses_memory_graph(cli_ctx):
+                raw = _load_context_graph(cli_ctx).find_precedents(
+                    decision_id, limit=top_k
+                )
+            else:
+                raw = find_precedents(
+                    _get_graph_store(cli_ctx), decision_id, limit=top_k
+                )
             results: List[Dict[str, Any]] = [
                 {"id": d.decision_id, "scenario": d.scenario, "category": d.category,
                  "confidence": d.confidence}
@@ -3235,7 +3608,14 @@ def decision_impact(cli_ctx: CLIContext, decision_id: str, local_json: bool) -> 
     def _action() -> None:
         try:
             from .context.decision_methods import analyze_decision_impact
-            result = analyze_decision_impact(_get_graph_store(cli_ctx), decision_id)
+            if _uses_memory_graph(cli_ctx):
+                result = _load_context_graph(cli_ctx).analyze_decision_impact(
+                    decision_id
+                )
+            else:
+                result = analyze_decision_impact(
+                    _get_graph_store(cli_ctx), decision_id
+                )
         except ImportError as exc:
             raise click.ClickException(f"Context module not available: {exc}") from exc
         if _is_json(cli_ctx, local_json):
@@ -3259,13 +3639,29 @@ def decision_check(cli_ctx: CLIContext, decision_id: str, rules: Optional[str],
 
     def _action() -> None:
         try:
-            from .context.decision_methods import check_decision_compliance
-            # The API expects a policy_id string; derive it from the rules file stem
-            # if provided, otherwise use the decision ID itself as the policy key.
-            policy_id = Path(rules).stem if rules else decision_id
-            result = check_decision_compliance(
-                _get_graph_store(cli_ctx), decision_id, policy_id
-            )
+            if _uses_memory_graph(cli_ctx):
+                graph = _load_context_graph(cli_ctx)
+                decision = next(
+                    (d for d in _memory_decisions(cli_ctx) if d["id"] == decision_id),
+                    None,
+                )
+                if decision is None:
+                    raise click.ClickException(
+                        f"No decision {decision_id!r} in "
+                        f"{_memory_graph_path(cli_ctx)}. Run 'semantica decision "
+                        f"list' to see what is recorded."
+                    )
+                result = graph.check_decision_rules(
+                    decision, rules=_load_policy_rules(rules) if rules else None
+                )
+            else:
+                from .context.decision_methods import check_decision_compliance
+                # The API expects a policy_id string; derive it from the rules file
+                # stem if provided, otherwise use the decision ID as the policy key.
+                policy_id = Path(rules).stem if rules else decision_id
+                result = check_decision_compliance(
+                    _get_graph_store(cli_ctx), decision_id, policy_id
+                )
         except ImportError as exc:
             raise click.ClickException(f"Context module not available: {exc}") from exc
         if _is_json(cli_ctx, local_json):
@@ -4052,11 +4448,33 @@ def ontology_version(cli_ctx: CLIContext, local_json: bool) -> None:
 # ─── Data Out ─────────────────────────────────────────────────────────────────
 
 
+# Formats this command can build out of a graph-store dump. Three are left out
+# because a dump of entities and relationships cannot feed them: OWL and SHACL
+# are serialized from an ontology (`semantica ontology shacl` generates the
+# shapes), and the distance matrix is computed from an Explorer session graph
+# (POST /api/export/distance-enriched). Offering them advertised a failure, and
+# offering OWL would advertise a document with no classes in it.
 _EXPORT_FORMATS = [
     "turtle", "jsonld", "ntriples", "rdfxml",
     "parquet", "arrow", "csv", "json", "yaml",
-    "graphml", "owl", "shacl", "arangodb", "distance-enriched",
+    "graphml", "arangodb",
 ]
+
+
+def _multi_file_destination_error(
+    format_name: str, compress: bool
+) -> click.ClickException:
+    """The error for asking a multi-file format for a single destination."""
+    if compress:
+        return click.ClickException(
+            f"--format {format_name} writes one file per collection, so "
+            f"--compress has no single file to compress; use --output and leave "
+            f"--compress off."
+        )
+    return click.ClickException(
+        f"--format {format_name} writes one file per collection, so stdout "
+        f"cannot carry it; pass --output to name where they go."
+    )
 
 
 @main.command()
@@ -4075,13 +4493,19 @@ def export(
     cli_ctx: CLIContext, fmt: str, output: Optional[str], with_provenance: bool,
     filter_str: Optional[str], compress: bool, local_dry: bool, local_json: bool,
 ) -> None:
-    """Export the graph in 14 supported formats.
+    """Export the graph in 11 supported formats.
+
+    \b
+    arrow, csv and parquet write one file per collection, so --output names a
+    base path there and these formats cannot go to stdout.
 
     \b
     Examples:
       semantica export --format turtle --output graph.ttl
-      semantica export --format parquet --with-provenance --output graph.parquet
+      semantica export --format parquet --output graph.parquet
+        writes graph_entities.parquet and graph_relationships.parquet
       semantica export --format csv --filter "type:Person" --output persons.csv
+        writes persons_entities.csv and persons_relationships.csv
     """
     cli_ctx = _require_ctx(cli_ctx)
 
@@ -4093,7 +4517,7 @@ def export(
         try:
             import tempfile
 
-            from .export import get_export_method
+            from .export import MULTI_FILE_FORMATS, get_export_method
             from .graph_store import get_nodes, get_relationships
             from .graph_store.config import graph_store_config
 
@@ -4101,17 +4525,34 @@ def export(
             if fn is None:
                 raise click.ClickException("Export method not available: export/knowledge_graph")
 
-            graph_db = dict(cli_ctx.config.to_dict().get("graph_db", {}))
-            backend = cli_ctx.store_backend or graph_db.pop("backend", None)
-            previous_graph_config = graph_store_config.get_all()
-            graph_store_config.update(graph_db)
-            if backend:
-                graph_store_config.set("default_backend", backend)
-            try:
-                entities = get_nodes(limit=sys.maxsize)
-                relationships = get_relationships(limit=sys.maxsize)
-            finally:
-                graph_store_config.update(previous_graph_config)
+            # Fail before the store is read. These routes write one file per
+            # collection, which is neither one stream nor one compressed file,
+            # and finding that out after a full export wastes the read.
+            if fmt in MULTI_FILE_FORMATS and (compress or not output):
+                raise _multi_file_destination_error(fmt, compress)
+
+            if _uses_memory_graph(cli_ctx):
+                # ContextGraph.to_kg_dict() already returns entities and
+                # relationships in the shape assembled below.
+                kg = _load_context_graph(cli_ctx).to_kg_dict()
+                entities = kg.get("entities", [])
+                relationships = kg.get("relationships", [])
+            else:
+                graph_db = dict(cli_ctx.config.to_dict().get("graph_db", {}))
+                graph_db.pop("path", None)
+                # Pop before choosing, or an override leaves the configured
+                # backend in the mapping pushed into graph_store_config.
+                configured = graph_db.pop("backend", None)
+                backend = cli_ctx.store_backend or configured
+                previous_graph_config = graph_store_config.get_all()
+                graph_store_config.update(graph_db)
+                if backend:
+                    graph_store_config.set("default_backend", backend)
+                try:
+                    entities = get_nodes(limit=sys.maxsize)
+                    relationships = get_relationships(limit=sys.maxsize)
+                finally:
+                    graph_store_config.update(previous_graph_config)
 
             knowledge_graph = {
                 "entities": entities,
@@ -4134,30 +4575,50 @@ def export(
                 temp_handle.close()
                 target_output = temp_output
 
-            fn(knowledge_graph, target_output, **kwargs)
+            written = fn(knowledge_graph, target_output, **kwargs)
         except ImportError as exc:
             raise click.ClickException(f"Export module not available: {exc}") from exc
-        if compress:
-            import gzip
 
-            assert temp_output is not None
-            compressed = gzip.compress(Path(temp_output).read_bytes())
-            if output:
-                Path(output).write_bytes(compressed)
-                _ok(cli_ctx, f"Wrote compressed {output}")
+        # A route that decides its own output names the files it wrote: Arrow
+        # and Parquet write one file per collection, so the path this command
+        # was given is a base name and is never created. Report what is there
+        # rather than the name that was asked for.
+        produced = [Path(p) for p in written] if written else []
+        try:
+            if produced and (compress or not output):
+                # A backstop: a route that starts writing several files is
+                # caught here too, not only the two rejected above.
+                raise _multi_file_destination_error(fmt, compress)
+            if compress:
+                import gzip
+
+                assert temp_output is not None
+                compressed = gzip.compress(Path(temp_output).read_bytes())
+                if output:
+                    Path(output).write_bytes(compressed)
+                    _ok(cli_ctx, f"Wrote compressed {output}")
+                else:
+                    sys.stdout.buffer.write(compressed)
+            elif output:
+                if produced:
+                    _ok(cli_ctx, f"Wrote {', '.join(str(p) for p in produced)}")
+                elif written is None:
+                    _ok(cli_ctx, f"Wrote {output}")
+                else:
+                    _warn(
+                        cli_ctx,
+                        "Nothing written: the store returned no entities or "
+                        "relationships.",
+                    )
             else:
-                sys.stdout.buffer.write(compressed)
-        elif output:
-            _ok(cli_ctx, f"Wrote {output}")
-        else:
-            assert temp_output is not None
-            try:
-                click.echo(Path(temp_output).read_text(encoding="utf-8"))
-            except UnicodeDecodeError:
-                sys.stdout.buffer.write(Path(temp_output).read_bytes())
-
-        if temp_output:
-            Path(temp_output).unlink(missing_ok=True)
+                assert temp_output is not None
+                try:
+                    click.echo(Path(temp_output).read_text(encoding="utf-8"))
+                except UnicodeDecodeError:
+                    sys.stdout.buffer.write(Path(temp_output).read_bytes())
+        finally:
+            if temp_output:
+                Path(temp_output).unlink(missing_ok=True)
 
     _run_with_error_handling(_action)
 
@@ -5318,7 +5779,7 @@ def mcp_start(cli_ctx: CLIContext, transport: str, port: int) -> None:
 
     \b
     Example:
-      semantica mcp start --transport http --port 3000
+      semantica mcp start --transport stdio
     """
     cli_ctx = _require_ctx(cli_ctx)
 
@@ -5326,7 +5787,7 @@ def mcp_start(cli_ctx: CLIContext, transport: str, port: int) -> None:
         import subprocess as sp
         cmd = [sys.executable, "-m", "semantica_mcp.mcp.server"]
         if transport == "http":
-            cmd += ["--port", str(port)]
+            raise click.ClickException("HTTP transport is not supported (stdio only).")
         proc = sp.Popen(cmd)
         _write_pid("mcp", proc.pid)
         _ok(cli_ctx, f"MCP server started (pid {proc.pid})")

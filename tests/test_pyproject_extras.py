@@ -34,3 +34,12 @@ def test_all_bundles_include_parse_pdf():
 def test_all_bundle_extraction_finds_known_extra():
     """Control: the extraction reads the right block (parse-docling is in)."""
     assert "parse-docling" in _extras_in_all_bundles()
+
+
+def test_all_bundles_include_langdetect():
+    """#1807: without langdetect, LanguageDetector reports every text as the
+    default language, so ``semantica[all]`` has to pull it in."""
+    assert "nlp-langdetect" in _extras_in_all_bundles()
+    text = PYPROJECT.read_text(encoding="utf-8")
+    match = re.search(r"^nlp-langdetect = \[\n(.*?)^\]", text, re.MULTILINE | re.DOTALL)
+    assert match and "langdetect" in match.group(1)

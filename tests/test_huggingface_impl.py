@@ -1,57 +1,32 @@
-
 import sys
-import os
 import traceback
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
-print("Starting test script...", flush=True)
+import pytest
 
-# Mock transformers and torch BEFORE any project imports
-try:
-    mock_transformers = MagicMock()
-    mock_pipeline = MagicMock()
-    mock_transformers.pipeline = mock_pipeline
-    sys.modules["transformers"] = mock_transformers
-    sys.modules["torch"] = MagicMock()
-    sys.modules["torch"].cuda.is_available.return_value = False
-    
-    # Mock spacy
-    mock_spacy = MagicMock()
-    sys.modules["spacy"] = mock_spacy
-    
-    # Mock instructor
-    sys.modules["instructor"] = MagicMock()
-    
-    # Also mock semantica.semantic_extract.config to avoid initialization issues
-    mock_config_module = MagicMock()
-    mock_config_instance = MagicMock()
-    # Setup default return values for config
-    mock_config_instance.get.return_value = {}
-    mock_config_instance.get_optimization_config.return_value = {"enable_cache": False}
-    
-    mock_config_module.config = mock_config_instance
-    mock_config_module.Config = MagicMock(return_value=mock_config_instance)
-    sys.modules["semantica.semantic_extract.config"] = mock_config_module
-    
-    print("Mocks setup complete.", flush=True)
-except Exception as e:
-    print(f"Error setting up mocks: {e}", flush=True)
-    sys.exit(1)
+from semantica.semantic_extract.methods import (
+    extract_entities_huggingface,
+    extract_relations_huggingface,
+    extract_triplets_huggingface,
+)
+from semantica.semantic_extract.ner_extractor import Entity
 
-# Add project root
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
-print(f"Added to path: {sys.path[0]}", flush=True)
+# transformers and torch are imported lazily by the HuggingFace model loader, so
+# they are swapped in only while the test runs. Replacing them in sys.modules at
+# import time would leak into every test collected after this module.
+mock_transformers = MagicMock()
+mock_pipeline = MagicMock()
+mock_transformers.pipeline = mock_pipeline
+mock_torch = MagicMock()
+mock_torch.cuda.is_available.return_value = False
+MOCKED_MODULES = {"transformers": mock_transformers, "torch": mock_torch}
 
-try:
-    print("Importing methods...", flush=True)
-    from semantica.semantic_extract.methods import extract_entities_huggingface, extract_relations_huggingface, extract_triplets_huggingface
-    print("Importing Entity class...", flush=True)
-    from semantica.semantic_extract.ner_extractor import Entity
-    print("Imports successful.", flush=True)
-except Exception as e:
-    print(f"Import failed: {e}", flush=True)
-    traceback.print_exc()
-    sys.exit(1)
+
+@pytest.fixture(autouse=True)
+def mocked_hf_modules():
+    with patch.dict(sys.modules, MOCKED_MODULES):
+        yield
+
 
 def test_enhanced_impl():
     print("Testing enhanced implementation...", flush=True)
@@ -171,7 +146,8 @@ def test_enhanced_impl():
 
 if __name__ == "__main__":
     try:
-        test_enhanced_impl()
+        with patch.dict(sys.modules, MOCKED_MODULES):
+            test_enhanced_impl()
         print("\nAll tests passed!", flush=True)
     except Exception as e:
         print(f"\nTest failed: {e}", flush=True)

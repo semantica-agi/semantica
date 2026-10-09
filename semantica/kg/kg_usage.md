@@ -820,7 +820,7 @@ pagerank_scores = centrality_calc.calculate_pagerank(
 )
 
 print("PageRank scores:")
-for node_id, score in sorted(pagerank_scores.items(), key=lambda x: x[1], reverse=True)[:10]:
+for node_id, score in pagerank_scores["rankings"][:10]:
     print(f"  {node_id}: {score:.4f}")
 ```
 
@@ -846,11 +846,11 @@ low_damping = centrality_calc.calculate_pagerank(
 )
 
 print("High damping factor top nodes:")
-for node_id, score in sorted(high_damping.items(), key=lambda x: x[1], reverse=True)[:5]:
+for node_id, score in high_damping["rankings"][:5]:
     print(f"  {node_id}: {score:.4f}")
 
 print("Low damping factor top nodes:")
-for node_id, score in sorted(low_damping.items(), key=lambda x: x[1], reverse=True)[:5]:
+for node_id, score in low_damping["rankings"][:5]:
     print(f"  {node_id}: {score:.4f}")
 ```
 
@@ -893,7 +893,7 @@ pagerank_filtered = centrality_calc.calculate_pagerank(
 )
 
 print("PageRank for People and Organizations:")
-for node_id, score in sorted(pagerank_filtered.items(), key=lambda x: x[1], reverse=True)[:10]:
+for node_id, score in pagerank_filtered["rankings"][:10]:
     print(f"  {node_id}: {score:.4f}")
 ```
 
@@ -1586,7 +1586,7 @@ pagerank_scores = calculate_pagerank(
     max_iterations=100,
     damping_factor=0.85
 )
-print(f"PageRank calculated for {len(pagerank_scores)} nodes")
+print(f"PageRank calculated for {len(pagerank_scores['centrality'])} nodes")
 
 # Label Propagation community detection
 communities = detect_communities_label_propagation(
@@ -1846,7 +1846,7 @@ for ranking in degree_centrality["rankings"][:5]:
 # 6. Calculate PageRank centrality
 pagerank_scores = centrality_calc.calculate_pagerank(kg, max_iterations=100, damping_factor=0.85)
 print("Top 5 nodes by PageRank:")
-for node_id, score in sorted(pagerank_scores.items(), key=lambda x: x[1], reverse=True)[:5]:
+for node_id, score in pagerank_scores["rankings"][:5]:
     print(f"  {node_id}: {score:.4f}")
 
 # 7. Detect traditional communities
@@ -1982,7 +1982,7 @@ from semantica.kg import (
 centrality_calc = CentralityCalculator()
 pagerank_scores = centrality_calc.calculate_pagerank(kg, max_iterations=100)
 
-influential_entities = sorted(pagerank_scores.items(), key=lambda x: x[1], reverse=True)[:10]
+influential_entities = pagerank_scores["rankings"][:10]
 print("Top 10 most influential entities:")
 for entity_id, score in influential_entities:
     print(f"  {entity_id}: {score:.4f}")
@@ -2040,4 +2040,3 @@ for source, target, length in sorted(optimal_paths, key=lambda x: x[2])[:10]:
 ```
 
 This comprehensive guide demonstrates how to use all the graph algorithms in the knowledge graph module, from basic usage to advanced real-world applications. Each algorithm is designed to work with the existing KG infrastructure and can be combined for powerful analytics workflows.
-

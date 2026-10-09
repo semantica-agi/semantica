@@ -7,6 +7,7 @@ import sys
 import os
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
+import json
 import unittest
 from unittest.mock import MagicMock, patch
 from semantica_mcp.mcp.tools.decisions import handle_get_causal_chain
@@ -263,6 +264,71 @@ class TestMCPDecisionsCausalChain(unittest.TestCase):
             },
         )
         self.assertEqual(graph_mock.call_count, 1)
+
+
+class TestCausalChainSerializationWithRealGraph(unittest.TestCase):
+    """The tests above mock the analyzer, whose fake chains are strings. The
+    real CausalChainAnalyzer returns Decision dataclasses, and the tools/call
+    handler json.dumps the tool result, so every non-empty chain failed with
+    "Object of type Decision is not JSON serializable"."""
+
+    def setUp(self):
+        from semantica.context import ContextGraph
+
+        self.graph = ContextGraph(advanced_analytics=False)
+        self.ids = [
+            self.graph.record_decision(
+                category="compliance",
+                scenario=scenario,
+                reasoning="test",
+                outcome="approved",
+                confidence=0.9,
+            )
+            for scenario in ("Adopt HIPAA program", "Require BAA from vendors", "Host on AWS")
+        ]
+        self.graph.add_causal_relationship(self.ids[0], self.ids[1], "CAUSED")
+        self.graph.add_causal_relationship(self.ids[1], self.ids[2], "CAUSED")
+
+    def _tools_call(self, arguments):
+        from semantica_mcp.mcp.server import _handle_tools_call
+
+        with patch("semantica_mcp.mcp.tools.decisions.get_graph", return_value=self.graph):
+            response = _handle_tools_call(1, {"name": "get_causal_chain", "arguments": arguments})
+        self.assertNotIn("error", response)
+        return json.loads(response["result"]["content"][0]["text"])
+
+    def test_upstream_chain_round_trips_through_tools_call(self):
+        payload = self._tools_call({"decision_id": self.ids[2], "direction": "upstream"})
+        self.assertEqual(payload["count"], 2)
+        self.assertEqual(
+            {d["scenario"]: d["metadata"]["causal_distance"] for d in payload["chain"]},
+            {"Adopt HIPAA program": 2, "Require BAA from vendors": 1},
+        )
+
+    def test_downstream_chain_round_trips_through_tools_call(self):
+        payload = self._tools_call({"decision_id": self.ids[0], "direction": "downstream"})
+        self.assertEqual(
+            {d["scenario"]: d["metadata"]["causal_distance"] for d in payload["chain"]},
+            {"Require BAA from vendors": 1, "Host on AWS": 2},
+        )
+
+    def test_non_json_metadata_is_stringified(self):
+        from datetime import datetime
+
+        cause = self.graph.record_decision(
+            category="compliance",
+            scenario="Audit finding",
+            reasoning="test",
+            outcome="approved",
+            confidence=0.9,
+            metadata={"reviewed_at": datetime(2026, 9, 1), "tags": {"hipaa"}},
+        )
+        self.graph.add_causal_relationship(cause, self.ids[0], "CAUSED")
+
+        payload = self._tools_call({"decision_id": self.ids[0], "direction": "upstream"})
+        metadata = next(d["metadata"] for d in payload["chain"] if d["scenario"] == "Audit finding")
+        self.assertEqual(metadata["reviewed_at"], "2026-09-01 00:00:00")
+        self.assertIsInstance(metadata["tags"], str)
 
 
 if __name__ == "__main__":

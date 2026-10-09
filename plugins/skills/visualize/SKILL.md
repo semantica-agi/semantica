@@ -71,7 +71,7 @@ elif centrality_type == "eigenvector":
 elif centrality_type == "pagerank":
     scores = calc.calculate_pagerank(
         graph=graph,
-        max_iterations=20,
+        max_iterations=100,
         damping_factor=0.85,
     )
 ```

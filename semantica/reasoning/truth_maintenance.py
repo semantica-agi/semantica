@@ -15,6 +15,7 @@ from collections.abc import Iterable
 from typing import Dict, FrozenSet, List, Set, Tuple
 
 from ..utils.exceptions import ProcessingError, ValidationError
+from ._truth_maintenance_checkpoint import decode_checkpoint, encode_checkpoint
 from ._truth_maintenance_validation import (
     _RuleSnapshot,
     build_rule_snapshots,
@@ -125,9 +126,7 @@ class _SessionState:
         )
         self.derivations[key] = derivation
         self.derivations_by_rule.setdefault(derivation.rule_id, set()).add(key)
-        self.derivations_by_conclusion.setdefault(
-            derivation.conclusion, set()
-        ).add(key)
+        self.derivations_by_conclusion.setdefault(derivation.conclusion, set()).add(key)
 
     def remove_rule_derivations(self, rule_id: str) -> Set[str]:
         """Drop every derivation of ``rule_id``; return affected conclusions."""
@@ -209,6 +208,61 @@ class TruthMaintenanceSession:
         )
         return FactExplanation(canonical, True, support_ids, tuple(derivations))
 
+    # -- checkpoints ------------------------------------------------------
+
+    def to_checkpoint(self) -> Dict[str, object]:
+        """Return a JSON-compatible, detached v1 checkpoint of this session.
+
+        The payload contains captured rules, the complete support catalog,
+        active support IDs, and the committed version.  It never contains
+        derived facts or internal indexes.  The session state is not read
+        through caller-owned :class:`Rule` objects and no matcher is invoked.
+        """
+        state = self._state
+        return encode_checkpoint(
+            rules=self._rules,
+            support_catalog=state.support_catalog,
+            active_support_ids=state.active_supports,
+            session_version=self._version,
+        )
+
+    @classmethod
+    def from_checkpoint(cls, payload: object) -> TruthMaintenanceSession:
+        """Restore a new session from a fixed v1 checkpoint payload.
+
+        Structural, rule, fact, arity, and closure rebuilding must all
+        succeed before a session is returned.  On failure, neither the input
+        payload nor an existing source session is modified.
+        """
+        try:
+            decoded = decode_checkpoint(payload)
+            session = cls(rules=decoded.rules)
+            canonical_pairs, new_arities = session._validate_assertions(
+                list(decoded.catalog_supports), []
+            )
+
+            candidate = _SessionState()
+            candidate.support_catalog = dict(canonical_pairs)
+            candidate.arities = dict(session._state.arities)
+            candidate.arities.update(new_arities)
+            session._state = candidate
+
+            session.apply(
+                assertions=[
+                    FactSupport(support_id, candidate.support_catalog[support_id])
+                    for support_id in decoded.active_support_ids
+                ]
+            )
+            session._version = decoded.session_version
+            return session
+        except (ValidationError, ProcessingError):
+            raise
+        except Exception as exc:
+            raise ProcessingError(
+                "truth maintenance checkpoint restore failed",
+                validation_context={},
+            ) from exc
+
     # -- batched updates --------------------------------------------------
 
     def apply(
@@ -245,9 +299,7 @@ class TruthMaintenanceSession:
             if rid in self._state.active_supports
         ]
         if not effective_assertions and not effective_retractions:
-            return MaintenanceDelta(
-                self._version, frozenset(), frozenset(), (), ()
-            )
+            return MaintenanceDelta(self._version, frozenset(), frozenset(), (), ())
 
         try:
             candidate = self._state.clone()
@@ -376,9 +428,7 @@ class TruthMaintenanceSession:
             if not body_predicates & affected:
                 continue
             conclusions = candidate.remove_rule_derivations(snapshot.rule_id)
-            for premises, bindings, conclusion in self._match_rule(
-                snapshot, candidate
-            ):
+            for premises, bindings, conclusion in self._match_rule(snapshot, candidate):
                 candidate.add_derivation(
                     Derivation(snapshot.rule_id, conclusion, premises, bindings)
                 )
@@ -440,15 +490,8 @@ class TruthMaintenanceSession:
                 key=lambda item: item.support_id,
             )
         )
-        if not (
-            added_facts
-            or removed_facts
-            or added_supports
-            or removed_supports
-        ):
-            return MaintenanceDelta(
-                self._version, frozenset(), frozenset(), (), ()
-            )
+        if not (added_facts or removed_facts or added_supports or removed_supports):
+            return MaintenanceDelta(self._version, frozenset(), frozenset(), (), ())
         self._state = candidate
         self._version += 1
         return MaintenanceDelta(
@@ -489,9 +532,7 @@ def _match_snapshot(
 
     def recurse(index: int, bindings: Dict[str, str], premises: List[str]) -> None:
         if index == len(conditions):
-            substituted = tuple(
-                bindings.get(term, term) for term in conclusion_terms
-            )
+            substituted = tuple(bindings.get(term, term) for term in conclusion_terms)
             results.append(
                 (
                     tuple(premises),

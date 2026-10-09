@@ -18,3 +18,13 @@ checkpoints, so the vulnerable code path is not reachable. Re-evaluate once
 accelerate ships a fix - see .github/workflows/security-scan.yml for the
 matching pip-audit exclusion.
 """
+
+# ---------------------------------------------------------------------------
+# chromadb / json-repair (previously pulled in transitively by an opt-in
+# `crewai` extra) are no longer resolvable at all: the `crewai` extra was
+# removed from pyproject.toml because crewai hard-pins `chromadb~=1.1.0` and
+# `json-repair~=0.25.2`, both carrying critical advisories with no fixed
+# release on PyPI. uv.lock no longer contains either package, so there is
+# nothing left to ignore here. See integrations/crewai/README.md for how to
+# use the CrewAI integration with a manually installed crewai.
+# ---------------------------------------------------------------------------

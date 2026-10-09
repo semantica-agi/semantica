@@ -9,29 +9,21 @@ RUN npm ci
 COPY explorer/ ./
 RUN mkdir -p /app/semantica && npm run build
 
-# CVE-2026-14456 (OpenSSL QUIC-server DoS, flagged against this base image's
-# openssl/libssl3t64/openssl-provider-legacy): the Debian fix
-# (3.5.7-1~deb13u2) is only in trixie-proposed-updates as of this writing,
-# not yet promoted to trixie-security, so there's no package to pin here
-# today. Deliberately NOT running `apt-get upgrade` to chase it - that
-# breaks build reproducibility (terrascan AC_DOCKER_0052) and still
-# wouldn't reach a proposed-updates-only package. Once Debian ships the fix
-# and rebuilds this tag, the docker Dependabot ecosystem in
-# .github/dependabot.yml opens a PR bumping the digest pin above. Also: this
-# image only serves plain HTTP via uvicorn and never opens a QUIC listener,
-# so the bug isn't reachable here regardless.
+# OpenSSL (openssl, libssl3t64, openssl-provider-legacy) is patched in the
+# runtime stage's --only-upgrade layer below, not by bumping this digest:
+# Debian ships fixes to trixie-security well before the python:3.13-slim tag
+# is rebuilt on top of them.
 #
-# Pinned to 3.13, NOT 3.14: #1290 bumped this to python:3.14-slim and broke
-# the build outright (Container Security Scan, every run since) - gensim
-# (a base, non-extras-gated dependency) ships no cp314 wheel on PyPI yet, so
-# pip falls back to building it from source, which needs a C compiler this
-# slim image doesn't carry ("error: [Errno 2] No such file or directory:
-# 'gcc'"). Revisit the 3.14 bump once gensim (and anything else pulled in
-# transitively) publishes cp314 wheels - check with
-# `pip index versions gensim` / the project's PyPI files page, not just
-# whether `uv pip compile` resolves (resolution only reads sdist metadata,
-# it doesn't attempt the build that fails here).
-FROM python:3.14-slim@sha256:cad9a2c871761c413caa6fdd6441c783451e740a48aaeba60ae62a8b53525ef6 AS runtime
+# Pinned to 3.13, NOT 3.14. The image must stay inside the supported range in
+# pyproject.toml (`requires-python = ">=3.10,<3.14"`, Install Matrix 3.10-3.13)
+# and on the interpreter explorer-extra-py313.txt below was resolved for.
+# Dependabot bumped this to python:3.14-slim in #1290 (which broke the build:
+# no cp314 wheel for gensim, so pip compiled it and the slim image has no gcc)
+# and again in #1547; .github/dependabot.yml now ignores python minor/major
+# bumps for this image. gensim (extras graph-embeddings / split-topic) still
+# ships no cp314 wheel. Raise the ceiling in pyproject.toml, the Install Matrix
+# and this image together once 3.14 is verified, not with a lone image bump.
+FROM python:3.13-slim@sha256:8d9d0b8bcf6506481eae4907c18f5e3e7902e629f5f6d684f9e7c32e85e3ddf0 AS runtime
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -42,15 +34,21 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app
 
 # Debian trixie-security already ships fixed builds for these base-image OS
-# packages (Trivy library/semantica alerts #6151-#6162, all CVE-2026-*):
-# perl-base (7 CVEs across perl core, Storable, Archive::Tar and IO::Compress
-# - all fixed by the same upstream perl source upload), libpcre2-8-0 (2 CVEs),
-# libsqlite3-0 (2 CVEs, FTS5), and gzip (1 CVE, LZH decompression).
+# packages (Trivy library/semantica alerts, all CVE-2026-*):
+# - #6151-#6162: perl-base (7 CVEs across perl core, Storable, Archive::Tar
+#   and IO::Compress - all fixed by the same upstream perl source upload),
+#   libpcre2-8-0 (2 CVEs), libsqlite3-0 (2 CVEs, FTS5), and gzip (1 CVE, LZH
+#   decompression).
+# - #6167-#6172: openssl, libssl3t64 and openssl-provider-legacy (one source
+#   package, fixed in 3.5.7-1~deb13u3) for CVE-2026-84782 (DTLS handshake
+#   retransmission out-of-bounds read) and CVE-2026-75804 (QUIC connection
+#   flow control not enforced). Neither is reachable here - uvicorn serves
+#   plain HTTP/TCP, no DTLS or QUIC - but patching clears the alerts.
 #
-# --only-upgrade scopes this to just the 4 named packages instead of a
-# blanket `apt-get upgrade` (terrascan AC_DOCKER_0052, see the OpenSSL note
-# above), but deliberately WITHOUT a `pkg=version` pin like the setuptools
-# pin below: unlike PyPI, Debian's live mirrors only ever serve the current
+# --only-upgrade scopes this to just the named packages instead of a
+# blanket `apt-get upgrade` (terrascan AC_DOCKER_0052 - that breaks build
+# reproducibility), but deliberately WITHOUT a `pkg=version` pin like the
+# setuptools pin below: unlike PyPI, Debian's live mirrors only ever serve the current
 # point release of a package, not every historical one. A pin to today's
 # fixed version (e.g. perl-base=5.40.1-6+deb13u1) would 404 the day Debian
 # ships deb13u2 and break every build that hits this layer - CI, Cloud
@@ -63,6 +61,9 @@ RUN apt-get update \
         libpcre2-8-0 \
         libsqlite3-0 \
         gzip \
+        openssl \
+        libssl3t64 \
+        openssl-provider-legacy \
     && rm -rf /var/lib/apt/lists/*
 
 RUN groupadd --system semantica \
@@ -94,9 +95,19 @@ COPY --from=frontend-builder /app/semantica/static ./semantica/static
 # build-system.requires; installing it first and passing
 # --no-build-isolation makes pip reuse those hash-verified copies instead
 # of fetching its own.
+#
+# pip itself is uninstalled once it's done: nothing in the running app
+# shells out to it, and it carries its own vendored urllib3 in
+# pip/_vendor that the hash-pinned urllib3==2.8.0 above can't replace.
+# pip 26.2.1 (the latest release, and what the base image ships) vendors
+# urllib3 2.7.0, which Trivy flags for CVE-2026-97689 (unbounded chunk-size
+# buffering) and CVE-2026-97687 (HTTPS proxy TLS settings override) -
+# alerts #6173/#6174. Removing pip clears both, and keeps the next vendored
+# CVE out of the image too, rather than waiting on a pip release.
 RUN pip install --no-cache-dir -r explorer-extra-py313.txt -r pep517-build.txt --require-hashes \
     && pip install --no-cache-dir --no-deps --no-build-isolation . \
     && rm -f explorer-extra-py313.txt pep517-build.txt \
+    && python -m pip uninstall --yes pip \
     && chown -R semantica:semantica /app
 
 USER semantica

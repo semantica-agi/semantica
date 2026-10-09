@@ -23,6 +23,7 @@ License: MIT
 """
 
 import mimetypes
+import warnings
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -35,9 +36,69 @@ from ..utils.constants import (
     SUPPORTED_IMAGE_FORMATS,
     SUPPORTED_VIDEO_FORMATS,
 )
-from ..utils.exceptions import ProcessingError, ValidationError
+from ..utils.exceptions import PartialIngestionWarning, ProcessingError, ValidationError
 from ..utils.logging import get_logger
 from ..utils.progress_tracker import get_progress_tracker
+
+# ---------------------------------------------------------------------------
+# Sensitive-key filter for FileObject.metadata (Hotspot 7)
+# ---------------------------------------------------------------------------
+# Credential-like option keys must never be copied into FileObject.metadata,
+# because metadata is a plain public dict that callers can inspect, serialize,
+# export to graph/CSV/JSON, or pass to downstream processors.
+#
+# Matching is case-insensitive (see _safe_options usage in ingest_file).
+# Exact-name matching is used deliberately — following the explicit convention
+# in semantica/semantic_extract/cache.py: "Exact-match (not substring) so
+# legitimate params such as 'max_tokens' are never dropped."  Substring
+# matching would silently drop innocuous metadata keys.
+#
+# Sources used to determine this set:
+#   - semantica/semantic_extract/cache.py  (LLM API credential keys)
+#   - semantica/ingest/looker_ingestor.py  (_SECRET_FIELD_NAMES)
+#   - semantica/ingest/file_ingestor.py    (CloudStorageIngestor: S3/Azure)
+#   - semantica/ingest/salesforce_ingestor.py (security_token, privatekey, …)
+#   - semantica/ingest/redshift_ingestor.py   (secret_access_key, …)
+#   - semantica/ingest/servicenow_ingestor.py (client_secret, …)
+#   - semantica/server.py / explorer       (X-API-Key HTTP header name)
+_SENSITIVE_METADATA_KEYS: frozenset = frozenset(
+    {
+        # --- LLM / generic API keys (from cache.py baseline) ---
+        "api_key",
+        "apikey",
+        "api_secret",
+        "token",
+        "access_token",
+        "refresh_token",
+        "session_token",
+        "bearer_token",
+        "password",
+        "secret",
+        "client_secret",
+        "private_key",
+        "auth",
+        "authorization",
+        "credential",
+        "credentials",
+        # --- Cloud storage credentials (CloudStorageIngestor: S3 / Azure) ---
+        "secret_access_key",        # boto3 / S3 / Redshift
+        "access_key_id",            # boto3 / S3 / Redshift
+        "connection_string",        # Azure Blob BlobServiceClient
+        # --- Additional credential patterns found in this codebase's ingestors ---
+        "auth_token",               # generic auth-token kwarg
+        "x-api-key",                # HTTP header name (Explorer API)
+        "security_token",           # Salesforce SOAP auth
+        "session_id",               # Salesforce pre-existing session
+        "consumer_key",             # Salesforce JWT Bearer (public app id, but
+                                    # often treated as sensitive in transit)
+        "privatekey",               # Salesforce JWT Bearer PEM string
+        "privatekey_file",          # Salesforce JWT Bearer PEM file path
+        "deploy_secret",            # Looker _SECRET_FIELD_NAMES
+        "device_token",             # Looker _SECRET_FIELD_NAMES
+        "git_password",             # Looker _SECRET_FIELD_NAMES
+        "pdt_password",             # Looker _SECRET_FIELD_NAMES
+    }
+)
 
 
 @dataclass
@@ -473,13 +534,30 @@ class FileIngestor:
         """
         Ingest all files from a directory.
 
+        When ``fail_fast=False`` (the default) and one or more files cannot be
+        processed, the successfully ingested files are still returned and a
+        :class:`~semantica.utils.exceptions.PartialIngestionWarning` is emitted
+        so callers are not silently handed an incomplete result.  Use
+        ``warnings.catch_warnings()`` to capture or suppress it programmatically.
+
+        When ``fail_fast=True``, the first per-file failure raises a
+        :class:`~semantica.utils.exceptions.ProcessingError` immediately.
+
         Args:
             directory_path: Path to directory
-            recursive: Whether to scan subdirectories
-            **filters: File filtering criteria
+            recursive: Whether to scan subdirectories (default: True)
+            **filters: File filtering criteria (see :meth:`scan_directory`)
 
         Returns:
-            list: List of ingested file objects
+            list: List of successfully ingested file objects.  May be a subset
+            of the discovered files if some failed and ``fail_fast=False``.
+
+        Raises:
+            ValidationError: If *directory_path* does not exist or is not a directory.
+            ProcessingError: If a per-file failure occurs and ``fail_fast=True``.
+
+        Warns:
+            PartialIngestionWarning: If any files failed and ``fail_fast=False``.
         """
         directory_path = Path(directory_path)
 
@@ -503,7 +581,11 @@ class FileIngestor:
             files = self.scan_directory(directory_path, recursive=recursive, **filters)
 
             # Process each file
-            file_objects = []
+            file_objects: List[FileObject] = []
+            # Only paths are stored — retaining exception objects would pin
+            # their tracebacks (and all referenced frame locals) for the entire
+            # duration of the directory scan (Finding 2 fix).
+            failed_paths_list: List[str] = []
             total_files = len(files)
 
             self.progress_tracker.update_tracking(
@@ -511,10 +593,28 @@ class FileIngestor:
             )
 
             for idx, file_info in enumerate(files, 1):
-                try:
-                    file_obj = self.ingest_file(file_info["path"], **file_info)
-                    file_objects.append(file_obj)
+                file_path_str = file_info["path"]
 
+                # --- per-file ingestion (inner try) ---
+                # Only ingest_file() is inside this scope.  Post-success
+                # side-effects (progress, callback, logging) are separated so
+                # that a callback or display error cannot mis-classify a
+                # successfully returned FileObject as a failure (Finding 1 fix).
+                try:
+                    file_obj = self.ingest_file(file_path_str, **file_info)
+                except Exception as e:
+                    self.logger.error(f"Failed to ingest file {file_path_str}: {e}")
+                    if self.config.get("fail_fast", False):
+                        raise ProcessingError(f"Failed to ingest file: {e}") from e
+                    failed_paths_list.append(file_path_str)
+                    continue
+
+                # ingest_file() succeeded — record the result first, then run
+                # optional side-effects.  Errors here are logged but do not
+                # count the file as an ingestion failure.
+                file_objects.append(file_obj)
+
+                try:
                     # Track progress with ETA
                     self.progress_tracker.update_progress(
                         tracking_id,
@@ -522,7 +622,7 @@ class FileIngestor:
                         total=total_files,
                         message=(
                             f"Processing file {idx}/{total_files}: "
-                            f"{Path(file_info['path']).name}"
+                            f"{Path(file_path_str).name}"
                         ),
                     )
 
@@ -531,18 +631,41 @@ class FileIngestor:
                         self._progress_callback(idx, total_files, file_obj)
 
                     self.logger.debug(
-                        f"Ingested file {idx}/{total_files}: {file_info['path']}"
+                        f"Ingested file {idx}/{total_files}: {file_path_str}"
                     )
-
-                except Exception as e:
-                    self.logger.error(f"Failed to ingest file {file_info['path']}: {e}")
+                except Exception as side_e:
+                    # The file was successfully ingested and is already in
+                    # file_objects — do NOT add its path to failed_paths_list.
+                    self.logger.error(
+                        f"Post-ingestion side-effect failed for {file_path_str}: {side_e}"
+                    )
                     if self.config.get("fail_fast", False):
-                        raise ProcessingError(f"Failed to ingest file: {e}")
+                        raise ProcessingError(
+                            f"Post-ingestion operation failed for {file_path_str}: {side_e}"
+                        ) from side_e
 
+            # Surface partial failures to the caller via a warning so that
+            # downstream consumers are not silently handed an incomplete result.
+            if failed_paths_list:
+                failed_paths = ", ".join(failed_paths_list)
+                warnings.warn(
+                    f"{len(failed_paths_list)} of {total_files} file(s) could not be "
+                    f"ingested from '{directory_path}' and were skipped. "
+                    f"Successfully ingested: {len(file_objects)}. "
+                    f"Failed paths: {failed_paths}",
+                    PartialIngestionWarning,
+                    stacklevel=2,
+                )
+
+            status_message = (
+                f"Ingested {len(file_objects)}/{total_files} files"
+                if failed_paths_list
+                else f"Ingested {len(file_objects)} files"
+            )
             self.progress_tracker.stop_tracking(
                 tracking_id,
                 status="completed",
-                message=f"Ingested {len(file_objects)} files",
+                message=status_message,
             )
             return file_objects
 
@@ -631,6 +754,19 @@ class FileIngestor:
             # Detect MIME type for additional metadata
             mime_type, _ = mimetypes.guess_type(str(file_path))
 
+            # Strip credential-like keys before they reach FileObject.metadata.
+            # Sensitive kwargs (api_key, token, password, etc.) are accepted by
+            # the public API for forwarding to backends, but must never be copied
+            # into the returned object where they could be serialized, exported,
+            # or observed by downstream consumers.  Matching is case-insensitive
+            # so API_KEY and Authorization are caught as well as their lowercase
+            # forms.  Non-sensitive custom kwargs still reach metadata unchanged.
+            _safe_options = {
+                k: v
+                for k, v in options.items()
+                if k.lower() not in _SENSITIVE_METADATA_KEYS
+            }
+
             # Create and return FileObject with all metadata
             file_obj = FileObject(
                 path=str(file_path.absolute()),
@@ -644,7 +780,7 @@ class FileIngestor:
                     "parent": str(file_path.parent),
                     "is_supported": self.type_detector.is_supported(file_type),
                     "read_content": read_content,
-                    **options,  # Include any additional options as metadata
+                    **_safe_options,  # credential keys already stripped above
                 },
             )
 

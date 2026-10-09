@@ -53,13 +53,15 @@ _SQL_FRAGMENT_BLOCKLIST_RE = re.compile(
     re.IGNORECASE,
 )
 
-# SQL single-quoted string literals (''  is the standard escaped-quote) and
-# double-quoted identifiers (""  likewise) — matched only when properly
-# closed, so a malformed/unterminated quote sequence is left alone and
-# still hits the blocklist above rather than being treated as "inside a
-# literal" and skipped.
+# SQL single-quoted string literals (''  is the standard escaped-quote),
+# double-quoted identifiers (""  likewise), and backtick-quoted identifiers
+# (``  is the backtick escape used by MySQL and Databricks SQL) — matched
+# only when properly closed, so a malformed/unterminated quote sequence is
+# left alone and still hits the blocklist above rather than being treated as
+# "inside a literal" and skipped.
 _SQL_STRING_LITERAL_RE = re.compile(r"'(?:[^']|'')*'")
 _SQL_QUOTED_IDENTIFIER_RE = re.compile(r'"(?:[^"]|"")*"')
+_SQL_BACKTICK_IDENTIFIER_RE = re.compile(r"`(?:[^`]|``)*`")
 
 
 def _mask_sql_literals(fragment: str) -> str:
@@ -67,17 +69,21 @@ def _mask_sql_literals(fragment: str) -> str:
 
     A legitimate value or quoted identifier that happens to contain a
     blocked word or character as *data* — e.g. ``status = 'union'`` or
-    ``"my--column" = 1`` — is not SQL syntax and shouldn't be rejected as
-    if it were. Only the quoted span's interior is replaced (with `?`,
-    keeping the surrounding quotes and the fragment's length/positions
-    intact for the error message); text outside any properly closed quote
-    is passed through unchanged and still fully scrutinized.
+    ``"my--column" = 1`` or the Databricks/MySQL backtick form
+    `` `union` `` — is not SQL syntax and shouldn't be rejected as if it
+    were. Only the quoted span's interior is replaced (with `?`, keeping
+    the surrounding quotes and the fragment's length/positions intact for
+    the error message); text outside any properly closed quote is passed
+    through unchanged and still fully scrutinised.
     """
     fragment = _SQL_STRING_LITERAL_RE.sub(
         lambda m: "'" + "?" * (len(m.group(0)) - 2) + "'", fragment
     )
     fragment = _SQL_QUOTED_IDENTIFIER_RE.sub(
         lambda m: '"' + "?" * (len(m.group(0)) - 2) + '"', fragment
+    )
+    fragment = _SQL_BACKTICK_IDENTIFIER_RE.sub(
+        lambda m: "`" + "?" * (len(m.group(0)) - 2) + "`", fragment
     )
     return fragment
 

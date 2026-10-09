@@ -408,6 +408,9 @@ utf8_text = handle_encoding(raw_bytes, operation="convert")
     currency_norm = CurrencyNormalizer()
     result = currency_norm.normalize_currency("$42.50")
     # → {"amount": 42.50, "currency": "USD", "original": "$42.50"}
+
+    result = currency_norm.normalize_currency("$5M")
+    # → {"amount": 5000000.0, "currency": "USD", "original": "$5M"}
     ```
   </Tab>
   <Tab title="Language & Encoding">

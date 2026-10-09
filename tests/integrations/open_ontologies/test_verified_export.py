@@ -1,11 +1,13 @@
 """Verified RDF export: an independent engine reads the file back.
 
-The case that matters is the first one. Semantica's GraphBuilder defaults an
-entity's id to its surface text, so the documented path emits `<Acme Corp> a
-<ORG>`, and a space is not allowed in an IRI. rdflib parses it anyway by
-resolving against the working directory; Oxigraph refuses it. A pipeline that
-writes a file which parses nowhere has not succeeded, and this is the check
-that says so before anything downstream reads it.
+The first test is the one that matters. RDFExporter now percent-encodes a bare
+entity id into the semantica namespace, so the original `<Acme Corp>` case from
+#1108 no longer reaches the file and the fixture below uses an id that survives
+that normalisation instead. An id that already looks like an absolute IRI is
+written through untouched, so a malformed one still reaches disk, rdflib accepts
+it, and Oxigraph refuses it. A pipeline that writes a file which parses nowhere
+has not succeeded, and this is the check that says so before anything downstream
+reads it.
 
 These tests are also the regression guard for #1108: until #1127, the registry
 caught every exception from a custom method and fell back to the default, so a

@@ -1,15 +1,15 @@
 ---
 title: "LLM Integrations"
-description: "Connect Semantica to Groq, OpenAI, Anthropic, HuggingFace, Novita AI, and 100+ LLM providers through a unified interface."
+description: "Connect Semantica to generative LLM providers and TypeSafe Jev typed decisions."
 ---
 
-Semantica exposes a unified provider interface — the same `.generate()`, `.generate_structured()` and `.generate_typed()` methods — across Groq, OpenAI, Anthropic Claude, HuggingFace, Novita AI, and 100+ providers via LiteLLM. Use it when you need to swap providers for latency, accuracy, cost, or data-residency reasons without touching application code.
+Semantica exposes a unified generation interface — the same `.generate()`, `.generate_structured()` and `.generate_typed()` methods — across Groq, OpenAI, Anthropic Claude, HuggingFace, Novita AI, and 100+ providers via LiteLLM. It also provides a deliberately separate decision-only interface for TypeSafe Jev, whose typed Choice, Noul, and Score results are not text generations.
 
 ## What Are LLM Integrations?
 
-The `semantica.llms` module provides a unified interface for connecting to Large Language Model providers. Instead of learning different APIs for each provider, you use the same methods (`.generate()`, `.generate_structured()`, `.generate_typed()`) regardless of whether you're calling Groq, OpenAI, Anthropic, or local HuggingFace models.
+The `semantica.llms` module provides a unified interface for connecting to Large Language Model providers. Instead of learning different APIs for each generative provider, you use the same methods (`.generate()`, `.generate_structured()`, `.generate_typed()`) regardless of whether you're calling Groq, OpenAI, Anthropic, or local HuggingFace models. TypeSafe Jev is the decision-only exception: it exposes `.decide()` because it returns typed decisions rather than generated text.
 
-**Unified interface across providers:** All LLM providers in Semantica expose identical methods, so switching from OpenAI to Anthropic requires changing only the provider constructor, not your application code.
+**Unified interface across generative providers:** Generative LLM providers in Semantica expose identical methods, so switching from OpenAI to Anthropic requires changing only the provider constructor, not your application code. Jev remains separate so its calibrated probabilities and strict decision types are not flattened into a chat-completion response.
 
 **Provider wrappers vs semantic extraction provider strings:** The `semantica.llms` classes (`Groq`, `OpenAI`, `LiteLLM`, `HuggingFaceLLM`) are Python objects for text generation. The `semantica.semantic_extract` module accepts provider names as strings for entity and relationship extraction. Both approaches are covered in this guide.
 
@@ -51,7 +51,7 @@ The `semantica.llms` module provides a unified interface for connecting to Large
 - Tasks where explainability requires transparent rule-based logic
 
 <Info>
-  The providers in `semantica.llms` (`Groq`, `OpenAI`, `LiteLLM`, `HuggingFaceLLM`) are for text generation and `query_with_reasoning()`. For structured entity and relation extraction, `semantica.semantic_extract` accepts provider names as strings. Both patterns are covered here.
+  Generative providers in `semantica.llms` (`Groq`, `OpenAI`, `LiteLLM`, `HuggingFaceLLM`) are for text generation and `query_with_reasoning()`. `Jev` and `AsyncJev` are decision-only and are not drop-in `llm_provider=` values. For structured entity and relation extraction, `semantica.semantic_extract` accepts provider names as strings.
 </Info>
 
 ## Choosing a Provider
@@ -68,9 +68,9 @@ Four factors drive provider selection, each optimized for different use cases:
 
 The unified interface means you can prototype with Groq for speed, validate accuracy with Claude, and deploy to Azure OpenAI for compliance — without changing application code.
 
-## The Shared Interface
+## The Shared Generation Interface
 
-Every provider exposes the same methods:
+Every generative provider exposes the same methods:
 
 ```python
 provider.generate(prompt: str, **kwargs) -> str
@@ -81,7 +81,103 @@ provider.is_available() -> bool
 
 `generate()` returns a plain string. `generate_structured()` instructs the model to respond in JSON and returns the parsed result — a `dict` for a top-level JSON object, or a `list` if the model returns a top-level JSON array. `generate_typed()` takes a Pydantic model, validates the model's output against it, and retries up to `max_retries` times with the validation error fed back into the prompt — reach for it when downstream code needs a guaranteed shape rather than best-effort JSON. `is_available()` lets you health-check the provider before committing to a call — useful in retry logic and warm-up checks.
 
-This means every place in Semantica that accepts an LLM — `query_with_reasoning()`, semantic extraction, custom reasoning loops — accepts any of these providers interchangeably.
+This means every place in Semantica that accepts a generative LLM — `query_with_reasoning()`, semantic extraction, custom reasoning loops — accepts any of these providers interchangeably. Jev is not part of this interface because it never returns free text.
+
+## Jev — Typed Decisions for Low-Latency Routing
+
+**TypeSafe Jev** is a System One model for typed decisions over application state. Use it for bounded routing, classification, binary checks, or scoring when the valid outcomes are known in advance. Use a chat LLM instead when the task needs an explanation, synthesis, open-ended text, or multi-step reasoning.
+
+<Warning>
+  Jev is an experimental, early-access provider. Pin and test the SDK version used by your deployment, choose confidence thresholds for your domain, and keep a human or reasoning-model escalation path for high-impact decisions.
+</Warning>
+
+<Warning>
+  TypeSafe SDK 0.7 wire logs include complete request and response bodies at `DEBUG`. Because `state` can contain financial, security, or personal data, keep the `typesafe_sdk` logger at `INFO` or higher in sensitive deployments. Setting the root logger to `DEBUG` can also expose these bodies unless the SDK logger has an explicit higher level.
+</Warning>
+
+```python
+import logging
+
+logging.getLogger("typesafe_sdk").setLevel(logging.INFO)
+```
+
+Install the optional dependency on Python 3.10 or newer:
+
+```bash
+pip install "semantica[llm-typesafe]"
+```
+
+Set `TYPESAFE_API_KEY`, or pass `api_key=` explicitly:
+
+```python
+from semantica.llms import Jev
+
+jev = Jev(model="jev-latest")  # reads TYPESAFE_API_KEY
+
+result = jev.decide(
+    state={
+        "amount_usd": 12_500,
+        "destination_country": "US",
+        "policy_flags": [],
+    },
+    question="How should this transaction be routed?",
+    kind="choice",
+    choices={
+        "approve": "All automatic-approval requirements are met.",
+        "escalate": "A person must review the transaction.",
+    },
+)
+
+print(result.value)          # "approve" or "escalate"
+print(result.confidence)     # routing certainty
+print(result.probabilities) # full Choice distribution
+print(result.request_id)     # retain for audit/support correlation
+```
+
+The three decision kinds have intentionally different result semantics:
+
+| Kind | Input criteria | `result.value` | Confidence semantics |
+| :--- | :--- | :--- | :--- |
+| Choice | Choice labels, optionally with descriptions | Selected label | SDK-provided confidence |
+| Noul | Optional `true` and `false` descriptions | Boolean using the 0.5 boundary | `abs(2 * probability - 1)`; `result.probability` preserves the raw probability of yes |
+| Score | Ordered rubric levels | Probability-weighted numeric score | SDK-provided confidence; the full distribution and legend are preserved |
+
+Semantica owns the reasoning, policy checks, escalation, and provenance around the decision. The provider does not silently call a fallback model:
+
+```python
+from semantica.context import ContextGraph
+
+graph = ContextGraph()
+threshold = 0.85
+
+if result.confidence < threshold:
+    route = "human_review"  # or invoke a reasoning LLM in caller code
+else:
+    route = str(result.value)
+
+decision_id = graph.record_decision(
+    category="transaction_routing",
+    scenario="Route wire transfer after evidence and policy evaluation",
+    reasoning="Semantica policy checks completed before the Jev routing step.",
+    outcome=route,
+    confidence=result.confidence,
+    decision_maker="jev:{}".format(result.model),
+    metadata={"typesafe_jev": result.to_dict()},
+)
+```
+
+For asynchronous applications, use `AsyncJev` with the same arguments and result type:
+
+```python
+from semantica.llms import AsyncJev
+
+async with AsyncJev() as jev:
+    result = await jev.decide(
+        state="The transaction was submitted from a known device.",
+        question="Does this transaction require manual review?",
+        kind="noul",
+    )
+```
 
 ## Groq — Fast Inference for Real-Time Agents
 
@@ -535,10 +631,10 @@ context.save("./classified_output/q4_analysis/")
 </Tab>
 
 <Tab title="Security — SOC/Incident">
-A SOC pipeline uses two providers at different tiers: Groq for sub-500ms initial triage that keeps the analyst in flow, and Anthropic Claude for deep ATT&CK analysis when Tier 1 confidence falls below the escalation threshold. The provider switch is determined programmatically — no manual handoff required.
+A SOC pipeline uses Semantica to collect the alert and applicable runbook evidence, Jev for the bounded Tier 1 routing decision, and Anthropic Claude for deep ATT&CK analysis when Jev is uncertain. The escalation policy stays in caller code; Jev never invokes the fallback itself.
 
 ```python
-from semantica.llms import Groq, LiteLLM
+from semantica.llms import Jev, LiteLLM
 from semantica.context import AgentContext, ContextGraph
 from semantica.vector_store import VectorStore
 
@@ -551,12 +647,13 @@ context = AgentContext(
     decision_tracking=True,
 )
 
-# Preload MITRE ATT&CK runbook knowledge
-context.store([
+# Preload MITRE ATT&CK runbook evidence
+runbook = [
     "T1087.002 (Domain Account Discovery): anomalous LDAP enumeration — isolate source host, reset service account passwords",
     "T1053.005 (Scheduled Task/Job): encoded PowerShell via wmiprvse.exe — collect task XML, check persistence keys, notify IR",
     "T1021.002 (SMB/Windows Admin Shares): PsExec lateral movement to DC — immediate host isolation, reset service accounts",
-])
+]
+context.store(runbook)
 
 alert = (
     "SIEM Alert: host ws-finance-03, user jsmith — scheduled task with base64-encoded PowerShell. "
@@ -564,17 +661,22 @@ alert = (
 )
 context.store(alert, metadata={"type": "alert", "severity": "high"})
 
-# Tier 1: fast triage with Groq — target < 500ms end-to-end
-fast_llm = Groq(model="llama-3.1-8b-instant", api_key="YOUR_GROQ_KEY")
-triage = context.query_with_reasoning(
-    "Is this alert a true positive? One sentence verdict and confidence.",
-    llm_provider=fast_llm,
-    max_results=5,
+# Tier 1: a bounded Jev decision over the alert and policy/runbook state
+fast_decider = Jev(model="jev-latest")  # reads TYPESAFE_API_KEY
+triage = fast_decider.decide(
+    state={"alert": alert, "applicable_runbook": runbook[1]},
+    question="How should the SOC route this alert?",
+    kind="choice",
+    choices={
+        "true_positive": "Evidence strongly matches malicious scheduled-task activity.",
+        "benign": "Evidence supports an authorized administrative action.",
+        "escalate": "Evidence is insufficient or conflicting; an analyst must review it.",
+    },
 )
-print("TRIAGE: {} (conf={:.0%})".format(triage["response"], triage["confidence"]))
+print("TRIAGE: {} (conf={:.0%})".format(triage.value, triage.confidence))
 
-# Tier 2: escalate to Claude for deep analysis if Tier 1 is uncertain
-if triage["confidence"] < 0.88:
+# Tier 2: caller-controlled escalation to Claude when Jev is uncertain
+if triage.value == "escalate" or triage.confidence < 0.88:
     deep_llm = LiteLLM(model="anthropic/claude-sonnet-5")
     deep = context.query_with_reasoning(
         "Full MITRE ATT&CK analysis of this alert: identify the attack chain, "
@@ -584,16 +686,24 @@ if triage["confidence"] < 0.88:
         max_hops=3,
     )
     print("DEEP ANALYSIS: {}".format(deep["response"]))
+    outcome = "escalated_tier2"
+    confidence = deep["confidence"]
+    reasoning = deep["reasoning_path"]
+else:
+    outcome = str(triage.value)
+    confidence = triage.confidence
+    reasoning = "Semantica evidence and runbook policy were evaluated before Jev routing."
 
-    context.record_decision(
-        category="escalation",
-        scenario="Scheduled task T1053.005 on ws-finance-03 — Tier 1 conf {:.0%}".format(triage["confidence"]),
-        reasoning=deep["reasoning_path"],
-        outcome="escalated_tier2",
-        confidence=deep["confidence"],
-        entities=["ws-finance-03", "jsmith", "T1053.005"],
-        decision_maker="soc_pipeline_v3",
-    )
+context.record_decision(
+    category="soc_triage",
+    scenario="Scheduled task T1053.005 on ws-finance-03 — Jev conf {:.0%}".format(triage.confidence),
+    reasoning=reasoning,
+    outcome=outcome,
+    confidence=confidence,
+    entities=["ws-finance-03", "jsmith", "T1053.005"],
+    decision_maker="jev:{}".format(triage.model),
+    cross_system_context={"typesafe_jev": triage.to_dict()},
+)
 ```
 
 </Tab>
@@ -713,6 +823,10 @@ for src in best["sources"]:
 **Using LLMs for deterministic pattern matching that regex can handle.** If your task is extracting email addresses, phone numbers, or other pattern-based entities, regular expressions are faster, cheaper, and more reliable than LLM extraction. Use LLMs when context, ambiguity, or domain knowledge matter for correct interpretation.
 
 **Not validating structured outputs.** The `generate_structured()` method returns parsed JSON (a dict, or a list for a top-level array), but LLMs can still produce malformed or incomplete structures. Validate the result against your expected schema before using it downstream — or use `generate_typed()`, which validates against a Pydantic model for you.
+
+**Treating a Noul probability as routing confidence.** Noul returns the probability of yes, so both `0.01` and `0.99` are highly certain while `0.5` is maximally uncertain. Use `result.probability` for the raw yes-probability and `result.confidence` for Semantica's derived routing certainty.
+
+**Using Jev when the output must explain itself.** Jev makes bounded typed decisions and does not generate reasoning text. Build the evidence and policy context in Semantica, use a reasoning LLM or human review when an explanation is required, and record both steps in provenance.
 
 **Switching providers without testing prompt behavior.** Different models respond differently to the same prompt. A prompt optimized for GPT-4 may produce poor results with Llama or Claude. When switching providers, test your prompts and adjust temperature, instructions, or examples as needed.
 

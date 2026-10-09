@@ -350,7 +350,8 @@ class TestCalculatePageRank:
         """Test calculate_pagerank with default parameters."""
         mock_calculator = Mock()
         mock_calculator.calculate_pagerank.return_value = {
-            "A": 0.25, "B": 0.25, "C": 0.25, "D": 0.25
+            "centrality": {"A": 0.25, "B": 0.25, "C": 0.25, "D": 0.25},
+            "rankings": [("A", 0.25), ("B", 0.25), ("C", 0.25), ("D", 0.25)],
         }
         mock_calculator_class.return_value = mock_calculator
         
@@ -358,14 +359,18 @@ class TestCalculatePageRank:
         
         mock_calculator_class.assert_called_once()
         mock_calculator.calculate_pagerank.assert_called_once()
-        assert result == {"A": 0.25, "B": 0.25, "C": 0.25, "D": 0.25}
+        assert result == {
+            "centrality": {"A": 0.25, "B": 0.25, "C": 0.25, "D": 0.25},
+            "rankings": [("A", 0.25), ("B", 0.25), ("C", 0.25), ("D", 0.25)],
+        }
     
     @patch('semantica.kg.methods.CentralityCalculator')
     def test_calculate_pagerank_custom_params(self, mock_calculator_class):
         """Test calculate_pagerank with custom parameters."""
         mock_calculator = Mock()
         mock_calculator.calculate_pagerank.return_value = {
-            "A": 0.4, "B": 0.3, "C": 0.2, "D": 0.1
+            "centrality": {"A": 0.4, "B": 0.3, "C": 0.2, "D": 0.1},
+            "rankings": [("A", 0.4), ("B", 0.3), ("C", 0.2), ("D", 0.1)],
         }
         mock_calculator_class.return_value = mock_calculator
         
@@ -384,7 +389,10 @@ class TestCalculatePageRank:
             max_iterations=30,
             damping_factor=0.9
         )
-        assert result == {"A": 0.4, "B": 0.3, "C": 0.2, "D": 0.1}
+        assert result == {
+            "centrality": {"A": 0.4, "B": 0.3, "C": 0.2, "D": 0.1},
+            "rankings": [("A", 0.4), ("B", 0.3), ("C", 0.2), ("D", 0.1)],
+        }
     
     @patch('semantica.kg.methods.CentralityCalculator')
     def test_calculate_pagerank_error(self, mock_calculator_class):
@@ -595,7 +603,8 @@ class TestMethodsIntegration:
         # Mock PageRank calculation
         mock_calculator = Mock()
         mock_calculator.calculate_pagerank.return_value = {
-            "A": 0.4, "B": 0.3, "C": 0.2, "D": 0.1
+            "centrality": {"A": 0.4, "B": 0.3, "C": 0.2, "D": 0.1},
+            "rankings": [("A", 0.4), ("B", 0.3), ("C", 0.2), ("D", 0.1)],
         }
         mock_calculator_class.return_value = mock_calculator
         
@@ -608,8 +617,8 @@ class TestMethodsIntegration:
         mock_detector_class.return_value = mock_detector
         
         # Calculate PageRank
-        pagerank_scores = calculate_pagerank(self.mock_graph)
-        assert len(pagerank_scores) == 4
+        pagerank_result = calculate_pagerank(self.mock_graph)
+        assert len(pagerank_result["centrality"]) == 4
         
         # Detect communities
         communities = detect_communities_label_propagation(self.mock_graph)

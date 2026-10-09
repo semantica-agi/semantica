@@ -5,12 +5,12 @@ First-class integration between Semantica and [CrewAI](https://github.com/crewAI
 ## Installation
 
 ```bash
-pip install semantica[crewai]
+pip install "crewai>=0.80.0"
 ```
 
-Requires `crewai >= 0.80.0`. If `crewai` is not installed, the integration still imports (classes degrade gracefully), but you can't pass the objects to a `Crew`.
+Installed separately from semantica. If `crewai` is not installed, the integration still imports (classes degrade gracefully), but you can't pass the objects to a `Crew`.
 
-> **⚠️ Security note:** crewai hard-requires `chromadb~=1.1.0`, which is currently affected by the unpatched pre-authentication code-injection advisory **CVE-2026-45829** (no fixed release — even the latest chromadb 1.5.9 is affected). Installing `semantica[crewai]` pulls that dependency into your environment. The `crewai` extra is intentionally **not** part of `semantica[all]` for this reason — only install it where you actually use CrewAI, and follow chromadb for a patched release.
+> **⚠️ Security note:** crewai hard-requires `chromadb~=1.1.0`, which is currently affected by multiple unpatched advisories — a pre-authentication code-injection CVE-2026-45829, authenticated code injection CVE-2026-45833, and two cross-tenant authorization gaps CVE-2026-45830/45831 (no fixed release exists — even the latest chromadb 1.5.9 is affected). Because of this, semantica does **not** offer a `[crewai]` extra and never installs crewai/chromadb transitively — install `crewai` yourself only where you actually use CrewAI, and re-evaluate once chromadb ships a fix.
 
 ## 1. SemanticaKGTool
 

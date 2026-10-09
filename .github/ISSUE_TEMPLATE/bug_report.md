@@ -27,7 +27,7 @@ A clear and concise description of what actually happened.
 ## Environment
 
 - **OS**: [e.g., Windows 10, Ubuntu 22.04, macOS 13.0]
-- **Python Version**: [e.g., 3.9.7]
+- **Python Version**: [e.g., 3.11.9]
 - **Semantica Version**: [e.g., 0.0.1]
 - **Installation Method**: [e.g., pip, source, conda]
 

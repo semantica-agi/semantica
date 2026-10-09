@@ -41,7 +41,7 @@ All 15 Semantica tools are then available as native OpenClaw agent tools.
 
 Compatibility
 -------------
-Requires ``semantica >= 0.3.0``.  The MCP path requires ``python >= 3.8`` and
+Requires ``semantica >= 0.3.0``.  The MCP path requires ``python >= 3.10`` and
 a running ``semantica.mcp_server`` instance.  The REST path requires a running
 ``semantica.server`` instance (``python -m semantica.server``, port 8000 by
 default).
