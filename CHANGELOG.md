@@ -19,6 +19,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Relationship filtering on a `ContextGraph` rescanned the edge list for every node pair** (fixes #1927)
+  - `edge_types_between` read every edge of a `ContextGraph` for each (node, neighbour) pair it classified, so `detect_communities_label_propagation` and `calculate_pagerank` with `relationship_types` were O(E^2): about 21 s each on a 6,000-edge graph. `build_edge_type_index` now indexes a `ContextGraph`'s edge list as well, and both callers build the index once per call (1.4 s and 0.09 s on the same graph). The per-pair answers are unchanged. New `tests/kg/test_context_graph_edge_type_index.py`
+
 - **`calculate_pagerank` rebuilt the adjacency once per node for a plain graph dictionary** (fixes #1842)
   - `_get_filtered_neighbors` called `build_adjacency(graph, directed=True)` for every node, making neighbour resolution O(N * (N + E)). `calculate_pagerank` now builds it once before the node loop and passes it in through a new optional `adjacency` argument; scores are unchanged. New `tests/kg/test_centrality_pagerank_adjacency_reuse.py`
 
