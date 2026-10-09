@@ -5,7 +5,7 @@ All MSAL and HTTP calls are mocked — no live Dynamics 365 org is required.
 """
 
 from datetime import datetime
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, call, patch
 
 import pytest
 
@@ -350,3 +350,115 @@ class TestTokenExpiry:
         # connect() was called again (total calls == 1 since we set state manually)
         assert mock_msal_app.acquire_token_for_client.call_count == 1
         assert connector._access_token == "fresh-token"
+
+
+# ---------------------------------------------------------------------------
+# Package-level exports
+# ---------------------------------------------------------------------------
+
+_EXPORTED = ("Dynamics365Ingestor", "Dynamics365Data", "Dynamics365Connector")
+
+
+class TestPackageExports:
+
+    @patch("semantica.ingest.dynamics365_ingestor.DYNAMICS_AVAILABLE", True)
+    def test_classes_importable_from_package(self):
+        import semantica.ingest as ingest_pkg
+        import semantica.ingest.dynamics365_ingestor as _mod
+
+        for name in _EXPORTED:
+            ingest_pkg.__dict__.pop(name, None)
+        try:
+            from semantica.ingest import (
+                Dynamics365Connector,
+                Dynamics365Data,
+                Dynamics365Ingestor,
+            )
+        finally:
+            for name in _EXPORTED:
+                ingest_pkg.__dict__.pop(name, None)
+
+        assert Dynamics365Ingestor is _mod.Dynamics365Ingestor
+        assert Dynamics365Data is _mod.Dynamics365Data
+        assert Dynamics365Connector is _mod.Dynamics365Connector
+        assert set(_EXPORTED) <= set(ingest_pkg.__all__)
+
+    @patch("semantica.ingest.dynamics365_ingestor.DYNAMICS_AVAILABLE", False)
+    def test_package_import_without_msal_gives_install_hint(self):
+        import semantica.ingest as ingest_pkg
+
+        ingest_pkg.__dict__.pop("Dynamics365Ingestor", None)
+        with pytest.raises(ImportError, match=r"semantica\[ingest-dynamics365\]"):
+            from semantica.ingest import Dynamics365Ingestor  # noqa: F401
+
+
+# ---------------------------------------------------------------------------
+# MSAL transport goes through the SSRF guard
+# ---------------------------------------------------------------------------
+
+
+class TestMsalTransport:
+
+    @patch("semantica.ingest.dynamics365_ingestor.DYNAMICS_AVAILABLE", True)
+    def test_connect_passes_guarded_http_client_to_msal(self):
+        import semantica.ingest.dynamics365_ingestor as _mod
+
+        mock_msal_app = MagicMock()
+        mock_msal_app.acquire_token_for_client.return_value = {"access_token": "tok"}
+
+        with patch.object(_mod, "_msal") as mock_msal_mod:
+            mock_msal_mod.ConfidentialClientApplication.return_value = mock_msal_app
+            connector = _mod.Dynamics365Connector(
+                tenant_id="t", client_id="c", client_secret="s",
+                org_url="https://myorg.crm.dynamics.com",
+                timeout=12,
+            )
+            connector.connect()
+
+        kwargs = mock_msal_mod.ConfidentialClientApplication.call_args.kwargs
+        assert isinstance(kwargs["http_client"], _mod._SSRFGuardedHttpClient)
+        assert kwargs["http_client"].timeout == 12
+
+    def test_guarded_http_client_routes_get_and_post_through_guard(self):
+        import semantica.ingest.dynamics365_ingestor as _mod
+
+        mock_ssrf = MagicMock()
+        client = _mod._SSRFGuardedHttpClient(timeout=5)
+        token_url = "https://login.microsoftonline.com/t/oauth2/v2.0/token"
+        config_url = (
+            "https://login.microsoftonline.com/t/v2.0/"
+            ".well-known/openid-configuration"
+        )
+
+        with patch.object(_mod, "request_with_ssrf_guard", mock_ssrf):
+            client.get(config_url, headers={"X": "1"})
+            client.post(token_url, data={"grant_type": "client_credentials"})
+
+        assert mock_ssrf.call_args_list == [
+            call("GET", config_url, params=None, headers={"X": "1"}, timeout=5),
+            call(
+                "POST", token_url,
+                params=None, data={"grant_type": "client_credentials"},
+                headers=None, timeout=5,
+            ),
+        ]
+
+    @pytest.mark.skipif(not MSAL_LIB_AVAILABLE, reason="msal not installed")
+    def test_real_msal_requests_go_through_guard(self):
+        import semantica.ingest.dynamics365_ingestor as _mod
+        from semantica.utils.exceptions import ProcessingError
+
+        mock_ssrf = MagicMock(side_effect=RuntimeError("guarded"))
+        with patch.object(_mod, "request_with_ssrf_guard", mock_ssrf):
+            connector = _mod.Dynamics365Connector(
+                tenant_id="t", client_id="c", client_secret="s",
+                org_url="https://myorg.crm.dynamics.com",
+            )
+            with pytest.raises(ProcessingError, match="guarded"):
+                connector.connect()
+
+        assert mock_ssrf.called
+        assert all(
+            c.args[1].startswith("https://login.microsoftonline.com/")
+            for c in mock_ssrf.call_args_list
+        )

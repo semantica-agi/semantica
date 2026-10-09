@@ -165,6 +165,33 @@ def _validate_org_url(url: str) -> str:
     return url
 
 
+class _SSRFGuardedHttpClient:
+    """MSAL ``http_client`` that routes requests through ``request_with_ssrf_guard``.
+
+    MSAL performs authority discovery and the token exchange with its own
+    ``requests.Session`` unless one is supplied; this keeps those calls on the
+    same guarded path as the Web API requests.
+    """
+
+    def __init__(self, timeout: float = 30) -> None:
+        self.timeout = timeout
+
+    def get(self, url: str, params=None, headers=None, **kwargs: Any):
+        return self._request("GET", url, params=params, headers=headers, **kwargs)
+
+    def post(self, url: str, params=None, data=None, headers=None, **kwargs: Any):
+        return self._request(
+            "POST", url, params=params, data=data, headers=headers, **kwargs
+        )
+
+    def close(self) -> None:
+        pass
+
+    def _request(self, method: str, url: str, **kwargs: Any):
+        kwargs.setdefault("timeout", self.timeout)
+        return request_with_ssrf_guard(method, url, **kwargs)
+
+
 # ---------------------------------------------------------------------------
 # Data result type
 # ---------------------------------------------------------------------------
@@ -288,6 +315,9 @@ class Dynamics365Connector:
                 client_id=self.client_id,
                 client_credential=self.client_secret,
                 authority=authority,
+                http_client=_SSRFGuardedHttpClient(
+                    timeout=self.config.get("timeout", 30)
+                ),
             )
             result = self._msal_app.acquire_token_for_client(scopes=scope)
         except Exception as exc:
