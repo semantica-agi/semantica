@@ -1071,6 +1071,53 @@ class TestReason:
         assert "reason query" in normalized
         assert "Traceback" not in result.output
 
+    def test_query_calls_execute_query_not_query(self, runner, monkeypatch):
+        """`reason query` used to call SPARQLReasoner.query(), which does not
+        exist, so every input died with
+        ``AttributeError: 'SPARQLReasoner' object has no attribute 'query'``
+        (issue #1797). The handler must reach for execute_query() instead."""
+        pytest.importorskip("numpy", reason="semantica.reasoning needs numpy")
+        import semantica.reasoning as reasoning_module
+
+        calls = []
+
+        class _FakeReasoner:
+            def __init__(self, **kwargs):
+                calls.append(("init", kwargs))
+
+            def execute_query(self, query, **options):
+                calls.append(("execute_query", query))
+                return {"bindings": [], "variables": []}
+
+            def query(self, *args, **kwargs):  # pragma: no cover
+                # SPARQLReasoner has no query(); reaching this means the
+                # handler regressed to the bug in #1797.
+                raise AssertionError("reason query called query() (#1797)")
+
+        monkeypatch.setattr(reasoning_module, "SPARQLReasoner", _FakeReasoner)
+
+        result = runner.invoke(
+            cli_module.main,
+            ["reason", "query", "SELECT ?s WHERE { ?s ?p ?o }"],
+        )
+        _ok(result)
+        assert [name for name, _ in calls] == ["init", "execute_query"]
+        assert calls[1][1] == "SELECT ?s WHERE { ?s ?p ?o }"
+
+    def test_query_without_triplet_store_fails_cleanly(self, runner):
+        """With no triplet store configured, execute_query() refuses loudly
+        (issue #1083). The command must report that, not crash with the
+        AttributeError from #1797."""
+        result = runner.invoke(
+            cli_module.main,
+            ["reason", "query", "SELECT ?s WHERE { ?s ?p ?o }"],
+        )
+        assert result.exit_code != 0
+        normalized = _flatten(result.output)
+        assert "triplet store" in normalized
+        assert "has no attribute" not in normalized
+        assert "Traceback" not in result.output
+
     def test_run_reasoning_local_json_flag_suppresses_spinner(self, runner, monkeypatch):
         """`reason run --json` (the command's own flag, not the global one)
         must not enter the Rich status spinner. console.status() writes to

@@ -19,6 +19,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`semantica reason query` crashed on every input — it called a non-existent `SPARQLReasoner.query()`** (fixes #1797)
+  - The CLI called `SPARQLReasoner.query()`, which does not exist, so every invocation died with `AttributeError: 'SPARQLReasoner' object has no attribute 'query'`. It now calls `execute_query()`, and `--with-inference` reaches the reasoner's constructor (where `execute_query()` reads it, not from its options). With no triplet store configured the command now surfaces `execute_query()`'s actionable "requires a triplet store" error (#1083) instead of a crash; the CLI still cannot supply a store from config, because `Config` does not retain a `triplet_store` section (tracked separately). New coverage in `tests/test_cli_commands.py` (`TestReason`).
+
 - **`semantica backup create` reported success for an archive with no store data** (fixes #1820) by @costajohnt
   - With no file-based `graph_db` / `vector_store` / `triplet_store` path in the config, `backup create` wrote a manifest with `"files": []` and exited 0. It now fails with an error that points to `semantica backup info`, before asking for a passphrase or confirmation and before writing anything.
 

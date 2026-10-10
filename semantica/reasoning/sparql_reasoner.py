@@ -22,7 +22,7 @@ Example Usage:
     >>> from semantica.reasoning import SPARQLReasoner
     >>> reasoner = SPARQLReasoner()
     >>> query = "SELECT ?s ?p ?o WHERE { ?s ?p ?o }"
-    >>> result = reasoner.query(query)
+    >>> result = reasoner.execute_query(query)
     >>> expanded = reasoner.expand_query(query, rules)
 
 Author: Semantica Contributors

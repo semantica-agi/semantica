@@ -3299,8 +3299,18 @@ def reason_query(cli_ctx: CLIContext, query_str: str, with_inference: bool,
     def _action() -> None:
         try:
             from .reasoning import SPARQLReasoner
-            r = SPARQLReasoner(config=cli_ctx.config.to_dict())
-            result = r.query(query_str, with_inference=with_inference)
+            # The method is execute_query(); the handler used to call a
+            # non-existent query() and crashed on every input (#1797). It reads
+            # inference from the reasoner's own config, not from its options,
+            # so --with-inference has to reach the constructor. It also refuses
+            # to run without a triplet store (#1083) rather than returning an
+            # empty result set — the honest answer while the CLI has no way to
+            # pass one in.
+            reasoner = SPARQLReasoner(
+                config=cli_ctx.config.to_dict(),
+                enable_inference=with_inference,
+            )
+            result = reasoner.execute_query(query_str)
         except ImportError as exc:
             raise click.ClickException(f"Reasoning module not available: {exc}") from exc
         if _is_json(cli_ctx, local_json):
