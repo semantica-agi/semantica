@@ -1661,13 +1661,22 @@ def _graph_store_facts(cli_ctx: CLIContext) -> List[str]:
     return facts
 
 
-def _graph_store_as_context(cli_ctx: CLIContext) -> Dict[str, List[Dict[str, Any]]]:
+def _graph_store_as_context(
+    cli_ctx: CLIContext, by_id: bool = False
+) -> Dict[str, List[Dict[str, Any]]]:
     """Read the configured graph store into GraphReasoner's expected shape.
 
     GraphReasoner._prepare_graph_context() reads a plain
     ``{"entities": [...], "relationships": [...]}`` dict -- distinct from
     both the raw GraphStore rows and the ``Label(arg)`` fact strings
     ``_graph_store_facts()`` builds for the other engines.
+
+    The default substitutes each node's display name for its ID, which is what
+    the reasoning path wants (facts read better with names). ``by_id`` keeps
+    the real store ID as the entity ID and as the relationship endpoints
+    instead, with the name kept in the entity's ``name`` field: the kg APIs key
+    everything on the entity ID, and two distinct nodes can share a display
+    name, in which case the name-substituting shape merges them (#1941 review).
     """
     gs = _get_graph_store(cli_ctx)
     nodes = gs.get_nodes(limit=sys.maxsize)
@@ -1676,26 +1685,482 @@ def _graph_store_as_context(cli_ctx: CLIContext) -> Dict[str, List[Dict[str, Any
     entities = []
     for node in nodes:
         props = node.get("properties") or {}
-        name = props.get("name") or props.get("id") or node.get("id")
-        names[node.get("id")] = name
+        node_id = node.get("id")
+        name = props.get("name") or props.get("id") or node_id
+        names[node_id] = node_id if by_id else name
         labels = node.get("labels") or ["Entity"]
         # Multiple labels are all real classifications (mirrors the one
         # fact-per-label convention _graph_store_facts() uses); joining them
         # keeps a node with e.g. ["Person", "Employee"] fully described
         # instead of silently dropping every label but the first.
         entities.append({
-            "id": name, "name": name, "type": "/".join(labels), "properties": props,
+            "id": names[node_id], "name": name, "type": "/".join(labels),
+            "properties": props,
         })
     rel_out = []
     for rel in relationships:
-        source = names.get(rel.get("start_node_id"), rel.get("start_node_id"))
-        target = names.get(rel.get("end_node_id"), rel.get("end_node_id"))
+        source_id = rel.get("start_node_id")
+        target_id = rel.get("end_node_id")
+        source = names.get(source_id, source_id)
+        target = names.get(target_id, target_id)
+        rel_type = rel.get("type", "RELATED_TO")
+        # ConflictDetector groups relationships by `id`, falling back to
+        # ``{source_id}_{target_id}_{type}``. Store rows carry neither field, so
+        # every edge of one type collapsed into a single group and unrelated
+        # edges with different properties were reported as a conflict (#1814
+        # review). Fill both, keyed the same way the entities above are keyed
+        # (by name) so endpoints stay resolvable.
         rel_out.append({
-            "source": source, "target": target,
-            "type": rel.get("type", "RELATED_TO"),
+            "id": rel.get("id") or f"{source}_{target}_{rel_type}",
+            "source_id": source,
+            "target_id": target,
+            "source": source,
+            "target": target,
+            "type": rel_type,
             "properties": rel.get("properties") or {},
         })
     return {"entities": entities, "relationships": rel_out}
+
+
+def _knowledge_graph_dict(cli_ctx: CLIContext) -> Dict[str, List[Dict[str, Any]]]:
+    """Entities and relationships for the configured graph backend.
+
+    Mirrors the routing `export` uses: the ``memory`` backend is served by the
+    in-process ContextGraph, every other backend by GraphStore. Callers that
+    only read entities and relationships (conflict detection, ontology
+    generation) go through here instead of `_graph_store_as_context`, which
+    raises for the default ``memory`` backend.
+    """
+    if _uses_memory_graph(cli_ctx):
+        kg = _load_context_graph(cli_ctx).to_kg_dict()
+        return {
+            "entities": kg.get("entities", []),
+            "relationships": kg.get("relationships", []),
+        }
+    return _graph_store_as_context(cli_ctx)
+
+
+def _flatten_properties(entity: Dict[str, Any]) -> Dict[str, Any]:
+    """Copy an entity with its nested business attributes lifted to the top level.
+
+    Both graph adapters keep an entity's attributes under ``properties``, while
+    the consumers behind these commands (ontology property inference, conflict
+    detection) read top-level keys. Structural fields win on a name clash so
+    ``id``/``type`` keep their meaning.
+    """
+    flattened = dict(entity)
+    for key, value in (entity.get("properties") or {}).items():
+        flattened.setdefault(key, value)
+    return flattened
+
+
+def _ontology_input_graph(
+    graph: Dict[str, List[Dict[str, Any]]]
+) -> Dict[str, List[Dict[str, Any]]]:
+    """Adapt a graph for OntologyGenerator's entity shape.
+
+    Its property inference reads top-level keys and lists ``properties`` itself
+    as a control field. A graph read from a backend therefore produced an
+    ontology with no property shapes at all, and ``validate shacl`` checked the
+    classes while ignoring every attribute (#1814 review).
+    """
+    return {
+        "entities": [_flatten_properties(e) for e in graph.get("entities", [])],
+        "relationships": graph.get("relationships", []),
+    }
+
+
+def _conflict_entities(
+    graph: Dict[str, List[Dict[str, Any]]]
+) -> List[Dict[str, Any]]:
+    """Adapt a graph for ConflictDetector's entity shape.
+
+    Its value and property strategies read ``property_name`` off the entity
+    itself, so a stored attribute under ``properties`` was never compared and
+    no conflict was reported (#1814 review).
+    """
+    return [_flatten_properties(e) for e in graph.get("entities", [])]
+
+
+def _ontology_from_graph(
+    cli_ctx: CLIContext,
+    graph: Optional[Dict[str, List[Dict[str, Any]]]] = None,
+    min_occurrences: Optional[int] = None,
+) -> Dict[str, Any]:
+    """Build an ontology dict from the configured graph's entities/relationships.
+
+    ``min_occurrences`` overrides the inference frequency gate (ClassInferrer
+    defaults to 2). SHACL validation passes 1: a type represented by a single
+    entity still gets a class shape, where the default left that entity
+    serialized but untargeted, which pySHACL reads as conforming (#1814 review).
+    """
+    from .ontology import OntologyGenerator
+
+    data = graph if graph is not None else _knowledge_graph_dict(cli_ctx)
+    options: Dict[str, Any] = {}
+    if min_occurrences is not None:
+        options["min_occurrences"] = min_occurrences
+    return OntologyGenerator(config=cli_ctx.config.to_dict()).generate_ontology(
+        _ontology_input_graph(data), **options
+    )
+
+
+def _inferred_sources(term: Dict[str, Any]) -> List[str]:
+    """Every raw graph key a generated term came from.
+
+    Inference merges names that normalize to the same term (``fooBar`` and
+    ``foo_bar`` become one property) and keeps only one of them in
+    ``inferred_from``; the rest ride along in ``inferred_from_all`` so the
+    shapes can still cover the other spelling (#1814 review).
+    """
+    metadata = term.get("metadata") or {}
+    sources: List[str] = []
+    primary = metadata.get("inferred_from")
+    if isinstance(primary, str):
+        sources.append(primary)
+    for extra in metadata.get("inferred_from_all") or []:
+        if isinstance(extra, str) and extra not in sources:
+            sources.append(extra)
+    return sources
+
+
+def _term_iris_by_source(
+    ontology: Dict[str, Any],
+    namespace: Optional[str] = None,
+    property_namespace: Optional[str] = None,
+) -> Tuple[Dict[str, str], Dict[str, str]]:
+    """Map each graph key to the IRI the SHACL shapes target for it.
+
+    Class and property inference rename their inputs (``people`` becomes
+    ``Person``, and attribute names are normalized too), and the shapes are
+    built from those normalized names. Serializing an entity's raw type put its
+    data in a class no shape targets, so pySHACL saw zero focus nodes and
+    reported conformance without checking anything (#1814 review). Every
+    generated term records the graph key it came from in
+    ``metadata.inferred_from``, which is the mapping back.
+
+    ``namespace`` rebases both sides; ``property_namespace`` rebases only the
+    property side, for a shapes file whose target classes and property paths
+    use different vocabularies (#1814 review).
+    """
+    import rdflib
+
+    def _rebase_for(target: Optional[str]) -> Optional[Any]:
+        return rdflib.Namespace(target) if target else None
+
+    class_rebase = _rebase_for(namespace)
+    property_rebase = _rebase_for(property_namespace or namespace)
+
+    def _iri(term: Dict[str, Any], rebase: Optional[Any]) -> Optional[str]:
+        uri = term.get("uri")
+        if not uri:
+            return None
+        text = str(uri)
+        if rebase is None:
+            return text
+        cut = max(text.rfind("#"), text.rfind("/"))
+        local = text[cut + 1:] if cut != -1 else text
+        return str(rebase[local]) if local else text
+
+    classes: Dict[str, str] = {}
+    for cls in ontology.get("classes", []):
+        if isinstance(cls, dict):
+            iri = _iri(cls, class_rebase)
+            if not iri:
+                continue
+            for source in _inferred_sources(cls):
+                classes.setdefault(source, iri)
+    properties: Dict[str, str] = {}
+    for prop in ontology.get("properties", []):
+        if isinstance(prop, dict):
+            iri = _iri(prop, property_rebase)
+            if not iri:
+                continue
+            for source in _inferred_sources(prop):
+                properties.setdefault(source, iri)
+    return classes, properties
+
+
+def _single_shapes_namespace(objects: Any) -> Optional[str]:
+    """The one namespace every IRI in ``objects`` sits in, or None if mixed."""
+    import rdflib
+
+    namespaces = set()
+    for obj in objects:
+        if not isinstance(obj, rdflib.URIRef):
+            continue
+        iri = str(obj)
+        cut = max(iri.rfind("#"), iri.rfind("/"))
+        if cut != -1:
+            namespaces.add(iri[: cut + 1])
+    if len(namespaces) == 1:
+        return namespaces.pop()
+    return None
+
+
+def _shacl_data_namespaces(
+    ontology: Dict[str, Any], shapes_path: Optional[str]
+) -> Tuple[str, str]:
+    """(class namespace, property namespace) the data graph has to be minted in.
+
+    Shapes generated from the ontology target the ontology's own terms, so its
+    namespace is right. Shapes read from a file target whatever vocabulary that
+    file declares. One file can use one vocabulary for its target classes and
+    another for its property paths, and choosing a single namespace for both
+    leaves the classes with no matching focus node, which pySHACL reports as
+    conforming (#1814 review). Resolve the two sides separately.
+    """
+    default = _ontology_namespace(ontology)
+    if not shapes_path:
+        return default, default
+    try:
+        import rdflib
+
+        shapes = rdflib.Graph()
+        shapes.parse(shapes_path, format="turtle")
+        sh = rdflib.Namespace("http://www.w3.org/ns/shacl#")
+        class_namespace = _single_shapes_namespace(shapes.objects(None, sh.targetClass))
+        property_namespace = _single_shapes_namespace(shapes.objects(None, sh.path))
+        return class_namespace or default, property_namespace or default
+    except Exception:
+        return default, default
+
+
+def _shacl_data_namespace(ontology: Dict[str, Any], shapes_path: Optional[str]) -> str:
+    """Single-namespace view of ``_shacl_data_namespaces``."""
+    class_namespace, property_namespace = _shacl_data_namespaces(ontology, shapes_path)
+    if class_namespace == property_namespace:
+        return class_namespace
+    return _ontology_namespace(ontology)
+
+
+def _iri_local(value: Any) -> str:
+    """Percent-encode a local name so it is safe inside an IRI.
+
+    Entity IDs, display names and relationship types go straight into the
+    serialized subject/predicate/object IRIs. The store path uses a node's
+    display name as its ID, so a value like "Alice Smith" -- or anything else an
+    IRI forbids -- produced Turtle that could not be parsed, and ``validate
+    shacl`` errored out instead of validating (#1814 review).
+    """
+    from urllib.parse import quote
+
+    return quote(str(value), safe="")
+
+
+def _shacl_data_graph_turtle(
+    graph: Dict[str, List[Dict[str, Any]]],
+    namespace: str,
+    class_iris: Optional[Dict[str, str]] = None,
+    property_iris: Optional[Dict[str, str]] = None,
+) -> str:
+    """Serialize graph instances as Turtle in the shapes' own vocabulary.
+
+    `RDFSerializer` mints terms in its own vocabulary and drops entity
+    properties, so shapes generated from an ontology would target classes and
+    paths no exported graph carries. pySHACL treats a shape with zero matching
+    focus nodes as conforming, so that mismatch reads as a silent pass. The
+    entity type and attribute keys are translated through ``class_iris`` /
+    ``property_iris`` (the names the shapes actually target) and everything
+    else is minted in ``namespace``, which keeps the two graphs aligned.
+    """
+    import rdflib
+
+    ns = rdflib.Namespace(namespace)
+    class_iris = class_iris or {}
+    property_iris = property_iris or {}
+    data = rdflib.Graph()
+    for entity in graph.get("entities", []):
+        node_id = entity.get("id") or entity.get("name") or entity.get("text")
+        if not node_id:
+            continue
+        subject = ns[_iri_local(node_id)]
+        raw_type = str(entity.get("type") or "Entity")
+        class_iri = class_iris.get(raw_type) or str(ns[_iri_local(raw_type)])
+        data.add((subject, rdflib.RDF.type, rdflib.URIRef(class_iri)))
+        for key, value in (entity.get("properties") or {}).items():
+            if isinstance(value, (str, int, float, bool)):
+                prop_iri = property_iris.get(str(key)) or str(ns[_iri_local(key)])
+                data.add((subject, rdflib.URIRef(prop_iri), rdflib.Literal(value)))
+    for rel in graph.get("relationships", []):
+        source = rel.get("source_id") or rel.get("source")
+        target = rel.get("target_id") or rel.get("target")
+        if source is None or target is None:
+            continue
+        raw_type = str(rel.get("type") or "RELATED_TO")
+        # Relationships are typed too, and the generated shapes constrain the
+        # property IRI: a raw type that inference renamed has to go through the
+        # same mapping as an entity attribute, or that edge escapes its
+        # constraints (#1814 review).
+        predicate_iri = property_iris.get(raw_type)
+        predicate = (
+            rdflib.URIRef(predicate_iri) if predicate_iri else ns[_iri_local(raw_type)]
+        )
+        data.add((ns[_iri_local(source)], predicate, ns[_iri_local(target)]))
+    return data.serialize(format="turtle")
+
+
+def _shacl_shapes_turtle(
+    ontology: Dict[str, Any], shapes_path: Optional[str], strictness: str
+) -> str:
+    """Return the SHACL shapes as Turtle, from a file or derived from the ontology."""
+    if shapes_path:
+        return Path(shapes_path).read_text(encoding="utf-8")
+    from .ontology import OntologyEngine
+
+    tier = {"strict": "strict", "moderate": "standard", "lenient": "basic"}[strictness]
+    return OntologyEngine().to_shacl(ontology, format="turtle", quality_tier=tier)
+
+
+def _ontology_namespace(ontology: Dict[str, Any]) -> str:
+    """The vocabulary namespace the ontology's class and property IRIs live in.
+
+    Shapes generated from an ontology target those IRIs, and pySHACL treats a
+    shape with no matching focus node as satisfied, so a data graph minted in a
+    different namespace validates clean while checking nothing (#1104). The
+    graph's instances are serialized in this namespace to keep the two aligned.
+    """
+    declared = ontology.get("namespace")
+    if isinstance(declared, dict) and declared.get("base_uri"):
+        return str(declared["base_uri"])
+    if isinstance(declared, str) and declared:
+        return declared
+    entries = list(ontology.get("classes", [])) + list(ontology.get("properties", []))
+    for entry in entries:
+        uri = entry.get("uri") if isinstance(entry, dict) else None
+        if isinstance(uri, str) and "/" in uri:
+            return uri[: uri.rfind("/") + 1]
+    from .ontology.ontology_generator import DEFAULT_ONTOLOGY_BASE_URI
+
+    return DEFAULT_ONTOLOGY_BASE_URI
+
+
+def _normalize_kg_dict(kg: Dict[str, Any]) -> Dict[str, Any]:
+    """Map ``ContextGraph.to_kg_dict()`` onto the shape the kg APIs validate.
+
+    ``to_kg_dict()`` reports relationship endpoints as ``source_id`` /
+    ``target_id`` and carries no entity ``name``, while ``GraphValidator``
+    requires ``source`` / ``target`` / ``name``. ``tests/context/test_to_kg_dict.py``
+    adds ``name`` by hand for the same reason.
+    """
+    entities = []
+    for entity in kg.get("entities", []) or []:
+        mapped = dict(entity)
+        properties = mapped.get("properties") or {}
+        mapped.setdefault("name", mapped.get("text") or properties.get("name")
+                          or mapped.get("id"))
+        mapped.setdefault("type", "Entity")
+        entities.append(mapped)
+    relationships = []
+    for rel in kg.get("relationships", []) or []:
+        mapped = dict(rel)
+        mapped.setdefault("source", mapped.get("source_id"))
+        mapped.setdefault("target", mapped.get("target_id"))
+        relationships.append(mapped)
+    return {"entities": entities, "relationships": relationships}
+
+
+def _kg_graph(cli_ctx: CLIContext) -> Dict[str, Any]:
+    """Load the configured graph as ``{"entities", "relationships"}``.
+
+    The kg wrappers previously called ``validate()`` / ``analyze()`` /
+    ``find_path()`` without ever fetching a graph, so every one of them
+    failed on the missing argument (#1941). Both backends have an existing
+    reader; this just picks one.
+    """
+    if _uses_memory_graph(cli_ctx):
+        return _normalize_kg_dict(_load_context_graph(cli_ctx).to_kg_dict())
+    # by_id, not the reasoning path's name substitution: the kg APIs key on the
+    # entity ID, and two store nodes may share a display name (#1941 review).
+    return _graph_store_as_context(cli_ctx, by_id=True)
+
+
+def _kg_nx_graph(cli_ctx: CLIContext) -> Any:
+    """NetworkX projection of the configured graph, for the traversing APIs.
+
+    ``PathFinder`` duck-types against ``neighbors`` / ``get_edge_data`` and
+    ``LinkPredictor`` against ``get_all_nodes`` / ``has_edge``; the plain
+    ``{"entities", "relationships"}`` dict satisfies neither, so both would
+    silently report "no path" / zero predictions on a populated graph — the
+    same defect explorer hit in #1725, which now hands PathFinder a NetworkX
+    view. ``ContextGraph`` would work for PathFinder but still yields no
+    candidate nodes for ``LinkPredictor``.
+    """
+    import networkx as nx
+
+    kg = _kg_graph(cli_ctx)
+    graph = nx.DiGraph()
+    for entity in kg.get("entities", []):
+        node_id = entity.get("id")
+        if node_id is not None:
+            # Keep the display name on the node so find-path can accept the
+            # entity name its options promise (#1941 review).
+            graph.add_node(node_id, name=entity.get("name"))
+    for rel in kg.get("relationships", []):
+        source = rel.get("source")
+        target = rel.get("target")
+        if source is None or target is None:
+            continue
+        properties = rel.get("properties") or {}
+        weight = rel.get("weight", properties.get("weight", 1.0))
+        try:
+            weight = float(weight)
+        except (TypeError, ValueError):
+            weight = 1.0
+        # ContextGraph allows parallel edges; DiGraph keeps one. Keep the
+        # lowest weight so the collapse matches how PathFinder reads weight
+        # as cost (same rule as explorer's build_nx_graph).
+        existing = graph.get_edge_data(source, target)
+        if existing is not None:
+            weight = min(weight, existing.get("weight", weight))
+        graph.add_edge(source, target, weight=weight, type=rel.get("type"))
+    return graph
+
+
+def _resolve_entity(graph: Any, token: str) -> str:
+    """Map an entity name onto its graph node ID.
+
+    kg find-path documents ``--from`` / ``--to`` as entity names, but the
+    NetworkX projection is keyed by entity ID, and on the memory backend those
+    differ (recorded decisions carry generated IDs). Accept an exact node ID
+    first, then a unique display name; an ambiguous name is reported rather
+    than silently picking one (#1941 review).
+    """
+    if token in graph:
+        return token
+    matches = [
+        node for node, attrs in graph.nodes(data=True)
+        if attrs.get("name") == token
+    ]
+    if not matches:
+        raise click.ClickException(
+            f"No entity named '{token}' in the graph. Pass an entity name or ID "
+            "that `semantica kg query` reports."
+        )
+    if len(matches) > 1:
+        raise click.ClickException(
+            f"Entity name '{token}' is ambiguous ({len(matches)} nodes); pass "
+            "the entity ID instead: " + ", ".join(sorted(matches))
+        )
+    return matches[0]
+
+
+def _reject_negative_weights(graph: Any) -> None:
+    """Fail before Dijkstra rather than return a wrong path.
+
+    Dijkstra settles each node once and never revisits it, so a negative edge
+    cost can yield a path that is not the cheapest one. The projection takes
+    whatever weight a relationship carries, so the check lives at the one
+    command that assumes non-negative costs (#1941 review).
+    """
+    for source, target, attrs in graph.edges(data=True):
+        weight = attrs.get("weight")
+        if weight is not None and weight < 0:
+            raise click.ClickException(
+                f"shortest path needs non-negative edge weights, but "
+                f"'{source}' -> '{target}' has weight {weight}; Dijkstra would "
+                "return a path that is not the cheapest."
+            )
 
 
 def _lowercase_datalog_args(fact_str: str) -> str:
@@ -1849,9 +2314,11 @@ def kg_stats(cli_ctx: CLIContext, fmt: str, local_json: bool) -> None:
         try:
             from .kg import GraphAnalyzer
 
+            # compute_metrics() returns {} when handed no graph, so this
+            # command used to exit 0 with an empty table (#1941).
             stats = GraphAnalyzer(
                 config=cli_ctx.config.to_dict()
-            ).compute_metrics()
+            ).compute_metrics(graph=_kg_graph(cli_ctx))
         except ImportError as exc:
             raise click.ClickException(f"KG module not available: {exc}") from exc
         if json_out:
@@ -1883,7 +2350,20 @@ def kg_analyze(cli_ctx: CLIContext, mode: str, local_json: bool) -> None:
             from .kg import GraphAnalyzer
         except ImportError as exc:
             raise click.ClickException(f"KG module not available: {exc}") from exc
-        result = GraphAnalyzer(config=cli_ctx.config.to_dict()).analyze(mode=mode)
+        analyzer = GraphAnalyzer(config=cli_ctx.config.to_dict())
+        graph = _kg_graph(cli_ctx)
+        # analyze() takes the graph first and accepts no `mode`: the keyword
+        # used to be swallowed by **options, so every --mode value ran the
+        # whole analysis (#1941). Dispatch to the sub-analyzer instead.
+        if mode == "all":
+            result = analyzer.analyze(graph)
+        else:
+            steps = {
+                "centrality": analyzer.calculate_centrality,
+                "community": analyzer.detect_communities,
+                "connectivity": analyzer.analyze_connectivity,
+            }
+            result = steps[mode](graph)
         if json_out:
             _jecho(result if isinstance(result, dict) else {"result": str(result)})
         else:
@@ -1907,12 +2387,29 @@ def kg_find_path(cli_ctx: CLIContext, from_entity: str, to_entity: str,
     json_out = _is_json(cli_ctx, local_json)
 
     def _action() -> None:
+        # PathFinder implements shortest-path searches only — there is no
+        # semantic or causal variant to dispatch to, so say so instead of
+        # quietly returning a shortest path for a causal question (#1941).
+        if path_type != "shortest":
+            raise click.ClickException(
+                f"--type {path_type} is not supported: PathFinder only "
+                "implements shortest-path searches. Use --type shortest."
+            )
         try:
             from .kg import PathFinder
         except ImportError as exc:
             raise click.ClickException(f"KG module not available: {exc}") from exc
-        path = PathFinder(config=cli_ctx.config.to_dict()).find_path(
-            from_entity, to_entity, path_type=path_type
+        # PathFinder() takes default_algorithm, not config, and exposes no
+        # find_path() (#1941). It also cannot traverse the {"entities",
+        # "relationships"} dict — it duck-types against neighbors()/
+        # get_edge_data() and would report "not found" for nodes that are in
+        # the graph (#1725) — so it gets the NetworkX projection.
+        graph = _kg_nx_graph(cli_ctx)
+        _reject_negative_weights(graph)
+        path = PathFinder().dijkstra_shortest_path(
+            graph,
+            _resolve_entity(graph, from_entity),
+            _resolve_entity(graph, to_entity),
         )
         if json_out:
             _jecho(path if isinstance(path, dict) else {"path": path})
@@ -1926,7 +2423,7 @@ def kg_find_path(cli_ctx: CLIContext, from_entity: str, to_entity: str,
 @click.option("--json", "local_json", is_flag=True, default=False)
 @click.pass_obj
 def kg_resolve(cli_ctx: CLIContext, local_json: bool) -> None:
-    """Run entity resolution across the knowledge graph."""
+    """Resolve duplicate entities and report the merged result (read-only)."""
     cli_ctx = _require_ctx(cli_ctx)
 
     def _action() -> None:
@@ -1934,11 +2431,30 @@ def kg_resolve(cli_ctx: CLIContext, local_json: bool) -> None:
             from .kg import EntityResolver
         except ImportError as exc:
             raise click.ClickException(f"KG module not available: {exc}") from exc
-        result = EntityResolver(config=cli_ctx.config.to_dict()).resolve()
+        # EntityResolver exposes resolve_entities()/merge_duplicates(), never
+        # resolve() (#1941), and it resolves a list of entities rather than
+        # reading the store itself. It also does not persist anything: the
+        # merged entities exist inside this process only, so the command
+        # reports them instead of claiming a change the store never received
+        # (#1941 review).
+        entities = _kg_graph(cli_ctx).get("entities", [])
+        resolved = EntityResolver(
+            config=cli_ctx.config.to_dict()
+        ).resolve_entities(entities)
+        result = {
+            "input": len(entities),
+            "resolved": len(resolved),
+            "merged": max(len(entities) - len(resolved), 0),
+            "entities": resolved,
+        }
         if _is_json(cli_ctx, local_json):
-            _jecho(result if isinstance(result, dict) else {"result": str(result)})
+            _jecho(result)
         else:
-            _ok(cli_ctx, f"Entity resolution complete: {result}")
+            _ok(
+                cli_ctx,
+                f"Entity resolution computed (read-only, nothing written back): "
+                f"{len(entities)} in, {len(resolved)} out, {result['merged']} merged",
+            )
 
     _run_with_error_handling(_action)
 
@@ -1955,9 +2471,28 @@ def kg_predict(cli_ctx: CLIContext, local_json: bool) -> None:
             from .kg import LinkPredictor
         except ImportError as exc:
             raise click.ClickException(f"KG module not available: {exc}") from exc
-        result = LinkPredictor(config=cli_ctx.config.to_dict()).predict()
+        # LinkPredictor() takes method=, not config=, and exposes
+        # predict_links(), not predict() (#1941). It returns
+        # (source, target, score) tuples, which the old `str(result)`
+        # fallback would have dumped as one opaque string. Its node
+        # enumeration is NetworkX-shaped: on the dict or on a ContextGraph
+        # it finds no candidate nodes at all and reports 0 predictions on a
+        # populated graph (#1725).
+        # directed=True: the projection is a DiGraph, and the default unordered
+        # candidate generation drops a missing reverse edge whenever the forward
+        # one exists (#1941 review).
+        predictions = LinkPredictor().predict_links(
+            graph=_kg_nx_graph(cli_ctx), directed=True
+        )
+        result = {
+            "count": len(predictions),
+            "predictions": [
+                {"source": source, "target": target, "score": score}
+                for source, target, score in predictions
+            ],
+        }
         if _is_json(cli_ctx, local_json):
-            _jecho(result if isinstance(result, dict) else {"result": str(result)})
+            _jecho(result)
         else:
             _pprint(cli_ctx, result)
 
@@ -1976,9 +2511,11 @@ def kg_validate_cmd(cli_ctx: CLIContext, local_json: bool) -> None:
             from .kg import GraphValidator
         except ImportError as exc:
             raise click.ClickException(f"KG module not available: {exc}") from exc
-        result = GraphValidator(config=cli_ctx.config.to_dict()).validate()
+        # GraphValidator() takes schema=/strict=, not config=, and validate()
+        # takes the graph (#1941).
+        result = GraphValidator().validate(_kg_graph(cli_ctx)).to_dict()
         if _is_json(cli_ctx, local_json):
-            _jecho(result if isinstance(result, dict) else {"result": str(result)})
+            _jecho(result)
         else:
             _ok(cli_ctx, f"Graph validation: {result}")
 
@@ -4098,19 +4635,47 @@ def validate_shacl(cli_ctx: CLIContext, shapes: Optional[str], strictness: str,
 
     def _action() -> None:
         try:
-            from .ontology import OntologyValidator
-            v = OntologyValidator(config=cli_ctx.config.to_dict())
-            result = v.validate_shacl(shapes_file=shapes, strictness=strictness)
+            from .ontology import run_shacl_validation
         except ImportError as exc:
-            raise click.ClickException(f"Ontology/validation module not available: {exc}") from exc
-        payload = result if isinstance(result, dict) else {"valid": bool(result)}
+            raise click.ClickException(
+                f"Ontology/validation module not available: {exc}"
+            ) from exc
+        graph = _knowledge_graph_dict(cli_ctx)
+        # min_occurrences=1: a type represented by a single entity still needs
+        # a shape, or that entity is never checked (#1814 review).
+        ontology = _ontology_from_graph(cli_ctx, graph, min_occurrences=1)
+        ontology_namespace = _ontology_namespace(ontology)
+        class_namespace, property_namespace = _shacl_data_namespaces(ontology, shapes)
+        class_iris, property_iris = _term_iris_by_source(
+            ontology,
+            class_namespace if class_namespace != ontology_namespace else None,
+            property_namespace if property_namespace != ontology_namespace else None,
+        )
+        data_namespace = class_namespace
+        data_graph = _shacl_data_graph_turtle(
+            graph, data_namespace, class_iris, property_iris
+        )
+        shapes_graph = _shacl_shapes_turtle(ontology, shapes, strictness)
+        try:
+            shacl_report = run_shacl_validation(data_graph, shapes_graph)
+        except ImportError as exc:
+            raise click.ClickException(
+                "SHACL validation needs pyshacl, which ships in the optional "
+                "'shacl' extra: pip install 'semantica[shacl]'"
+            ) from exc
+        payload = {
+            "conforms": shacl_report.conforms,
+            "violation_count": shacl_report.violation_count,
+            "violations": _serialize_extract_result(shacl_report.violations),
+            "warnings": _serialize_extract_result(shacl_report.warnings),
+        }
         if report:
             Path(report).write_text(json.dumps(payload, default=str), encoding="utf-8")
             _ok(cli_ctx, f"Wrote {report}")
         if _is_json(cli_ctx, local_json):
             _jecho(payload)
         else:
-            _pprint(cli_ctx, result)
+            _pprint(cli_ctx, payload)
 
     _run_with_error_handling(_action)
 
@@ -4120,11 +4685,23 @@ def validate_shacl(cli_ctx: CLIContext, shapes: Optional[str], strictness: str,
               type=click.Choice(["value", "property", "type", "relationship",
                                   "temporal", "logical", "entity", "all"]),
               default="all", show_default=True)
+@click.option(
+    "--property",
+    "property_name",
+    default=None,
+    help="Property to compare (value and property strategies).",
+)
 @click.option("--format", "fmt", type=click.Choice(["json", "table"]),
               default="json", show_default=True)
 @click.option("--json", "local_json", is_flag=True, default=False)
 @click.pass_obj
-def validate_conflicts(cli_ctx: CLIContext, strategy: str, fmt: str, local_json: bool) -> None:
+def validate_conflicts(
+    cli_ctx: CLIContext,
+    strategy: str,
+    property_name: Optional[str],
+    fmt: str,
+    local_json: bool,
+) -> None:
     """Detect value, type, temporal, and logical conflicts.
 
     \b
@@ -4135,14 +4712,32 @@ def validate_conflicts(cli_ctx: CLIContext, strategy: str, fmt: str, local_json:
 
     def _action() -> None:
         try:
-            from .conflicts import detect_conflicts
-            result = detect_conflicts(strategy=strategy, config=cli_ctx.config.to_dict())
+            from .conflicts import ConflictDetector
         except ImportError as exc:
             raise click.ClickException(f"Conflicts module not available: {exc}") from exc
+        graph = _knowledge_graph_dict(cli_ctx)
+        detector = ConflictDetector(config=cli_ctx.config.to_dict())
+        conflicts = detector.detect_conflicts(
+            _conflict_entities(graph),
+            method=strategy,
+            property_name=property_name,
+            relationships=graph.get("relationships", []),
+        )
+        # The detector's "all" method never dispatches its relationship
+        # strategy, so the relationships this command reads went unexamined on
+        # the default run (#1814 review).
+        if strategy == "all":
+            conflicts = list(conflicts) + detector.detect_relationship_conflicts(
+                graph.get("relationships", [])
+            )
+        payload = {
+            "conflicts": _serialize_extract_result(conflicts),
+            "count": len(conflicts),
+        }
         if _is_json(cli_ctx, local_json) or fmt == "json":
-            _jecho(result if isinstance(result, dict) else {"conflicts": result})
+            _jecho(payload)
         else:
-            _pprint(cli_ctx, result)
+            _pprint(cli_ctx, payload)
 
     _run_with_error_handling(_action)
 
@@ -4157,14 +4752,16 @@ def validate_integrity(cli_ctx: CLIContext, local_json: bool) -> None:
     def _action() -> None:
         try:
             from .kg import GraphValidator
-            v = GraphValidator(config=cli_ctx.config.to_dict())
-            result = v.integrity_check()
         except ImportError as exc:
             raise click.ClickException(f"KG module not available: {exc}") from exc
+        # GraphValidator has no integrity_check() — validate() is its only
+        # structural check, so this subcommand reports that (#1941).
+        result = GraphValidator().validate(_kg_graph(cli_ctx)).to_dict()
         if _is_json(cli_ctx, local_json):
-            _jecho(result if isinstance(result, dict) else {"valid": bool(result)})
+            _jecho(result)
         else:
             _ok(cli_ctx, f"Integrity check: {result}")
+
 
     _run_with_error_handling(_action)
 
@@ -4215,6 +4812,18 @@ def ontology_generate(cli_ctx: CLIContext, domain: Optional[str], output: Option
     _run_with_error_handling(_action)
 
 
+# The CLI advertises rdflib's public format names, but the ingestor hands an
+# explicit format straight to `Dataset.parse`, which wants its own parser names.
+# Passing the advertised name through meant `rdfxml`, `jsonld` and `ntriples`
+# never reached the XML, JSON-LD or N-Triples parser (#1814 review).
+_ONTOLOGY_IMPORT_FORMATS = {
+    "turtle": "turtle",
+    "rdfxml": "xml",
+    "jsonld": "json-ld",
+    "ntriples": "nt",
+}
+
+
 @ontology.command("import")
 @click.argument("source")
 @click.option("--format", "fmt",
@@ -4240,7 +4849,10 @@ def ontology_import(cli_ctx: CLIContext, source: str, fmt: Optional[str],
             return
         try:
             from .ontology import ingest_ontology
-            result = ingest_ontology(source, format=fmt, config=cli_ctx.config.to_dict())
+            ingest_kwargs: Dict[str, Any] = {}
+            if fmt:
+                ingest_kwargs["format"] = _ONTOLOGY_IMPORT_FORMATS[fmt]
+            result = ingest_ontology(source, **ingest_kwargs)
         except ImportError as exc:
             raise click.ClickException(f"Ontology module not available: {exc}") from exc
         if _is_json(cli_ctx, local_json):
@@ -4252,24 +4864,39 @@ def ontology_import(cli_ctx: CLIContext, source: str, fmt: Optional[str],
 
 
 @ontology.command("validate")
-@click.option("--shapes", default=None, type=click.Path(exists=True))
-@click.option("--strictness", type=click.Choice(["strict", "moderate", "lenient"]),
-              default="moderate", show_default=True)
+@click.option("--shapes", default=None, hidden=True,
+              help="Moved: use `semantica validate shacl --shapes`.")
+@click.option("--strictness", default=None, hidden=True,
+              help="Moved: use `semantica validate shacl --strictness`.")
 @click.option("--report", default=None, type=click.Path())
 @click.option("--json", "local_json", is_flag=True, default=False)
 @click.pass_obj
-def ontology_validate(cli_ctx: CLIContext, shapes: Optional[str], strictness: str,
-                      report: Optional[str], local_json: bool) -> None:
-    """Run SHACL validation on the ontology."""
+def ontology_validate(
+    cli_ctx: CLIContext, shapes: Optional[str], strictness: Optional[str],
+    report: Optional[str], local_json: bool
+) -> None:
+    """Check the generated ontology for consistency and satisfiability.
+
+    \b
+    Example:
+      semantica ontology validate --report ontology_report.json
+    """
     cli_ctx = _require_ctx(cli_ctx)
 
     def _action() -> None:
+        # --shapes / --strictness moved to `validate shacl`. Keep accepting them
+        # so an existing script gets a pointer instead of Click's "No such
+        # option" usage error (#1814 review).
+        if shapes or strictness:
+            raise click.ClickException(
+                "`ontology validate` no longer takes --shapes/--strictness; "
+                "use `semantica validate shacl --shapes ... --strictness ...`."
+            )
         try:
             from .ontology import validate_ontology
-            result = validate_ontology(shapes_file=shapes, strictness=strictness,
-                                       config=cli_ctx.config.to_dict())
         except ImportError as exc:
             raise click.ClickException(f"Ontology module not available: {exc}") from exc
+        result = validate_ontology(_ontology_from_graph(cli_ctx))
         payload = result if isinstance(result, dict) else {"valid": bool(result)}
         if report:
             Path(report).write_text(json.dumps(payload, default=str), encoding="utf-8")
@@ -4277,7 +4904,7 @@ def ontology_validate(cli_ctx: CLIContext, shapes: Optional[str], strictness: st
         if _is_json(cli_ctx, local_json):
             _jecho(payload)
         else:
-            _pprint(cli_ctx, result)
+            _pprint(cli_ctx, payload)
 
     _run_with_error_handling(_action)
 
@@ -4293,11 +4920,11 @@ def ontology_shacl(cli_ctx: CLIContext, output: Optional[str], local_json: bool)
     def _action() -> None:
         try:
             from .ontology import SHACLGenerator
-            gen = SHACLGenerator(config=cli_ctx.config.to_dict())
-            result = gen.generate()
         except ImportError as exc:
             raise click.ClickException(f"Ontology module not available: {exc}") from exc
-        text = str(result)
+        generator = SHACLGenerator(config=cli_ctx.config.to_dict())
+        shapes_graph = generator.generate(_ontology_from_graph(cli_ctx))
+        text = generator.serialize(shapes_graph, format="turtle")
         if output:
             Path(output).write_text(text, encoding="utf-8")
             _ok(cli_ctx, f"Wrote {output}")
@@ -4410,33 +5037,69 @@ def ontology_health(cli_ctx: CLIContext, fmt: str, local_json: bool) -> None:
 
     def _action() -> None:
         try:
-            from .ontology import OntologyValidator
-            v = OntologyValidator(config=cli_ctx.config.to_dict())
-            result = v.health()
+            from .ontology import OntologyEngine
         except ImportError as exc:
             raise click.ClickException(f"Ontology module not available: {exc}") from exc
+        # Read the graph once and hand it to the quality gate as well: the
+        # generated ontology does not retain the instances, so without this the
+        # report omitted every instance-level check (#1814 review).
+        graph = _knowledge_graph_dict(cli_ctx)
+        report = OntologyEngine().quality_check(
+            _ontology_from_graph(cli_ctx, graph), graph_data=graph
+        )
+        payload = _serialize_extract_result(report)
         if _is_json(cli_ctx, local_json) or fmt == "json":
-            _jecho(result if isinstance(result, dict) else {"health": str(result)})
+            _jecho(payload if isinstance(payload, dict) else {"health": payload})
         else:
-            _pprint(cli_ctx, result)
+            _pprint(cli_ctx, payload)
 
     _run_with_error_handling(_action)
 
 
 @ontology.command("version")
+@click.option("--storage", "storage_path", default=None, type=click.Path(),
+              help="SQLite store holding saved ontology snapshots.")
 @click.option("--json", "local_json", is_flag=True, default=False)
 @click.pass_obj
-def ontology_version(cli_ctx: CLIContext, local_json: bool) -> None:
+def ontology_version(cli_ctx: CLIContext, storage_path: Optional[str],
+                     local_json: bool) -> None:
     """Manage ontology versions."""
     cli_ctx = _require_ctx(cli_ctx)
 
     def _action() -> None:
         try:
             from .change_management import OntologyVersionManager
-            v = OntologyVersionManager(**cli_ctx.config.to_dict())
-            result = v.current()
         except ImportError as exc:
-            raise click.ClickException(f"Change management module not available: {exc}") from exc
+            raise click.ClickException(
+                f"Change management module not available: {exc}"
+            ) from exc
+        # OntologyVersionManager keeps an in-memory store unless it is handed a
+        # path, and Config.to_dict() has no top-level one, so the command read a
+        # fresh store and reported "no versions" no matter what another process
+        # had saved (#1814 review). Resolve the shared store from the flag or
+        # `custom.ontology.version_storage_path` — Config keeps a fixed set of
+        # sections, so a setting outside them only survives under `custom`.
+        storage = storage_path or cli_ctx.config.get(
+            "custom.ontology.version_storage_path"
+        )
+        manager = (
+            OntologyVersionManager(storage_path=storage)
+            if storage
+            else OntologyVersionManager()
+        )
+        versions = manager.list_versions()
+        if versions:
+            result = max(versions, key=lambda s: str(s.get("timestamp") or ""))
+        elif storage:
+            result = {"version": None, "message": "No ontology versions recorded yet."}
+        else:
+            result = {
+                "version": None,
+                "message": (
+                    "No persistent version store selected; pass --storage or set "
+                    "custom.ontology.version_storage_path to read saved snapshots."
+                ),
+            }
         if _is_json(cli_ctx, local_json):
             _jecho(result if isinstance(result, dict) else {"version": str(result)})
         else:
