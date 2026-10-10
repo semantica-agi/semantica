@@ -4273,3 +4273,57 @@ class TestOntologyAlignOutput:
         # pd.read_json(lines=True) must succeed — this is what the F2 bug broke.
         df = pd.read_json(out, lines=True)
         assert "alignments" in df.columns
+
+
+class _FakeUrlopenResponse:
+    """Minimal context-manager response for a stubbed urllib.request.urlopen."""
+
+    def __init__(self, payload: bytes):
+        self._payload = payload
+
+    def __enter__(self) -> "_FakeUrlopenResponse":
+        return self
+
+    def __exit__(self, *exc: Any) -> bool:
+        return False
+
+    def read(self) -> bytes:
+        return self._payload
+
+
+class TestChangelogVersionTag:
+    """changelog must strip the "v" prefix, not a run of leading characters.
+
+    Regression for #1845: ``tag.lstrip("v")`` treats "v" as a character set, so
+    a tag like ``vv1.2.3`` lost both leading v's. ``removeprefix("v")`` strips
+    exactly one, which is the documented intent.
+    """
+
+    @staticmethod
+    def _stub_release(monkeypatch, tag_name: str) -> None:
+        import urllib.request
+
+        payload = json.dumps(
+            {"tag_name": tag_name, "body": "", "html_url": ""}
+        ).encode()
+        monkeypatch.setattr(
+            urllib.request,
+            "urlopen",
+            lambda *a, **kw: _FakeUrlopenResponse(payload),
+        )
+
+    @pytest.mark.parametrize(
+        "tag_name,expected",
+        [
+            ("v1.2.3", "1.2.3"),
+            ("vv1.2.3", "v1.2.3"),
+            ("1.2.3", "1.2.3"),
+        ],
+    )
+    def test_changelog_json_latest_strips_one_v(
+        self, runner, monkeypatch, tag_name, expected
+    ):
+        self._stub_release(monkeypatch, tag_name)
+        result = runner.invoke(cli_module.main, ["changelog", "--json"])
+        _ok(result)
+        assert json.loads(result.output)["latest"] == expected
