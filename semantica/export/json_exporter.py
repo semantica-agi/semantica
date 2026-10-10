@@ -33,6 +33,22 @@ from ..utils.logging import get_logger
 from ..utils.progress_tracker import get_progress_tracker
 from .rdf_exporter import SEMANTICA_NS, mint_entity_iri, mint_relationship_iri
 
+# The only two formats this exporter writes. Both entry points branch on
+# "json-ld" and fall through to JSON, so any other name used to be written as
+# JSON under whatever the caller passed (#1968).
+_VALID_EXPORT_FORMATS = ("json", "json-ld")
+
+
+def _check_export_format(export_format: str) -> None:
+    """Reject a format ``JSONExporter`` cannot write (#1968)."""
+    if export_format not in _VALID_EXPORT_FORMATS:
+        raise ValidationError(
+            "JSONExporter only writes "
+            f"{' and '.join(_VALID_EXPORT_FORMATS)}; got {export_format!r}. "
+            "Use the exporter for that format instead.",
+            validation_context={"method": "JSONExporter", "format": export_format},
+        )
+
 
 def _content_iri(prefix: str, payload: Any) -> str:
     """Mint a document IRI from what was exported, not when.
@@ -128,7 +144,13 @@ class JSONExporter:
         # JSON configuration
         self.indent = indent
         self.ensure_ascii = ensure_ascii
-        self.format = format
+        # "not provided" and None are the same thing to the callers, so an
+        # explicit None falls back to "json" rather than reaching the guard.
+        # Validating here as well covers export_entities /
+        # export_relationships, which take no format of their own and would
+        # otherwise inherit an unchecked one.
+        self.format = format or "json"
+        _check_export_format(self.format)
 
         # Initialize progress tracker
         self.progress_tracker = get_progress_tracker()
@@ -181,9 +203,10 @@ class JSONExporter:
 
         try:
             file_path = Path(file_path)
-            ensure_directory(file_path.parent)
-
             export_format = format or self.format
+            _check_export_format(export_format)
+
+            ensure_directory(file_path.parent)
 
             self.logger.debug(
                 f"Exporting data to JSON ({export_format}): {file_path}, "
@@ -267,6 +290,7 @@ class JSONExporter:
             >>> exporter.export_knowledge_graph(kg, "kg.json", format="json-ld")
         """
         export_format = format or self.format
+        _check_export_format(export_format)
 
         self.logger.debug(f"Exporting knowledge graph to {export_format}: {file_path}")
 
