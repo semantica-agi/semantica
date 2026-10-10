@@ -1,5 +1,6 @@
 import unittest
 
+from semantica.reasoning._rule_matching import normalize_bare_variables
 from semantica.reasoning.reasoner import Reasoner, Rule
 
 
@@ -394,6 +395,174 @@ class TestPureMatchingModule(unittest.TestCase):
             [], "C()", [], pattern_matcher=None, substituter=None
         )
         self.assertEqual(matched, [])
+
+
+class TestBareVariableNormalisation(unittest.TestCase):
+    """#1790: a bare single uppercase letter is a rule variable, as documented.
+
+    ``docs/guides/reasoning.md`` documents a variable as a single uppercase
+    letter and its rules use the bare form (``ThreatActor(X)``). The engine
+    used to bind only the explicit ``?x`` form, so those rules matched nothing
+    and returned an empty result with no error at all. A multi-character name
+    stays a constant and has to be written as ``?name`` when it is a variable.
+    """
+
+    def test_bare_single_letter_variable_is_bound(self):
+        result = Reasoner().infer_facts(
+            ["Employed(John)"],
+            ["IF Employed(X) THEN Eligible(X)"],
+        )
+        self.assertEqual(result, ["Eligible(John)"])
+
+    def test_explicit_question_mark_form_still_works(self):
+        result = Reasoner().infer_facts(
+            ["Employed(John)"],
+            ["IF Employed(?x) THEN Eligible(?x)"],
+        )
+        self.assertEqual(result, ["Eligible(John)"])
+
+    def test_bare_and_explicit_forms_can_be_mixed(self):
+        result = Reasoner().infer_facts(
+            ["Knows(John, Mary)", "Knows(Mary, Sue)"],
+            ["IF Knows(X, ?y) THEN Linked(X, ?y)"],
+        )
+        self.assertEqual(sorted(result), ["Linked(John, Mary)", "Linked(Mary, Sue)"])
+
+    def test_multi_character_bare_name_stays_a_constant(self):
+        # Guard: multi-character names have always been constants and existing
+        # rules depend on it, so only a lone uppercase letter is rewritten.
+        self.assertEqual(
+            Reasoner().infer_facts(
+                ["Disease(Flu)"], ["IF Disease(Flu) THEN Symptom(Fever)"]
+            ),
+            ["Symptom(Fever)"],
+        )
+        self.assertEqual(
+            Reasoner().infer_facts(
+                ["Disease(BirdFlu)"], ["IF Disease(Flu) THEN Symptom(Fever)"]
+            ),
+            [],
+        )
+
+    def test_rule_object_path_is_normalised_too(self):
+        rule = Rule(
+            rule_id="r1",
+            name="R1",
+            conditions=["Employed(X)"],
+            conclusion="Eligible(X)",
+        )
+        self.assertEqual(
+            Reasoner().infer_facts(["Employed(John)"], [rule]),
+            ["Eligible(John)"],
+        )
+
+    def test_caller_rule_object_is_not_mutated(self):
+        rule = Rule(
+            rule_id="r1",
+            name="R1",
+            conditions=["Employed(X)"],
+            conclusion="Eligible(X)",
+        )
+        Reasoner().add_rule(rule)
+        self.assertEqual(rule.conditions, ["Employed(X)"])
+        self.assertEqual(rule.conclusion, "Eligible(X)")
+
+    def test_docs_forward_chaining_example_matches_documented_output(self):
+        # The "Step 2" example in docs/guides/reasoning.md and the output it
+        # prints below the snippet.
+        facts = [
+            "ThreatActor(APT29)",
+            "ThreatActor(GAMMA-7)",
+            "ThreatActor(DELTA-3)",
+            "Exploits(APT29, CVE-2025-3400)",
+            "Exploits(GAMMA-7, CVE-2025-1234)",
+            "Exploits(GAMMA-7, CVE-2025-5678)",
+            "CriticalVuln(CVE-2025-3400)",
+            "CriticalVuln(CVE-2025-1234)",
+            "CriticalVuln(CVE-2025-5678)",
+            "Targets(APT29, NATOLogistics)",
+            "Targets(GAMMA-7, NATOLogistics)",
+            "SuppliedExploits(DELTA-3, GAMMA-7)",
+            "SectorOverlap(NATOLogistics, CriticalInfrastructure)",
+        ]
+        rules = [
+            "IF ThreatActor(X) AND Exploits(X, Y) AND CriticalVuln(Y) "
+            "THEN HighRiskActor(X)",
+            "IF HighRiskActor(X) AND Targets(X, Z) THEN CriticalTarget(Z)",
+            "IF SuppliedExploits(A, B) AND HighRiskActor(B) "
+            "THEN HighRiskSupplier(A)",
+        ]
+        self.assertEqual(
+            sorted(Reasoner().infer_facts(facts, rules)),
+            [
+                "CriticalTarget(NATOLogistics)",
+                "HighRiskActor(APT29)",
+                "HighRiskActor(GAMMA-7)",
+                "HighRiskSupplier(DELTA-3)",
+            ],
+        )
+
+    def test_normalize_bare_variables_helper(self):
+        self.assertEqual(normalize_bare_variables("Employed(X)"), "Employed(?X)")
+        self.assertEqual(normalize_bare_variables("Exploits(X, Y)"), "Exploits(?X, ?Y)")
+        self.assertEqual(normalize_bare_variables("Disease(Flu)"), "Disease(Flu)")
+        self.assertEqual(normalize_bare_variables("Vuln(CVE-2025-3400)"), "Vuln(CVE-2025-3400)")
+        self.assertEqual(normalize_bare_variables("A"), "A")
+        self.assertEqual(normalize_bare_variables("Person(?x)"), "Person(?x)")
+
+    def test_normalize_leaves_text_without_a_variable_untouched(self):
+        # Rebuilding the term unconditionally dropped the whitespace between a
+        # predicate and its parenthesis, so "Person (John)" came out as
+        # "Person(John)" and stopped matching the fact of the same name.
+        self.assertEqual(normalize_bare_variables("Person (John)"), "Person (John)")
+        self.assertEqual(normalize_bare_variables("Eligible(John)"), "Eligible(John)")
+
+    def test_rule_without_a_variable_still_matches_its_spaced_fact(self):
+        self.assertEqual(
+            Reasoner().infer_facts(
+                ["Person (John)"], ["IF Person (John) THEN Eligible(John)"]
+            ),
+            ["Eligible(John)"],
+        )
+
+    def test_hyphenated_predicate_can_bind_a_bare_variable(self):
+        # The predicate charset mirrors the engine's own fact parser, so a name
+        # such as "works-at" is rewritten like any other predicate.
+        self.assertEqual(
+            Reasoner().infer_facts(
+                ["works-at(John)"], ["IF works-at(X) THEN Staff(X)"]
+            ),
+            ["Staff(John)"],
+        )
+
+    def test_nested_term_arguments_are_handled(self):
+        self.assertEqual(
+            Reasoner().infer_facts(
+                ["Employed(John, Department(Sales))"],
+                ["IF Employed(X, Department(Sales)) THEN Mgr(X)"],
+            ),
+            ["Mgr(John)"],
+        )
+
+    def test_multi_character_variable_requires_the_explicit_form(self):
+        facts = ["Exploits(APT29, CVE-2025-3400)", "CriticalVuln(CVE-2025-3400)"]
+        # A multi-character name is a constant, so the bare rule matches
+        # nothing ...
+        self.assertEqual(
+            Reasoner().infer_facts(
+                facts,
+                ["IF Exploits(X, CVE) AND CriticalVuln(CVE) THEN HighRiskActor(X)"],
+            ),
+            [],
+        )
+        # ... and the documented ?name form is what binds it.
+        self.assertEqual(
+            Reasoner().infer_facts(
+                facts,
+                ["IF Exploits(X, ?CVE) AND CriticalVuln(?CVE) THEN HighRiskActor(X)"],
+            ),
+            ["HighRiskActor(APT29)"],
+        )
 
 
 def test_match_rule_keeps_pattern_override(monkeypatch):

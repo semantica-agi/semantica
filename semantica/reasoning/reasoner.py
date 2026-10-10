@@ -8,7 +8,7 @@ supported by the Semantica framework. It serves as a facade for different reason
 import re
 import uuid
 from collections.abc import Mapping, Sequence, Set as AbstractSet
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Union
@@ -17,6 +17,7 @@ from ..utils.logging import get_logger
 from ..utils.progress_tracker import get_progress_tracker
 from ._rule_matching import match_pattern as _pure_match_pattern
 from ._rule_matching import match_rule as _pure_match_rule
+from ._rule_matching import normalize_bare_variables
 from ._rule_matching import substitute_variables as _pure_substitute_variables
 
 
@@ -40,6 +41,29 @@ def _substitute_variables(template: str, bindings: Dict[str, str]) -> str:
     are matched, leaving unbound placeholders untouched.
     """
     return _pure_substitute_variables(template, bindings)
+
+
+def _normalize_rule_bare_variables(rule: "Rule") -> "Rule":
+    """Return ``rule`` with bare single-letter variables rewritten to ``?X``.
+
+    A ``Rule`` object handed to :meth:`Reasoner.add_rule` never goes through
+    :meth:`Reasoner._parse_rule_definition`, so it needs the same
+    normalisation applied to the string form; otherwise the identical rule
+    would behave differently depending on how it was supplied (#1790). A copy
+    is returned, leaving the caller's object untouched.
+    """
+    conditions = [
+        normalize_bare_variables(c) if isinstance(c, str) else c
+        for c in rule.conditions
+    ]
+    conclusion = (
+        normalize_bare_variables(rule.conclusion)
+        if isinstance(rule.conclusion, str)
+        else rule.conclusion
+    )
+    if conditions == rule.conditions and conclusion == rule.conclusion:
+        return rule
+    return replace(rule, conditions=conditions, conclusion=conclusion)
 
 
 def _canonicalize_activation_value(
@@ -462,7 +486,7 @@ class Reasoner:
         warning is logged so the discrepancy isn't silently swallowed.
         """
         if isinstance(rule_def, Rule):
-            rule = rule_def
+            rule = _normalize_rule_bare_variables(rule_def)
         else:
             rule = self._parse_rule_definition(rule_def)
 
@@ -517,7 +541,12 @@ class Reasoner:
     ) -> List[Any]:
         """
         Infer new facts from existing facts or a knowledge graph.
-        
+
+        A rule variable may be written either as a single uppercase letter
+        (``Employed(X)``) or in the explicit ``?x`` form (``Employed(?x)``);
+        both bind the same way. Any other bare name -- ``Flu``, ``Metformin``,
+        ``CVE-2025-3400`` -- is a constant, not a variable.
+
         Args:
             facts: List of initial facts or a knowledge graph dictionary.
             rules: List of rules to apply (strings or Rule objects)
@@ -759,14 +788,17 @@ class Reasoner:
         conclusion_str = if_match.group(2)
         
         # Split conditions by AND
-        conditions = [c.strip() for c in re.split(r"\s+AND\s+", conditions_str, flags=re.IGNORECASE)]
+        conditions = [
+            normalize_bare_variables(c.strip())
+            for c in re.split(r"\s+AND\s+", conditions_str, flags=re.IGNORECASE)
+        ]
         
         self.rule_counter += 1
         return Rule(
             rule_id=f"rule_{self.rule_counter}",
             name=f"Rule {self.rule_counter}",
             conditions=conditions,
-            conclusion=conclusion_str.strip()
+            conclusion=normalize_bare_variables(conclusion_str.strip())
         )
         
     def _match_rule(self, rule: Rule) -> List[Tuple[str, List[str], Dict[str, str]]]:

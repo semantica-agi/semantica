@@ -19,6 +19,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Rules written with a bare variable name silently matched nothing** (fixes #1790)
+  - `docs/guides/reasoning.md` used the bare form for its rule variables (`IF ThreatActor(X) AND Exploits(X, Y) THEN HighRiskActor(X)`), but the engine only ever bound the explicit `?x` form. A bare `X` was kept as a literal, so the condition matched no fact, `infer_facts` returned an empty list, and nothing was logged.
+  - A rule's arguments are now normalised before the rule is stored: an argument that is exactly one uppercase letter becomes `?X`, which the existing matcher then binds as usual. The predicate charset mirrors the engine's own fact parser, so hyphenated names (`works-at(X)`) and nested terms (`Employed(X, Department(Sales))`) are handled too. Text with nothing to rewrite is returned byte-for-byte unchanged, spacing included. Multi-character names (`Flu`, `Metformin`, `CVE-2025-3400`) stay constants, so `IF Disease(Flu) THEN Symptom(Fever)` keeps matching only the literal `Disease(Flu)`; a multi-character variable has to be written `?name`. Both `add_rule` entry points are covered -- the string form and a `Rule` object, where a copy is normalised and the caller's object is left untouched.
+  - `docs/guides/reasoning.md` now states the convention the engine actually accepts, and the `Rule` / `ReteEngine` examples in it name their multi-character variables with the explicit `?name` form -- they used bare names and previously fired nothing. New `tests/reasoning/test_reasoner.py::TestBareVariableNormalisation`
+
 - **`semantica backup create` reported success for an archive with no store data** (fixes #1820) by @costajohnt
   - With no file-based `graph_db` / `vector_store` / `triplet_store` path in the config, `backup create` wrote a manifest with `"files": []` and exited 0. It now fails with an error that points to `semantica backup info`, before asking for a passphrase or confirmation and before writing anything.
 

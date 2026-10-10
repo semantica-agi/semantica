@@ -119,7 +119,8 @@ Forward chaining starts from ground facts and applies every matching rule until 
 
 ```python
 # String-format rules are parsed automatically
-# Variables are single uppercase letters or multi-character uppercase words
+# A single uppercase letter (X) is a variable; the explicit ?x form works too
+# A longer name is a constant, so name a multi-character variable ?like-this
 reasoner.add_rule(
     "IF ThreatActor(X) AND Exploits(X, Y) AND CriticalVuln(Y) THEN HighRiskActor(X)"
 )
@@ -161,7 +162,7 @@ therefore safe: already-attempted actions are not repeated. Use
 reasoner.add_rule(Rule(
     rule_id="attr-1",
     name="ttp_match_attribution",
-    conditions=["ThreatActor(X)", "Exploits(X, CVE)", "CriticalVuln(CVE)"],
+    conditions=["ThreatActor(X)", "Exploits(X, ?CVE)", "CriticalVuln(?CVE)"],
     conclusion="HighRiskActor(X)",
     rule_type=RuleType.IMPLICATION,
     confidence=0.92,
@@ -320,20 +321,20 @@ from semantica.reasoning import ReteEngine, Rule, RuleType, Fact
 rules = [
     Rule(
         rule_id="r1", name="port_scan_detected",
-        conditions=["PortScan(Source)", "HighFrequency(Source)"],
-        conclusion="Scanning(Source)",
+        conditions=["PortScan(?Source)", "HighFrequency(?Source)"],
+        conclusion="Scanning(?Source)",
         confidence=0.90, priority=10,
     ),
     Rule(
         rule_id="r2", name="c2_beacon_identified",
-        conditions=["Scanning(Source)", "BeaconPattern(Source, Dest)"],
-        conclusion="C2Channel(Source, Dest)",
+        conditions=["Scanning(?Source)", "BeaconPattern(?Source, ?Dest)"],
+        conclusion="C2Channel(?Source, ?Dest)",
         confidence=0.85, priority=8,
     ),
     Rule(
         rule_id="r3", name="lateral_movement_detected",
-        conditions=["C2Channel(Source, Dest)", "InternalHost(Dest)"],
-        conclusion="LateralMovement(Source, Dest)",
+        conditions=["C2Channel(?Source, ?Dest)", "InternalHost(?Dest)"],
+        conclusion="LateralMovement(?Source, ?Dest)",
         confidence=0.80, priority=5,
     ),
 ]
@@ -541,7 +542,7 @@ def run_threat_reasoning(graph: ContextGraph) -> dict:
 
     reasoner.add_rule(Rule(
         rule_id="r1", name="high_risk_actor",
-        conditions=["ThreatActor(X)", "Exploits(X, CVE)", "CriticalVuln(CVE)"],
+        conditions=["ThreatActor(X)", "Exploits(X, ?CVE)", "CriticalVuln(?CVE)"],
         conclusion="HighRiskActor(X)", confidence=0.92, priority=10,
     ))
     reasoner.add_rule(Rule(
@@ -632,20 +633,20 @@ reasoner.add_fact("TargetSector(10.0.0.5, Aerospace)")
 # Three-stage attribution ruleset with confidence ladder
 reasoner.add_rule(Rule(
     rule_id="attr-1", name="ttp_match",
-    conditions=["ObservedTTP(IP, TTP)", "TTP(TTP, Actor)"],
-    conclusion="SuspectedActor(IP, Actor)",
+    conditions=["ObservedTTP(?IP, ?TTP)", "TTP(?TTP, ?Actor)"],
+    conclusion="SuspectedActor(?IP, ?Actor)",
     confidence=0.75, priority=10,
 ))
 reasoner.add_rule(Rule(
     rule_id="attr-2", name="asn_corroboration",
-    conditions=["SuspectedActor(IP, Actor)", "C2Beacon(IP, ASN)", "ASN_Country(ASN, Country)"],
-    conclusion="CorroboratedActor(IP, Actor, Country)",
+    conditions=["SuspectedActor(?IP, ?Actor)", "C2Beacon(?IP, ?ASN)", "ASN_Country(?ASN, ?Country)"],
+    conclusion="CorroboratedActor(?IP, ?Actor, ?Country)",
     confidence=0.90, priority=5,
 ))
 reasoner.add_rule(Rule(
     rule_id="attr-3", name="sector_confirmation",
-    conditions=["CorroboratedActor(IP, Actor, Russia)", "TargetSector(IP, Aerospace)"],
-    conclusion="HighConfidenceAttribution(IP, Actor)",
+    conditions=["CorroboratedActor(?IP, ?Actor, Russia)", "TargetSector(?IP, Aerospace)"],
+    conclusion="HighConfidenceAttribution(?IP, ?Actor)",
     confidence=0.95, priority=1,
 ))
 

@@ -146,3 +146,89 @@ def match_rule(
         results.append((instantiated_conclusion, matched_facts, bindings))
 
     return results
+
+
+_BARE_VARIABLE_RE = re.compile(r"^[A-Z]$")
+# The predicate charset mirrors the engine's own fact parser (``[^()\s]+``),
+# so a hyphenated name such as ``works-at`` is recognised here exactly as the
+# matcher recognises it. Anything narrower would leave those rules untouched.
+_PREDICATE_CALL_RE = re.compile(r"^(\s*)([^()\s]+)\s*\((.*)\)(\s*)$", re.DOTALL)
+
+
+def _split_top_level(arguments: str) -> List[str]:
+    """Split an argument list on commas that are not inside nested terms."""
+    parts: List[str] = []
+    depth = 0
+    current: List[str] = []
+    for char in arguments:
+        if char == "(":
+            depth += 1
+        elif char == ")":
+            depth -= 1
+        if char == "," and depth == 0:
+            parts.append("".join(current))
+            current = []
+        else:
+            current.append(char)
+    parts.append("".join(current))
+    return parts
+
+
+def _normalize_argument(argument: str) -> str:
+    """Rewrite one argument, recursing into nested terms, preserving spacing."""
+    token = argument.strip()
+    if _BARE_VARIABLE_RE.match(token):
+        start = argument.index(token)
+        return f"{argument[:start]}?{token}{argument[start + len(token):]}"
+    if "(" in argument:
+        return _normalize_term(argument)
+    # Constants (multi-character names, quoted values, ...) keep their original
+    # spelling and spacing -- only the variable form changes.
+    return argument
+
+
+def _normalize_term(text: str) -> str:
+    """Rewrite bare variables inside a single ``predicate(...)`` term."""
+    match = _PREDICATE_CALL_RE.match(text)
+    if not match:
+        return text
+
+    lead, predicate, arguments, trail = match.groups()
+    parts = _split_top_level(arguments)
+    rewritten = [_normalize_argument(part) for part in parts]
+    if rewritten == parts:
+        # Nothing to rewrite: return the text exactly as written. Rebuilding it
+        # unconditionally used to drop the whitespace between the predicate and
+        # its opening parenthesis, so ``Person (John)`` became ``Person(John)``
+        # and stopped matching the literal fact of the same name (#1790).
+        return text
+    return f"{lead}{predicate}({','.join(rewritten)}){trail}"
+
+
+def normalize_bare_variables(text: str) -> str:
+    """Rewrite a bare single-uppercase-letter argument to the explicit ``?X`` form.
+
+    ``docs/guides/reasoning.md`` documents a rule variable as a single uppercase
+    letter and shows rules such as ``IF ThreatActor(X) AND Exploits(X, Y) THEN
+    HighRiskActor(X)``. The engine only ever binds a variable that carries a
+    leading ``?``, so those rules matched nothing and returned an empty result
+    with no error at all (#1790).
+
+    Normalising the rule text before it is stored restores the documented
+    behaviour without touching the matcher: once the argument reads ``?X``, the
+    existing ``?var`` machinery binds it as usual.
+
+    Only a *single* uppercase letter is rewritten. Multi-character names such
+    as ``Flu``, ``Metformin`` or ``CVE`` are left alone, because the engine has
+    always treated them as constants -- ``IF Disease(Flu) THEN Symptom(Fever)``
+    must keep matching only the literal fact ``Disease(Flu)``. A multi-character
+    variable has to be written in the explicit ``?name`` form.
+
+    Text that contains no rewritable argument is returned byte-for-byte
+    unchanged, as are a zero-argument predicate (``IF A THEN B``) and anything
+    that is not a single ``predicate(...)`` call.
+    """
+    if not isinstance(text, str):
+        return text
+
+    return _normalize_term(text)
