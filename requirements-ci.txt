@@ -1744,9 +1744,9 @@ google-api-core==2.34.0 \
     # via
     #   google-cloud-core
     #   google-cloud-storage
-google-auth==2.57.0 \
-    --hash=sha256:180dafe015cfb62193bea26b677500fab5b9fd51a1e825ebf3ad9b182047ae59 \
-    --hash=sha256:9b4f96d6a1feb5f7201231f47cfb3de08d8f176f8a61f9e461555116e95a8789
+google-auth==2.60.0 \
+    --hash=sha256:34aa0283ef72c99cd410e35db4417211fa3e6aaa5399183227bbe3b82bd15192 \
+    --hash=sha256:e78414cd2e22cc02884768707def024ca32da17695f2c0e6194cdbe1316c4cd4
     # via
     #   google-adk
     #   google-api-core
