@@ -937,7 +937,7 @@ def doctor(cli_ctx: CLIContext, local_json: bool, deep_embeddings: bool) -> None
                 # No server to reach; prove the graph file is readable instead,
                 # which is the only way this backend can actually fail.
                 # Keep this short: the Note column truncates at 80 columns.
-                graph = _load_context_graph(cli_ctx)
+                graph = _load_context_graph(cli_ctx, allow_env=True)
                 count = len(graph.get_nodes_by_label("decision"))
                 return f"memory, {count} decision(s)"
             gs = _get_graph_store(cli_ctx)
@@ -947,10 +947,39 @@ def doctor(cli_ctx: CLIContext, local_json: bool, deep_embeddings: bool) -> None
 
         # Vector store
         def _vector() -> str:
-            cfg = cli_ctx.config.to_dict()
-            backend = cli_ctx.vector_store_backend or cfg.get("vector_store", {}).get("backend", "faiss")
+            backend = _resolve_vector_backend(cli_ctx)
             if backend == "faiss":
                 import faiss  # noqa: F401
+            elif backend == "sqlite":
+                # Served by the sqlite-vec extension. find_spec only proves the
+                # package is discoverable; the store still imports it and loads
+                # the native extension, so probe both here or an install that
+                # cannot actually load is reported healthy (#1818).
+                from .vector_store.sqlite_vec_store import SQLITE_VEC_AVAILABLE
+
+                if not SQLITE_VEC_AVAILABLE:
+                    raise ImportError(
+                        "sqlite-vec is not installed. Install it with: "
+                        "pip install semantica[vectorstore-sqlite]"
+                    )
+                import sqlite3
+
+                try:
+                    import sqlite_vec
+
+                    conn = sqlite3.connect(":memory:")
+                    try:
+                        conn.enable_load_extension(True)
+                        sqlite_vec.load(conn)
+                        conn.enable_load_extension(False)
+                    finally:
+                        conn.close()
+                except (ImportError, OSError, AttributeError, sqlite3.Error) as exc:
+                    raise RuntimeError(
+                        "sqlite-vec is installed but the extension failed to "
+                        f"load: {exc}"
+                    ) from exc
+                return "sqlite-vec loaded"
             return f"{backend} importable"
         checks.append(_check("Vector store", _vector, hint="pip install semantica[vectorstore-…]"))
 
@@ -1265,6 +1294,14 @@ _LOCK_TIMEOUT_SECONDS = 10.0
 # `semantica init` offers memory as its default and ContextGraph serves it
 # without any server, so it is also the fallback when nothing is configured.
 _DEFAULT_GRAPH_BACKEND = MEMORY_GRAPH_BACKEND
+# VectorStore's own default (see vector_store.py); kept here so ``doctor``
+# reports the same backend the CLI would build when nothing is configured.
+_DEFAULT_VECTOR_BACKEND = "faiss"
+# The MCP retrieval runtime is the only consumer of SEMANTICA_VECTOR_BACKEND
+# (semantica_mcp/mcp/session.py) and it accepts just these two. An env value
+# outside the set is rejected there, so doctor must reject it too rather than
+# report a backend the MCP tools will refuse to build (#1818).
+_MCP_VECTOR_BACKENDS = ("inmemory", "sqlite")
 
 
 def _resolve_graph_backend(cli_ctx: CLIContext) -> str:
@@ -1280,6 +1317,33 @@ def _resolve_graph_backend(cli_ctx: CLIContext) -> str:
     )
 
 
+def _resolve_vector_backend(cli_ctx: CLIContext) -> str:
+    """Return the vector backend this invocation will actually use.
+
+    Resolution order matches the MCP runtime
+    (``semantica_mcp/mcp/session.py::get_vector_store``): the ``--vector-store``
+    flag, then the config file, then ``SEMANTICA_VECTOR_BACKEND``, then the
+    VectorStore default. ``doctor`` used to stop at the config file, so a
+    working sqlite-vec MCP deployment was reported as a faiss failure (#1818).
+
+    An environment value is validated against the backends the MCP retrieval
+    tools accept; a typo like ``sqltie`` is reported as a failure rather than a
+    healthy store the MCP tools would refuse to build.
+    """
+    configured = cli_ctx.vector_store_backend or cli_ctx.config.to_dict().get(
+        "vector_store", {}
+    ).get("backend")
+    if configured:
+        return configured
+    from_env = os.environ.get("SEMANTICA_VECTOR_BACKEND", "").strip().lower()
+    if from_env and from_env not in _MCP_VECTOR_BACKENDS:
+        raise ValueError(
+            f"SEMANTICA_VECTOR_BACKEND={from_env!r} is not supported by the MCP "
+            f"retrieval tools; supported backends: {', '.join(_MCP_VECTOR_BACKENDS)}"
+        )
+    return from_env or _DEFAULT_VECTOR_BACKEND
+
+
 def _uses_memory_graph(cli_ctx: CLIContext) -> bool:
     """True when decisions and exports are served by an in-process ContextGraph.
 
@@ -1290,26 +1354,35 @@ def _uses_memory_graph(cli_ctx: CLIContext) -> bool:
     return _resolve_graph_backend(cli_ctx) == MEMORY_GRAPH_BACKEND
 
 
-def _memory_graph_path(cli_ctx: CLIContext) -> Path:
+def _memory_graph_path(cli_ctx: CLIContext, *, allow_env: bool = False) -> Path:
     """Where the memory backend's graph is persisted between invocations.
 
     The CLI is one process per command, so an in-memory graph that is never
     written back would make ``decision record`` pointless. Defaults to
     ``~/.semantica/context_graph.json`` (beside ``config.yaml``); override with
     ``graph_db.path`` in the config.
+
+    ``allow_env`` additionally falls back to ``SEMANTICA_KG_PATH``, the file the
+    MCP runtime loads its graph from. Only ``doctor``'s read-only check passes
+    it: the MCP server caches its graph and saves the whole file, so a CLI write
+    to that path would be silently overwritten by the next MCP mutation (#1818).
     """
     configured = cli_ctx.config.to_dict().get("graph_db", {}).get("path")
     if configured:
         return Path(configured).expanduser()
+    if allow_env:
+        from_env = os.environ.get("SEMANTICA_KG_PATH", "").strip()
+        if from_env:
+            return Path(from_env).expanduser()
     return Path.home() / ".semantica" / "context_graph.json"
 
 
-def _load_context_graph(cli_ctx: CLIContext) -> Any:
+def _load_context_graph(cli_ctx: CLIContext, *, allow_env: bool = False) -> Any:
     """Return the persisted ContextGraph, or an empty one if none exists yet."""
     from .context import ContextGraph
 
     graph = ContextGraph()
-    path = _memory_graph_path(cli_ctx)
+    path = _memory_graph_path(cli_ctx, allow_env=allow_env)
     if path.exists():
         try:
             graph.load_from_file(path)
