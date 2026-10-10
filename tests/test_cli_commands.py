@@ -72,6 +72,52 @@ def _json_output(result) -> Any:
     return json.loads(result.output.strip())
 
 
+def _wire_inmemory_vector_store(monkeypatch, namespaces):
+    """Point the CLI at a real in-memory VectorStore, one vector per namespace.
+
+    store flush reads what the backend actually holds, so its tests drive the
+    real VectorStore API instead of stubbing delete_vectors() and
+    manage_namespace() — stubbing those is what hid the fact that the real
+    dispatcher passed vector_id both positionally and as a keyword (#1943).
+    Only the constructor call is redirected, because the CLI's config object
+    cannot be injected through CliRunner. Returns the store so a test can
+    inspect what survived.
+    """
+    import sys as _sys
+
+    import numpy as np
+
+    from semantica.vector_store import VectorStore as _RealVectorStore
+    from semantica.vector_store import vector_store as _vs_mod
+
+    class _StubEmbedder:
+        """Offline stand-in: a real EmbeddingGenerator probes HuggingFace."""
+
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            pass
+
+        def get_embedding_dimension(self) -> int:
+            return 4
+
+        def embed(self, text: str) -> Any:
+            return np.zeros(4)
+
+    monkeypatch.setattr(_vs_mod, "EmbeddingGenerator", _StubEmbedder)
+
+    store = _RealVectorStore(backend="inmemory", config={"dimension": 4})
+    if namespaces:
+        store.store_vectors(
+            [np.zeros(4) for _ in namespaces],
+            metadata=[{"namespace": name} for name in namespaces],
+        )
+    monkeypatch.setitem(
+        _sys.modules,
+        "semantica.vector_store",
+        _fake_module(VectorStore=lambda **kwargs: store),
+    )
+    return store
+
+
 def _flatten(output: str) -> str:
     """Undo Rich panel wrapping for substring assertions on error text.
 
@@ -3027,15 +3073,74 @@ class TestStore:
         assert result.exit_code != 0
         assert "confirm" in result.output.lower() or result.exit_code == 2
 
-    def test_flush_with_confirm(self, runner, monkeypatch):
-        fake_vs = _fake_module(delete_vectors=lambda **kw: None)
-        monkeypatch.setitem(__import__("sys").modules, "semantica.vector_store", fake_vs)
+    def test_flush_removes_only_the_named_namespace(self, runner, monkeypatch):
+        # The old implementation read a namespace registry that ordinary
+        # storage never populates, so it reported zero removals against real
+        # data (#1943). This drives the real VectorStore API; the previous
+        # fake also hid that manage_namespace() passed vector_id twice.
+        store = _wire_inmemory_vector_store(monkeypatch, ["default", "production"])
         result = runner.invoke(cli_module.main, ["store", "flush", "--confirm"])
         _ok(result)
+        assert "1 vectors removed" in result.output
+        remaining = [item["metadata"]["namespace"] for item in store.iter_vectors()]
+        assert remaining == ["production"]
+
+    def test_flush_reports_zero_for_an_empty_namespace(self, runner, monkeypatch):
+        store = _wire_inmemory_vector_store(monkeypatch, ["default"])
+        result = runner.invoke(
+            cli_module.main, ["store", "flush", "--namespace", "nope", "--confirm"])
+        _ok(result)
+        assert "nope" in result.output and "0 vectors" in result.output
+        assert len(list(store.iter_vectors())) == 1
+
+    def test_flush_fails_loudly_when_backend_cannot_enumerate(
+        self, runner, monkeypatch
+    ):
+        # An unsupported capability is not the same as an empty namespace, so
+        # the command must not report a successful zero-vector flush.
+        class _NoEnumeration:
+            def __init__(self, **kwargs: Any) -> None:
+                pass
+
+            def iter_vectors(self, batch_size: int = 500):
+                raise NotImplementedError("no scan_vectors() on this backend")
+
+        monkeypatch.setitem(
+            __import__("sys").modules,
+            "semantica.vector_store",
+            _fake_module(VectorStore=_NoEnumeration),
+        )
+        result = runner.invoke(cli_module.main, ["store", "flush", "--confirm"])
+        assert result.exit_code != 0
+        assert "cannot enumerate" in _flatten(result.output)
 
     def test_stats_requires_backend(self, runner):
         result = runner.invoke(cli_module.main, ["store", "stats"])
         assert result.exit_code != 0
+
+    def test_stats_dispatches_through_graph_store(self, runner, monkeypatch):
+        # store stats used to call run_analytics(backend=..., config=...),
+        # the graph analytics entry point, whose first parameter is an
+        # algorithm name — a TypeError on every invocation (#1943).
+        calls = {}
+
+        class _FakeGraphStore:
+            def __init__(self, backend: Any = None, **cfg: Any) -> None:
+                calls["backend"] = backend
+                calls["cfg"] = cfg
+
+            def get_stats(self) -> Any:
+                calls["stats"] = True
+                return {"node_count": 3, "edge_count": 2}
+
+        import semantica.graph_store as gs_mod
+        monkeypatch.setattr(gs_mod, "GraphStore", _FakeGraphStore)
+        result = runner.invoke(
+            cli_module.main, ["store", "stats", "--backend", "neo4j", "--json"])
+        _ok(result)
+        assert _json_output(result) == {"node_count": 3, "edge_count": 2}
+        assert calls["backend"] == "neo4j"
+        assert calls.get("stats") is True
 
 
 # ─── backup ───────────────────────────────────────────────────────────────────
