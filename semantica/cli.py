@@ -3684,17 +3684,69 @@ def temporal(ctx: click.Context) -> None:
 def _load_temporal_kg(cli_ctx: CLIContext) -> Dict[str, Any]:
     """Load the CLI's persisted graph in the ``{"entities", "relationships"}``
     shape the temporal engines consume."""
-    return _load_context_graph(cli_ctx).to_kg_dict()
+    if not _uses_memory_graph(cli_ctx):
+        raise click.ClickException(
+            "The temporal commands read the CLI's persisted memory-backend "
+            "graph and are not wired for the "
+            f"{_resolve_graph_backend(cli_ctx)!r} backend yet."
+        )
+    from .kg.temporal_model import parse_temporal_value
+
+    graph = _load_context_graph(cli_ctx).to_kg_dict()
+    # The export keeps ``recorded_at`` inside properties/metadata, but the
+    # temporal engines read temporal fields at the fact's top level. Lift it
+    # (normalised to UTC) so a fact recorded without explicit validity dates
+    # still has a history event.
+    for fact in (*graph.get("entities", []), *graph.get("relationships", [])):
+        if "recorded_at" in fact:
+            continue
+        recorded_at = (fact.get("properties") or {}).get("recorded_at") or (
+            fact.get("metadata") or {}
+        ).get("recorded_at")
+        parsed = parse_temporal_value(recorded_at) if recorded_at is not None else None
+        if parsed is not None:
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=timezone.utc)
+            fact["recorded_at"] = parsed.isoformat()
+    return graph
 
 
-def _parse_allen_interval(engine: Any, spec: str) -> Any:
-    """Parse a ``start/end`` interval spec into a ``TemporalInterval``."""
+def _parse_allen_interval(spec: str) -> Any:
+    """Parse a ``start/end`` interval spec into a ``TemporalInterval``.
+
+    Values keep their exact precision instead of being normalised to a
+    granularity: expanding the end to the last microsecond of its second (as
+    ``normalize_interval`` does) makes an end that equals the next interval's
+    start report ``overlaps`` where Allen algebra says ``meets``.
+    """
+    from .kg.temporal_model import (
+        TemporalBound,
+        parse_temporal_bound,
+        parse_temporal_value,
+    )
+    from .kg.temporal_reasoning import TemporalInterval
+
     parts = spec.split("/", 1)
     if len(parts) != 2 or not parts[0].strip() or not parts[1].strip():
         raise click.ClickException(
             f"Interval must be given as start/end, got: {spec!r}"
         )
-    return engine.normalize_interval(parts[0].strip(), parts[1].strip(), "second")
+    start = parse_temporal_value(parts[0].strip())
+    if start is None:
+        raise click.ClickException(f"Invalid interval start: {parts[0].strip()!r}")
+    end: Any = parse_temporal_bound(parts[1].strip(), default=TemporalBound.OPEN)
+    if end is not TemporalBound.OPEN:
+        end = parse_temporal_value(end)
+        if end is None:
+            raise click.ClickException(f"Invalid interval end: {parts[1].strip()!r}")
+    # Keep naive values comparable with aware ones inside relation().
+    if start.tzinfo is None:
+        start = start.replace(tzinfo=timezone.utc)
+    if isinstance(end, datetime) and end.tzinfo is None:
+        end = end.replace(tzinfo=timezone.utc)
+    if isinstance(end, datetime) and end < start:
+        raise click.ClickException(f"Interval end precedes its start: {spec!r}")
+    return TemporalInterval(start=start, end=end)
 
 
 @temporal.command("snapshot")
@@ -3846,14 +3898,23 @@ def temporal_distance(
 
     def _action() -> None:
         try:
-            from .kg.temporal_reasoning import TemporalReasoningEngine
+            from .kg.temporal_model import parse_temporal_value
         except ImportError as exc:
             raise click.ClickException(
                 f"KG temporal module not available: {exc}"
             ) from exc
-        engine = TemporalReasoningEngine()
-        t1 = engine.normalize_timestamp(event1, "second")
-        t2 = engine.normalize_timestamp(event2, "second")
+        # Exact values, not a granularity: rounding to whole seconds first
+        # collapses any distance smaller than a second to zero.
+        t1 = parse_temporal_value(event1)
+        t2 = parse_temporal_value(event2)
+        if t1 is None or t2 is None:
+            raise click.ClickException(
+                f"Could not parse timestamp(s): {event1!r}, {event2!r}"
+            )
+        if t1.tzinfo is None:
+            t1 = t1.replace(tzinfo=timezone.utc)
+        if t2.tzinfo is None:
+            t2 = t2.replace(tzinfo=timezone.utc)
         seconds = abs((t2 - t1).total_seconds())
         result = {
             "event1": t1.isoformat(),
@@ -3892,8 +3953,8 @@ def temporal_allen(
                 f"Reasoning module not available: {exc}"
             ) from exc
         engine = TemporalReasoningEngine()
-        iv1 = _parse_allen_interval(engine, interval1)
-        iv2 = _parse_allen_interval(engine, interval2)
+        iv1 = _parse_allen_interval(interval1)
+        iv2 = _parse_allen_interval(interval2)
         relation = engine.relation(iv1, iv2)
         relation_name = relation.value if hasattr(relation, "value") else str(relation)
         if _is_json(cli_ctx, local_json):

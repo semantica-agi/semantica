@@ -216,3 +216,95 @@ class TestTemporalAllen:
             ],
         )
         assert result.exit_code != 0
+
+
+class TestTemporalPrecisionAndHistoryFixes:
+    """Regression tests for review findings on the temporal CLI remap."""
+
+    def test_allen_adjacent_intervals_meet(self, runner):
+        # An end that equals the next interval's start is "meets", not
+        # "overlaps": end-of-second expansion must not smear the boundary.
+        result = runner.invoke(
+            cli_module.main,
+            [
+                "temporal",
+                "allen",
+                "--interval1",
+                "2025-01-01T00:00:00Z/2025-01-01T01:00:00Z",
+                "--interval2",
+                "2025-01-01T01:00:00Z/2025-01-01T02:00:00Z",
+                "--json",
+            ],
+        )
+        assert result.exit_code == 0
+        assert json.loads(result.output)["relation"] == "meets"
+
+    def test_allen_rejects_end_before_start(self, runner):
+        result = runner.invoke(
+            cli_module.main,
+            [
+                "temporal",
+                "allen",
+                "--interval1",
+                "2025-01-02T00:00:00Z/2025-01-01T00:00:00Z",
+                "--interval2",
+                "2025-01-01T00:00:00Z/2025-01-03T00:00:00Z",
+            ],
+        )
+        assert result.exit_code != 0
+
+    def test_distance_preserves_subsecond_precision(self, runner):
+        result = runner.invoke(
+            cli_module.main,
+            [
+                "temporal",
+                "distance",
+                "--event1",
+                "2025-01-01T00:00:00.500+00:00",
+                "--event2",
+                "2025-01-01T00:00:00.900+00:00",
+                "--json",
+            ],
+        )
+        assert result.exit_code == 0
+        payload = json.loads(result.output)
+        assert payload["distance_seconds"] == pytest.approx(0.4)
+        assert ".500" in payload["event1"]
+
+    def test_history_includes_recording_event_without_validity_dates(
+        self, runner, monkeypatch
+    ):
+        # A decision recorded without explicit validity dates still has a
+        # recorded_at, which must surface in its timeline.
+        from semantica.context import ContextGraph
+
+        graph = ContextGraph()
+        graph.add_node(
+            "decision_1",
+            "decision",
+            "Approve vendor X",
+            recorded_at="2025-03-01T12:00:00Z",
+        )
+        monkeypatch.setattr(cli_module, "_load_context_graph", lambda cli_ctx: graph)
+        result = runner.invoke(
+            cli_module.main, ["temporal", "history", "decision_1", "--format", "json"]
+        )
+        assert result.exit_code == 0
+        events = json.loads(result.output)
+        assert len(events) == 1
+        assert events[0]["timestamp"].startswith("2025-03-01 12:00:00")
+
+    def test_temporal_commands_reject_non_memory_backend(self, runner):
+        result = runner.invoke(
+            cli_module.main,
+            [
+                "--store",
+                "neo4j",
+                "temporal",
+                "snapshot",
+                "--at",
+                "2025-01-15T00:00:00Z",
+            ],
+        )
+        assert result.exit_code != 0
+        assert "not wired for the 'neo4j' backend yet" in result.output
