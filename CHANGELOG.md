@@ -19,6 +19,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`AgentContext` reads shared state with its store, and one retrieval path returned an empty list** (fixes #1794)
+  - `store()` kept the caller's `metadata` / `entities` / `relationships` containers by reference, and `AgentContext.store()` wrote `conversation_id` / `user_id` straight into the dict it was handed. `get_memory()`, `retrieve()`, `_search_short_term()` and `_keyword_search()` handed the stored containers back as well. Mutating a dict the caller passed in, or mutating a returned result, therefore rewrote the stored record. All of these now copy.
+  - `AgentContext.get_memory()` read the identifier under `"id"` while `AgentMemory.get_memory()` returns it under `"memory_id"`, so every record came back with `"id": None`. It now returns the real id. `_memory_to_dict()` deliberately leaves `"id"` unset: a memory id is not a graph node id, and exposing it under `"id"` shadowed `metadata["node_id"]` when results were placed against `anchor_node`, leaving the record unplaceable.
+  - `retrieve(..., anchor_node=..., max_hops=...)` discarded every result it could not place on the graph, so a store that plainly held a matching record returned `[]`. Results that are genuinely off the graph are now kept and left distance-unscored, while the neighbourhood is walked wide enough to measure the hop distance of everything else -- so `max_hops` filters exactly the records whose known distance exceeds it, instead of hiding them among the unplaceable ones.
+  - `_context_to_dict()` deep-copies the retriever's `metadata`, entities and relationships, so the hybrid (GraphRAG) path no longer hands the retriever's own containers back to the caller.
+  - New `tests/context/test_agent_context_retrieve_isolation.py`
+
 - **`semantica backup create` reported success for an archive with no store data** (fixes #1820) by @costajohnt
   - With no file-based `graph_db` / `vector_store` / `triplet_store` path in the config, `backup create` wrote a manifest with `"files": []` and exited 0. It now fails with an error that points to `semantica backup info`, before asking for a passphrase or confirmation and before writing anything.
 

@@ -71,6 +71,7 @@ Production Use Cases:
     - Legal: Case precedent analysis, decision consistency
 """
 
+import copy
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple, Union
 
@@ -86,6 +87,14 @@ from .decision_query import DecisionQuery
 from .causal_analyzer import CausalChainAnalyzer
 from .policy_engine import PolicyEngine
 from ..change_management import TemporalVersionManager
+
+
+# How deep the anchor's neighbourhood is walked when placing retrieval results
+# relative to it. Deliberately at least as large as the caller's ``max_hops`` so
+# that a result *beyond* the limit can be told apart from one that is not on the
+# graph at all: the former has a known hop distance and gets filtered, the
+# latter has none and is kept (#1794).
+_PROXIMITY_SEARCH_HOPS = 10
 
 
 class AgentContext:
@@ -446,8 +455,10 @@ class AgentContext:
         """
         # Auto-detect content type
         if isinstance(content, str):
-            # Single memory item
-            memory_metadata = metadata or {}
+            # Single memory item. Copy before enriching: assigning into the
+            # caller's dict would leak `conversation_id` / `user_id` back into
+            # the object they passed in (#1794).
+            memory_metadata = dict(metadata) if metadata else {}
             if conversation_id:
                 memory_metadata["conversation_id"] = conversation_id
             if user_id:
@@ -866,14 +877,19 @@ class AgentContext:
             "content": context.content,
             "score": context.score,
             "source": context.source,
-            "metadata": context.metadata,
+            # Deep-copied so a caller mutating the returned metadata cannot
+            # reach the retriever's own containers -- a read must not be a
+            # write channel into the store (#1794).
+            "metadata": copy.deepcopy(context.metadata),
         }
 
         if include_entities:
-            result["related_entities"] = context.related_entities
+            result["related_entities"] = copy.deepcopy(context.related_entities)
 
         if include_relationships:
-            result["related_relationships"] = context.related_relationships
+            result["related_relationships"] = copy.deepcopy(
+                context.related_relationships
+            )
 
         return result
 
@@ -892,7 +908,15 @@ class AgentContext:
         if not hasattr(self.knowledge_graph, "get_neighbor_distances"):
             return results
 
-        search_hops = max_hops if max_hops is not None else 10
+        # Walk the neighbourhood wider than max_hops and filter afterwards.
+        # Searching only max_hops deep hid the very nodes that should have been
+        # filtered: a result beyond the limit never entered the distance map,
+        # so it looked unplaceable and was kept instead of dropped (#1794).
+        search_hops = (
+            _PROXIMITY_SEARCH_HOPS
+            if max_hops is None
+            else max(max_hops, _PROXIMITY_SEARCH_HOPS)
+        )
         distances = self.knowledge_graph.get_neighbor_distances(
             anchor_node,
             hops=search_hops,
@@ -919,8 +943,13 @@ class AgentContext:
             )
             distance = by_node_id.get(result_id)
             if not distance:
-                if max_hops is not None or min_confidence_decay > 0.0:
-                    continue
+                # This result cannot be placed relative to the anchor: it
+                # carries no node id, or it sits beyond the search horizon.
+                # Dropping it made every retrieval return [] as soon as
+                # anchor_node was passed together with max_hops or
+                # min_confidence_decay, even though matching records existed
+                # (#1794). Keep it unscored instead. A result whose hop
+                # distance is known and exceeds max_hops is filtered above.
                 enriched.append(result)
                 continue
 
@@ -950,6 +979,10 @@ class AgentContext:
 
     def _memory_to_dict(self, memory: Dict[str, Any]) -> Dict[str, Any]:
         """Convert memory result to dict."""
+        # Deliberately no "id" key: a memory id is not a graph node id, and
+        # _apply_proximity_metadata() reads result["id"] *before*
+        # result["metadata"]["node_id"], so exposing it shadowed the node id
+        # and left the record unplaceable (#1794).
         return {
             "content": memory.get("content", ""),
             "score": memory.get("score", 0.0),
@@ -975,7 +1008,10 @@ class AgentContext:
         memory_item = self._memory.get_memory(memory_id)
         if memory_item:
             return {
-                "id": memory_item.get("id"),
+                # AgentMemory.get_memory() returns the identifier under
+                # "memory_id"; reading "id" here always yielded None, so the
+                # record came back without its own key (#1794).
+                "id": memory_item.get("memory_id"),
                 "content": memory_item.get("content"),
                 "timestamp": memory_item.get("timestamp"),
                 "metadata": memory_item.get("metadata", {}),
