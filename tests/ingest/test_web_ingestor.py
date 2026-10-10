@@ -79,11 +79,13 @@ def test_sitemap_invalid_xml() -> None:
     crawler = SitemapCrawler()
 
     with patch(
-        "requests.get",
+        "semantica.ingest.web_ingestor.request_with_ssrf_guard",
         return_value=MagicMock(status_code=200, content=b"NOT XML"),
-    ):
+    ) as mock_request:
         with pytest.raises(ProcessingError):
             crawler.parse_sitemap("http://s.xml")
+
+    mock_request.assert_called_once()
 
 
 # --- Content Extraction Tests ---

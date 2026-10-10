@@ -85,15 +85,13 @@ def test_ingest_feed_errors() -> None:
         ingestor.ingest_feed("not_a_url")
 
     with patch(
-        "semantica.ingest.ssrf.socket.getaddrinfo",
-        return_value=[(2, 1, 6, "", ("93.184.216.34", 0))],
-    ):
-        with patch(
-            "requests.request",
-            side_effect=requests.exceptions.RequestException("Fail"),
-        ):
-            with pytest.raises(ProcessingError):
-                ingestor.ingest_feed("http://valid.com")
+        "semantica.ingest.feed_ingestor.request_with_ssrf_guard",
+        side_effect=requests.exceptions.RequestException("Fail"),
+    ) as mock_request:
+        with pytest.raises(ProcessingError):
+            ingestor.ingest_feed("http://valid.com")
+
+    mock_request.assert_called_once()
 
 
 def test_monitor_loop_lifecycle() -> None:
