@@ -366,6 +366,19 @@ class TestPgVectorStoreGet:
         assert results[0]["id"] == ids[0]
 
 
+def _stored_vector(value):
+    """Return a numeric array from PgVectorStore.get().
+
+    get() wraps pgvector's Vector in a 0-d ndarray, so allclose cannot
+    compare that object to a float vector directly.
+    """
+    if isinstance(value, np.ndarray) and value.shape == ():
+        value = value.item()
+    if hasattr(value, "to_numpy"):
+        return value.to_numpy()
+    return np.asarray(value)
+
+
 class TestPgVectorStoreUpdate:
     """Test vector update operations."""
 
@@ -380,9 +393,9 @@ class TestPgVectorStoreUpdate:
         new_vectors = [np.random.rand(128).astype(np.float32) for _ in range(2)]
         new_metadata = [{"version": 2} for _ in range(2)]
 
-        success = store.update(ids, new_vectors, new_metadata)
+        updated = store.update(ids, new_vectors, new_metadata)
 
-        assert success is True
+        assert updated == ids
 
         # Verify update
         results = store.get(ids)
@@ -393,9 +406,9 @@ class TestPgVectorStoreUpdate:
         vectors = [np.random.rand(128).astype(np.float32)]
         ids = store.add(vectors, [{"tag": "original"}])
 
-        success = store.update(ids, metadata=[{"tag": "updated"}])
+        updated = store.update(ids, metadata=[{"tag": "updated"}])
 
-        assert success is True
+        assert updated == ids
 
         results = store.get(ids)
         assert results[0]["metadata"]["tag"] == "updated"
@@ -406,9 +419,9 @@ class TestPgVectorStoreUpdate:
         ids = store.add(vectors, [{"tag": "keep"}])
 
         new_vectors = [np.random.rand(128).astype(np.float32)]
-        success = store.update(ids, vectors=new_vectors)
+        updated = store.update(ids, vectors=new_vectors)
 
-        assert success is True
+        assert updated == ids
 
     def test_update_no_changes(self, store):
         """Test update with no changes specified."""
@@ -435,6 +448,53 @@ class TestPgVectorStoreUpdate:
 
         with pytest.raises(ValidationError, match="length"):
             store.update(["id_1", "id_2"], vectors=[np.random.rand(128)])
+
+    def test_update_empty_ids(self, store):
+        """An empty request matches nothing and does not write."""
+        assert store.update([]) == []
+
+    def test_update_missing_id_matches_nothing(self, store):
+        """A missing id is omitted and is not inserted."""
+        new_vector = np.random.rand(128).astype(np.float32)
+
+        assert store.update(["missing"], [new_vector], [{"tag": "x"}]) == []
+        assert store.get(["missing"]) == []
+
+    def test_update_mixed_existing_and_missing_ids(self, store):
+        """Only ids that match a row are returned and changed."""
+        vectors = [np.random.rand(128).astype(np.float32) for _ in range(2)]
+        ids = store.add(vectors, [{"tag": "a"}, {"tag": "b"}])
+        new_vectors = [np.random.rand(128).astype(np.float32) for _ in range(3)]
+        new_metadata = [{"tag": "a2"}, {"tag": "missing"}, {"tag": "b2"}]
+        requested = [ids[0], "missing-id", ids[1]]
+
+        updated = store.update(requested, new_vectors, new_metadata)
+
+        assert updated == [ids[0], ids[1]]
+        results = {row["id"]: row for row in store.get(ids + ["missing-id"])}
+        assert "missing-id" not in results
+        assert results[ids[0]]["metadata"]["tag"] == "a2"
+        assert np.allclose(_stored_vector(results[ids[0]]["vector"]), new_vectors[0])
+        assert results[ids[1]]["metadata"]["tag"] == "b2"
+        assert np.allclose(_stored_vector(results[ids[1]]["vector"]), new_vectors[2])
+
+    def test_update_duplicate_id_is_confirmed_once(self, store):
+        """A repeated id is written in order and reported once."""
+        vector = np.random.rand(128).astype(np.float32)
+        ids = store.add([vector], [{"tag": "a"}])
+        first = np.random.rand(128).astype(np.float32)
+        second = np.random.rand(128).astype(np.float32)
+
+        updated = store.update(
+            [ids[0], ids[0]],
+            [first, second],
+            [{"tag": "1"}, {"tag": "2"}],
+        )
+
+        assert updated == [ids[0]]
+        result = store.get(ids)[0]
+        assert result["metadata"]["tag"] == "2"
+        assert np.allclose(_stored_vector(result["vector"]), second)
 
 
 class TestPgVectorStoreDelete:

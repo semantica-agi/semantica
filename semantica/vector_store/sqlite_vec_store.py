@@ -468,7 +468,7 @@ class SQLiteVecStore:
         ids: List[str],
         vectors: Optional[Union[List[np.ndarray], np.ndarray]] = None,
         metadata: Optional[List[Dict[str, Any]]] = None,
-    ) -> bool:
+    ) -> List[str]:
         """
         Update existing vectors.
 
@@ -478,14 +478,16 @@ class SQLiteVecStore:
             metadata: Optional new metadata
 
         Returns:
-            True if successful
+            IDs the UPDATE matched, in request order and without
+            duplicates. Missing IDs are omitted. An empty request
+            returns an empty list.
 
         Raises:
             ValidationError: If input dimensions or lengths don't match
             ProcessingError: If read-only mode is active or database operation fails
         """
         if not ids:
-            return True
+            return []
 
         if self.read_only:
             raise ProcessingError("Cannot update vectors in read-only mode")
@@ -513,8 +515,9 @@ class SQLiteVecStore:
             try:
                 cur = conn.cursor()
 
-                # Same columns are updated for every row, so build one
-                # statement and batch it via executemany for efficiency.
+                # Same columns are updated for every row. Execute one
+                # statement per id: vec0 virtual tables reject UPDATE
+                # RETURNING, and executemany reports only a combined count.
                 if vectors is not None and metadata is not None:
                     update_sql = f"UPDATE {self.table_name} SET embedding = ?, metadata = ? WHERE id = ?"
                     data_tuples = [
@@ -533,11 +536,18 @@ class SQLiteVecStore:
                         (json.dumps(metadata[i]), vec_id) for i, vec_id in enumerate(ids)
                     ]
 
-                cur.executemany(update_sql, data_tuples)
+                confirmed_ids: List[str] = []
+                seen = set()
+                for params in data_tuples:
+                    cur.execute(update_sql, params)
+                    vec_id = params[-1]
+                    if cur.rowcount > 0 and vec_id not in seen:
+                        seen.add(vec_id)
+                        confirmed_ids.append(vec_id)
                 conn.commit()
                 cur.close()
-                self.logger.info(f"Updated {len(ids)} vectors")
-                return True
+                self.logger.info(f"Updated {len(confirmed_ids)} of {len(ids)} vectors")
+                return confirmed_ids
             except ValidationError:
                 conn.rollback()
                 raise

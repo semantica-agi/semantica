@@ -865,17 +865,29 @@ class VectorStore:
             if result is False:
                 return result
 
-            # Keep the facade mirror in step with the backend, as
-            # delete_vectors does, so save() persists the updated values.
+            # A list is the ids this UPDATE matched. Refresh only those
+            # mirror entries, so a zero-row update cannot paint new values
+            # onto the mirror and a later save() cannot persist them. A
+            # bare True does not identify rows, so every mirrored id in
+            # the request is refreshed.
+            if isinstance(result, (list, tuple, set)):
+                confirmed = set(result)
+            else:
+                confirmed = None
+
             with self._inmemory_lock:
                 for vec_id, new_vec in zip(vector_ids, new_vectors):
+                    if confirmed is not None and vec_id not in confirmed:
+                        continue
                     if vec_id in self.vectors:
                         self.vectors[vec_id] = new_vec
                 if metadata:
                     for vec_id, meta in zip(vector_ids, metadata):
+                        if confirmed is not None and vec_id not in confirmed:
+                            continue
                         if vec_id in self.metadata:
                             self.metadata[vec_id] = meta
-            return result
+            return True
 
         with self._inmemory_lock:
             for vec_id, new_vec in zip(vector_ids, new_vectors):
