@@ -150,7 +150,7 @@ python -c "import semantica; print(semantica.__version__)"
 
 | Variable | Default | Description |
 | :-------- | :------- | :----------- |
-| `SEMANTICA_CORS_ORIGINS` | `http://localhost:5173,http://127.0.0.1:5173` | Comma-separated list of allowed CORS origins |
+| `SEMANTICA_CORS_ORIGINS` | `http://localhost:5173,http://127.0.0.1:5173,http://localhost:8000,http://127.0.0.1:8000` | Comma-separated list of allowed CORS and WebSocket origins. The default covers the Vite dev server and the server's own port, so a browser opened on `127.0.0.1:8000` can open the WebSocket; setting it replaces the default |
 
 No other environment variables are read by these commands.
 

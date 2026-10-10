@@ -92,11 +92,16 @@ app = FastAPI(
 )
 
 # --- CORS -----------------------------------------------------------
-# Allow origins from environment (comma-separated); defaults to
-# localhost only so production deployments must configure this.
-_cors_origins_env = os.environ.get(
-    "SEMANTICA_CORS_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173"
+# Allow origins from environment (comma-separated). The default matches
+# semantica/explorer/app.py: the Vite dev server (5173) and this server's
+# own port (8000), on localhost and 127.0.0.1 only, so a browser opened on
+# the server can open its WebSocket. Production deployments must set
+# SEMANTICA_CORS_ORIGINS, which replaces the default entirely.
+_DEFAULT_CORS_ORIGINS = (
+    "http://localhost:5173,http://127.0.0.1:5173,"
+    "http://localhost:8000,http://127.0.0.1:8000"
 )
+_cors_origins_env = os.environ.get("SEMANTICA_CORS_ORIGINS", _DEFAULT_CORS_ORIGINS)
 _cors_origins = [o.strip() for o in _cors_origins_env.split(",") if o.strip()]
 app.add_middleware(
     CORSMiddleware,

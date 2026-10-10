@@ -32,7 +32,12 @@ def _build_sample_graph() -> ContextGraph:
 
 
 @pytest.fixture
-def client():
+def client(monkeypatch):
+    # create_app() reads the allowed origins from the environment, so an
+    # ALLOWED_ORIGINS or EXPLORER_CORS_ORIGINS exported in the developer's
+    # shell would replace the defaults these tests rely on.
+    monkeypatch.delenv("ALLOWED_ORIGINS", raising=False)
+    monkeypatch.delenv("EXPLORER_CORS_ORIGINS", raising=False)
     session = GraphSession(_build_sample_graph())
     app = create_app(session=session)
     with TestClient(app) as test_client:
