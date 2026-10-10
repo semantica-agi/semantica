@@ -32,6 +32,7 @@ if sys.platform == "win32":
         sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
 from dataclasses import asdict, dataclass, field, is_dataclass
+from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from types import SimpleNamespace
 from typing import (TYPE_CHECKING, Any, Callable, Dict, Iterator, List,
@@ -3680,13 +3681,36 @@ def temporal(ctx: click.Context) -> None:
         click.echo(ctx.get_help())
 
 
+def _load_temporal_kg(cli_ctx: CLIContext) -> Dict[str, Any]:
+    """Load the CLI's persisted graph in the ``{"entities", "relationships"}``
+    shape the temporal engines consume."""
+    return _load_context_graph(cli_ctx).to_kg_dict()
+
+
+def _parse_allen_interval(engine: Any, spec: str) -> Any:
+    """Parse a ``start/end`` interval spec into a ``TemporalInterval``."""
+    parts = spec.split("/", 1)
+    if len(parts) != 2 or not parts[0].strip() or not parts[1].strip():
+        raise click.ClickException(
+            f"Interval must be given as start/end, got: {spec!r}"
+        )
+    return engine.normalize_interval(parts[0].strip(), parts[1].strip(), "second")
+
+
 @temporal.command("snapshot")
 @click.option("--at", "at_time", required=True, help="ISO 8601 datetime.")
-@click.option("--format", "fmt", type=click.Choice(["json", "table"]),
-              default="json", show_default=True)
+@click.option(
+    "--format",
+    "fmt",
+    type=click.Choice(["json", "table"]),
+    default="json",
+    show_default=True,
+)
 @click.option("--json", "local_json", is_flag=True, default=False)
 @click.pass_obj
-def temporal_snapshot(cli_ctx: CLIContext, at_time: str, fmt: str, local_json: bool) -> None:
+def temporal_snapshot(
+    cli_ctx: CLIContext, at_time: str, fmt: str, local_json: bool
+) -> None:
     """Graph state at a specific point in time.
 
     \b
@@ -3698,10 +3722,13 @@ def temporal_snapshot(cli_ctx: CLIContext, at_time: str, fmt: str, local_json: b
     def _action() -> None:
         try:
             from .kg import TemporalGraphQuery
-            tgq = TemporalGraphQuery(config=cli_ctx.config.to_dict())
-            result = tgq.snapshot(at=at_time)
         except ImportError as exc:
-            raise click.ClickException(f"KG temporal module not available: {exc}") from exc
+            raise click.ClickException(
+                f"KG temporal module not available: {exc}"
+            ) from exc
+        graph = _load_temporal_kg(cli_ctx)
+        tgq = TemporalGraphQuery()
+        result = tgq.reconstruct_at_time(graph, at_time)
         if _is_json(cli_ctx, local_json) or fmt == "json":
             _jecho(result if isinstance(result, dict) else {"snapshot": str(result)})
         else:
@@ -3712,21 +3739,41 @@ def temporal_snapshot(cli_ctx: CLIContext, at_time: str, fmt: str, local_json: b
 
 @temporal.command("query")
 @click.argument("query_str")
+@click.option(
+    "--at",
+    "at_time",
+    default=None,
+    help="ISO 8601 datetime to query at (defaults to the current time).",
+)
 @click.option("--json", "local_json", is_flag=True, default=False)
 @click.pass_obj
-def temporal_query(cli_ctx: CLIContext, query_str: str, local_json: bool) -> None:
-    """Temporal-aware graph query."""
+def temporal_query(
+    cli_ctx: CLIContext, query_str: str, at_time: Optional[str], local_json: bool
+) -> None:
+    """Temporal-aware graph query.
+
+    \b
+    Note: the query string is reserved for future query parsing; the result is
+    currently the graph slice valid at --at regardless of its content.
+    """
     cli_ctx = _require_ctx(cli_ctx)
 
     def _action() -> None:
         try:
             from .kg import TemporalGraphQuery
-            tgq = TemporalGraphQuery(config=cli_ctx.config.to_dict())
-            result = tgq.query(query_str)
         except ImportError as exc:
-            raise click.ClickException(f"KG temporal module not available: {exc}") from exc
+            raise click.ClickException(
+                f"KG temporal module not available: {exc}"
+            ) from exc
+        graph = _load_temporal_kg(cli_ctx)
+        tgq = TemporalGraphQuery()
+        result = tgq.query_at_time(
+            graph, query_str, at_time or datetime.now(timezone.utc)
+        )
         if _is_json(cli_ctx, local_json):
-            _jecho(result if isinstance(result, (dict, list)) else {"result": str(result)})
+            _jecho(
+                result if isinstance(result, (dict, list)) else {"result": str(result)}
+            )
         else:
             _pprint(cli_ctx, result)
 
@@ -3739,8 +3786,13 @@ def temporal_query(cli_ctx: CLIContext, query_str: str, local_json: bool) -> Non
 @click.option("--format", "fmt", type=click.Choice(["table", "json"]), default="table")
 @click.option("--json", "local_json", is_flag=True, default=False)
 @click.pass_obj
-def temporal_history(cli_ctx: CLIContext, entity_id: str, since: Optional[str],
-                     fmt: str, local_json: bool) -> None:
+def temporal_history(
+    cli_ctx: CLIContext,
+    entity_id: str,
+    since: Optional[str],
+    fmt: str,
+    local_json: bool,
+) -> None:
     """Change history for an entity.
 
     \b
@@ -3751,39 +3803,66 @@ def temporal_history(cli_ctx: CLIContext, entity_id: str, since: Optional[str],
 
     def _action() -> None:
         try:
-            from .kg import TemporalVersionManager
-            tvm = TemporalVersionManager(config=cli_ctx.config.to_dict())
-            result = tvm.history(entity_id, since=since)
+            from .kg.temporal_reasoning import TemporalReasoningEngine
+            from .kg.temporal_model import parse_temporal_value
         except ImportError as exc:
-            raise click.ClickException(f"KG temporal module not available: {exc}") from exc
+            raise click.ClickException(
+                f"KG temporal module not available: {exc}"
+            ) from exc
+        graph = _load_temporal_kg(cli_ctx)
+        events = TemporalReasoningEngine().timeline_of(entity_id, graph)
+        if since:
+            since_dt = parse_temporal_value(since)
+            if since_dt is not None:
+                if since_dt.tzinfo is None:
+                    since_dt = since_dt.replace(tzinfo=timezone.utc)
+
+                def _aware(ts: datetime) -> datetime:
+                    return (
+                        ts if ts.tzinfo is not None else ts.replace(tzinfo=timezone.utc)
+                    )
+
+                events = [
+                    event for event in events if _aware(event["timestamp"]) >= since_dt
+                ]
         if _is_json(cli_ctx, local_json) or fmt == "json":
-            _jecho(result if isinstance(result, list) else [])
+            _jecho(events if isinstance(events, list) else [])
         else:
-            _pprint(cli_ctx, result)
+            _pprint(cli_ctx, events)
 
     _run_with_error_handling(_action)
 
 
 @temporal.command("distance")
-@click.option("--event1", required=True)
-@click.option("--event2", required=True)
-@click.option("--history", is_flag=True, default=False)
+@click.option("--event1", required=True, help="First timestamp (ISO 8601).")
+@click.option("--event2", required=True, help="Second timestamp (ISO 8601).")
 @click.option("--json", "local_json", is_flag=True, default=False)
 @click.pass_obj
-def temporal_distance(cli_ctx: CLIContext, event1: str, event2: str,
-                      history: bool, local_json: bool) -> None:
-    """Temporal distance between two events."""
+def temporal_distance(
+    cli_ctx: CLIContext, event1: str, event2: str, local_json: bool
+) -> None:
+    """Temporal distance between two timestamps."""
     cli_ctx = _require_ctx(cli_ctx)
 
     def _action() -> None:
         try:
-            from .kg import TemporalGraphQuery
-            tgq = TemporalGraphQuery(config=cli_ctx.config.to_dict())
-            result = tgq.distance(event1, event2, include_history=history)
+            from .kg.temporal_reasoning import TemporalReasoningEngine
         except ImportError as exc:
-            raise click.ClickException(f"KG temporal module not available: {exc}") from exc
+            raise click.ClickException(
+                f"KG temporal module not available: {exc}"
+            ) from exc
+        engine = TemporalReasoningEngine()
+        t1 = engine.normalize_timestamp(event1, "second")
+        t2 = engine.normalize_timestamp(event2, "second")
+        seconds = abs((t2 - t1).total_seconds())
+        result = {
+            "event1": t1.isoformat(),
+            "event2": t2.isoformat(),
+            "distance_seconds": seconds,
+            "distance_days": seconds / 86400,
+        }
         if _is_json(cli_ctx, local_json):
-            _jecho(result if isinstance(result, dict) else {"distance": str(result)})
+            _jecho(result)
         else:
             _pprint(cli_ctx, result)
 
@@ -3791,30 +3870,44 @@ def temporal_distance(cli_ctx: CLIContext, event1: str, event2: str,
 
 
 @temporal.command("allen")
-@click.option("--interval1", required=True)
-@click.option("--interval2", required=True)
+@click.option(
+    "--interval1", required=True, help="First interval as start/end (ISO 8601)."
+)
+@click.option(
+    "--interval2", required=True, help="Second interval as start/end (ISO 8601)."
+)
 @click.option("--json", "local_json", is_flag=True, default=False)
 @click.pass_obj
-def temporal_allen(cli_ctx: CLIContext, interval1: str, interval2: str,
-                   local_json: bool) -> None:
+def temporal_allen(
+    cli_ctx: CLIContext, interval1: str, interval2: str, local_json: bool
+) -> None:
     """Allen interval algebra relation between two intervals."""
     cli_ctx = _require_ctx(cli_ctx)
 
     def _action() -> None:
         try:
-            from .reasoning import TemporalReasoningEngine
-            engine = TemporalReasoningEngine(config=cli_ctx.config.to_dict())
-            result = engine.allen_relation(interval1, interval2)
+            from .kg.temporal_reasoning import TemporalReasoningEngine
         except ImportError as exc:
-            raise click.ClickException(f"Reasoning module not available: {exc}") from exc
+            raise click.ClickException(
+                f"Reasoning module not available: {exc}"
+            ) from exc
+        engine = TemporalReasoningEngine()
+        iv1 = _parse_allen_interval(engine, interval1)
+        iv2 = _parse_allen_interval(engine, interval2)
+        relation = engine.relation(iv1, iv2)
+        relation_name = relation.value if hasattr(relation, "value") else str(relation)
         if _is_json(cli_ctx, local_json):
-            _jecho({"interval1": interval1, "interval2": interval2, "relation": str(result)})
+            _jecho(
+                {
+                    "interval1": interval1,
+                    "interval2": interval2,
+                    "relation": relation_name,
+                }
+            )
         else:
-            console.print(f"{interval1} ── {result} ──► {interval2}")
+            console.print(f"{interval1} ── {relation_name} ──► {interval2}")
 
     _run_with_error_handling(_action)
-
-
 @main.group(invoke_without_command=True)
 @click.pass_context
 def provenance(ctx: click.Context) -> None:
