@@ -166,7 +166,7 @@ semantica-explorer --graph my_graph.json --no-browser
 </Warning>
 
 <Tip>
-  **CORS and WebSocket Origins:** `semantica-explorer` automatically allows browser connections from `localhost` and `127.0.0.1` on the configured `--port` (and Vite dev port `5173`). To allow external browser origins or custom domains for both HTTP CORS and `/ws/graph-updates` WebSocket connections, set the `ALLOWED_ORIGINS` environment variable (e.g. `ALLOWED_ORIGINS="https://explorer.example.com"`). An origin not in the allowlist causes the WebSocket handshake to fail with HTTP 403; add the origin to `ALLOWED_ORIGINS` to resolve this for custom or external clients. `EXPLORER_CORS_ORIGINS` is also supported as a legacy alias.
+  **CORS and WebSocket Origins:** `semantica-explorer` automatically allows browser connections from `localhost` and `127.0.0.1` on the configured `--port` (and Vite dev port `5173`). When `--host` is not a loopback address, `http://<host>:<port>` is allowed too, so a browser opened on the address the Explorer is served at can connect; an IPv6 host is written in brackets, as a browser sends it (`--host fe80::1` allows `http://[fe80::1]:<port>`). With `--port 0` the operating system picks the port after start-up, so no port origin is added: set `ALLOWED_ORIGINS` to include it. To allow external browser origins or custom domains for both HTTP CORS and `/ws/graph-updates` WebSocket connections, set the `ALLOWED_ORIGINS` environment variable (e.g. `ALLOWED_ORIGINS="https://explorer.example.com"`). An origin not in the allowlist causes the WebSocket handshake to fail with HTTP 403; add the origin to `ALLOWED_ORIGINS` to resolve this for custom or external clients. `EXPLORER_CORS_ORIGINS` is also supported as a legacy alias.
 </Tip>
 
 

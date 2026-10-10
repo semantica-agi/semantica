@@ -21,6 +21,17 @@ _out = Console()
 _err = Console(stderr=True)
 
 
+def _browser_origin(host, port):
+    """The Origin a browser sends for a page served from ``host``:``port``.
+
+    An IPv6 literal is written in brackets, as it is in a URL, so
+    ``--host fe80::1`` gives ``http://[fe80::1]:<port>``.
+    """
+    if ":" in host and not host.startswith("["):
+        host = f"[{host}]"
+    return f"http://{host}:{port}"
+
+
 def main(argv=None):
     """CLI entry point for the Knowledge Explorer server."""
     parser = argparse.ArgumentParser(
@@ -79,14 +90,18 @@ def main(argv=None):
 
     allowed_origins = None
     if "ALLOWED_ORIGINS" not in os.environ and "EXPLORER_CORS_ORIGINS" not in os.environ:
-        default_origins = [
-            "http://localhost:5173",
-            "http://127.0.0.1:5173",
-            f"http://localhost:{args.port}",
-            f"http://127.0.0.1:{args.port}",
-        ]
-        if args.host not in ("127.0.0.1", "localhost", "0.0.0.0", "::1", "::"):
-            default_origins.append(f"http://{args.host}:{args.port}")
+        default_origins = ["http://localhost:5173", "http://127.0.0.1:5173"]
+        # With --port 0 the OS picks the port after this list is built, so
+        # there is no port to allow here.
+        if args.port != 0:
+            default_origins += [
+                _browser_origin("localhost", args.port),
+                _browser_origin("127.0.0.1", args.port),
+            ]
+            # A non-loopback --host is also allowed as an origin, so a browser
+            # opened on the address the Explorer is reached at can connect.
+            if args.host not in ("127.0.0.1", "localhost", "0.0.0.0", "::1", "::"):
+                default_origins.append(_browser_origin(args.host, args.port))
         allowed_origins = list(dict.fromkeys(default_origins))
 
     app = create_app(session=session, allowed_origins=allowed_origins)
