@@ -306,11 +306,10 @@ chunks = structural_chunker.chunk(text)
 
 # Sliding window chunking
 sliding_chunker = SlidingWindowChunker(
-    window_size=1000,
-    step_size=800,  # 200 overlap
-    min_chunk_size=100
+    chunk_size=1000,
+    overlap=200,  # max budget for repeated trailing sentences; actual overlap may be smaller or zero
 )
-chunks = sliding_chunker.chunk(text)
+chunks = sliding_chunker.chunk(text, preserve_boundaries=True)
 
 # Table-specific chunking
 table_chunker = TableChunker(

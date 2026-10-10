@@ -25,6 +25,8 @@ Author: Semantica Contributors
 License: MIT
 """
 
+import re
+from collections import deque
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
@@ -44,8 +46,12 @@ class SlidingWindowChunker:
         Args:
             **config: Configuration options:
                 - chunk_size: Chunk size in characters
-                - overlap: Overlap size in characters (default: 0)
-                - stride: Stride size (default: chunk_size - overlap)
+                - overlap: Character overlap for fixed windows, or a maximum
+                  character budget for complete trailing sentences (default: 0)
+                - stride: Character-window step (default: chunk_size - overlap).
+                  Used by fixed windows and long-sentence fallback only; sentence
+                  grouping takes precedence over an explicitly configured stride.
+                  Long-sentence fallback caps the step at chunk_size to avoid gaps.
         """
         self.logger = get_logger("sliding_window_chunker")
         self.config = config
@@ -74,7 +80,10 @@ class SlidingWindowChunker:
         Args:
             text: Input text to chunk
             **options: Chunking options:
-                - preserve_boundaries: Try to preserve word/sentence boundaries (default: True)
+                - preserve_boundaries: Group complete sentences (default: True).
+                  Repeat only complete trailing sentences that fit the overlap
+                  budget and leave room for a new sentence. Sentences longer than
+                  chunk_size use character windows with stride capped at chunk_size.
 
         Returns:
             list: List of chunks
@@ -147,61 +156,78 @@ class SlidingWindowChunker:
         return chunks
 
     def _chunk_with_boundaries(self, text: str) -> List[Chunk]:
-        """Chunk text preserving word/sentence boundaries."""
+        """Scan sentences once, retaining only reusable trailing sentence starts.
+
+        Overlap repeats complete trailing sentences within the character budget,
+        leaving room for new content. Long sentences use character windows.
+        """
         chunks = []
-        text_length = len(text)
+        sentence_starts = deque()
+        cursor = 0
+        group_start = None
+        group_end = 0
 
-        start = 0
-        chunk_index = 0
-
-        while start < text_length:
-            # Determine end position
-            end_pos = min(start + self.chunk_size, text_length)
-
-            # If not at end, try to find a good boundary
-            if end_pos < text_length:
-                # Look for sentence boundary (., !, ?)
-                boundary_chars = [".", "!", "?", "\n"]
-                for boundary in boundary_chars:
-                    last_boundary = text.rfind(boundary, start, end_pos)
-                    if (
-                        last_boundary > start + self.chunk_size * 0.5
-                    ):  # At least 50% of target size
-                        end_pos = last_boundary + 1
-                        break
-
-                # If no sentence boundary, look for word boundary
-                if end_pos == min(start + self.chunk_size, text_length):
-                    last_space = text.rfind(" ", start, end_pos)
-                    if last_space > start + self.chunk_size * 0.5:
-                        end_pos = last_space
-
-            chunk_text = text[start:end_pos].strip()
-
+        def append_chunk(start: int, end: int, boundary_preserved: bool) -> None:
+            chunk_text = text[start:end].strip()
             if chunk_text:
+                has_overlap = bool(chunks) and start < chunks[-1].end_index
                 chunks.append(
                     Chunk(
                         text=chunk_text,
                         start_index=start,
-                        end_index=end_pos,
+                        end_index=end,
                         metadata={
-                            "chunk_index": chunk_index,
+                            "chunk_index": len(chunks),
                             "chunk_size": len(chunk_text),
-                            "has_overlap": chunk_index > 0,
-                            "boundary_preserved": end_pos < text_length,
+                            "has_overlap": has_overlap,
+                            "boundary_preserved": boundary_preserved,
                         },
                     )
                 )
 
-            # Move to next chunk with stride
-            start += self.stride
+        # finditer is lazy; '$' also includes an unterminated final sentence.
+        for boundary in re.finditer(r"[.!?\n]+|$", text):
+            start, end_pos = cursor, boundary.end()
+            cursor = end_pos
+            while start < end_pos and text[start].isspace():
+                start += 1
+            while end_pos > start and text[end_pos - 1].isspace():
+                end_pos -= 1
+            if start == end_pos:
+                continue
 
-            # Ensure we don't go backwards
-            if start <= end_pos - self.overlap:
-                start = end_pos - self.overlap
+            if group_start is not None and end_pos - group_start > self.chunk_size:
+                append_chunk(group_start, group_end, True)
+                # Candidates already fit the overlap budget. Retain only a suffix
+                # that also leaves room for this new sentence, ensuring progress.
+                while sentence_starts and (
+                    end_pos - sentence_starts[0] > self.chunk_size
+                ):
+                    sentence_starts.popleft()
+                group_start = sentence_starts[0] if sentence_starts else None
 
-            chunk_index += 1
+            if end_pos - start > self.chunk_size:
+                # A long sentence cannot share a group. Cap the step to avoid gaps,
+                # without changing configured stride or carrying partial sentences.
+                step = min(self.stride, self.chunk_size)
+                for fragment_start in range(start, end_pos, step):
+                    append_chunk(
+                        fragment_start,
+                        min(fragment_start + self.chunk_size, end_pos),
+                        False,
+                    )
+            else:
+                if group_start is None:
+                    group_start = start
+                group_end = end_pos
+                sentence_starts.append(start)
+                # Discard starts as soon as their suffix cannot be reused. The
+                # group's first offset stays available even when overlap is zero.
+                while sentence_starts and group_end - sentence_starts[0] > self.overlap:
+                    sentence_starts.popleft()
 
+        if group_start is not None:
+            append_chunk(group_start, group_end, True)
         return chunks
 
     def chunk_with_overlap(
