@@ -1,4 +1,4 @@
-"""Regression tests for the CommunityDetector.detect_communities dispatcher.
+﻿"""Regression tests for the CommunityDetector.detect_communities dispatcher.
 
 ``label_propagation`` is implemented and reachable through
 ``detect_communities_label_propagation()``, but the dispatcher never listed it.
@@ -485,3 +485,65 @@ def test_chunked_adjacency_keeps_a_neighbour_from_another_chunk():
 
     assert sorted(chunked[0]) == [1]
     assert sorted(chunked[1]) == [0, 2]
+
+
+def test_detect_communities_method_casing_and_separator_variations(monkeypatch):
+    """Verify that casing, dashes, and condensed names correctly route without falling back."""
+    called_methods = []
+
+    def mock_lp(self, graph, **kwargs):
+        called_methods.append("label_propagation")
+        return {"communities": []}
+
+    monkeypatch.setattr(CommunityDetector, "detect_communities_label_propagation", mock_lp)
+
+    detector = CommunityDetector()
+    graph = nx.path_graph(4)
+
+    # Test all variations mentioned in issue #1925
+    variations = ["Label_Propagation", "label-propagation", "labelpropagation", "LABEL_PROPAGATION"]
+    for variant in variations:
+        called_methods.clear()
+        detector.detect_communities(graph, method=variant)
+        assert called_methods == ["label_propagation"], f"Failed for method variant: {variant}"
+
+
+def test_detect_communities_unrecognized_method_logs_warning_and_falls_back(caplog, monkeypatch):
+    """Verify that an unrecognized method logs a warning and falls back to running louvain."""
+    called = []
+
+    def mock_louvain(self, graph, **kwargs):
+        called.append("louvain")
+        return {"communities": [[0, 1], [2, 3]]}
+
+    monkeypatch.setattr(CommunityDetector, "detect_communities_louvain", mock_louvain)
+
+    detector = CommunityDetector()
+    graph = nx.path_graph(4)
+
+    with caplog.at_level("WARNING"):
+        result = detector.detect_communities(graph, method="unknown_typo_method")
+
+    assert called == ["louvain"], "Expected fallback to Louvain algorithm"
+    assert "communities" in result
+    assert any(
+        "Unrecognized community detection method 'unknown_typo_method'" in record.message
+        for record in caplog.records
+    ), "Expected warning was not logged for unrecognized method"
+
+
+def test_detect_communities_algorithm_casing_parity(monkeypatch):
+    """Verify that algorithm parameter handles casing variations consistently."""
+    called_methods = []
+
+    def mock_lp(self, graph, **kwargs):
+        called_methods.append("label_propagation")
+        return {"communities": []}
+
+    monkeypatch.setattr(CommunityDetector, "detect_communities_label_propagation", mock_lp)
+
+    detector = CommunityDetector()
+    graph = nx.path_graph(4)
+
+    detector.detect_communities(graph, algorithm="Label_Propagation")
+    assert called_methods == ["label_propagation"]

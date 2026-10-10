@@ -1,4 +1,4 @@
-"""
+﻿"""
 Community Detection Module
 
 This module provides comprehensive community detection capabilities for the
@@ -498,6 +498,11 @@ class CommunityDetector:
             "label_propagation": self.detect_communities_label_propagation,
         }
 
+        # Canonical lookup table for casing/separators (e.g., 'labelpropagation', 'label-propagation')
+        canonical_map = {
+            k.replace("_", ""): k for k in handlers
+        }
+
         # The names are looked up in a dict, so a non-string would either be
         # ignored or fail as "unhashable type"; name the real problem instead.
         if method is not None and not isinstance(method, str):
@@ -511,13 +516,30 @@ class CommunityDetector:
 
         # 'method' is an alias for 'algorithm'
         if method is not None:
-            algorithm = method if method in handlers else algorithm
+            clean_m = method.strip().lower().replace("-", "_").replace(" ", "")
+            if clean_m in handlers:
+                algorithm = clean_m
+            elif clean_m.replace("_", "") in canonical_map:
+                algorithm = canonical_map[clean_m.replace("_", "")]
+            else:
+                self.logger.warning(
+                    f"Unrecognized community detection method '{method}'. "
+                    f"Falling back to default algorithm '{algorithm}'."
+                )
 
-        self.logger.info(f"Detecting communities using {algorithm} algorithm")
+        # Normalize algorithm parameter for casing/separator tolerance
+        clean_algo = algorithm.strip().lower().replace("-", "_").replace(" ", "") if isinstance(algorithm, str) else algorithm
+        if clean_algo in handlers:
+            handler = handlers[clean_algo]
+        elif isinstance(clean_algo, str) and clean_algo.replace("_", "") in canonical_map:
+            handler = handlers[canonical_map[clean_algo.replace("_", "")]]
+        else:
+            handler = handlers.get(algorithm)
 
-        handler = handlers.get(algorithm)
         if handler is None:
             raise ValueError(f"Unsupported algorithm: {algorithm}")
+
+        self.logger.info(f"Detecting communities using {algorithm} algorithm")
 
         return handler(graph, **options)
 
