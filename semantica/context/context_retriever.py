@@ -2456,18 +2456,20 @@ Answer:"""
                 # Use community detection for contextually related entities
                 if self.community_detector:
                     try:
-                        communities = self.community_detector.detect_communities(self.knowledge_graph)
-                        
+                        community_result = self.community_detector.detect_communities(
+                            self.knowledge_graph
+                        )
+                        node_assignments = community_result.get("node_assignments", {})
+
                         # Find community of current entity
-                        entity_community = None
-                        for comm_id, comm_nodes in communities.items():
-                            if entity_name in comm_nodes:
-                                entity_community = comm_id
-                                break
-                        
+                        entity_community = node_assignments.get(entity_name)
+
                         # Add other entities from same community
                         if entity_community is not None:
-                            same_community_entities = communities[entity_community]
+                            same_community_entities = [
+                                node for node, community_id in node_assignments.items()
+                                if community_id == entity_community
+                            ]
                             for comm_entity in same_community_entities:
                                 if comm_entity != entity_name and comm_entity not in [e["name"] for e in expanded_entities]:
                                     expanded_entities.append({

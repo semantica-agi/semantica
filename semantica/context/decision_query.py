@@ -1263,16 +1263,21 @@ class DecisionQuery:
             # Community detection
             if "community_detector" in self.kg_components:
                 subgraph = self._get_decision_subgraph(decision_id, max_depth)
-                communities = self.kg_components["community_detector"].detect_communities(subgraph)
-                
-                for community_id, members in communities.items():
-                    if decision_id in members:
-                        analysis["community_info"] = {
-                            "community_id": community_id,
-                            "community_size": len(members),
-                            "community_members": list(members)[:10]
-                        }
-                        break
+                community_detector = self.kg_components["community_detector"]
+                community_result = community_detector.detect_communities(subgraph)
+                node_assignments = community_result.get("node_assignments", {})
+
+                community_id = node_assignments.get(decision_id)
+                if community_id is not None:
+                    members = [
+                        node for node, assignment in node_assignments.items()
+                        if assignment == community_id
+                    ]
+                    analysis["community_info"] = {
+                        "community_id": community_id,
+                        "community_size": len(members),
+                        "community_members": members[:10]
+                    }
             
             self.logger.info(f"Completed influence analysis for decision {decision_id}")
             return analysis

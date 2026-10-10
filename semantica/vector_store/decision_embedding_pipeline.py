@@ -579,17 +579,14 @@ class DecisionEmbeddingPipeline:
         """Get community assignments for entities."""
         try:
             # Detect communities in the graph
-            communities = self.community_detector.detect_communities(self.graph_store)
-            
-            entity_communities = {}
-            for entity in entities:
-                # Find which community the entity belongs to
-                for community_id, community_nodes in communities.items():
-                    if entity in community_nodes:
-                        entity_communities[entity] = community_id
-                        break
-            
-            return entity_communities
+            result = self.community_detector.detect_communities(self.graph_store)
+            node_assignments = result.get("node_assignments", {})
+
+            return {
+                entity: node_assignments[entity]
+                for entity in entities
+                if entity in node_assignments
+            }
         except Exception:
             return {}
     

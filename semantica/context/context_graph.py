@@ -4177,11 +4177,13 @@ class ContextGraph:
             
             # Community detection
             if "community_detector" in self.kg_components:
-                communities = self.kg_components["community_detector"].detect_communities(kg_graph)
+                community_detector = self.kg_components["community_detector"]
+                community_result = community_detector.detect_communities(kg_graph)
+                communities = community_result["communities"]
                 analysis["community_analysis"] = {
                     "communities": communities,
                     "num_communities": len(communities),
-                    "modularity": self._calculate_modularity(communities)
+                    "modularity": community_result.get("modularity", 0.0)
                 }
             
             # Connectivity analysis
@@ -4346,11 +4348,6 @@ class ContextGraph:
         for edge in self.edges:
             distribution[edge.edge_type] += 1
         return dict(distribution)
-    
-    def _calculate_modularity(self, communities: Dict) -> float:
-        """Calculate modularity for communities (simplified)."""
-        # Placeholder for modularity calculation
-        return 0.5
     
     def _get_node_subgraph(self, node_id: str, max_depth: int = 2) -> Dict[str, Any]:
         """Get subgraph around a node."""
