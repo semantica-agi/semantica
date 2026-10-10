@@ -709,13 +709,19 @@ class TestProvenanceManager:
             assert entry is None
 
     def test_track_property_source_storage_error_swallowed_sqlite(self, tmp_path):
-        """Test that track_property_source returns None when storage.store() fails
+        """Test that track_property_source returns None when its write fails
         on the SQLite backend, mirroring the InMemory contract verified by
-        test_track_property_source_storage_error_swallowed (#783/#785)."""
+        test_track_property_source_storage_error_swallowed (#783/#785).
+
+        This one injects the failure through ``_store_with_conn`` rather than
+        ``store``: track_property_source writes inside its own transaction, and
+        SQLiteProvenanceStorage._store_with_conn issues the INSERT directly, so
+        ``store`` is never on that path and patching it would exercise nothing.
+        """
         db_path = str(tmp_path / "test_track_property_source_sqlite.db")
         prov_mgr = ProvenanceManager(storage_path=db_path)
         source = SourceReference(document="doc_1", page=1, confidence=0.9)
-        with patch.object(prov_mgr.storage, "store", side_effect=RuntimeError("storage error")):
+        with patch.object(prov_mgr.storage, "_store_with_conn", side_effect=RuntimeError("storage error")):
             entry = prov_mgr.track_property_source(
                 entity_id="e_test",
                 property_name="prop_test",
@@ -1865,3 +1871,129 @@ class TestMixedFormatTimestampComparisons:
         prov_mgr = self._manager_with("not-a-timestamp", "2026-08-19T12:00:00+00:00")
         entries = prov_mgr.audit_log(since="2026-08-19T11:00:00", format="json")
         assert [e["entity_id"] for e in entries] == ["entity_1"]
+
+
+class TestProvenanceStorageEnvResolution:
+    """#1810: the manager honours the provenance DB env vars the Explorer uses.
+
+    The CLI constructs ``ProvenanceManager(config=...)`` with no storage path
+    and used to fall back to an empty in-memory store, so ``provenance audit``
+    never saw the chain the Explorer had written.
+    """
+
+    ENV_VARS = ("SEMANTICA_PROVENANCE_DB", "EXPLORER_PROVENANCE_DB")
+
+    @pytest.fixture(autouse=True)
+    def _isolate_env_and_default(self, monkeypatch):
+        for name in self.ENV_VARS:
+            monkeypatch.delenv(name, raising=False)
+        original = ProvenanceManager._default_storage_path
+        ProvenanceManager._default_storage_path = None
+        try:
+            yield
+        finally:
+            ProvenanceManager._default_storage_path = original
+
+    def test_env_var_is_used_when_nothing_else_is_configured(
+        self, tmp_path, monkeypatch
+    ):
+        db = tmp_path / "from_env.db"
+        monkeypatch.setenv("SEMANTICA_PROVENANCE_DB", str(db))
+        pm = ProvenanceManager()
+        assert isinstance(pm.storage, SQLiteStorage)
+        assert pm.storage.db_path == str(db)
+
+    def test_explorer_env_var_is_the_fallback(self, tmp_path, monkeypatch):
+        db = tmp_path / "from_explorer_env.db"
+        monkeypatch.setenv("EXPLORER_PROVENANCE_DB", str(db))
+        pm = ProvenanceManager()
+        assert isinstance(pm.storage, SQLiteStorage)
+        assert pm.storage.db_path == str(db)
+
+    def test_semantica_env_var_wins_over_the_explorer_one(self, tmp_path, monkeypatch):
+        primary = tmp_path / "primary.db"
+        secondary = tmp_path / "secondary.db"
+        monkeypatch.setenv("SEMANTICA_PROVENANCE_DB", str(primary))
+        monkeypatch.setenv("EXPLORER_PROVENANCE_DB", str(secondary))
+        pm = ProvenanceManager()
+        assert pm.storage.db_path == str(primary)
+
+    def test_explicit_storage_path_beats_the_env_var(self, tmp_path, monkeypatch):
+        explicit = tmp_path / "explicit.db"
+        monkeypatch.setenv("SEMANTICA_PROVENANCE_DB", str(tmp_path / "from_env.db"))
+        pm = ProvenanceManager(storage_path=str(explicit))
+        assert pm.storage.db_path == str(explicit)
+
+    def test_config_storage_path_beats_the_env_var(self, tmp_path, monkeypatch):
+        cfg_path = tmp_path / "from_config.db"
+        monkeypatch.setenv("SEMANTICA_PROVENANCE_DB", str(tmp_path / "from_env.db"))
+        pm = ProvenanceManager(config={"provenance": {"storage_path": str(cfg_path)}})
+        assert pm.storage.db_path == str(cfg_path)
+
+    def test_default_storage_path_beats_the_env_var(self, tmp_path, monkeypatch):
+        default = tmp_path / "default.db"
+        monkeypatch.setenv("SEMANTICA_PROVENANCE_DB", str(tmp_path / "from_env.db"))
+        ProvenanceManager._default_storage_path = str(default)
+        pm = ProvenanceManager()
+        assert pm.storage.db_path == str(default)
+
+    def test_without_any_configuration_storage_is_in_memory(self):
+        pm = ProvenanceManager()
+        assert isinstance(pm.storage, InMemoryStorage)
+
+
+class TestPropertySourceReTracking:
+    """#1810 review: re-tracking a property must not break the hash chain.
+
+    The storage key is ``<entity>_<property>``, so a second write used to hit
+    INSERT OR REPLACE and drop the first row's checksum out of the chain while
+    later entries still linked to it. Two trackers sharing one DB (the env-var
+    setup this PR adds) reach that path on every repeated property.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _shared_env_db(self, tmp_path, monkeypatch):
+        for name in ("SEMANTICA_PROVENANCE_DB", "EXPLORER_PROVENANCE_DB"):
+            monkeypatch.delenv(name, raising=False)
+        original = ProvenanceManager._default_storage_path
+        ProvenanceManager._default_storage_path = None
+        monkeypatch.setenv("SEMANTICA_PROVENANCE_DB", str(tmp_path / "shared.db"))
+        try:
+            yield
+        finally:
+            ProvenanceManager._default_storage_path = original
+
+    def _tracker(self):
+        from semantica.conflicts.conflicts_provenance import (
+            SourceTrackerWithUnifiedBackend,
+        )
+
+        return SourceTrackerWithUnifiedBackend()
+
+    def test_two_trackers_retracking_one_property_keep_the_chain_intact(self):
+        first = self._tracker()
+        second = self._tracker()
+        source_a = SourceReference(document="doc_a", page=1, confidence=0.9)
+        source_b = SourceReference(document="doc_b", page=2, confidence=0.8)
+
+        first.track_property_source("entity_1", "mass", "10kg", source_a)
+        second.track_property_source("entity_1", "mass", "12kg", source_b)
+
+        manager = ProvenanceManager()
+        ids = [e.entity_id for e in manager.storage.retrieve_all()]
+        assert "entity_1_mass" in ids
+        assert any(i.startswith("entity_1_mass:v:") for i in ids)
+        assert manager.verify_chain()["valid"] is True
+
+    def test_the_latest_value_is_the_one_retained(self):
+        tracker = self._tracker()
+        tracker.track_property_source(
+            "entity_1", "mass", "10kg", SourceReference(document="doc_a")
+        )
+        tracker.track_property_source(
+            "entity_1", "mass", "12kg", SourceReference(document="doc_b")
+        )
+
+        entry = ProvenanceManager().storage.retrieve("entity_1_mass")
+        assert entry.metadata["value"] == "12kg"
+        assert entry.parent_entity_id is not None
