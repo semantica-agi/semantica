@@ -102,7 +102,7 @@ The `semantica-explorer` command accepts exactly four flags:
 <Note>
   There are no flags for authentication, CORS, or log level in the CLI. Allowed origins for HTTP CORS and WebSocket handshakes (`/ws/graph-updates`) are configured via the `ALLOWED_ORIGINS` environment variable (comma-separated). `EXPLORER_CORS_ORIGINS` is also supported as a legacy alias.
 
-  When launching via `semantica-explorer` without explicit environment variables, the server automatically allows connections from `localhost` and `127.0.0.1` on the configured `--port` (default: `8000`), in addition to local frontend development origins (`http://localhost:5173,http://127.0.0.1:5173`).
+  When launching via `semantica-explorer` without explicit environment variables, the server automatically allows connections from `localhost` and `127.0.0.1` on the configured `--port` (default: `8000`), in addition to local frontend development origins (`http://localhost:5173,http://127.0.0.1:5173`). A non-loopback `--host` is also allowed as `http://{host}:{port}` (IPv6 hosts are bracketed); `--port 0` adds no `:0` origin since the OS picks the real port. The port-`8000` default applies to every `create_app()` caller (CLI, module-level `app`, Docker, programmatic use), not only the CLI.
 </Note>
 
 <Tip>

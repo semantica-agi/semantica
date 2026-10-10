@@ -21,6 +21,13 @@ _out = Console()
 _err = Console(stderr=True)
 
 
+def _format_host(host: str) -> str:
+    """Bracket bare IPv6 literals so origins/URLs stay parseable."""
+    if ":" in host and not host.startswith("["):
+        return f"[{host}]"
+    return host
+
+
 def main(argv=None):
     """CLI entry point for the Knowledge Explorer server."""
     parser = argparse.ArgumentParser(
@@ -82,16 +89,21 @@ def main(argv=None):
         default_origins = [
             "http://localhost:5173",
             "http://127.0.0.1:5173",
-            f"http://localhost:{args.port}",
-            f"http://127.0.0.1:{args.port}",
         ]
+        if args.port != 0:
+            # Port 0 means "OS picks the port": a :0 origin could never match.
+            default_origins += [
+                f"http://localhost:{args.port}",
+                f"http://127.0.0.1:{args.port}",
+            ]
         if args.host not in ("127.0.0.1", "localhost", "0.0.0.0", "::1", "::"):
-            default_origins.append(f"http://{args.host}:{args.port}")
+            if args.port != 0:
+                default_origins.append(f"http://{_format_host(args.host)}:{args.port}")
         allowed_origins = list(dict.fromkeys(default_origins))
 
     app = create_app(session=session, allowed_origins=allowed_origins)
 
-    url = f"http://{args.host}:{args.port}"
+    url = f"http://{_format_host(args.host)}:{args.port}"
 
     _LOOPBACK_HOSTS = {"127.0.0.1", "::1", "localhost"}
     if args.host not in _LOOPBACK_HOSTS:

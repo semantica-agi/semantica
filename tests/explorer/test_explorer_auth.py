@@ -32,7 +32,11 @@ def _build_sample_graph() -> ContextGraph:
 
 
 @pytest.fixture
-def client():
+def client(monkeypatch):
+    # The app reads origins from the process environment at build time;
+    # a developer shell exporting ALLOWED_ORIGINS must not change tests (#1964.2).
+    monkeypatch.delenv("ALLOWED_ORIGINS", raising=False)
+    monkeypatch.delenv("EXPLORER_CORS_ORIGINS", raising=False)
     session = GraphSession(_build_sample_graph())
     app = create_app(session=session)
     with TestClient(app) as test_client:
