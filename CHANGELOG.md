@@ -19,6 +19,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **JSON and Arango AQL exports crashed on non-JSON-serializable property values** (fixes #1967) by @pkupt
+  - `write_json_file` called `json.dump` without a `default=` fallback, so a `datetime` (or any value json cannot serialise natively) in an entity's properties or metadata failed the whole export; `ArangoAQLExporter`'s two `json.dumps` calls had the same gap. Both now pass `default=str`, matching the precedent in `_content_iri` and `distance_exporter`. New `tests/test_export_non_serializable.py`
+
 - **`semantica backup create` reported success for an archive with no store data** (fixes #1820) by @costajohnt
   - With no file-based `graph_db` / `vector_store` / `triplet_store` path in the config, `backup create` wrote a manifest with `"files": []` and exited 0. It now fails with an error that points to `semantica backup info`, before asking for a passphrase or confirmation and before writing anything.
 
