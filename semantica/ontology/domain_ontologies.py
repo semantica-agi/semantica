@@ -129,6 +129,120 @@ class DomainOntologies:
             ],
         }
 
+        # Legal domain
+        self.domain_templates["legal"] = {
+            "classes": [
+                {"name": "Case", "comment": "A legal case or matter"},
+                {"name": "Contract", "comment": "A legally binding agreement"},
+                {"name": "Party", "comment": "A party to a legal matter"},
+                {"name": "Court", "comment": "A judicial body"},
+                {"name": "Statute", "comment": "A law or regulation"},
+                {"name": "Attorney", "comment": "A legal representative"},
+            ],
+            "properties": [
+                {
+                    "name": "hasParty",
+                    "type": "object",
+                    "domain": ["Case"],
+                    "range": ["Party"],
+                },
+                {
+                    "name": "filedIn",
+                    "type": "object",
+                    "domain": ["Case"],
+                    "range": ["Court"],
+                },
+                {
+                    "name": "governedBy",
+                    "type": "object",
+                    "domain": ["Contract"],
+                    "range": ["Statute"],
+                },
+                {
+                    "name": "representedBy",
+                    "type": "object",
+                    "domain": ["Party"],
+                    "range": ["Attorney"],
+                },
+            ],
+        }
+
+        # Research domain
+        self.domain_templates["research"] = {
+            "classes": [
+                {"name": "Researcher", "comment": "An individual conducting research"},
+                {"name": "Publication", "comment": "A scholarly publication"},
+                {"name": "Institution", "comment": "A research organization"},
+                {"name": "Dataset", "comment": "A dataset used in research"},
+                {"name": "Experiment", "comment": "A research experiment"},
+                {"name": "Funding", "comment": "A grant or funding source"},
+            ],
+            "properties": [
+                {
+                    "name": "authoredBy",
+                    "type": "object",
+                    "domain": ["Publication"],
+                    "range": ["Researcher"],
+                },
+                {
+                    "name": "affiliatedWith",
+                    "type": "object",
+                    "domain": ["Researcher"],
+                    "range": ["Institution"],
+                },
+                {
+                    "name": "usesDataset",
+                    "type": "object",
+                    "domain": ["Experiment"],
+                    "range": ["Dataset"],
+                },
+                {
+                    "name": "fundedBy",
+                    "type": "object",
+                    "domain": ["Experiment"],
+                    "range": ["Funding"],
+                },
+            ],
+        }
+
+        # Cybersecurity domain
+        self.domain_templates["cybersecurity"] = {
+            "classes": [
+                {"name": "ThreatActor", "comment": "An actor posing a cyber threat"},
+                {"name": "Vulnerability", "comment": "An exploitable weakness"},
+                {"name": "Malware", "comment": "Malicious software"},
+                {"name": "Asset", "comment": "A system or resource to protect"},
+                {"name": "Incident", "comment": "A security incident"},
+                {"name": "Indicator", "comment": "An indicator of compromise"},
+            ],
+            "properties": [
+                {
+                    "name": "exploits",
+                    "type": "object",
+                    "domain": ["ThreatActor"],
+                    "range": ["Vulnerability"],
+                },
+                {
+                    "name": "uses",
+                    "type": "object",
+                    "domain": ["ThreatActor"],
+                    "range": ["Malware"],
+                },
+                {
+                    "name": "targets",
+                    "type": "object",
+                    "domain": ["Malware"],
+                    "range": ["Asset"],
+                },
+                {
+                    "name": "detectedOn",
+                    "type": "object",
+                    "domain": ["Incident"],
+                    "range": ["Asset"],
+                },
+            ],
+        }
+
     def get_domain_template(self, domain: str) -> Optional[Dict[str, Any]]:
         """
         Get domain-specific template.
@@ -137,9 +251,15 @@ class DomainOntologies:
             domain: Domain name
 
         Returns:
-            Domain template or None
+            Domain template, or None when the domain is not registered
         """
-        return self.domain_templates.get(domain.lower())
+        template = self.domain_templates.get(domain.lower())
+        if template is None:
+            available = ", ".join(sorted(self.domain_templates))
+            self.logger.warning(
+                f"No domain template for '{domain}'. Available domains: {available}"
+            )
+        return template
 
     def create_domain_ontology(self, domain: str, **options) -> Dict[str, Any]:
         """
