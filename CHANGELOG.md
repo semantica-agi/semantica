@@ -19,6 +19,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **JSON-LD export dropped entity properties, validity windows and relationship weights** (fixes #1961) by @pkupt
+  - `_entity_to_jsonld` copied only `metadata` and read confidence from the top level only, so it always wrote the `1.0` default; `_relationship_to_jsonld` dropped `weight` and the validity window. Both now emit `semantica:properties` (`@json`), `semantica:validFrom`/`semantica:validUntil` (`xsd:dateTime`) and `semantica:weight`; confidence falls back to `properties["confidence"]` then `metadata["confidence"]`. New `tests/test_json_exporter.py`
+
 - **`semantica backup create` reported success for an archive with no store data** (fixes #1820) by @costajohnt
   - With no file-based `graph_db` / `vector_store` / `triplet_store` path in the config, `backup create` wrote a manifest with `"files": []` and exited 0. It now fails with an error that points to `semantica backup info`, before asking for a passphrase or confirmation and before writing anything.
 
