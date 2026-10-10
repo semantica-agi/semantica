@@ -293,8 +293,11 @@ def test_cli_main_preserves_explicit_allowed_origins(tmp_path, monkeypatch):
     ]
 
 
-def _cli_allowed_origins(tmp_path, monkeypatch, *args):
-    """Run ``semantica-explorer`` with ``args`` and return the app's origins."""
+def _cli_allowed_origins(tmp_path, monkeypatch, *args, browser=False):
+    """Run ``semantica-explorer`` with ``args`` and return the app's origins.
+
+    ``browser=True`` leaves the browser auto-open on, for a test that patches it.
+    """
     monkeypatch.setenv("SEMANTICA_ALLOW_ANONYMOUS", "true")
     monkeypatch.delenv("SEMANTICA_API_KEY", raising=False)
     monkeypatch.delenv("ALLOWED_ORIGINS", raising=False)
@@ -308,7 +311,8 @@ def _cli_allowed_origins(tmp_path, monkeypatch, *args):
 
     captured = {}
     monkeypatch.setattr(uvicorn, "run", lambda app, **kwargs: captured.update(app=app))
-    main(["--graph", str(graph_file), "--no-browser", *args])
+    flags = [] if browser else ["--no-browser"]
+    main(["--graph", str(graph_file), *flags, *args])
     return captured["app"].state.explorer_settings["allowed_origins"]
 
 
@@ -329,3 +333,28 @@ def test_cli_main_skips_the_port_origins_for_port_zero(tmp_path, monkeypatch):
     origins = _cli_allowed_origins(tmp_path, monkeypatch, "--port", "0")
 
     assert origins == ["http://localhost:5173", "http://127.0.0.1:5173"]
+
+
+def test_cli_main_opens_the_bracketed_url_for_an_ipv6_host(tmp_path, monkeypatch):
+    """The browser is opened at the URL whose origin the CLI allows, so an IPv6
+    host is bracketed there too."""
+    import threading
+    import webbrowser
+
+    class _RunNow:
+        def __init__(self, _delay, function):
+            self.function = function
+
+        def start(self):
+            self.function()
+
+    opened = []
+    monkeypatch.setattr(threading, "Timer", _RunNow)
+    monkeypatch.setattr(webbrowser, "open", opened.append)
+
+    origins = _cli_allowed_origins(
+        tmp_path, monkeypatch, "--host", "fe80::1", "--port", "8020", browser=True
+    )
+
+    assert opened == ["http://[fe80::1]:8020"]
+    assert opened[0] in origins

@@ -106,7 +106,9 @@ def main(argv=None):
 
     app = create_app(session=session, allowed_origins=allowed_origins)
 
-    url = f"http://{args.host}:{args.port}"
+    # The page is served at its origin, so the URL the browser opens and the
+    # banner shows is written the same way (an IPv6 host in brackets).
+    url = _browser_origin(args.host, args.port)
 
     _LOOPBACK_HOSTS = {"127.0.0.1", "::1", "localhost"}
     if args.host not in _LOOPBACK_HOSTS:
