@@ -50,6 +50,18 @@ updates:
         patterns:
           - "pytest-benchmark"
           - "pytest-cov"
+      # Everything the four groups above do not name still arrives as one
+      # single-dependency PR each, which is what filled the queue with pip
+      # bumps. Collapsing the minor and patch ones mirrors what /explorer
+      # already does. It sits last so a dependency matching a named group
+      # stays with that group, and majors stay out on purpose: those need a
+      # decision each and keep arriving alone.
+      python-minor-patch:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
 
   # GitHub Actions
   - package-ecosystem: "github-actions"
