@@ -19,6 +19,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **MCP `add_entity` stored every entity under its node id and dropped the content it was given** (fixes #1798)
+  - `add_entity` forwarded `label=` to `ContextGraph.add_node`, which takes no such parameter: the keyword landed in `**properties` and `content` fell back to the node id, so an entity created through MCP carried its id as its human-readable label. The same call never read the `content` argument at all, so a caller-supplied content was lost, and it passed the metadata mapping as `metadata=`, which nested the whole mapping under a `"metadata"` key instead of spreading it over the node.
+  - `label` is now the default for `content` (an explicit `content` still wins, the node id is the last resort) and is kept as a node property, which is where `GraphSession.normalize_node` looks a label up. Metadata is spread over the node's properties, matching how the rest of the codebase calls `add_node`. Both MCP packages carry their own `add_entity` -- `semantica_mcp.mcp.tools.graph` and `semantica.mcp_server` -- and both carried the same call, so both are fixed. New `tests/test_mcp_add_entity_label.py`
+
 - **`semantica backup create` reported success for an archive with no store data** (fixes #1820) by @costajohnt
   - With no file-based `graph_db` / `vector_store` / `triplet_store` path in the config, `backup create` wrote a manifest with `"files": []` and exited 0. It now fails with an error that points to `semantica backup info`, before asking for a passphrase or confirmation and before writing anything.
 

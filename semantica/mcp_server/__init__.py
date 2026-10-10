@@ -310,6 +310,33 @@ def _tool_link_decisions(args: dict) -> dict:
     }
 
 
+# Names ContextGraph.add_node() receives explicitly. A properties entry under
+# one of them would arrive twice and raise TypeError, so the caller's metadata
+# mapping is filtered by the same set.
+_NODE_ARG_NAMES = frozenset({"self", "node_id", "node_type", "content"})
+
+
+def _node_properties(label: str, metadata: dict) -> dict:
+    """Build the ``**properties`` mapping for ``ContextGraph.add_node``.
+
+    ``add_node`` has no ``label`` parameter: a ``label=`` keyword lands in
+    ``**properties`` and ``content`` falls back to the node id, so the entity
+    is stored under its id. The human-readable label belongs in ``content``,
+    which is where the rest of the graph code reads it from, and it is kept as
+    a property as well so readers that resolve a label from the node's
+    properties (``GraphSession.normalize_node``) still find it.
+
+    ``metadata`` is spread into the node's own properties, matching how the
+    rest of the codebase calls ``add_node``. Passing it as a ``metadata=``
+    keyword nests the whole mapping under a ``"metadata"`` key instead.
+    """
+    properties = {"label": label}
+    for key, value in (metadata or {}).items():
+        if key not in _NODE_ARG_NAMES:
+            properties[key] = value
+    return properties
+
+
 def _tool_add_entity(args: dict) -> dict:
     """Add a node/entity to the knowledge graph."""
     node_id = args.get("id", "")
@@ -318,8 +345,9 @@ def _tool_add_entity(args: dict) -> dict:
     if not node_id:
         return {"error": "id is required"}
     graph = _get_graph()
-    graph.add_node(node_id=node_id, label=label, node_type=node_type,
-                   metadata=args.get("metadata", {}))
+    graph.add_node(node_id=node_id, node_type=node_type,
+                   content=args.get("content") or label,
+                   **_node_properties(label, args.get("metadata")))
     # Persist back to disk so the entity survives server restarts.
     kg_path = os.environ.get("SEMANTICA_KG_PATH")
     if kg_path:
