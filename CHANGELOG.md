@@ -17,7 +17,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `semantica.kg.RelationalSchemaMapper` maps rows from a relational source (`DBIngestor`, `SnowflakeIngestor`, `DatabricksIngestor`, `PandasIngestor`, a DataFrame or plain row dicts) to the `{"entities", "relationships"}` shape `GraphBuilder` and `OntologyGenerator` consume: entity tables become entities keyed by primary key, foreign keys become typed relationships, junction tables become relationships only
   - Every entity and relationship is tagged with the `source` it came from so `ConflictDetector` can key credibility on it. New `tests/kg/test_schema_mapper.py`
 
+### Changed
+
+- **`JSONExporter` now rejects a format it cannot write** (#1968) by @pkupt
+  - `JSONExporter(format="csv")` and `export(..., format="csv")` raise `ValidationError` where they previously fell through to JSON. `None` still means "not provided" and keeps the `"json"` default, so callers that forward a null format are unaffected.
+
 ### Fixed
+
+- **`JSONExporter` accepted any `format` string and wrote JSON anyway** (fixes #1968) by @pkupt
+  - `export` and `export_knowledge_graph` branched only on `"json-ld"`, so `format="parquet"` — or any unknown name — produced a JSON document in a file named for another format, with no warning. Both entry points now reject a format the exporter cannot write with a `ValidationError` that names the supported values. New `tests/test_json_exporter_format_validation.py`
 
 - **`semantica backup create` reported success for an archive with no store data** (fixes #1820) by @costajohnt
   - With no file-based `graph_db` / `vector_store` / `triplet_store` path in the config, `backup create` wrote a manifest with `"files": []` and exited 0. It now fails with an error that points to `semantica backup info`, before asking for a passphrase or confirmation and before writing anything.
