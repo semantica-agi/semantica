@@ -34,6 +34,22 @@
 #     --ignore tests/integrations/open_ontologies/
 #   # HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1, no OPENAI/ANTHROPIC/GEMINI key
 #
+# The requirements-ci.txt install is part of the measurement, not an incidental
+# detail, and a local run on a core-only install (`pip install -e ".[dev]"`,
+# no extras) is not a substitute. Measured on 2026-10-10 against eba0abce, four
+# entries below report XPASS on such an install while the CI job running this
+# same list under the strict marker is green, so they do fail in the measured
+# environment:
+#
+#   tests/test_cli_commands.py::TestExportMultiFileFormats::test_reports_the_files_it_wrote  (all 3 params)
+#   tests/vector_store/test_backend_metadata_filtering.py::TestBackendMetadataFiltering::test_weaviate_store_filter_by_metadata_native_filter
+#
+# Installing the backend each one names (`neo4j`, `weaviate-client`) does not
+# change that, so the difference is somewhere else in the extras set and is not
+# characterised here. The point for a reader is only this: an XPASS seen on a
+# core-only install is not evidence that a line should be removed. Reproduce it
+# against requirements-ci.txt, or against the CI job, before delisting.
+#
 # Both runs were Windows 11 / CPython 3.11; CI is ubuntu-latest / CPython 3.11.
 # That measurement is not a superset of a Linux run: the entries appended below
 # from the suite's first Linux run are failures it could not see, so this list
