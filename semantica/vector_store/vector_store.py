@@ -745,7 +745,10 @@ class VectorStore:
 
     def search(self, query: str, limit: int = 10, **options) -> List[Dict[str, Any]]:
         """
-        Search for similar vectors by query string.
+        Search by a text query; the query is embedded first.
+
+        Returns plain ``dict`` results. For a precomputed embedding call
+        :meth:`search_vectors` instead.
 
         Args:
             query: Query string
@@ -765,16 +768,28 @@ class VectorStore:
         self, query_vector: np.ndarray, k: int = 10, **options
     ) -> List[SearchResult]:
         """
-        Search for similar vectors.
+        Search by a precomputed embedding vector.
+
+        Returns ``SearchResult`` objects. This method does not embed text; for
+        a text query call :meth:`search`, which embeds it first and delegates
+        here.
 
         Args:
-            query_vector: Query vector
+            query_vector: Query vector (array-like of floats, not a string)
             k: Number of results to return
             **options: Search options
 
         Returns:
-            List of search results with scores
+            List of search result objects with scores
         """
+        if isinstance(query_vector, (str, bytes)):
+            raise ValidationError(
+                "VectorStore.search_vectors() expects an embedding vector, "
+                "not text; call search(query) to embed a query string first, "
+                "or pass a numpy array / sequence of floats.",
+                validation_context={"method": "VectorStore.search_vectors"},
+            )
+
         # Delegate to backend store if available
         if self._backend_store:
             # Handle different method names across backend stores

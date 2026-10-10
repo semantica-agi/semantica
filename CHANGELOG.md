@@ -19,6 +19,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`VectorStore.search_vectors` accepted a string and failed inside NumPy** (fixes #1791) by @pkupt
+  - Passing text raised `ValueError: could not convert string to float` from the similarity computation, naming neither the store nor the method; `search_vectors` now rejects a string with a `ValidationError` that points at `search()` for text queries. The two methods' summaries now state the difference (text vs precomputed vector). New `tests/vector_store/test_search_vectors_rejects_text.py`
+
 - **`semantica backup create` reported success for an archive with no store data** (fixes #1820) by @costajohnt
   - With no file-based `graph_db` / `vector_store` / `triplet_store` path in the config, `backup create` wrote a manifest with `"files": []` and exited 0. It now fails with an error that points to `semantica backup info`, before asking for a passphrase or confirmation and before writing anything.
 
