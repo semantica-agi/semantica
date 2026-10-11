@@ -3880,17 +3880,16 @@ def temporal_history(
                 events = [
                     event for event in events if _aware(event["timestamp"]) >= since_dt
                 ]
+        # Serialize through the kg temporal helpers so timestamps are ISO 8601
+        # in every output mode, consistent with `temporal distance`, instead of
+        # the space-separated str() form json.dumps(default=str) produces.
+        ready = temporal_structure_to_json_ready(
+            events if isinstance(events, list) else []
+        )
         if _is_json(cli_ctx, local_json) or fmt == "json":
-            # Serialize through the kg temporal helpers so timestamps are ISO
-            # 8601, consistent with `temporal distance --json`, instead of the
-            # space-separated str() form _jecho's default=str produces.
-            _jecho(
-                temporal_structure_to_json_ready(
-                    events if isinstance(events, list) else []
-                )
-            )
+            _jecho(ready)
         else:
-            _pprint(cli_ctx, events)
+            _pprint(cli_ctx, ready)
 
     _run_with_error_handling(_action)
 

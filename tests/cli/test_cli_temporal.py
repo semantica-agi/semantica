@@ -7,6 +7,7 @@ drift fails loudly.
 """
 
 import json
+import re
 
 from click.testing import CliRunner
 import pytest
@@ -100,6 +101,15 @@ class TestTemporalHistory:
         assert len(events) > 0
         change_types = {event["change_type"] for event in events}
         assert "added" in change_types
+
+    def test_history_default_output_uses_iso_timestamps(self, runner, fixture_graph):
+        result = runner.invoke(
+            cli_module.main, ["temporal", "history", "entity_alice"]
+        )
+        assert result.exit_code == 0
+        # str(datetime) renders "2025-01-01 00:00:00+00:00"; ISO 8601 uses "T".
+        assert re.search(r'"timestamp": "\d{4}-\d{2}-\d{2}T', result.output)
+        assert not re.search(r'"timestamp": "\d{4}-\d{2}-\d{2} ', result.output)
 
     def test_history_since_filter(self, runner, fixture_graph):
         result = runner.invoke(
