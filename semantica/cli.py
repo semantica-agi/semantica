@@ -3856,7 +3856,10 @@ def temporal_history(
     def _action() -> None:
         try:
             from .kg.temporal_reasoning import TemporalReasoningEngine
-            from .kg.temporal_model import parse_temporal_value
+            from .kg.temporal_model import (
+                parse_temporal_value,
+                temporal_structure_to_json_ready,
+            )
         except ImportError as exc:
             raise click.ClickException(
                 f"KG temporal module not available: {exc}"
@@ -3878,7 +3881,14 @@ def temporal_history(
                     event for event in events if _aware(event["timestamp"]) >= since_dt
                 ]
         if _is_json(cli_ctx, local_json) or fmt == "json":
-            _jecho(events if isinstance(events, list) else [])
+            # Serialize through the kg temporal helpers so timestamps are ISO
+            # 8601, consistent with `temporal distance --json`, instead of the
+            # space-separated str() form _jecho's default=str produces.
+            _jecho(
+                temporal_structure_to_json_ready(
+                    events if isinstance(events, list) else []
+                )
+            )
         else:
             _pprint(cli_ctx, events)
 
@@ -3969,6 +3979,8 @@ def temporal_allen(
             console.print(f"{interval1} ── {relation_name} ──► {interval2}")
 
     _run_with_error_handling(_action)
+
+
 @main.group(invoke_without_command=True)
 @click.pass_context
 def provenance(ctx: click.Context) -> None:

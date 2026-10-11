@@ -292,7 +292,9 @@ class TestTemporalPrecisionAndHistoryFixes:
         assert result.exit_code == 0
         events = json.loads(result.output)
         assert len(events) == 1
-        assert events[0]["timestamp"].startswith("2025-03-01 12:00:00")
+        # ISO 8601 through serialize_temporal_value, consistent with
+        # `temporal distance --json`, not the space-separated str() form.
+        assert events[0]["timestamp"].startswith("2025-03-01T12:00:00")
 
     def test_temporal_commands_reject_non_memory_backend(self, runner):
         result = runner.invoke(
