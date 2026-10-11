@@ -1,0 +1,22 @@
+# Semantica code ownership
+# The maintainers listed below are the default reviewers for these paths.
+
+# Ontology and semantic constraints (includes SHACL generation and validation)
+/semantica/ontology/      @pkupt
+
+# Provenance (W3C PROV-O)
+/semantica/provenance/    @pkupt
+
+# Knowledge graph analytics
+/semantica/kg/            @pkupt
+
+# MCP server
+/semantica/mcp_server/    @pkupt
+
+# Evaluation and benchmarks
+/semantica/evals/         @pkupt
+/semantica/benchmarks/    @pkupt
+
+# Export and ingest
+/semantica/export/        @pkupt
+/semantica/ingest/        @pkupt
