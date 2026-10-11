@@ -35,7 +35,8 @@ Run directly for testing:
     python -m semantica.mcp_server
 
 Environment variables:
-    SEMANTICA_KG_PATH   — path to a persisted graph to load on start (optional)
+    SEMANTICA_KG_PATH   — persisted graph file to load on first use (optional)
+    SEMANTICA_KG_AUTO_RELOAD — true to reload changed graph files (default: false)
     SEMANTICA_LOG_LEVEL — log level: DEBUG, INFO, WARNING (default: WARNING)
 """
 
@@ -76,10 +77,26 @@ _graph: Any = None
 # SEMANTICA_KG_PATH file.  When False (load failed) mutation handlers skip
 # save_to_file to avoid overwriting the original file with an empty graph.
 _kg_load_ok: bool = True
+_graph_cache: Any = None
 
 
 def _get_graph():
-    global _graph, _kg_load_ok
+    global _graph, _kg_load_ok, _graph_cache
+    if os.environ.get("SEMANTICA_KG_AUTO_RELOAD", "").strip().lower() == "true":
+        if _graph_cache is None:
+            from semantica.context._graph_cache import _PersistedGraphCache
+
+            _graph_cache = _PersistedGraphCache()
+        try:
+            _graph = _graph_cache.get_graph(
+                _graph, os.environ.get("SEMANTICA_KG_PATH") or ""
+            )
+        except Exception:
+            _kg_load_ok = False
+            raise
+        _kg_load_ok = True
+        return _graph
+
     if _graph is None:
         from semantica.context import ContextGraph
         _graph = ContextGraph(advanced_analytics=True)
@@ -1035,7 +1052,11 @@ def _handle(req: dict) -> dict | None:
 
     if method == "resources/read":
         uri = params.get("uri", "")
-        data = _read_resource(uri)
+        try:
+            data = _read_resource(uri)
+        except Exception as exc:
+            log.exception("Resource %s raised", uri)
+            return err(-32603, f"Resource read failed ({type(exc).__name__}).")
         text = json.dumps(data, ensure_ascii=False, indent=2)
         return ok({"contents": [{"uri": uri, "mimeType": "application/json", "text": text}]})
 
