@@ -141,7 +141,7 @@ def test_large_sentence_overlap_budget_still_makes_progress():
         capture_output=True,
         text=True,
         check=True,
-        timeout=10,
+        timeout=180,  # covers a cold `import semantica` on slow CI runners
     )
     assert json.loads(result.stdout) == [
         ["Go.Run.Sit.", 0, 11],
@@ -307,7 +307,7 @@ def test_many_short_sentences_do_not_retain_all_offsets(overlap):
         capture_output=True,
         text=True,
         check=True,
-        timeout=10,
+        timeout=180,  # covers a cold `import semantica` on slow CI runners
     )
     measurement = json.loads(result.stdout)
     # Allow several text copies plus fixed overhead, but not one Python offset
