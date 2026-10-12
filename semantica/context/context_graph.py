@@ -3145,8 +3145,12 @@ class ContextGraph:
                 self.logger.warning(f"Audit trail callback failed for node {node.node_id}: {e}")
         return True
     
-    def _add_internal_edge(self, edge: ContextEdge) -> bool:
-        """Internal method to add an edge."""
+    def _add_internal_edge(self, edge: ContextEdge, unique_type: bool = False) -> bool:
+        """Internal method to add an edge.
+
+        With ``unique_type=True`` the edge is skipped when the source already has
+        an edge of the same type to the same target.
+        """
         if edge.source_id is None or edge.target_id is None:
             self.logger.warning("Skipping internal edge with invalid endpoints: %r", edge)
             return False
@@ -3154,6 +3158,11 @@ class ContextGraph:
             # Edge identity is content-derived, so an existing edge_id means this
             # exact edge is already stored; re-adding it is a no-op (issue #922).
             if edge.edge_id in self._edge_index:
+                return False
+            if unique_type and any(
+                e.target_id == edge.target_id and e.edge_type == edge.edge_type
+                for e in self._adjacency.get(edge.source_id, [])
+            ):
                 return False
 
             # Ensure nodes exist
@@ -3864,15 +3873,42 @@ class ContextGraph:
         # Handle None metadata
         metadata = decision.metadata or {}
 
+        # Validate the values the decision indexes need before touching graph
+        # state, so a bad value can't leave a stored but unindexed node.
+        try:
+            hash(decision.category)
+            float(decision.confidence)
+        except (TypeError, ValueError) as e:
+            raise ValueError(
+                f"Decision {node_id!r} has an invalid category or confidence: {e}"
+            ) from e
+        meta_entities = metadata.get("entities")
+        if meta_entities is not None:
+            if not isinstance(meta_entities, list):
+                raise ValueError("Decision metadata 'entities' must be a list")
+            try:
+                for entity in meta_entities:
+                    hash(entity)
+            except TypeError as e:
+                raise ValueError(
+                    "Decision metadata 'entities' must contain hashable values"
+                ) from e
+
         # Normalize timestamp to ensure consistent storage format
-        normalized_timestamp = self._normalize_timestamp(decision.timestamp)
+        raw_timestamp = decision.timestamp
+        if isinstance(raw_timestamp, str) and raw_timestamp.strip().endswith(("Z", "z")):
+            raw_timestamp = raw_timestamp.strip()[:-1] + "+00:00"
+        normalized_timestamp = self._normalize_timestamp(raw_timestamp)
 
         node = ContextNode(
             node_id=node_id,
             node_type="Decision",
             content=decision.scenario,
             properties={
+                # Metadata first so it can't override the Decision's own fields.
+                **metadata,
                 "category": decision.category,
+                "scenario": decision.scenario,
                 "reasoning": decision.reasoning,
                 "outcome": decision.outcome,
                 "confidence": decision.confidence,
@@ -3880,12 +3916,15 @@ class ContextGraph:
                 "decision_maker": decision.decision_maker,
                 "reasoning_embedding": decision.reasoning_embedding,
                 "node2vec_embedding": decision.node2vec_embedding,
-                **metadata
             },
             valid_from=decision.valid_from,
             valid_until=decision.valid_until,
         )
-        self._add_internal_node(node)
+        with self._lock:
+            if self._add_internal_node(node):
+                # Register in the decision indexes so precedent search,
+                # influence, causality and insights can see this decision.
+                self._sync_decision_from_node(node_id)
         return node_id
 
     def add_causal_relationship(
@@ -3903,9 +3942,14 @@ class ContextGraph:
             relationship_type: Type of relationship (CAUSED, INFLUENCED, PRECEDENT_FOR)
 
         Returns:
-            True when the edge was added; False when it was skipped because a
-            decision ID is unknown or a node is not a decision (logged as a
-            warning so callers no longer mistake the skip for success).
+            True when a new causal edge was inserted.
+            False when the operation was skipped without inserting an edge:
+              - source or target decision ID is not present in the graph;
+              - source or target node exists but is not a decision node;
+              - an equivalent causal relationship (same source, target, and
+                normalized relationship type) already exists.
+            Skipped operations are logged at WARNING level. Invalid
+            relationship types raise ValueError instead of returning False.
         """
         # Normalize so callers may use either vocabulary's spelling
         # ("causes" from CausalChainAnalyzer, or "CAUSED" from this module's
@@ -3945,7 +3989,16 @@ class ContextGraph:
             weight=1.0,
             metadata={"recorded_at": datetime.utcnow().isoformat()},
         )
-        self._add_internal_edge(edge)
+        # edge_id includes recorded_at, so the same causal link recorded twice
+        # gets a new id; compare (target, type) instead.
+        if not self._add_internal_edge(edge, unique_type=True):
+            self.logger.warning(
+                "Causal relationship %s -[%s]-> %s already exists; skipping",
+                source_decision_id,
+                relationship_type,
+                target_decision_id,
+            )
+            return False
         return True
 
     def get_causal_chain(
@@ -4839,7 +4892,7 @@ class ContextGraph:
                     for other_decision_id in self._entity_index.get(entity, set()):
                         if other_decision_id != current_id and other_decision_id not in explicit_cause_ids:
                             other_decision = self._decisions[other_decision_id]
-                            if other_decision["timestamp"] < current_decision["timestamp"]:
+                            if self._decision_sort_ts(other_decision["timestamp"]) < self._decision_sort_ts(current_decision["timestamp"]):
                                 potential_causes[other_decision_id] = None
 
                 for cause_id in potential_causes:
@@ -5110,6 +5163,31 @@ class ContextGraph:
         "valid_from", "valid_until", "content",
     })
 
+    @staticmethod
+    def _decision_sort_ts(raw_ts: Any) -> float:
+        """Epoch seconds for ``_temporal_index`` ordering.
+
+        Accepts epoch numbers (``record_decision``) and ISO strings
+        (``add_decision`` with a ``Decision`` object); anything unparseable
+        sorts as ``0.0``. A trailing ``Z`` is read as UTC; other naive values
+        use local time, matching ``record_decision``'s ``datetime.now()``.
+        """
+        if isinstance(raw_ts, datetime):
+            return raw_ts.timestamp()
+        try:
+            return float(raw_ts)
+        except (TypeError, ValueError):
+            pass
+        if isinstance(raw_ts, str):
+            try:
+                text = raw_ts.strip()
+                if text.endswith(("Z", "z")):
+                    text = text[:-1] + "+00:00"
+                return datetime.fromisoformat(text).timestamp()
+            except ValueError:
+                pass
+        return 0.0
+
     def _rebuild_decision_indexes(self) -> None:
         """Rebuild all derived decision indexes from the current node store.
 
@@ -5148,10 +5226,7 @@ class ContextGraph:
             # The temporal index uses it for sorting; downstream code handles
             # both types via _normalize_timestamp.
             raw_ts = meta.get("timestamp", 0.0)
-            try:
-                sort_ts = float(raw_ts)
-            except (TypeError, ValueError):
-                sort_ts = 0.0
+            sort_ts = self._decision_sort_ts(raw_ts)
 
             # Entities may be stored as a list in meta or inferred from
             # outgoing "involves" edges if the list field is absent/empty.
@@ -5250,10 +5325,7 @@ class ContextGraph:
         meta.update(getattr(node, "properties", {}) or {})
 
         raw_ts = meta.get("timestamp", 0.0)
-        try:
-            sort_ts = float(raw_ts)
-        except (TypeError, ValueError):
-            sort_ts = 0.0
+        sort_ts = self._decision_sort_ts(raw_ts)
 
         entities = meta.get("entities") or []
         if not isinstance(entities, list):
@@ -5534,7 +5606,12 @@ class ContextGraph:
             category_score = 1.0 if source_decision["category"] == target_decision["category"] else 0.0
             
             # Temporal proximity (more recent decisions have higher influence)
-            time_diff = abs(source_decision["timestamp"] - target_decision["timestamp"])
+            # Timestamps may be epoch floats (record_decision) or ISO strings
+            # (add_decision with a Decision object); compare as epoch seconds.
+            time_diff = abs(
+                self._decision_sort_ts(source_decision["timestamp"])
+                - self._decision_sort_ts(target_decision["timestamp"])
+            )
             time_score = max(0.0, 1.0 - time_diff / (30 * 24 * 3600))  # 30 days window
             
             # Combined score

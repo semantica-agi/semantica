@@ -18,6 +18,7 @@ import os
 import time
 import re
 import stat
+import tarfile
 import types
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -3114,6 +3115,40 @@ class TestBackup:
                  "--strip-config", "--quiet"],
             )
         assert "Traceback" not in result.output
+
+    @pytest.mark.parametrize("extra", [["--strip-config"], [], ["--encrypt"]])
+    def test_create_without_stores_fails(self, runner, monkeypatch, tmp_path, extra):
+        # Regression for #1820: no store paths used to write an archive
+        # with "files": [] and exit 0. It must also fail before asking for
+        # a passphrase or confirmation.
+        monkeypatch.setattr(cli_module.Path, "home", staticmethod(lambda: tmp_path))
+        with runner.isolated_filesystem():
+            result = runner.invoke(
+                cli_module.main,
+                ["backup", "create", "out.tar.gz", "--quiet", *extra],
+            )
+            assert result.exit_code != 0
+            assert "No store data to back up" in result.output
+            assert "passphrase" not in result.output
+            assert "Continue without encryption" not in result.output
+            assert not os.path.exists("out.tar.gz")
+
+    def test_create_with_local_store_writes_its_files(self, runner):
+        with runner.isolated_filesystem():
+            os.makedirs("kg")
+            with open("kg/graph.db", "w") as f:
+                f.write("data")
+            with open("cfg.yaml", "w") as f:
+                f.write("graph_db:\n  backend: sqlite\n  path: kg\n")
+            result = runner.invoke(
+                cli_module.main,
+                ["--config", "cfg.yaml", "backup", "create", "out.tar.gz",
+                 "--strip-config", "--quiet"],
+            )
+            _ok(result)
+            with tarfile.open("out.tar.gz") as tar:
+                names = tar.getnames()
+        assert "semantica-backup/graph/graph.db" in names
 
     def test_create_dry_run_json(self, runner):
         # backup create has no per-command --json; use global --json

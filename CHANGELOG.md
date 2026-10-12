@@ -19,6 +19,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`semantica backup create` reported success for an archive with no store data** (fixes #1820) by @costajohnt
+  - With no file-based `graph_db` / `vector_store` / `triplet_store` path in the config, `backup create` wrote a manifest with `"files": []` and exited 0. It now fails with an error that points to `semantica backup info`, before asking for a passphrase or confirmation and before writing anything.
+
 - **`calculate_pagerank` rebuilt the adjacency once per node for a plain graph dictionary** (fixes #1842)
   - `_get_filtered_neighbors` called `build_adjacency(graph, directed=True)` for every node, making neighbour resolution O(N * (N + E)). `calculate_pagerank` now builds it once before the node loop and passes it in through a new optional `adjacency` argument; scores are unchanged. New `tests/kg/test_centrality_pagerank_adjacency_reuse.py`
 

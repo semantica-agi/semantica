@@ -123,6 +123,10 @@ class TestEnhancedAlgorithmsE2E:
     
     def test_node_embeddings_end_to_end(self, social_network_graph):
         """Test node embeddings end-to-end."""
+        # Constructing NodeEmbedder requires gensim (the optional
+        # graph-embeddings extra); see tests/test_issue_1513_slim_core.py
+        # for the contract that it raises without it.
+        pytest.importorskip("gensim")
         embedder = NodeEmbedder()
         embedder.enable_provenance = True
         
@@ -470,6 +474,10 @@ class TestEnhancedAlgorithmsE2E:
     
     def test_comprehensive_workflow(self, social_network_graph, citation_network_graph, sample_embeddings):
         """Test comprehensive workflow combining all algorithms."""
+        # Constructing NodeEmbedder requires gensim (the optional
+        # graph-embeddings extra); see tests/test_issue_1513_slim_core.py
+        # for the contract that it raises without it.
+        pytest.importorskip("gensim")
         # Initialize all algorithms
         embedder = NodeEmbedder()
         embedder.enable_provenance = True

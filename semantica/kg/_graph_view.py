@@ -183,23 +183,77 @@ def _edge_type_of(edge: Any) -> Any:
     )
 
 
-def _dict_edge_types(
-    graph: Dict[str, Any], source: Any, target: Any, directed: bool
-) -> Set[Any]:
-    """Collect the types of every declared edge between two nodes."""
-    types: Set[Any] = set()
-    for edge in _extract_edges(graph):
+@dataclass
+class EdgeTypeIndex:
+    """The declared edge types of a plain graph dictionary, read once.
+
+    ``typed`` records whether any edge record declares a type at all;
+    ``by_pair`` maps each ``(source, target)`` to the types declared from
+    ``source`` to ``target``; ``untyped`` holds every ``(source, target)``
+    joined by at least one edge that declares no type.
+    """
+
+    typed: bool
+    by_pair: Dict[Tuple[Any, Any], Set[Any]]
+    untyped: Set[Tuple[Any, Any]]
+
+
+def build_edge_type_index(graph: Dict[str, Any]) -> EdgeTypeIndex:
+    """Read a graph dictionary's edge records once for repeated type lookups.
+
+    A caller that classifies many links passes the result to
+    :func:`edge_types_between`, so the edge list is scanned once per graph
+    instead of once per link.
+    """
+    edges = _extract_edges(graph)
+    by_pair: Dict[Tuple[Any, Any], Set[Any]] = {}
+    untyped: Set[Tuple[Any, Any]] = set()
+    typed = False
+    for edge in edges:
+        edge_type = _edge_type_of(edge)
+        if edge_type:
+            typed = True
         endpoints = _edge_endpoints(edge)
         if endpoints is None:
             continue
-        src, dst = endpoints
-        forwards = src == source and dst == target
-        backwards = src == target and dst == source
-        if not (forwards or (backwards and not directed)):
+        try:
+            if edge_type:
+                by_pair.setdefault(endpoints, set()).add(edge_type)
+            else:
+                untyped.add(endpoints)
+        except TypeError:
+            # An unhashable endpoint never equals a node id, which is always
+            # hashable, so it could not have matched a lookup anyway.
             continue
-        edge_type = _edge_type_of(edge)
-        if edge_type:
-            types.add(edge_type)
+    return EdgeTypeIndex(typed=typed, by_pair=by_pair, untyped=untyped)
+
+
+def _dict_edge_types(
+    graph: Dict[str, Any],
+    source: Any,
+    target: Any,
+    directed: bool,
+    index: Optional[EdgeTypeIndex] = None,
+) -> Optional[Set[Any]]:
+    """Collect the types of every declared edge between two nodes.
+
+    Returns ``None`` when an edge joining the pair declares no type, matching
+    :func:`edge_types_between`: a caller filtering on relationship types has
+    nothing to classify that link with and keeps it. The decision is made per
+    edge, so typed records elsewhere in the graph do not change it.
+    """
+    if index is None:
+        index = build_edge_type_index(graph)
+    if not index.typed:
+        return None
+    if (source, target) in index.untyped or (
+        not directed and (target, source) in index.untyped
+    ):
+        return None
+
+    types: Set[Any] = set(index.by_pair.get((source, target), ()))
+    if not directed:
+        types |= index.by_pair.get((target, source), set())
     return types
 
 
@@ -291,15 +345,24 @@ def graph_node_label(graph: Any, node: Any) -> Optional[str]:
 
 
 def edge_types_between(
-    graph: Any, source: Any, target: Any, directed: bool = False
+    graph: Any,
+    source: Any,
+    target: Any,
+    directed: bool = False,
+    edge_types: Optional[EdgeTypeIndex] = None,
 ) -> Optional[Set[Any]]:
     """Collect the relationship types of every edge between two nodes.
 
     Returns ``None`` when the graph exposes no edge types at all, because a
-    caller cannot classify a link it has no metadata for. An empty set means the
-    two nodes are joined by edges that declare no type. Callers keep the
-    neighbour on ``None`` and apply the filter to a set. A plain graph
-    dictionary is read through its ``relationships``/``edges`` entries.
+    caller cannot classify a link it has no metadata for. Callers keep the
+    neighbour on ``None`` and apply the filter to a set.
+
+    A plain graph dictionary is read through its ``relationships``/``edges``
+    entries and decides per edge: when an edge joining the pair declares no
+    type the result is ``None``, so that link is kept, while a pair joined only
+    by typed edges gets the set of their types. A ``ContextGraph`` or NetworkX
+    graph still answers for the pair as a whole: an empty set means the two
+    nodes are joined by edges that declare no type, and the filter drops them.
 
     ``directed`` narrows the edge-list lookup to edges that leave ``source`` and
     enter ``target``. The default reads the pair as undirected, which is what a
@@ -312,9 +375,13 @@ def edge_types_between(
     only the first one, so the edge list is the only view that shows them all.
     NetworkX returns plain attributes for a simple graph and a key-to-attributes
     mapping for a multigraph.
+
+    ``edge_types`` is an optional :func:`build_edge_type_index` result for a
+    plain graph dictionary. A caller classifying many links builds it once, so
+    the lookup does not rescan the edge list for every pair.
     """
     if isinstance(graph, dict):
-        return _dict_edge_types(graph, source, target, directed)
+        return _dict_edge_types(graph, source, target, directed, edge_types)
 
     edges = getattr(graph, "edges", None)
     if isinstance(edges, (list, tuple)) and any(

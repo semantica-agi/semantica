@@ -260,6 +260,11 @@ the lockfile changes only when `pyproject.toml` changes intentionally.
 CI fails if `requirements-ci.txt` is stale relative to `pyproject.toml`
 (the version-line comparison detects new/removed/changed dependencies).
 
+When the Security Scan's pip-audit gate flags a pinned dependency, bump it
+to the latest release with no known advisories, not the first fixed
+version: a minimal bump tends to land just inside the range of the next
+advisory. Regenerate with `--upgrade-package <name>` so other pins stay put.
+
 Build-system pins: `[build-system].requires` is pinned to exact versions
 (`setuptools==84.0.0`, `wheel==0.48.0`) and release builds run
 `python -m build --no-isolation` against the lockfile — no unpinned
@@ -325,6 +330,12 @@ pytest tests/test_file.py      # Specific file
 ```
 
 **Coverage goal:** 80% minimum, 90%+ for critical modules
+
+### Known failures list
+
+`.github/full-suite-known-failures.txt` lists tests that already fail on an unmodified checkout. CI runs them under `xfail` instead of skipping them, and the marker is strict in CI. If your change makes a listed test pass, CI reports `XPASS(strict)` and fails. Delete that test's line from the file in the same PR.
+
+Don't add a line to hide a failure your change introduces. Fix the test or the code instead.
 
 ---
 
