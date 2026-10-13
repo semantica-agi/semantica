@@ -96,6 +96,55 @@ class TestSlidingWindowChunker:
                 == chunk_size - overlap
             )
 
+    @pytest.mark.parametrize(
+        "config, expected_spans, expected_overlap",
+        [
+            pytest.param(
+                {"overlap": 0},
+                [(0, 8), (8, 16), (16, 20)],
+                [False, False, False],
+                id="zero-overlap",
+            ),
+            pytest.param(
+                {"overlap": 3},
+                [(0, 8), (5, 13), (10, 18), (15, 20)],
+                [False, True, True, True],
+                id="default-overlap",
+            ),
+            pytest.param(
+                {"overlap": 3, "stride": 8},
+                [(0, 8), (8, 16), (16, 20)],
+                [False, False, False],
+                id="custom-stride-touching-windows",
+            ),
+            pytest.param(
+                {"overlap": 3, "stride": 12},
+                [(0, 8), (12, 20)],
+                [False, False],
+                id="custom-stride-with-gaps",
+            ),
+            pytest.param(
+                {"overlap": 0, "stride": 5},
+                [(0, 8), (5, 13), (10, 18), (15, 20)],
+                [False, True, True, True],
+                id="custom-stride-overrides-zero-overlap",
+            ),
+        ],
+    )
+    def test_fixed_size_metadata_reports_actual_overlap(
+        self, config, expected_spans, expected_overlap
+    ):
+        text = "abcdefghijklmnopqrst"
+        chunker = SlidingWindowChunker(chunk_size=8, **config)
+
+        chunks = chunker.chunk(text, preserve_boundaries=False)
+
+        assert [(chunk.start_index, chunk.end_index) for chunk in chunks] == expected_spans
+        assert [chunk.text for chunk in chunks] == [
+            text[start:end] for start, end in expected_spans
+        ]
+        assert [chunk.metadata["has_overlap"] for chunk in chunks] == expected_overlap
+
     def test_chunk_with_overlap_helper(self):
         text = "word " * 40
         chunker = SlidingWindowChunker(chunk_size=50, overlap=0)
