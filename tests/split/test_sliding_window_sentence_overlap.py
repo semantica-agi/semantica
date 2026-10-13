@@ -23,14 +23,14 @@ from semantica.split.sliding_window_chunker import SlidingWindowChunker
 
 
 def _assert_source_coverage(text, chunks, chunk_size):
-    """Check actual content as well as reported offsets, allowing outer trimming."""
+    """Check exact source offsets and coverage of all non-whitespace content."""
     assert chunks
     covered = set()
     for chunk in chunks:
         assert 0 <= chunk.start_index < chunk.end_index <= len(text)
         assert chunk.text
         assert len(chunk.text) <= chunk_size
-        assert chunk.text.strip() == text[chunk.start_index : chunk.end_index].strip()
+        assert chunk.text == text[chunk.start_index : chunk.end_index]
         covered.update(range(chunk.start_index, chunk.end_index))
 
     missing = [
@@ -169,7 +169,76 @@ def test_long_sentence_keeps_character_overlap(preserve_boundaries):
         assert current.start_index > previous.start_index
         shared = min(3, len(previous.text), len(current.text))
         assert previous.text[-shared:] == current.text[:shared]
-    # Do not prescribe the existing character-fallback behavior for final tails.
+
+
+@pytest.mark.parametrize(
+    "text, expected",
+    [
+        ("abc def ghi.", [(0, 3), (4, 7), (8, 12)]),
+        ("ab   cd.", [(0, 2), (5, 8)]),
+        ("ab      cd.", [(0, 2), (8, 11)]),
+        ("abc\tdef\u2003ghi.", [(0, 3), (4, 7), (8, 12)]),
+        (" \tab   cd.  ", [(2, 4), (7, 10)]),
+    ],
+)
+def test_long_sentence_fallback_offsets_match_trimmed_text(text, expected):
+    chunks = SlidingWindowChunker(chunk_size=4, overlap=0).chunk(text)
+
+    _assert_source_coverage(text, chunks, 4)
+    assert [(chunk.start_index, chunk.end_index) for chunk in chunks] == expected
+    assert [chunk.metadata["chunk_index"] for chunk in chunks] == list(
+        range(len(chunks))
+    )
+    assert all(chunk.metadata["chunk_size"] == len(chunk.text) for chunk in chunks)
+
+
+@pytest.mark.parametrize(
+    "text, expected, has_overlap",
+    [
+        ("abc     def.", [(0, 3), (8, 12)], [False, False]),
+        ("ab cdef ghi.", [(0, 7), (5, 12)], [False, True]),
+    ],
+)
+def test_long_sentence_fallback_overlap_uses_trimmed_offsets(
+    text, expected, has_overlap
+):
+    chunks = SlidingWindowChunker(chunk_size=8, overlap=3).chunk(text)
+
+    _assert_source_coverage(text, chunks, 8)
+    assert [(chunk.start_index, chunk.end_index) for chunk in chunks] == expected
+    assert [chunk.metadata["has_overlap"] for chunk in chunks] == has_overlap
+
+
+@pytest.mark.parametrize(
+    "text, overlap, stride, expected",
+    [
+        ("abcdefghijkl.", 3, None, [(0, 8), (5, 13)]),
+        ("abcdefghijklmnop.", 3, None, [(0, 8), (5, 13), (10, 17)]),
+        ("abcdefghijklm.", 3, None, [(0, 8), (5, 13), (10, 14)]),
+        ("abcdefghi.", 7, None, [(0, 8), (1, 9), (2, 10)]),
+        ("abcdefghijkl.", 0, 5, [(0, 8), (5, 13)]),
+        ("abcdefghijkl", 3, None, [(0, 8), (5, 12)]),
+    ],
+    ids=[
+        "exact-end",
+        "partial-end",
+        "required-tail",
+        "high-overlap",
+        "stride",
+        "unterminated",
+    ],
+)
+def test_long_sentence_fallback_stops_after_covering_sentence(
+    text, overlap, stride, expected
+):
+    config = {"chunk_size": 8, "overlap": overlap}
+    if stride is not None:
+        config["stride"] = stride
+    chunks = SlidingWindowChunker(**config).chunk(text)
+
+    _assert_source_coverage(text, chunks, 8)
+    assert [(chunk.start_index, chunk.end_index) for chunk in chunks] == expected
+    assert all(not chunk.metadata["boundary_preserved"] for chunk in chunks)
 
 
 def test_long_sentence_fallback_returns_to_complete_sentence_groups():
@@ -184,10 +253,12 @@ def test_long_sentence_fallback_returns_to_complete_sentence_groups():
     assert chunks[-1].metadata["boundary_preserved"] is True
 
     fragments = chunks[1:-1]
-    assert len(fragments) >= 2
-    assert [(chunk.start_index, chunk.end_index) for chunk in fragments[:2]] == [
+    assert [(chunk.start_index, chunk.end_index) for chunk in fragments] == [
         (3, 11),
         (8, 16),
+        (13, 21),
+        (18, 26),
+        (23, 29),
     ]
     for fragment in fragments:
         assert 3 <= fragment.start_index < fragment.end_index <= 3 + len(long_sentence)
