@@ -118,7 +118,9 @@ class TestSlidingWindowChunker:
 
         chunks = chunker.chunk_with_overlap("abcdefghij", overlap_size=4)
 
-        assert [chunk.start_index for chunk in chunks] == list(range(10))
+        # The window [5, 10) covers the end; no overlap-only tails remain.
+        assert [chunk.start_index for chunk in chunks] == list(range(6))
+        assert chunks[-1].end_index == 10
 
     def test_chunk_with_overlap_restores_custom_stride(self):
         chunker = SlidingWindowChunker(chunk_size=10, overlap=2, stride=3)
