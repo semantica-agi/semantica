@@ -87,6 +87,10 @@ class SlidingWindowChunker:
 
         Returns:
             list: Chunks whose offsets match their returned text in the input.
+
+        Notes:
+            Logs a warning if fixed windows leave input characters uncovered because
+                stride exceeds chunk_size and the text is longer than chunk_size.
         """
         tracking_id = self.progress_tracker.start_tracking(
             module="split",
@@ -109,6 +113,12 @@ class SlidingWindowChunker:
                 )
                 chunks = self._chunk_with_boundaries(text)
             else:
+                if self.stride > self.chunk_size and len(text) > self.chunk_size:
+                    self.logger.warning(
+                        "With preserve_boundaries=False, stride exceeds chunk_size, "
+                        "leaving some input characters uncovered. "
+                        "Use stride <= chunk_size for continuous coverage."
+                    )
                 self.progress_tracker.update_tracking(
                     tracking_id, message="Chunking with fixed-size windows..."
                 )

@@ -10,6 +10,7 @@ Long-sentence fallback caps stride at chunk_size to preserve content coverage.
 """
 
 import json
+import logging
 import subprocess
 import sys
 import textwrap
@@ -332,19 +333,56 @@ def test_long_sentence_fallback_caps_stride_to_preserve_coverage(stride, text):
     assert chunker.stride == stride
 
 
-def test_fixed_windows_keep_wide_stride_after_long_sentence_fallback():
-    text = "abcdefghijklmnopqrstuvwxy."
+@pytest.mark.parametrize(
+    "text, expected_spans",
+    [
+        ("abcdefghi", [(0, 8)]),
+        ("abcdefghijklmnopqrstuvwxy.", [(0, 8), (20, 26)]),
+    ],
+)
+def test_fixed_windows_warn_and_keep_wide_stride_after_fallback(
+    text, expected_spans, caplog
+):
     chunker = SlidingWindowChunker(chunk_size=8, overlap=3, stride=20)
     chunker.chunk(text)
 
-    chunks = chunker.chunk(text, preserve_boundaries=False)
+    with caplog.at_level(logging.WARNING, logger=chunker.logger.name):
+        chunks = chunker.chunk(text, preserve_boundaries=False)
 
-    assert [(chunk.start_index, chunk.end_index) for chunk in chunks] == [
-        (0, 8),
-        (20, 26),
+    recorded = [
+        record for record in caplog.records if record.name == chunker.logger.name
     ]
-    assert [chunk.text for chunk in chunks] == [text[:8], text[20:]]
+    assert len(recorded) == 1
+    assert recorded[0].levelno == logging.WARNING
+    assert "stride" in recorded[0].message
+    assert "chunk_size" in recorded[0].message
+    assert [(chunk.start_index, chunk.end_index) for chunk in chunks] == expected_spans
+    assert [chunk.text for chunk in chunks] == [
+        text[start:end] for start, end in expected_spans
+    ]
     assert chunker.stride == 20
+
+
+@pytest.mark.parametrize(
+    "text, stride, preserve_boundaries",
+    [
+        ("", 20, False),
+        ("abcdefg", 20, False),
+        ("abcdefgh", 20, False),
+        ("abcdefghijklmnopqrstuvwxy.", 5, False),
+        ("abcdefghijklmnopqrstuvwxy.", 8, False),
+        ("abcdefghijklmnopqrstuvwxy.", 20, True),
+        ("One.Two.Six.", 20, True),
+    ],
+)
+def test_gap_free_chunking_does_not_warn(text, stride, preserve_boundaries, caplog):
+    chunker = SlidingWindowChunker(chunk_size=8, overlap=3, stride=stride)
+    with caplog.at_level(logging.WARNING, logger=chunker.logger.name):
+        chunker.chunk(text, preserve_boundaries=preserve_boundaries)
+
+    assert not [
+        record for record in caplog.records if record.name == chunker.logger.name
+    ]
 
 
 @pytest.mark.parametrize("overlap", [0, 8], ids=["zero-overlap", "small-overlap"])
