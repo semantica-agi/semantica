@@ -145,7 +145,7 @@ class SlidingWindowChunker:
                     metadata={
                         "chunk_index": chunk_index,
                         "chunk_size": len(chunk_text),
-                        "has_overlap": chunk_index > 0,
+                        "has_overlap": bool(chunks) and start < chunks[-1].end_index,
                     },
                 )
             )
