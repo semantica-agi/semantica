@@ -11,6 +11,7 @@ import tempfile
 import threading
 import time
 import unittest
+from copy import deepcopy
 from pathlib import Path
 from unittest.mock import patch
 
@@ -265,6 +266,623 @@ class _GraphSourceFreshness:
         self.assertTrue(accepted.has_node("source:original"))
         self.assertEqual(self.path.read_bytes(), current)
         self.assertTrue(self.read().has_node("source:replacement"))
+
+    def mutation_cases(self):
+        from semantica_mcp.mcp.tools import decisions, graph
+
+        if self.entry_point == "console":
+            cases = [
+                (legacy._tool_add_entity, "add_node", {"id": "source:new"}),
+                (
+                    legacy._tool_add_entity,
+                    "add_node",
+                    {"id": "source:original", "type": "Replacement"},
+                ),
+                (
+                    legacy._tool_add_relationship,
+                    "add_edge",
+                    {"source": "source:original", "target": "source:implicit"},
+                ),
+                (
+                    legacy._tool_record_decision,
+                    "record_decision",
+                    {
+                        "category": "storage",
+                        "scenario": "Do not overwrite a pipeline publication.",
+                        "reasoning": "The loaded revision no longer owns the file.",
+                        "outcome": "refused",
+                        "confidence": 0.9,
+                        "entities": ["source:implicit"],
+                    },
+                ),
+                (
+                    legacy._tool_update_node,
+                    "add_node_attribute",
+                    {"node_id": "source:original", "properties": {"status": "done"}},
+                ),
+                (
+                    legacy._tool_delete_node,
+                    "add_node_attribute",
+                    {"node_id": "source:original"},
+                ),
+            ]
+        else:
+            cases = [
+                (graph.handle_add_entity, "add_node", {"id": "source:new"}),
+                (
+                    graph.handle_add_entity,
+                    "add_node",
+                    {"id": "source:original", "type": "Replacement"},
+                ),
+                (
+                    graph.handle_add_relationship,
+                    "add_edge",
+                    {"source": "source:original", "target": "source:implicit"},
+                ),
+                (
+                    decisions.handle_record_decision,
+                    "record_decision",
+                    {
+                        "category": "storage",
+                        "scenario": "Do not overwrite a pipeline publication.",
+                        "reasoning": "The loaded revision no longer owns the file.",
+                        "outcome": "refused",
+                        "confidence": 0.9,
+                        "entities": ["source:implicit"],
+                    },
+                ),
+                (
+                    decisions.handle_link_decisions,
+                    "add_causal_relationship",
+                    {
+                        "source": "decision:first",
+                        "target": "decision:second",
+                        "relationship": "CAUSED",
+                    },
+                ),
+            ]
+        return cases
+
+    def prepare_mutation(self):
+        self.write_source()
+        legacy._graph = None
+        legacy._graph_cache = None
+        session.reset_graph()
+        accepted = self.read()
+        accepted.add_node("decision:first", "decision", category="existing")
+        accepted.add_node("decision:second", "decision", category="existing")
+        # Publish through the native writer, then load that complete preimage.
+        accepted.save_to_file(self.path)
+        return self.read()
+
+    def test_pipeline_publication_during_mutation_is_preserved_and_rolled_back(self):
+        for handler, method, arguments in self.mutation_cases():
+            with self.subTest(handler=handler.__name__):
+                accepted = self.prepare_mutation()
+                before = accepted.to_kg_dict()
+                decisions_before = set(accepted._decisions)
+                native_mutation = getattr(ContextGraph, method)
+                publication = []
+
+                def publish_after_mutation(graph, *args, **kwargs):
+                    result = native_mutation(graph, *args, **kwargs)
+                    if graph is accepted:
+                        publication.append(self.write_source("source:pipeline"))
+                    return result
+
+                with patch.object(ContextGraph, method, new=publish_after_mutation):
+                    result = handler(arguments)
+
+                self.assertEqual(len(publication), 1)
+                self.assertIn("Mutation rolled back", result.get("error", ""))
+                self.assertEqual(self.path.read_bytes(), publication[0])
+                self.assertEqual(accepted.to_kg_dict(), before)
+                self.assertEqual(set(accepted._decisions), decisions_before)
+                self.assertFalse(accepted._edge_index)
+                self.assertTrue(self.read().has_node("source:pipeline"))
+
+    def test_refused_duplicate_edge_keeps_its_existing_edge_and_can_retry(self):
+        from semantica_mcp.mcp.tools import graph
+
+        accepted = self.prepare_mutation()
+        accepted.add_edge(
+            "source:original", "decision:first", "RELATED_TO", metadata={}
+        )
+        accepted.save_to_file(self.path)
+        accepted = self.read()
+        before = accepted.to_kg_dict()
+        native_add = ContextGraph.add_edge
+        publication = []
+
+        def publish_after_duplicate(graph, *args, **kwargs):
+            added = native_add(graph, *args, **kwargs)
+            if graph is accepted:
+                self.assertFalse(added)
+                publication.append(self.write_source("source:pipeline"))
+            return added
+
+        handler = (
+            legacy._tool_add_relationship
+            if self.entry_point == "console"
+            else graph.handle_add_relationship
+        )
+        with patch.object(ContextGraph, "add_edge", new=publish_after_duplicate):
+            result = handler({"source": "source:original", "target": "decision:first"})
+        self.assertIn("Mutation rolled back", result.get("error", ""))
+        self.assertEqual(accepted.to_kg_dict(), before)
+        self.assertEqual(self.path.read_bytes(), publication[0])
+        self.assertEqual(len(accepted._edge_index), 1)
+
+    def test_successful_mutation_keeps_the_cached_graph_and_its_own_revision(self):
+        for handler, method, arguments in self.mutation_cases():
+            with self.subTest(handler=handler.__name__):
+                accepted = self.prepare_mutation()
+                result = handler(arguments)
+                self.assertNotIn("error", result, result)
+                current = self.path.read_bytes()
+                with patch.object(
+                    ContextGraph,
+                    "load_from_file",
+                    side_effect=AssertionError("An own write must not reload."),
+                ):
+                    self.assertIs(self.read(), accepted)
+                self.assertEqual(self.path.read_bytes(), current)
+
+    def test_native_save_failure_preserves_revision_and_removes_temporary_files(self):
+        accepted = self.prepare_mutation()
+        current = self.path.read_bytes()
+        before = accepted.to_kg_dict()
+        handler, _, arguments = self.mutation_cases()[0]
+        with patch(
+            "semantica.context.context_graph.os.replace",
+            side_effect=OSError("Synthetic atomic publication failure."),
+        ):
+            result = handler(arguments)
+        self.assertIn("Mutation rolled back", result.get("error", ""))
+        self.assertEqual(accepted.to_kg_dict(), before)
+        self.assertEqual(self.path.read_bytes(), current)
+        self.assertIs(self.read(), accepted)
+        self.assertEqual(list(self.path.parent.glob(".kg_tmp_*")), [])
+
+    def test_failed_save_preserves_a_native_callbacks_independent_node(self):
+        accepted = self.prepare_mutation()
+        current = self.path.read_bytes()
+
+        def add_foreign_node(operation, node_id, _payload):
+            if operation == "ADD_NODE" and node_id == "source:new":
+                accepted.add_node("source:foreign", "Foreign", content="Independent.")
+
+        accepted.mutation_callback = add_foreign_node
+        handler, _, arguments = self.mutation_cases()[0]
+        with patch.object(
+            ContextGraph, "save_to_file", side_effect=OSError("disk full")
+        ):
+            result = handler(arguments)
+        self.assertIn("Mutation rolled back", result.get("error", ""))
+        self.assertFalse(accepted.has_node("source:new"))
+        self.assertTrue(accepted.has_node("source:foreign"))
+        self.assertEqual(self.path.read_bytes(), current)
+        self.assertEqual(accepted.node_type_index["Foreign"], {"source:foreign"})
+
+    def test_failed_save_preserves_same_target_callback_replacement(self):
+        accepted = self.prepare_mutation()
+        current = self.path.read_bytes()
+        replaced = []
+
+        def replace_target(operation, node_id, _payload):
+            if (
+                operation == "ADD_NODE"
+                and node_id == "source:original"
+                and not replaced
+            ):
+                replaced.append(True)
+                accepted.add_node(node_id, "Foreign", content="Callback replacement.")
+
+        accepted.mutation_callback = replace_target
+        handler, _, arguments = self.mutation_cases()[1]
+        with patch.object(
+            ContextGraph, "save_to_file", side_effect=OSError("disk full")
+        ):
+            result = handler(arguments)
+        self.assertIn("rollback incomplete", result.get("error", ""))
+        self.assertEqual(
+            accepted.nodes["source:original"].content, "Callback replacement."
+        )
+        self.assertEqual(
+            [node["id"] for node in accepted.find_nodes(node_type="Foreign")],
+            ["source:original"],
+        )
+        self.assertNotIn(
+            "source:original", accepted.node_type_index.get("Replacement", ())
+        )
+        self.assertNotIn(
+            "source:original", accepted.node_type_index.get("Document", ())
+        )
+        self.assertEqual(self.path.read_bytes(), current)
+
+    def test_failed_save_preserves_same_target_replacement_during_save(self):
+        accepted = self.prepare_mutation()
+        current = self.path.read_bytes()
+        handler, _, arguments = self.mutation_cases()[1]
+
+        def replace_then_fail(graph, _path):
+            self.assertIs(graph, accepted)
+            graph.add_node("source:original", "Foreign", content="Save callback.")
+            raise OSError("disk full")
+
+        with patch.object(ContextGraph, "save_to_file", new=replace_then_fail):
+            result = handler(arguments)
+        self.assertIn("rollback incomplete", result.get("error", ""))
+        self.assertEqual(accepted.nodes["source:original"].content, "Save callback.")
+        self.assertEqual(self.path.read_bytes(), current)
+
+    def test_failed_save_keeps_a_foreign_edges_local_endpoint_consistent(self):
+        accepted = self.prepare_mutation()
+        current = self.path.read_bytes()
+        handler, _, arguments = self.mutation_cases()[0]
+
+        def add_dependent_edge_then_fail(graph, _path):
+            self.assertIs(graph, accepted)
+            graph.add_edge("source:new", "source:foreign", "FOREIGN")
+            raise OSError("disk full")
+
+        with patch.object(
+            ContextGraph, "save_to_file", new=add_dependent_edge_then_fail
+        ):
+            result = handler(arguments)
+        self.assertIn("rollback incomplete", result.get("error", ""))
+        self.assertTrue(accepted.has_node("source:new"))
+        self.assertTrue(accepted.has_node("source:foreign"))
+        self.assertEqual(len(accepted.edges), 1)
+        edge = accepted.edges[0]
+        self.assertIs(accepted._edge_index[edge.edge_id], edge)
+        self.assertEqual(accepted._adjacency["source:new"], [edge])
+        self.assertEqual(self.path.read_bytes(), current)
+
+    def test_refused_decision_restores_exact_derived_indexes(self):
+        cases = [self.mutation_cases()[3]]
+        if self.entry_point == "console":
+            cases.append(
+                (
+                    legacy._tool_update_node,
+                    "add_node_attribute",
+                    {
+                        "node_id": "decision:first",
+                        "properties": {
+                            "category": "new-category",
+                            "entities": ["new-entity"],
+                            "timestamp": 1024,
+                        },
+                    },
+                )
+            )
+        for handler, _, arguments in cases:
+            with self.subTest(handler=handler.__name__):
+                accepted = self.prepare_mutation()
+                fields = (
+                    "_decisions",
+                    "_decision_index",
+                    "_entity_index",
+                    "_temporal_index",
+                    "node_type_index",
+                    "edge_type_index",
+                    "_adjacency",
+                    "_edge_index",
+                )
+                before = {name: deepcopy(getattr(accepted, name)) for name in fields}
+                with patch.object(
+                    ContextGraph, "save_to_file", side_effect=OSError("disk full")
+                ):
+                    result = handler(arguments)
+                self.assertIn("Mutation rolled back", result.get("error", ""))
+                for name in fields:
+                    self.assertEqual(getattr(accepted, name), before[name], name)
+
+    def test_a_post_save_publication_is_not_adopted_as_the_own_revision(self):
+        accepted = self.prepare_mutation()
+        native_save = ContextGraph.save_to_file
+        publication = []
+        handler, _, arguments = self.mutation_cases()[0]
+
+        def publish_after_save(graph, *args, **kwargs):
+            native_save(graph, *args, **kwargs)
+            if graph is accepted:
+                publication.append(self.write_source("source:pipeline"))
+
+        with patch.object(ContextGraph, "save_to_file", new=publish_after_save):
+            result = handler(arguments)
+        self.assertIn("Publication unverified", result.get("error", ""))
+        self.assertEqual(self.path.read_bytes(), publication[0])
+        recovered = self.read()
+        self.assertIsNot(recovered, accepted)
+        self.assertTrue(recovered.has_node("source:pipeline"))
+        self.assertFalse(recovered.has_node("source:new"))
+
+    def test_publication_during_snapshot_is_refused_before_native_save(self):
+        from semantica.context._graph_cache import _PersistedGraphCache
+
+        accepted = self.prepare_mutation()
+        native_snapshot = _PersistedGraphCache._snapshot
+        publication = []
+
+        def publish_after_snapshot(graph):
+            data = native_snapshot(graph)
+            if graph is accepted and not publication:
+                publication.append(self.write_source("source:pipeline"))
+            return data
+
+        handler, _, arguments = self.mutation_cases()[0]
+        with patch.object(
+            _PersistedGraphCache, "_snapshot", new=staticmethod(publish_after_snapshot)
+        ):
+            result = handler(arguments)
+        self.assertIn("Mutation rolled back", result.get("error", ""))
+        self.assertEqual(self.path.read_bytes(), publication[0])
+        self.assertFalse(accepted.has_node("source:new"))
+
+    def test_unknown_destination_after_failed_save_is_publication_unverified(self):
+        from semantica.context._graph_cache import _PersistedGraphCache
+
+        accepted = self.prepare_mutation()
+        native_save = ContextGraph.save_to_file
+        native_revision = _PersistedGraphCache._revision
+        failed = []
+
+        def save_then_fail(graph, path):
+            native_save(graph, path)
+            failed.append(True)
+            raise OSError("Failure after native atomic publication.")
+
+        def unreadable_revision(path):
+            if failed:
+                raise PermissionError("Destination revision unavailable.")
+            return native_revision(path)
+
+        handler, _, arguments = self.mutation_cases()[0]
+        with (
+            patch.object(ContextGraph, "save_to_file", new=save_then_fail),
+            patch.object(
+                _PersistedGraphCache, "_revision", new=staticmethod(unreadable_revision)
+            ),
+        ):
+            result = handler(arguments)
+        self.assertIn("Publication unverified", result.get("error", ""))
+        self.assertIn("in-memory", result["error"])
+        self.assertFalse(accepted.has_node("source:new"))
+        self.assertTrue(self.read().has_node("source:new"))
+
+    def test_rollback_failure_restores_original_callback_and_reports_partial_undo(self):
+        accepted = self.prepare_mutation()
+        current = self.path.read_bytes()
+        replaced = []
+
+        def replace_with_invalid_decision(operation, node_id, _payload):
+            if (
+                operation == "ADD_NODE"
+                and node_id == "source:original"
+                and not replaced
+            ):
+                replaced.append(True)
+                accepted.add_node(node_id, "decision", confidence="not-a-number")
+
+        accepted.mutation_callback = replace_with_invalid_decision
+        handler, _, arguments = self.mutation_cases()[1]
+        with patch.object(
+            ContextGraph, "save_to_file", side_effect=OSError("disk full")
+        ):
+            result = handler(arguments)
+        self.assertIn("rollback incomplete", result.get("error", ""))
+        self.assertIn("disk full", result["error"])
+        self.assertIs(accepted.mutation_callback, replace_with_invalid_decision)
+        self.assertEqual(accepted.nodes["source:original"].node_type, "decision")
+        self.assertEqual(self.path.read_bytes(), current)
+        acquired = []
+
+        def probe_lock():
+            locked = accepted._lock.acquire(timeout=1)
+            acquired.append(locked)
+            if locked:
+                accepted._lock.release()
+
+        probe = threading.Thread(target=probe_lock)
+        probe.start()
+        probe.join(timeout=2)
+        self.assertFalse(probe.is_alive())
+        self.assertEqual(acquired, [True], "The failed rollback must release the lock.")
+
+    def test_native_cross_graph_links_are_preserved_or_refused_before_saving(self):
+        accepted = self.prepare_mutation()
+        other = ContextGraph(advanced_analytics=False)
+        other.add_node("target", "Entity")
+        link_id = accepted.link_graph(other, "source:original", "target")
+        accepted.save_to_file(self.path)
+        accepted = self.read()
+        self.assertIn(link_id, accepted._unresolved_links)
+        current = self.path.read_bytes()
+        handler, _, arguments = self.mutation_cases()[0]
+        result = handler(arguments)
+        self.assertIn("Mutation rolled back", result.get("error", ""))
+        self.assertIn("Resolve cross-graph links", result["error"])
+        self.assertFalse(accepted.has_node("source:new"))
+        self.assertEqual(self.path.read_bytes(), current)
+        self.assertEqual(accepted.resolve_links({other.graph_id: other}), 1)
+        result = handler(arguments)
+        self.assertNotIn("error", result, result)
+        published = json.loads(self.path.read_text(encoding="utf-8"))
+        self.assertEqual(
+            published["links"],
+            [
+                {
+                    "link_id": link_id,
+                    "source_node_id": "source:original",
+                    "target_node_id": "target",
+                    "other_graph_id": other.graph_id,
+                }
+            ],
+        )
+        self.assertIs(self.read(), accepted)
+
+    def test_successful_save_with_failed_verification_does_not_claim_nonpublication(
+        self,
+    ):
+        accepted = self.prepare_mutation()
+        handler, _, arguments = self.mutation_cases()[0]
+        with patch(
+            "semantica.context._graph_cache.open",
+            create=True,
+            side_effect=PermissionError("Verification read refused."),
+        ):
+            result = handler(arguments)
+        self.assertIn("Publication unverified", result.get("error", ""))
+        self.assertIn("in-memory", result["error"])
+        data = json.loads(self.path.read_text(encoding="utf-8"))
+        self.assertIn("source:new", {node["id"] for node in data["nodes"]})
+        self.assertFalse(accepted.has_node("source:new"))
+        self.assertTrue(self.read().has_node("source:new"))
+
+    def test_callback_rewrite_before_attribute_return_is_not_owned(self):
+        if self.entry_point != "console":
+            self.skipTest("Only the console entry point exposes update_node.")
+        accepted = self.prepare_mutation()
+        current = self.path.read_bytes()
+        changed = []
+
+        def rewrite_property(operation, node_id, _payload):
+            if operation == "UPDATE_NODE" and not changed:
+                changed.append(True)
+                accepted.add_node_attribute(node_id, {"status": "foreign"})
+
+        accepted.mutation_callback = rewrite_property
+        with patch.object(
+            ContextGraph, "save_to_file", side_effect=OSError("disk full")
+        ):
+            result = legacy._tool_update_node(
+                {"node_id": "source:original", "properties": {"status": "done"}}
+            )
+        self.assertIn("rollback incomplete", result.get("error", ""))
+        self.assertEqual(
+            accepted.nodes["source:original"].properties["status"], "foreign"
+        )
+        self.assertEqual(self.path.read_bytes(), current)
+
+    def test_same_value_callback_update_is_not_rolled_back_as_an_owned_field(self):
+        if self.entry_point != "console":
+            self.skipTest("Only the console entry point exposes update_node.")
+        accepted = self.prepare_mutation()
+        current = self.path.read_bytes()
+        changed = []
+
+        def independent_update(operation, node_id, _payload):
+            if operation == "UPDATE_NODE" and not changed:
+                changed.append(True)
+                accepted.add_node_attribute(node_id, {"status": "done"})
+
+        accepted.mutation_callback = independent_update
+        with patch.object(
+            ContextGraph, "save_to_file", side_effect=OSError("disk full")
+        ):
+            result = legacy._tool_update_node(
+                {"node_id": "source:original", "properties": {"status": "done"}}
+            )
+        self.assertIn("rollback incomplete", result.get("error", ""))
+        self.assertEqual(accepted.nodes["source:original"].properties["status"], "done")
+        self.assertEqual(self.path.read_bytes(), current)
+
+    def test_suspended_native_callbacks_refuse_persistence_before_mutation(self):
+        accepted = self.prepare_mutation()
+        current = self.path.read_bytes()
+        before = accepted.to_kg_dict()
+        accepted._suspend_mutation_callback = True
+        handler, _, arguments = self.mutation_cases()[0]
+        if self.entry_point == "console":
+            with self.assertRaisesRegex(ValueError, "suspended"):
+                handler(arguments)
+        else:
+            result = handler(arguments)
+            self.assertIn("suspended", result.get("error", ""))
+        self.assertTrue(accepted._suspend_mutation_callback)
+        self.assertIsNone(accepted.mutation_callback)
+        self.assertEqual(accepted.to_kg_dict(), before)
+        self.assertEqual(self.path.read_bytes(), current)
+
+    def test_native_callback_exceptions_remain_nonfatal_and_binding_is_restored(self):
+        accepted = self.prepare_mutation()
+        events = []
+
+        def raises_after_audit(operation, node_id, _payload):
+            events.append((operation, node_id))
+            raise RuntimeError("Synthetic audit failure.")
+
+        accepted.mutation_callback = raises_after_audit
+        handler, _, arguments = self.mutation_cases()[0]
+        result = handler(arguments)
+        self.assertNotIn("error", result, result)
+        self.assertEqual(events, [("ADD_NODE", "source:new")])
+        self.assertIs(accepted.mutation_callback, raises_after_audit)
+        self.assertTrue(self.read().has_node("source:new"))
+
+    def test_a_foreign_callback_binding_is_not_replaced_on_exit(self):
+        accepted = self.prepare_mutation()
+        current = self.path.read_bytes()
+
+        def replacement(*_args):
+            pass
+
+        def changes_binding(*_args):
+            accepted.mutation_callback = replacement
+
+        accepted.mutation_callback = changes_binding
+        handler, _, arguments = self.mutation_cases()[0]
+        result = handler(arguments)
+        self.assertIn("rollback incomplete", result.get("error", ""))
+        self.assertIs(accepted.mutation_callback, replacement)
+        self.assertEqual(self.path.read_bytes(), current)
+
+    def test_incomplete_journal_capture_never_becomes_a_successful_save(self):
+        from semantica.context.context_graph import ContextNode
+
+        accepted = self.prepare_mutation()
+        current = self.path.read_bytes()
+        handler, _, arguments = self.mutation_cases()[0]
+
+        def refuse_local_snapshot(value, *args, **kwargs):
+            if isinstance(value, ContextNode) and value.node_id == "source:new":
+                raise ValueError("Synthetic ownership capture failure.")
+            return deepcopy(value, *args, **kwargs)
+
+        with patch(
+            "semantica.context._graph_cache.deepcopy",
+            create=True,
+            side_effect=refuse_local_snapshot,
+        ):
+            result = handler(arguments)
+        self.assertIn("rollback incomplete", result.get("error", ""))
+        self.assertEqual(self.path.read_bytes(), current)
+        self.assertIsNone(accepted.mutation_callback)
+
+    def test_default_mutation_still_uses_startup_only_graph(self):
+        with patch.dict(os.environ, {"SEMANTICA_KG_AUTO_RELOAD": "false"}):
+            self.write_source()
+            accepted = self.read()
+            self.write_source("source:pipeline")
+            handler, _, arguments = self.mutation_cases()[0]
+            result = handler(arguments)
+            self.assertNotIn("error", result, result)
+            self.assertIs(self.read(), accepted)
+            persisted = ContextGraph(advanced_analytics=False)
+            persisted.load_from_file(self.path)
+            self.assertTrue(persisted.has_node("source:new"))
+            self.assertFalse(persisted.has_node("source:pipeline"))
+
+    def test_memory_only_mutation_does_not_create_a_persisted_source(self):
+        with patch.dict(os.environ, {"SEMANTICA_KG_PATH": ""}):
+            accepted = self.read()
+            handler, _, arguments = self.mutation_cases()[0]
+            result = handler(arguments)
+            self.assertNotIn("error", result, result)
+            self.assertIs(self.read(), accepted)
+            self.assertTrue(accepted.has_node("source:new"))
+            self.assertFalse(self.path.exists())
 
     def test_native_stdio_mutation_replacement_refusal_and_recovery(self):
         """Keep one real server alive while its native source changes."""
