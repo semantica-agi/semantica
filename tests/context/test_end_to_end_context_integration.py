@@ -217,8 +217,13 @@ class TestEndToEndContextIntegration:
         
         mock_community_detector = Mock()
         mock_community_detector.detect_communities.return_value = {
-            0: ["entity1", "entity2", "entity3"],
-            1: ["entity4", "entity5"]
+            "communities": [["entity1", "entity2", "entity3"], ["entity4", "entity5"]],
+            "node_assignments": {
+                "entity1": 0, "entity2": 0, "entity3": 0,
+                "entity4": 1, "entity5": 1,
+            },
+            "modularity": 0.5,
+            "algorithm": "louvain",
         }
         
         mock_centrality_calculator = Mock()

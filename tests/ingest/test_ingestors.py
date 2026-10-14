@@ -78,8 +78,8 @@ class TestWebIngestor:
                 assert "Test content" in result.text
 
 class TestFeedIngestor:
-    @patch("requests.get")
-    def test_ingest_feed(self, mock_get):
+    @patch("semantica.ingest.feed_ingestor.request_with_ssrf_guard")
+    def test_ingest_feed(self, mock_request):
         ingestor = FeedIngestor()
         
         rss_content = """
@@ -101,7 +101,7 @@ class TestFeedIngestor:
         mock_response.status_code = 200
         mock_response.text = rss_content
         mock_response.content = rss_content.encode('utf-8')
-        mock_get.return_value = mock_response
+        mock_request.return_value = mock_response
         
         result = ingestor.ingest_feed("http://example.com/feed.xml")
         

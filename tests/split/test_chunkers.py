@@ -159,6 +159,36 @@ class TestSlidingWindowChunker:
             assert chunk.text
             assert chunk.metadata.get("chunk_index") is not None
 
+    @pytest.mark.parametrize(
+        "preserve_boundaries", [False, True], ids=["fixed-size", "sentence-boundaries"]
+    )
+    @pytest.mark.parametrize(
+        "separator", [" ", ""], ids=["with-space", "without-space"]
+    )
+    def test_sentence_boundaries_do_not_drop_content(
+        self, preserve_boundaries, separator
+    ):
+        """Regression #1800: shortening a window must not skip the following text."""
+        text = f"First phrase.{separator}LOST suffix goes here."
+        chunker = SlidingWindowChunker(chunk_size=20, overlap=2)
+
+        chunks = chunker.chunk(text, preserve_boundaries=preserve_boundaries)
+
+        covered_positions = set()
+        for chunk in chunks:
+            assert 0 <= chunk.start_index < chunk.end_index <= len(text)
+            source_slice = text[chunk.start_index : chunk.end_index]
+            assert chunk.text.strip() == source_slice.strip()
+            covered_positions.update(range(chunk.start_index, chunk.end_index))
+
+        # Boundary-aware chunks strip outer whitespace; check substantive content.
+        missing = [
+            (index, char)
+            for index, char in enumerate(text)
+            if not char.isspace() and index not in covered_positions
+        ]
+        assert not missing, f"Uncovered non-whitespace characters: {missing!r}"
+
 
 # ---------------------------------------------------------------------------
 # StructuralChunker

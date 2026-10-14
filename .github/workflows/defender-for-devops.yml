@@ -59,7 +59,7 @@ jobs:
         # avoiding the guardian.cmd/checkov exit-code bug in the MSDO wrapper.
         tools: eslint,templateanalyzer,terrascan
     - name: Upload results to Security tab
-      uses: github/codeql-action/upload-sarif@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4
+      uses: github/codeql-action/upload-sarif@24c54180a607b1449ed407dd24f251e4e9147c8d # v4
       with:
         sarif_file: ${{ steps.msdo.outputs.sarifFile }}
 
@@ -100,7 +100,7 @@ jobs:
       run: python .github/scripts/filter_checkov_skipped.py reports/results_json.json reports/results_sarif.sarif reports/checkov.sarif
 
     - name: Upload Checkov results to Security tab
-      uses: github/codeql-action/upload-sarif@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4
+      uses: github/codeql-action/upload-sarif@24c54180a607b1449ed407dd24f251e4e9147c8d # v4
       if: always()
       with:
         sarif_file: reports/checkov.sarif

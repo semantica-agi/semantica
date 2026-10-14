@@ -331,6 +331,12 @@ pytest tests/test_file.py      # Specific file
 
 **Coverage goal:** 80% minimum, 90%+ for critical modules
 
+### Known failures list
+
+`.github/full-suite-known-failures.txt` lists tests that already fail on an unmodified checkout. CI runs them under `xfail` instead of skipping them, and the marker is strict in CI. If your change makes a listed test pass, CI reports `XPASS(strict)` and fails. Delete that test's line from the file in the same PR.
+
+Don't add a line to hide a failure your change introduces. Fix the test or the code instead.
+
 ---
 
 ## 📝 Commit Messages

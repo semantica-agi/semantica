@@ -43,7 +43,9 @@ def test_sitemap_index_recursion() -> None:
     </urlset>
     """
 
-    with patch("requests.get") as mock_get:
+    with patch(
+        "semantica.ingest.web_ingestor.request_with_ssrf_guard"
+    ) as mock_get:
         mock_get.side_effect = [
             MagicMock(status_code=200, content=index_xml.encode()),
             MagicMock(status_code=200, content=child_xml.encode()),
@@ -60,7 +62,7 @@ def test_sitemap_fallback_parsing() -> None:
     xml = "<urlset><url><loc>http://a.com</loc></url></urlset>"
 
     with patch(
-        "requests.get",
+        "semantica.ingest.web_ingestor.request_with_ssrf_guard",
         return_value=MagicMock(
             status_code=200,
             content=xml.encode(),
@@ -77,11 +79,13 @@ def test_sitemap_invalid_xml() -> None:
     crawler = SitemapCrawler()
 
     with patch(
-        "requests.get",
+        "semantica.ingest.web_ingestor.request_with_ssrf_guard",
         return_value=MagicMock(status_code=200, content=b"NOT XML"),
-    ):
+    ) as mock_request:
         with pytest.raises(ProcessingError):
             crawler.parse_sitemap("http://s.xml")
+
+    mock_request.assert_called_once()
 
 
 # --- Content Extraction Tests ---
@@ -113,7 +117,7 @@ def test_extract_metadata_empty() -> None:
 
 
 # --- WebIngestor Tests ---
-@patch("requests.Session.get")
+@patch("semantica.ingest.web_ingestor.request_with_ssrf_guard")
 def test_ingest_url_happy(mock_get: MagicMock, sample_html: str) -> None:
     """Test successful URL ingestion."""
 

@@ -159,38 +159,58 @@ jobs:
       # two consistent.
       #
       # .github/full-suite-known-failures.txt lists the tests that already fail
-      # on an unmodified checkout. They are deselected here, so this step gates
-      # on new breakage instead of on those pre-existing defects. The file is
-      # the record of the gap: fixing a defect means deleting its line. It is
-      # LF-only — the loop below feeds each line to --deselect verbatim, so a
-      # stray CR would make every node id miss.
+      # on an unmodified checkout. tests/conftest.py marks those ids `xfail`, so
+      # they keep running and an entry that starts passing reports XPASS and
+      # fails the job — that is what forces its line out of the file. (The
+      # marker is strict here because `CI` is set; outside CI the hook makes it
+      # non-strict, since the list is measured against this pinned tree and not
+      # against a developer's.) The loop below deselects only the entries the
+      # hook must not touch: the `# windows-only` ones, and only on Windows. The
+      # file is the record of the gap: fixing a defect means deleting its line.
+      # It is kept LF-only (.gitattributes); the loop below trims whitespace
+      # around each id, including a stray CR.
       - name: Run the full test suite
+        timeout-minutes: 20
         run: |
           # A node id that no longer collects is a no-op for --deselect rather
-          # than an error, so a stale line cannot break the job; it just stops
-          # deselecting, and the test it named runs again.
+          # than an error, so a stale line cannot break the job. It is inert for
+          # the hook too, which only marks ids pytest actually collects: it
+          # neither runs nor reports XPASS, and the file's own review is what
+          # catches it.
           #
-          # A line may carry a trailing `# windows-only` marker. That means the
-          # id fails only on Windows and is deselected there alone — a symlink
-          # that needs a privilege, for instance. On Linux it runs, which is the
-          # only place the symlink rejection in
+          # A line is deselected here only when it carries the `# windows-only`
+          # marker and this is a Windows runner. Every other line reaches the
+          # hook, which marks it xfail strictly here in CI.
+          #
+          # `# windows-only` is deselected on Windows alone — a symlink that
+          # needs a privilege, for instance. On Linux the line is left out, so
+          # the test runs, which is the only place the symlink rejection in
           # tests/semantic_extract/test_cache_backends.py gets exercised at all;
           # deselecting it unconditionally would drop a security check on the
-          # platform where it works.
+          # platform where it works. This job runs on ubuntu-latest, so the
+          # Windows branch never fires in CI today; it is kept for a Windows
+          # runner, where that id does fail, rather than dropped as dead weight.
           deselect=()
+          known=0
+          deselected=0
           while IFS= read -r line; do
             case "$line" in
               ''|'#'*) continue ;;
-              *windows-only*)
+            esac
+            known=$((known + 1))
+            case "$line" in
+              *'# windows-only'*)
                 if [ "${RUNNER_OS:-}" != "Windows" ]; then continue; fi
                 ;;
+              *) continue ;;
             esac
             node="${line%%#*}"
             node="${node#"${node%%[![:space:]]*}"}"
             node="${node%"${node##*[![:space:]]}"}"
             deselect+=(--deselect "$node")
+            deselected=$((deselected + 1))
           done < .github/full-suite-known-failures.txt
-          echo "deselecting known failures: ${#deselect[@]}"
+          echo "known failures on the list: ${known}; deselected in this step: ${deselected}"
 
           # The google_adk and open_ontologies directories have their own steps
           # at the end of this job, each with its own dependency installation.

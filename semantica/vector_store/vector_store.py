@@ -65,20 +65,33 @@ Author: Semantica Contributors
 License: MIT
 """
 
-from typing import Any, Dict, List, Optional, Tuple, TypedDict, Union, cast
 import concurrent.futures
 import inspect
 import threading
 import uuid
+from functools import wraps
+from typing import Any, Dict, List, Optional, Tuple, TypedDict, Union, cast
 
 import numpy as np
 
+from ..embeddings import EmbeddingGenerator
 from ..utils.exceptions import ProcessingError, ValidationError
 from ..utils.logging import get_logger
 from ..utils.progress_tracker import get_progress_tracker
-from ..embeddings import EmbeddingGenerator
-from .hybrid_similarity import HybridSimilarityCalculator
 from .decision_embedding_pipeline import DecisionEmbeddingPipeline
+from .hybrid_similarity import HybridSimilarityCalculator
+
+
+def _serialized_operation(method):
+    """Keep backend I/O and mirror publication in one operation order."""
+
+    @wraps(method)
+    def guarded(self, *args, **kwargs):
+        with self._operation_lock:
+            return method(self, *args, **kwargs)
+
+    return guarded
+
 
 class SearchResult(TypedDict):
     """Canonical schema returned by VectorStore.search_vectors().
@@ -109,6 +122,11 @@ class VectorStore:
     • Manages vector metadata and provenance
     • Supports multiple vector store backends
     • Provides vector store operations
+
+    Mutations, coordinated erasure, save(), and load() are serialized within
+    each facade. Backend mutation and mirror publication finish before the
+    next operation begins, including operations on unrelated IDs. Backend I/O
+    does not hold the mirror lock.
     """
 
     SUPPORTED_BACKENDS = {"faiss", "weaviate", "qdrant", "milvus", "pinecone", "pgvector", "inmemory", "sqlite"}
@@ -143,6 +161,11 @@ class VectorStore:
         self.vectors: Dict[str, np.ndarray] = {}
         self.metadata: Dict[str, Dict[str, Any]] = {}
         self._next_id: int = 0
+        # Serialize mutations and persistence within this facade, from before
+        # backend I/O through mirror publication. Erasure shares this guard.
+        # Lock order is _operation_lock, then _inmemory_lock; backend I/O must
+        # stay outside _inmemory_lock so mirror readers are not blocked by it.
+        self._operation_lock = threading.RLock()
         self._inmemory_lock = threading.RLock()
 
         if self.backend == "inmemory":
@@ -173,7 +196,7 @@ class VectorStore:
             if self.backend == "pgvector":
                 # Import PgVectorStore
                 from .pgvector_store import PgVectorStore
-                
+
                 # Required parameters for PgVectorStore
                 connection_string = self.config.get("connection_string")
                 table_name = self.config.get("table_name", "vectors")
@@ -496,6 +519,7 @@ class VectorStore:
         
         return self.store_vectors(vectors, metadata=final_metadata, **options)
 
+    @_serialized_operation
     def store_vectors(
         self,
         vectors: List[np.ndarray],
@@ -622,6 +646,8 @@ class VectorStore:
                 tracking_id, status="failed", message=str(e)
             )
             raise
+
+    @_serialized_operation
     def save(self, path: str) -> None:
         """
         Save vector store to disk.
@@ -645,24 +671,30 @@ class VectorStore:
         # Save Python-level data using JSON (safe serialization).
         # pickle is intentionally avoided to prevent arbitrary code execution
         # if a malicious .pkl file is placed in the store directory.
-        data = {
-            "vectors": {k: v.tolist() if hasattr(v, "tolist") else list(v)
-                    for k, v in getattr(self, "vectors", {}).items()},
-            "metadata": getattr(self, "metadata", {}),
-            "config": self.config,
-            "backend": self.backend,
-            "dimension": self.dimension,
-            # Persist the monotonic counter so that load() can restore it
-            # rather than re-deriving it from len(vectors), which would be
-            # too small after a deletion and cause ID collisions (issue #1029).
-            "next_id": getattr(self, "_next_id", None),
-        }
+        # The operation guard keeps the saved index and this snapshot in the
+        # same completed state. Release the mirror lock before writing JSON.
+        with self._inmemory_lock:
+            data = {
+                "vectors": {
+                    k: v.tolist() if hasattr(v, "tolist") else list(v)
+                    for k, v in self.vectors.items()
+                },
+                "metadata": dict(self.metadata),
+                "config": dict(self.config),
+                "backend": self.backend,
+                "dimension": self.dimension,
+                # Persist the monotonic counter so that load() can restore it
+                # rather than re-deriving it from len(vectors), which would be
+                # too small after a deletion and cause ID collisions (#1029).
+                "next_id": self._next_id,
+            }
         
         with open(os.path.join(path, "store_data.json"), "w", encoding="utf-8") as f:
             json.dump(data, f)
             
         self.logger.info(f"Saved vector store to {path}")
 
+    @_serialized_operation
     def load(self, path: str) -> None:
         """
         Load vector store from disk.
@@ -697,33 +729,35 @@ class VectorStore:
         with open(data_path, "r", encoding="utf-8") as f:
             data = json.load(f)
             
-        vectors_raw = data.get("vectors", {})
-        self.vectors = {k: np.array(v, dtype=np.float32) for k, v in vectors_raw.items()}
-        self.metadata = data.get("metadata", {})
-        self.config = data.get("config", {})
-        self.backend = data.get("backend", "faiss")
-        self.dimension = data.get("dimension", 768)
-        
         if not hasattr(self, "_inmemory_lock"):
             self._inmemory_lock = threading.RLock()
 
-        # Restore the monotonic ID counter.  Always clamp to at least
-        # max(vec_N suffix)+1 so a stale or missing persisted value (e.g.
-        # written before this field was added, or written before a deletion
-        # that lowered the count) cannot produce IDs that collide with
-        # existing vectors (issue #1029).
-        _vec_nums = [
-            int(v[4:]) + 1
-            for v in self.vectors
-            if v.startswith("vec_") and v[4:].isdigit()
-        ]
-        _inferred = max(_vec_nums) if _vec_nums else 0
-        persisted_next_id = data.get("next_id")
-        if persisted_next_id is not None:
-            self._next_id = max(int(persisted_next_id), _inferred)
-        else:
-            # Older store files lack this field; use the safe inferred value.
-            self._next_id = _inferred
+        with self._inmemory_lock:
+            vectors_raw = data.get("vectors", {})
+            self.vectors = {
+                k: np.array(v, dtype=np.float32) for k, v in vectors_raw.items()
+            }
+            self.metadata = data.get("metadata", {})
+            self.config = data.get("config", {})
+            self.backend = data.get("backend", "faiss")
+            self.dimension = data.get("dimension", 768)
+
+            # Restore the monotonic ID counter. Always clamp to at least
+            # max(vec_N suffix)+1 so a stale or missing persisted value (e.g.
+            # written before this field was added, or before a deletion that
+            # lowered the count) cannot collide with existing IDs (#1029).
+            _vec_nums = [
+                int(v[4:]) + 1
+                for v in self.vectors
+                if v.startswith("vec_") and v[4:].isdigit()
+            ]
+            _inferred = max(_vec_nums) if _vec_nums else 0
+            persisted_next_id = data.get("next_id")
+            if persisted_next_id is not None:
+                self._next_id = max(int(persisted_next_id), _inferred)
+            else:
+                # Older store files lack this field; use the safe inferred value.
+                self._next_id = _inferred
         
         # Restore backend-specific index
         indexer = getattr(self, "indexer", None)
@@ -847,6 +881,7 @@ class VectorStore:
             )
             raise
 
+    @_serialized_operation
     def update_vectors(
         self, vector_ids: List[str], new_vectors: List[np.ndarray], metadata: Optional[List[Dict[str, Any]]] = None, **options
     ) -> bool:
@@ -895,6 +930,7 @@ class VectorStore:
 
         return True
 
+    @_serialized_operation
     def delete_vectors(self, vector_ids: List[str], **options) -> bool:
         """Delete vectors from store."""
         # Delegate to backend store if available

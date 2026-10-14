@@ -135,9 +135,9 @@ decision_id = graph.add_decision(
 )
 ```
 
-<Warning>
-Only pass keyword arguments to `add_decision()`, not a pre-built `Decision` object. `add_decision(Decision(...))` stores the node directly and skips the indexing step that `record_decision()` performs, so the decision becomes invisible to `find_precedents()`, `get_causal_chain()`, and `get_decision_insights()`, and `trace_decision_causality()` raises `ValueError` if you call it on one. The keyword-argument form above does not have this problem — it delegates to `record_decision()` internally. Note that, like `record_decision()`, it always generates its own `decision_id` (returned from the call); there is no way to force a specific ID.
-</Warning>
+<Info>
+`add_decision()` also accepts a pre-built `Decision` object: `graph.add_decision(Decision(...))`. Both forms are indexed the same way, so the decision is visible to `find_precedents()`, `get_decision_insights()`, `analyze_decision_influence()` and `trace_decision_causality()` as soon as it is added. The object form keeps the `decision_id` you set on it. The keyword form, like `record_decision()`, generates its own `decision_id` and returns it. Entries in `Decision.metadata` are stored on the node but cannot override the decision's own fields such as `category` or `confidence`.
+</Info>
 
 ## Searching Precedents Before Deciding
 
@@ -281,12 +281,7 @@ d = Decision(
 )
 
 if engine.check_compliance(d, "cti_confidence_gate"):
-    # Pass fields as kwargs, not the Decision object itself — see the
-    # warning above. add_decision() generates its own decision_id.
-    decision_id = graph.add_decision(
-        category=d.category, scenario=d.scenario, reasoning=d.reasoning,
-        outcome=d.outcome, confidence=d.confidence, decision_maker=d.decision_maker,
-    )
+    decision_id = graph.add_decision(d)
     engine.record_policy_application(decision_id, "cti_confidence_gate", "1.0")
     print("Decision recorded — policy compliant.")
 else:

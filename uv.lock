@@ -4644,6 +4644,20 @@ wheels = [
 ]
 
 [[package]]
+name = "msal"
+version = "1.39.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "cryptography" },
+    { name = "pyjwt", extra = ["crypto"] },
+    { name = "requests" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/bb/85/747d28986a44b715cc51cf57aa021c8fd94e9614064261ceec77320e8b0b/msal-1.39.0.tar.gz", hash = "sha256:6ab7de335e6d7f5717e2c7e1dbf86e4dda2f6acf3c56773b78dc53ebc6395b5f", size = 205360, upload-time = "2026-09-17T16:07:45.1Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/a4/32/178457385925ce301c7b3232bd85665d4df57da39568b62dcfc74031873f/msal-1.39.0-py3-none-any.whl", hash = "sha256:2d2577886906cd7293850dffa2da29119966c213bfc6ec0cecf8bf7621e1ca77", size = 131629, upload-time = "2026-09-17T16:07:46.722Z" },
+]
+
+[[package]]
 name = "msgpack"
 version = "1.2.2"
 source = { registry = "https://pypi.org/simple" }
@@ -8444,6 +8458,9 @@ ingest-airflow = [
 ingest-arrow = [
     { name = "pyarrow" },
 ]
+ingest-dynamics365 = [
+    { name = "msal" },
+]
 ingest-git = [
     { name = "gitpython" },
 ]
@@ -8666,6 +8683,7 @@ requires-dist = [
     { name = "looker-sdk", marker = "extra == 'ingest-looker'", specifier = ">=24.0.0" },
     { name = "lxml", marker = "extra == 'documents'", specifier = ">=6.1.1" },
     { name = "matplotlib", marker = "extra == 'viz'", specifier = ">=3.9.4" },
+    { name = "msal", marker = "extra == 'ingest-dynamics365'", specifier = ">=1.20" },
     { name = "neo4j", marker = "extra == 'graph-amazon-neptune'", specifier = ">=5.0.0" },
     { name = "neo4j", marker = "extra == 'graph-neo4j'", specifier = ">=5.0.0" },
     { name = "networkx", specifier = ">=2.8.0" },
@@ -8750,7 +8768,7 @@ requires-dist = [
     { name = "weaviate-client", marker = "extra == 'vectorstore-weaviate'", specifier = ">=4.0.0" },
     { name = "websockets", marker = "extra == 'explorer'", specifier = ">=15.0.1" },
 ]
-provides-extras = ["llm-openai", "llm-groq", "llm-gemini", "llm-anthropic", "llm-ollama", "llm-deepseek", "llm-novita", "llm-litellm", "llm-instructor", "llm-typesafe", "llm-all", "documents", "parse-docling", "parse-pdf", "shacl", "db-snowflake", "db-databricks", "db-arrow", "db-salesforce", "db-redshift", "db-cassandra", "db-bigquery", "ingest-looker", "ingest-parquet", "ingest-arrow", "ingest-tableau", "ingest-sap", "ingest-servicenow", "ingest-airflow", "ingest-git", "db-all", "models-huggingface", "embeddings-local", "nlp-spacy", "nlp-langdetect", "graph-neo4j", "graph-falkordb", "graph-amazon-neptune", "graph-apache-age", "graph-embeddings", "graph-all", "tripletstore-oxigraph", "vectorstore-faiss", "vectorstore-qdrant", "vectorstore-weaviate", "vectorstore-pinecone", "vectorstore-milvus", "vectorstore-pgvector", "vectorstore-sqlite", "vectorstore-all", "infra", "cloud", "monitoring", "viz", "media", "gpu", "agno", "langchain", "google-adk", "open-ontologies", "watch", "split-tiktoken", "split-community", "split-topic", "split-all", "explorer", "explorer-lite", "all"]
+provides-extras = ["llm-openai", "llm-groq", "llm-gemini", "llm-anthropic", "llm-ollama", "llm-deepseek", "llm-novita", "llm-litellm", "llm-instructor", "llm-typesafe", "llm-all", "documents", "parse-docling", "parse-pdf", "shacl", "db-snowflake", "db-databricks", "db-arrow", "db-salesforce", "db-redshift", "ingest-dynamics365", "db-cassandra", "db-bigquery", "ingest-looker", "ingest-parquet", "ingest-arrow", "ingest-tableau", "ingest-sap", "ingest-servicenow", "ingest-airflow", "ingest-git", "db-all", "models-huggingface", "embeddings-local", "nlp-spacy", "nlp-langdetect", "graph-neo4j", "graph-falkordb", "graph-amazon-neptune", "graph-apache-age", "graph-embeddings", "graph-all", "tripletstore-oxigraph", "vectorstore-faiss", "vectorstore-qdrant", "vectorstore-weaviate", "vectorstore-pinecone", "vectorstore-milvus", "vectorstore-pgvector", "vectorstore-sqlite", "vectorstore-all", "infra", "cloud", "monitoring", "viz", "media", "gpu", "agno", "langchain", "google-adk", "open-ontologies", "watch", "split-tiktoken", "split-community", "split-topic", "split-all", "explorer", "explorer-lite", "all"]
 
 [package.metadata.requires-dev]
 dev = [

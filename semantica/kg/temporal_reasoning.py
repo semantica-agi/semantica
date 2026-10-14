@@ -172,7 +172,9 @@ class TemporalReasoningEngine:
             events.extend(self._events_for_fact(fact))
 
         for fact in graph.get("relationships", []):
-            if str(fact.get("source")) != entity_key and str(fact.get("target")) != entity_key:
+            source_key = str(fact.get("source") or fact.get("source_id"))
+            target_key = str(fact.get("target") or fact.get("target_id"))
+            if source_key != entity_key and target_key != entity_key:
                 continue
             events.extend(self._events_for_fact(fact))
 

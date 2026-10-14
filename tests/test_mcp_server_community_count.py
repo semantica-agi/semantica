@@ -5,12 +5,10 @@ result. That result is a wrapper dict (`communities`, `node_assignments`,
 `modularity`, `algorithm`), so the tool reported the key count — 4 for every
 graph and every algorithm — instead of the number of communities.
 
-The line is unreachable through the real calculator on `main`: the sort feeding
-`top_nodes_by_pagerank` raises first on a ContextGraph (issue #1747). Before
-#1744 the failure happened one step earlier, inside `calculate_pagerank` itself
-(issue #1721). These tests stub PageRank with a flat mapping, which both the old
-sort and the #1747 ranking helper accept, so the handler reaches the community
-line however those two fixes land.
+These tests stub PageRank so the handler reaches the community-count path
+without making that test depend on PageRank calculation details. The stub
+matches the current structured PageRank return contract: `centrality` contains
+the node-to-score mapping and `rankings` contains ordered `(node, score)` pairs.
 """
 
 import unittest
@@ -20,7 +18,10 @@ from semantica import mcp_server
 from semantica.context import ContextGraph
 from semantica.kg import CentralityCalculator, CommunityDetector
 
-PAGERANK_STUB = {"alice": 0.5, "bob": 0.3, "acme": 0.2}
+PAGERANK_STUB = {
+    "centrality": {"alice": 0.5, "bob": 0.3, "acme": 0.2},
+    "rankings": [("alice", 0.5), ("bob", 0.3), ("acme", 0.2)],
+}
 
 
 def _one_cluster() -> ContextGraph:
