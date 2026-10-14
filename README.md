@@ -145,7 +145,15 @@ decision_id = graph.record_decision(
 chain     = graph.trace_decision_chain(decision_id)       # full causal ancestry
 similar   = graph.find_similar_decisions("cloud vendor", max_results=5)  # precedents
 impact    = graph.analyze_decision_impact(decision_id)    # downstream influence map
-compliant = graph.check_decision_rules({"category": "vendor_selection"})  # policy gate
+
+# Policy gate: checks the fields you pass against the default rules
+# (confidence >= 0.7, outcome in approved/rejected/flagged, decision_maker set)
+compliant = graph.check_decision_rules({
+    "category": "vendor_selection",
+    "outcome": "approved",
+    "confidence": 0.93,
+    "decision_maker": "platform-team",
+})  # {'compliant': True, 'violations': [], ...}
 ```
 
 **Verify your install in 5 seconds:**
@@ -242,7 +250,12 @@ graph.add_causal_relationship(uw_id,  rate_id, relationship_type="INFLUENCED")
 chain     = graph.trace_decision_chain(rate_id)
 similar   = graph.find_similar_decisions("personal loan approval, 31% DTI", max_results=5)
 impact    = graph.analyze_decision_impact(uw_id)
-compliant = graph.check_decision_rules({"category": "loan_underwriting", "confidence": 0.94})
+compliant = graph.check_decision_rules({
+    "category": "loan_underwriting",
+    "outcome": "approved",
+    "confidence": 0.94,
+    "decision_maker": "underwriting_agent",
+})
 insights  = graph.get_decision_insights()
 ```
 
