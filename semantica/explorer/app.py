@@ -6,7 +6,7 @@ import asyncio
 import os
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Sequence
 
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -39,7 +39,10 @@ def _read_explorer_settings() -> dict:
     elif "EXPLORER_CORS_ORIGINS" in os.environ:
         raw_origins = os.environ["EXPLORER_CORS_ORIGINS"]
     else:
-        raw_origins = "http://localhost:5173,http://127.0.0.1:5173"
+        raw_origins = (
+            "http://localhost:5173,http://127.0.0.1:5173,"
+            "http://localhost:8000,http://127.0.0.1:8000"
+        )
     return {
         "allowed_origins": [
             origin.strip() for origin in raw_origins.split(",") if origin.strip()
@@ -60,6 +63,7 @@ def create_app(
     session: Optional[GraphSession] = None,
     provenance_storage_path: Optional[str] = None,
     agent_memory: Optional[AgentMemory] = None,
+    allowed_origins: Optional[Sequence[str]] = None,
 ) -> FastAPI:
     """Create an Explorer application over live graph and memory objects.
 
@@ -69,11 +73,18 @@ def create_app(
         provenance_storage_path: Optional per-app provenance database path.
         agent_memory: Existing AgentMemory instance to expose in the Memories
             workspace. The workspace is unavailable when omitted.
+        allowed_origins: Optional custom sequence of allowed CORS/WebSocket
+            origins. When omitted, origins are read from ALLOWED_ORIGINS (or
+            EXPLORER_CORS_ORIGINS) or default to standard localhost origins.
 
     Returns:
         Configured FastAPI application.
     """
     settings = _read_explorer_settings()
+    if allowed_origins is not None:
+        settings["allowed_origins"] = [
+            origin.strip() for origin in allowed_origins if origin.strip()
+        ]
     prov_path = provenance_storage_path or settings.get("provenance_storage_path")
     if session is None:
         active_session = GraphSession(

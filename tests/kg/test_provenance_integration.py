@@ -223,6 +223,10 @@ class TestProvenanceIntegration:
     
     def test_node_embeddings_with_provenance(self, sample_graph_data):
         """Test node embeddings with provenance tracking."""
+        # Constructing NodeEmbedder requires gensim (the optional
+        # graph-embeddings extra); see tests/test_issue_1513_slim_core.py
+        # for the contract that it raises without it.
+        pytest.importorskip("gensim")
         embedder = NodeEmbedder()
         embedder.enable_provenance = True
         
@@ -366,6 +370,10 @@ class TestProvenanceIntegration:
     
     def test_end_to_end_workflow(self, sample_graph_data, networkx_graph, sample_embeddings):
         """Test complete end-to-end workflow with provenance tracking."""
+        # Constructing NodeEmbedder requires gensim (the optional
+        # graph-embeddings extra); see tests/test_issue_1513_slim_core.py
+        # for the contract that it raises without it.
+        pytest.importorskip("gensim")
         # Initialize all components with provenance
         builder = GraphBuilderWithProvenance(provenance=True)
         tracker = AlgorithmTrackerWithProvenance(provenance=True)

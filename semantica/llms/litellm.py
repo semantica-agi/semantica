@@ -13,6 +13,7 @@ from pydantic import BaseModel
 
 from ..utils.exceptions import ProcessingError
 from ..utils.logging import get_logger
+from ..semantic_extract.providers import ResponseText
 
 logger = get_logger("llms.litellm")
 
@@ -168,16 +169,32 @@ class LiteLLM:
                 **options
             )
             
+            # Metadata the provenance wrappers read back off the returned value.
+            # Only usage and cost are kept: the rest of _hidden_params can hold
+            # api_base and provider response headers.
+            hidden_params = getattr(response, '_hidden_params', None) or {}
+            usage = getattr(response, 'usage', None)
+            if usage is None and isinstance(response, dict):
+                usage = response.get('usage')
+            meta = {
+                "usage": usage,
+                "cost": hidden_params.get('response_cost'),
+            }
+
+            def _wrap(content):
+                # Tool-call, refusal and content-filter replies carry no text.
+                return None if content is None else ResponseText(content, **meta)
+
             # Extract text from response
             if hasattr(response, 'choices') and len(response.choices) > 0:
-                return response.choices[0].message.content
+                return _wrap(response.choices[0].message.content)
             elif isinstance(response, dict):
                 if 'choices' in response and len(response['choices']) > 0:
-                    return response['choices'][0]['message']['content']
+                    return _wrap(response['choices'][0]['message']['content'])
                 elif 'content' in response:
-                    return response['content']
+                    return _wrap(response['content'])
             elif isinstance(response, str):
-                return response
+                return _wrap(response)
             
             raise ProcessingError(f"Unexpected response format from LiteLLM: {type(response)}")
             

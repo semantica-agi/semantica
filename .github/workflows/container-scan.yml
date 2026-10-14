@@ -61,14 +61,14 @@ jobs:
 
       - name: Upload Trivy SARIF
         if: always()
-        uses: github/codeql-action/upload-sarif@1c5b675653bb5c22dbe9b12b556ec555138e09fd # v4
+        uses: github/codeql-action/upload-sarif@24c54180a607b1449ed407dd24f251e4e9147c8d # v4
         with:
           sarif_file: trivy-results.sarif
           category: trivy-container
 
       - name: Generate SBOM (Syft)
         if: always()
-        uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
+        uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
         with:
           image: semantica:scan
           format: spdx-json

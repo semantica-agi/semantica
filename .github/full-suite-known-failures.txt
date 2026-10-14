@@ -1,10 +1,24 @@
 # Tests that already fail on an unmodified tree.
 #
-# The `Run the full test suite` step in .github/workflows/ci.yml deselects
-# every node id in this file, so that step gates on new breakage instead of on
-# these pre-existing defects. Nothing here is caused by wiring the suite into
-# CI, and none of it is fixed here on purpose: the step reports the gap, it
-# does not paper over it.
+# `tests/conftest.py` reads this file and marks every id below `xfail`, so the
+# tests keep running instead of being deselected. The marker is strict in CI and
+# non-strict outside it, and never strict for a `# non-strict` entry: an entry
+# that starts passing reports XPASS, which fails the run in CI and is only a note
+# locally. In CI that is what forces its line out of the file, so the list cannot
+# quietly rot. Nothing here is caused by wiring the suite into CI, and none of it
+# is fixed here on purpose: the list reports the gap, it does not paper over it.
+#
+# Two markers change how an entry is treated, and both the step and the hook
+# read them so the two agree:
+#
+#   # windows-only   the id fails only in the Windows measurement. The step
+#                    deselects it on Windows alone, and the hook leaves it out
+#                    on Linux, so there it runs and gates.
+#   # non-strict     the hook marks the id xfail(strict=False), in CI as well as
+#                    locally: it keeps running, but a pass is reported as XPASS
+#                    without failing the run. For an entry that genuinely varies
+#                    with run order or timing (a thread race, for instance);
+#                    every other entry below is strict in CI.
 #
 # Provenance. Generated on a clean checkout of
 #
@@ -24,45 +38,18 @@
 # That measurement is not a superset of a Linux run: the entries appended below
 # from the suite's first Linux run are failures it could not see, so this list
 # is the union of the two runs rather than an upper bound from either. The
-# entries marked `# windows-only` are expected to pass on Linux and are
-# deselected on Windows only. The rest are expected to reproduce.
+# entries marked `# windows-only` are expected to pass on Linux. The rest are
+# expected to reproduce.
 #
-# Format: one pytest node id per line. The step ignores a line only when it is
-# empty or its first character is `#`, so keep comments flush left — an indented
-# comment would be read as a node id and deselected as the empty string. A
-# trailing `# windows-only` marker means the step deselects that id when it runs
-# on Windows, and runs it everywhere else.
+# Format: one pytest node id per line. A line is an id only when it is
+# non-empty and its first character is not `#`, so keep comments flush left —
+# an indented comment would be read as a node id. A trailing `# windows-only` or
+# `# non-strict` marker is stripped before the id is used. The hook matches
+# the id the way pytest writes it, relative to the rootdir (the repository root
+# unless --rootdir or -c overrides it).
 #
 # Delete a line to re-enable a test. Fixing the defect behind it is what should
 # drive that, not convenience.
-
-# --- The test double patches a call the ingest path does not make -------------
-# Each of these stubs `requests` at a layer the ingestors do not use: they fetch
-# through `request_with_ssrf_guard()`, which issues `session.request(...)` —
-# neither `requests.get()` nor `Session.get()`. The stub therefore intercepts
-# nothing, the request is really sent, and the guard
-# pins the connection to the address it resolved. `tests/ingest/conftest.py`
-# installs an autouse fixture that stubs `ssrf.socket.getaddrinfo` to map *every*
-# hostname to the single literal 93.184.216.34, so all four calls aim at that
-# one address regardless of the URL the test passes. Windows refuses to connect
-# to it (`[WinError 10049] 在其上下文中，该请求的地址无效`); on the Linux runner
-# the connection times out instead. They fail on both platforms, so they are
-# deselected unconditionally rather than on Windows only.
-# What each one stubs, and why it misses:
-#   test_ingest_feed — `requests.get`; the feed fetch goes through
-#     `request_with_ssrf_guard()`, so the stub misses and GET /feed.xml is sent.
-tests/ingest/test_ingestors.py::TestFeedIngestor::test_ingest_feed
-#   test_ingest_url_happy — `requests.Session.get`; the page fetch calls
-#     `request_with_ssrf_guard(..., session=...)`, which uses `session.request`,
-#     so the stub misses and GET / is sent.
-tests/ingest/test_web_ingestor.py::test_ingest_url_happy
-#   test_sitemap_fallback_parsing — `requests.get`; `SitemapCrawler.parse_sitemap`
-#     goes through `request_with_ssrf_guard()`, so the stub misses and GET / is sent.
-tests/ingest/test_web_ingestor.py::test_sitemap_fallback_parsing
-#   test_sitemap_index_recursion — `requests.get`; `SitemapCrawler.crawl_sitemap_index`
-#     goes through `request_with_ssrf_guard()`, so the stub misses and GET /index.xml
-#     is sent.
-tests/ingest/test_web_ingestor.py::test_sitemap_index_recursion
 
 # --- Windows-only: symlink creation needs a privilege -------------------------
 # `OSError: [WinError 1314] 客户端没有所需的特权` — creating the symlink the
@@ -71,69 +58,37 @@ tests/ingest/test_web_ingestor.py::test_sitemap_index_recursion
 tests/semantic_extract/test_cache_backends.py::test_sqlite_rejects_symlinked_db  # windows-only
 
 # --- A MagicMock reaches code that compares or parses it ----------------------
-# `TypeError: '>' not supported between instances of 'MagicMock' and 'int'`, or
 # `TypeError: expected string or bytes-like object, got 'MagicMock'`. The
 # doubles these tests install no longer satisfy the signatures the production
 # code now uses, so the call raising is the production code behaving correctly.
 tests/ingest/test_ingestors.py::TestUnifiedIngest::test_ingest_web_dispatch
 tests/ingest/test_ingestors.py::TestWebIngestor::test_ingest_url
-tests/semantic_extract/test_extractors.py::TestExtractors::test_event_detector_batch_via_detect_events
-tests/semantic_extract/test_extractors.py::TestExtractors::test_ner_extraction_batch_via_extract_entities
-tests/semantic_extract/test_extractors.py::TestExtractors::test_relation_extraction_batch_via_extract_relations
-tests/semantic_extract/test_extractors.py::TestExtractors::test_semantic_analyzer_batch_parallel
-tests/semantic_extract/test_extractors.py::TestExtractors::test_semantic_network_batch_via_extract_network
-tests/semantic_extract/test_extractors.py::TestExtractors::test_triplet_extraction_batch_via_extract_triplets
-tests/semantic_extract/test_performance.py::TestSemanticExtractImprovements::test_ner_parallel_processing
-tests/semantic_extract/test_performance.py::TestSemanticExtractImprovements::test_relation_parallel_processing
-tests/semantic_extract/test_performance.py::TestSemanticExtractImprovements::test_triplet_parallel_processing
-tests/semantic_extract/test_regression_performance_edge_cases.py::test_pattern_batch_defaults_to_single_worker_low_latency
-tests/semantic_extract/test_retry_logic.py::TestRetryLogic::test_chunked_extraction_propagation
-tests/semantic_extract/test_retry_logic.py::TestRetryLogic::test_relations_chunked_propagation
-tests/semantic_extract/test_retry_logic.py::TestRetryLogic::test_triplets_chunked_propagation
-tests/semantic_extract/test_robustness_fallback.py::TestRobustnessFallback::test_batch_metadata_propagation
-tests/test_semantic_extract_batch_provenance.py::TestSemanticExtractBatch::test_event_detector_batch
-tests/test_semantic_extract_batch_provenance.py::TestSemanticExtractBatch::test_semantic_analyzer_batch
-tests/test_semantic_extract_batch_provenance.py::TestSemanticExtractBatch::test_semantic_network_batch
-
-# --- Provider pool: the assertions describe an older key-resolution contract ---
-# e.g. `unexpectedly identical: <MagicMock name='OpenAIProvider-0'>` — the test
-# wants a fresh provider per API key, the pool returns a shared one.
-tests/semantic_extract/test_provider_pool_isolation.py::TestCredentialIsolation::test_env_key_rotation_creates_fresh_provider
-tests/semantic_extract/test_provider_pool_isolation.py::TestCredentialIsolation::test_env_key_rotation_via_create_provider
-tests/semantic_extract/test_provider_pool_isolation.py::TestCredentialIsolation::test_explicit_key_matches_env_key_reuses_provider
-tests/semantic_extract/test_provider_pool_isolation.py::TestProviderPoolInternals::test_resolve_api_key_env_var_fallback
-
-# --- Provider fallback path: the doubles no longer drive the branch -----------
-# All six assert on generate_typed falling back to generate; the fallback never
-# fires under these doubles (`AssertionError: Exception not raised`, `0 != 2`).
-tests/test_issue_554_fixes.py::TestBug3GenerateTypedFallbackToPlainGenerate::test_error_raised_when_both_paths_fail
-tests/test_issue_554_fixes.py::TestBug3GenerateTypedFallbackToPlainGenerate::test_fallback_preserves_error_on_bad_json
-tests/test_issue_554_fixes.py::TestBug3GenerateTypedFallbackToPlainGenerate::test_fallback_to_plain_generate_when_structured_fails
-tests/test_issue_554_fixes.py::TestBug3GenerateTypedFallbackToPlainGenerate::test_generate_structured_fallback_warning_has_exc_info
-tests/test_issue_554_fixes.py::TestBug3GenerateTypedFallbackToPlainGenerate::test_generate_structured_is_attempted_first
-tests/test_issue_554_fixes.py::TestBug3GenerateTypedFallbackToPlainGenerate::test_schema_validation_wraps_plain_list
 
 # --- Local embedding backend unavailable offline ------------------------------
-# `128 != 384` and `'fallback' != 'sentence_transformers'`: the real model could
-# not be loaded in this environment, so the fallback backend answers instead.
-tests/test_embedding_providers.py::TestEmbeddingProviders::test_embedding_generator_config
-tests/test_embedding_providers.py::TestEmbeddingProviders::test_sentence_transformers_default
-tests/test_model_selection.py::TestModelSelection::test_dynamic_switching
-tests/test_model_selection.py::TestModelSelection::test_generator_switching
+# The generator-config case is the exception: on the Linux runner the model does
+# load and the test passes, so it is marked `# windows-only` rather than left to
+# a strict xfail that would fail on that pass. The rest of this group is gone:
+# #1931 restored the semantic_extract config isolation and they now pass.
+tests/test_embedding_providers.py::TestEmbeddingProviders::test_embedding_generator_config  # windows-only
 
-# --- Order-dependent: these pass in isolation, fail in a full run -------------
-# The progress tracker is process-wide state; whichever test enables it first
-# decides what the next one observes.
+# --- Progress tracking is forced off for the whole process --------------------
+# `semantica_mcp/mcp/__init__.py` sets `SEMANTICA_DISABLE_PROGRESS=1` at import
+# and `tests/test_mcp_package_export_graphml_parquet.py` sets it at module scope
+# as well, so the variable is already set while pytest collects the suite.
+# `ProgressTracker.enabled` then latches disabled for the process
+# (`progress_tracker.py:1140`) and the re-enable in `arrow_exporter.py:205` is a
+# no-op. Both pass alone and fail in every full-suite run — collection of the
+# MCP modules decides it, not the order — so they stay strict: fixing the
+# isolation makes them pass and the XPASS forces these lines out.
 tests/test_arrow_exporter.py::TestArrowExporter::test_progress_tracking
 tests/vector_store/test_backward_compatibility.py::TestVectorStoreBackwardCompatibility::test_progress_tracking_unchanged
 
 # --- Assertion drift in the test or its expectation ---------------------------
 tests/export/test_distance_exporter.py::test_hop_distance_no_warning_when_kg_unavailable
-tests/ingest/test_repo_ingestor_security.py::TestIsReservedNAT64Regression::test_nat64_local_prefix_not_blocked
+tests/ingest/test_repo_ingestor_security.py::TestIsReservedNAT64Regression::test_nat64_local_prefix_not_blocked  # windows-only
 tests/integrations/agno/test_context_store.py::TestAgnoContextStoreUpsertNERAttributes::test_upsert_indexes_entity_label_as_type
 tests/integrations/agno/test_context_store.py::TestAgnoContextStoreUpsertNERAttributes::test_upsert_indexes_entity_text_not_repr
-tests/semantic_extract/test_cache_backends.py::test_zero_ttl_expires_immediately_on_both_backends
-tests/vector_store/test_hybrid_similarity.py::TestHybridSimilarityCalculator::test_pearson_similarity_calculation
+tests/semantic_extract/test_cache_backends.py::test_zero_ttl_expires_immediately_on_both_backends  # windows-only
 tests/vector_store/test_vector_store.py::test_backend_mirroring_and_save
 
 # --- Integration tests outside the two dedicated integration directories ------
@@ -145,10 +100,13 @@ tests/vector_store/test_vector_store.py::test_backend_mirroring_and_save
 # `sqlalchemy` extra this job does not install, a fallback backend answering
 # because the real embedding model is offline, and two expectation drifts in
 # the deepdive suite.
+#
+# `test_06_hybrid_search` used to sit here: it failed because `HybridSearch`
+# dropped the `filter=` argument. #1827 fixed that, the test now passes on the
+# runner, and its line is gone. `test_03_model_switching` was here too; #1931
+# turned it green.
 tests/ingest/test_notebook_02.py::TestNotebook02DataIngestion::test_03_web_ingestion
 tests/ingest/test_notebook_02.py::TestNotebook02DataIngestion::test_08_database_ingestion
-tests/test_all_features.py::TestSemanticaFeatures::test_03_model_switching
-tests/test_all_features.py::TestSemanticaFeatures::test_06_hybrid_search
 tests/test_semantic_extract_deepdive.py::TestSemanticExtractDeepDive::test_ner_extractor_pattern
 tests/test_semantic_extract_deepdive_part2.py::TestSemanticExtractDeepDivePart2::test_coreference_resolver_pronouns
 tests/test_semantic_extract_deepdive_part2.py::TestSemanticExtractDeepDivePart2::test_event_detector_basic
@@ -156,45 +114,10 @@ tests/test_semantic_extract_deepdive_part2.py::TestSemanticExtractDeepDivePart2:
 # -----------------------------------------------------------------------------
 # Added 2026-10-02 from CI run 36860808592 (job `build`, ubuntu-latest /
 # CPython 3.11), when the suite first ran there. The Windows measurement above
-# could not see these: the process-wide config keeps a double that only leaks
-# in the single-process run this step uses, and the rest are environment and
-# expectation drift. No file any of them lives in is touched by the change that
-# added this step, so nothing here is caused by wiring the suite into CI.
+# could not see these: they are environment and expectation drift. No file any
+# of them lives in is touched by the change that added this step, so nothing
+# here is caused by wiring the suite into CI.
 # -----------------------------------------------------------------------------
-
-# --- Provider key resolution: a double supplies the key in a full run ---------
-# `config.get_api_key` hands the client a key whose repr is a `<MagicMock ...>`:
-# a double left by another test is still in the process-wide config when these
-# run. `is_available()` then reports True with no key set, and generation
-# reaches the live client instead of raising `ProcessingError` — 401s from
-# openai/deepseek/groq, a 404 from novita, `EphemeralTokenAPIKeyError` from
-# gemini, and a `TypeError` from anthropic where the `MagicMock` is joined into
-# a string. They pass in the two-invocation Windows measurement above, so they
-# are absent from the groups it produced.
-tests/test_llm_anthropic.py::test_is_available_false_with_no_key
-tests/test_llm_anthropic.py::test_generate_raises_clear_error_when_unavailable
-tests/test_llm_anthropic.py::test_generate_structured_raises_clear_error_when_unavailable
-tests/test_llm_anthropic.py::test_generate_typed_raises_clear_error_when_unavailable
-tests/test_llm_deepseek.py::test_is_available_false_with_no_key
-tests/test_llm_deepseek.py::test_generate_raises_clear_error_when_unavailable
-tests/test_llm_deepseek.py::test_generate_structured_raises_clear_error_when_unavailable
-tests/test_llm_deepseek.py::test_generate_typed_raises_clear_error_when_unavailable
-tests/test_llm_gemini.py::test_is_available_false_with_no_key
-tests/test_llm_gemini.py::test_generate_raises_clear_error_when_unavailable
-tests/test_llm_gemini.py::test_generate_structured_raises_clear_error_when_unavailable
-tests/test_llm_gemini.py::test_generate_typed_raises_clear_error_when_unavailable
-tests/test_llm_groq.py::test_is_available_false_with_no_key
-tests/test_llm_groq.py::test_generate_raises_clear_error_when_unavailable
-tests/test_llm_groq.py::test_generate_structured_raises_clear_error_when_unavailable
-tests/test_llm_groq.py::test_generate_typed_raises_clear_error_when_unavailable
-tests/test_llm_novita.py::test_is_available_false_with_no_key
-tests/test_llm_novita.py::test_generate_raises_clear_error_when_unavailable
-tests/test_llm_novita.py::test_generate_structured_raises_clear_error_when_unavailable
-tests/test_llm_novita.py::test_generate_typed_raises_clear_error_when_unavailable
-tests/test_llm_openai.py::test_is_available_false_with_no_key
-tests/test_llm_openai.py::test_generate_raises_clear_error_when_unavailable
-tests/test_llm_openai.py::test_generate_structured_raises_clear_error_when_unavailable
-tests/test_llm_openai.py::test_generate_typed_raises_clear_error_when_unavailable
 
 # --- The CLI wraps the paths it reports mid-token -----------------------------
 # `test_reports_the_files_it_wrote` looks for the written filename in the
@@ -215,6 +138,7 @@ tests/vector_store/test_faiss_index.py::test_builder_trains_pq_index
 # `expected call not found`: the call the Weaviate test records no longer
 # matches what the store issues. `assert 2 == 5`: the Jena empty-graph test
 # counts operations that all complete only once every concurrent writer has
-# landed.
+# landed. That one is a thread race and can pass when the writers happen to
+# serialize, so it is `# non-strict`.
 tests/vector_store/test_backend_metadata_filtering.py::TestBackendMetadataFiltering::test_weaviate_store_filter_by_metadata_native_filter
-tests/triplet_store/test_jena_store_empty_graph.py::TestJenaStoreEmptyGraph::test_empty_graph_with_concurrent_operations
+tests/triplet_store/test_jena_store_empty_graph.py::TestJenaStoreEmptyGraph::test_empty_graph_with_concurrent_operations  # non-strict

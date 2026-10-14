@@ -127,14 +127,16 @@ class GraphAnalyzer:
         Returns:
             Dictionary containing:
                 - centrality: Centrality measures for all nodes
-                - communities: Detected community structures
+                - communities: Community detector result, a dict of
+                  ``communities``, ``node_assignments``, ``modularity`` and
+                  ``algorithm``
                 - connectivity: Connectivity analysis results
                 - metrics: Graph metrics and statistics
 
         Example:
             >>> analysis = analyzer.analyze_graph(graph)
             >>> top_nodes = analysis["centrality"]["rankings"][:10]
-            >>> num_communities = len(analysis["communities"])
+            >>> num_communities = len(analysis["communities"]["communities"])
         """
         self.logger.info("Performing comprehensive graph analysis")
 

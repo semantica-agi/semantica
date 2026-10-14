@@ -36,7 +36,7 @@ Example Usage:
     >>> calculator = CentralityCalculator()
     >>> centrality = calculator.calculate_degree_centrality(graph)
     >>> all_centrality = calculator.calculate_all_centrality(graph)
-    >>> pagerank_scores = calculator.calculate_pagerank(graph, damping_factor=0.85)
+    >>> pagerank_result = calculator.calculate_pagerank(graph, damping_factor=0.85)
     >>> top_nodes = calculator.get_top_nodes(centrality, top_k=10)
 
 Author: Semantica Contributors
@@ -598,7 +598,7 @@ class CentralityCalculator:
         # Aliases used by some callers
         alpha: Optional[float] = None,
         max_iter: Optional[int] = None,
-    ) -> Dict[str, float]:
+    ) -> Dict[str, Any]:
         """
         Calculate PageRank scores for nodes in the graph.
         
@@ -622,7 +622,9 @@ class CentralityCalculator:
             tolerance: Convergence tolerance for PageRank values
             
         Returns:
-            Dictionary mapping node IDs to PageRank scores
+            Dictionary containing:
+                - centrality: Mapping of node IDs to PageRank scores
+                - rankings: List of ``(node_id, score)`` tuples sorted highest first
             
         Raises:
             ValueError: If graph is empty or parameters are invalid

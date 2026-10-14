@@ -185,6 +185,29 @@ class TestHealthInfo:
 
         assert app.state.explorer_settings["allowed_origins"] == ["https://legacy.example.com"]
 
+    def test_env_settings_default_allowed_origins(self, monkeypatch):
+        monkeypatch.delenv("ALLOWED_ORIGINS", raising=False)
+        monkeypatch.delenv("EXPLORER_CORS_ORIGINS", raising=False)
+
+        app = create_app()
+
+        assert app.state.explorer_settings["allowed_origins"] == [
+            "http://localhost:5173",
+            "http://127.0.0.1:5173",
+            "http://localhost:8000",
+            "http://127.0.0.1:8000",
+        ]
+
+    def test_create_app_explicit_allowed_origins_argument(self, monkeypatch):
+        monkeypatch.delenv("ALLOWED_ORIGINS", raising=False)
+        monkeypatch.delenv("EXPLORER_CORS_ORIGINS", raising=False)
+
+        app = create_app(allowed_origins=["http://127.0.0.1:8020", "http://localhost:8020"])
+        assert app.state.explorer_settings["allowed_origins"] == [
+            "http://127.0.0.1:8020",
+            "http://localhost:8020",
+        ]
+
     def test_default_app_initializes_empty_graph_session(self):
         with TestClient(create_app()) as test_client:
             response = test_client.get("/api/graph/nodes")

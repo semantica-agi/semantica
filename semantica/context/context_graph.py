@@ -3902,15 +3902,42 @@ class ContextGraph:
         # Handle None metadata
         metadata = decision.metadata or {}
 
+        # Validate the values the decision indexes need before touching graph
+        # state, so a bad value can't leave a stored but unindexed node.
+        try:
+            hash(decision.category)
+            float(decision.confidence)
+        except (TypeError, ValueError) as e:
+            raise ValueError(
+                f"Decision {node_id!r} has an invalid category or confidence: {e}"
+            ) from e
+        meta_entities = metadata.get("entities")
+        if meta_entities is not None:
+            if not isinstance(meta_entities, list):
+                raise ValueError("Decision metadata 'entities' must be a list")
+            try:
+                for entity in meta_entities:
+                    hash(entity)
+            except TypeError as e:
+                raise ValueError(
+                    "Decision metadata 'entities' must contain hashable values"
+                ) from e
+
         # Normalize timestamp to ensure consistent storage format
-        normalized_timestamp = self._normalize_timestamp(decision.timestamp)
+        raw_timestamp = decision.timestamp
+        if isinstance(raw_timestamp, str) and raw_timestamp.strip().endswith(("Z", "z")):
+            raw_timestamp = raw_timestamp.strip()[:-1] + "+00:00"
+        normalized_timestamp = self._normalize_timestamp(raw_timestamp)
 
         node = ContextNode(
             node_id=node_id,
             node_type="Decision",
             content=decision.scenario,
             properties={
+                # Metadata first so it can't override the Decision's own fields.
+                **metadata,
                 "category": decision.category,
+                "scenario": decision.scenario,
                 "reasoning": decision.reasoning,
                 "outcome": decision.outcome,
                 "confidence": decision.confidence,
@@ -3918,12 +3945,15 @@ class ContextGraph:
                 "decision_maker": decision.decision_maker,
                 "reasoning_embedding": decision.reasoning_embedding,
                 "node2vec_embedding": decision.node2vec_embedding,
-                **metadata
             },
             valid_from=decision.valid_from,
             valid_until=decision.valid_until,
         )
-        self._add_internal_node(node)
+        with self._lock:
+            if self._add_internal_node(node):
+                # Register in the decision indexes so precedent search,
+                # influence, causality and insights can see this decision.
+                self._sync_decision_from_node(node_id)
         return node_id
 
     def add_causal_relationship(
@@ -4176,11 +4206,13 @@ class ContextGraph:
             
             # Community detection
             if "community_detector" in self.kg_components:
-                communities = self.kg_components["community_detector"].detect_communities(kg_graph)
+                community_detector = self.kg_components["community_detector"]
+                community_result = community_detector.detect_communities(kg_graph)
+                communities = community_result["communities"]
                 analysis["community_analysis"] = {
                     "communities": communities,
                     "num_communities": len(communities),
-                    "modularity": self._calculate_modularity(communities)
+                    "modularity": community_result.get("modularity", 0.0)
                 }
             
             # Connectivity analysis
@@ -4345,11 +4377,6 @@ class ContextGraph:
         for edge in self.edges:
             distribution[edge.edge_type] += 1
         return dict(distribution)
-    
-    def _calculate_modularity(self, communities: Dict) -> float:
-        """Calculate modularity for communities (simplified)."""
-        # Placeholder for modularity calculation
-        return 0.5
     
     def _get_node_subgraph(self, node_id: str, max_depth: int = 2) -> Dict[str, Any]:
         """Get subgraph around a node."""
@@ -4930,7 +4957,7 @@ class ContextGraph:
                     for other_decision_id in self._entity_index.get(entity, set()):
                         if other_decision_id != current_id and other_decision_id not in explicit_cause_ids:
                             other_decision = self._decisions[other_decision_id]
-                            if other_decision["timestamp"] < current_decision["timestamp"]:
+                            if self._decision_sort_ts(other_decision["timestamp"]) < self._decision_sort_ts(current_decision["timestamp"]):
                                 potential_causes[other_decision_id] = None
 
                 for cause_id in potential_causes:
@@ -5201,6 +5228,31 @@ class ContextGraph:
         "valid_from", "valid_until", "content",
     })
 
+    @staticmethod
+    def _decision_sort_ts(raw_ts: Any) -> float:
+        """Epoch seconds for ``_temporal_index`` ordering.
+
+        Accepts epoch numbers (``record_decision``) and ISO strings
+        (``add_decision`` with a ``Decision`` object); anything unparseable
+        sorts as ``0.0``. A trailing ``Z`` is read as UTC; other naive values
+        use local time, matching ``record_decision``'s ``datetime.now()``.
+        """
+        if isinstance(raw_ts, datetime):
+            return raw_ts.timestamp()
+        try:
+            return float(raw_ts)
+        except (TypeError, ValueError):
+            pass
+        if isinstance(raw_ts, str):
+            try:
+                text = raw_ts.strip()
+                if text.endswith(("Z", "z")):
+                    text = text[:-1] + "+00:00"
+                return datetime.fromisoformat(text).timestamp()
+            except ValueError:
+                pass
+        return 0.0
+
     def _rebuild_decision_indexes(self) -> None:
         """Rebuild all derived decision indexes from the current node store.
 
@@ -5239,10 +5291,7 @@ class ContextGraph:
             # The temporal index uses it for sorting; downstream code handles
             # both types via _normalize_timestamp.
             raw_ts = meta.get("timestamp", 0.0)
-            try:
-                sort_ts = float(raw_ts)
-            except (TypeError, ValueError):
-                sort_ts = 0.0
+            sort_ts = self._decision_sort_ts(raw_ts)
 
             # Entities may be stored as a list in meta or inferred from
             # outgoing "involves" edges if the list field is absent/empty.
@@ -5341,10 +5390,7 @@ class ContextGraph:
         meta.update(getattr(node, "properties", {}) or {})
 
         raw_ts = meta.get("timestamp", 0.0)
-        try:
-            sort_ts = float(raw_ts)
-        except (TypeError, ValueError):
-            sort_ts = 0.0
+        sort_ts = self._decision_sort_ts(raw_ts)
 
         entities = meta.get("entities") or []
         if not isinstance(entities, list):
@@ -5625,7 +5671,12 @@ class ContextGraph:
             category_score = 1.0 if source_decision["category"] == target_decision["category"] else 0.0
             
             # Temporal proximity (more recent decisions have higher influence)
-            time_diff = abs(source_decision["timestamp"] - target_decision["timestamp"])
+            # Timestamps may be epoch floats (record_decision) or ISO strings
+            # (add_decision with a Decision object); compare as epoch seconds.
+            time_diff = abs(
+                self._decision_sort_ts(source_decision["timestamp"])
+                - self._decision_sort_ts(target_decision["timestamp"])
+            )
             time_score = max(0.0, 1.0 - time_diff / (30 * 24 * 3600))  # 30 days window
             
             # Combined score
