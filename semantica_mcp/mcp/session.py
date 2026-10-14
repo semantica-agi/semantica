@@ -100,6 +100,22 @@ def kg_file_to_load() -> Optional[str]:
     return None
 
 
+def save_graph(graph: Any, path: str) -> None:
+    """Persist a mutation under this session's load and revision contract."""
+    if not is_persistence_safe():
+        raise ValueError(
+            "Persistence blocked: the configured SEMANTICA_KG_PATH "
+            "could not be loaded at startup. Restart the server with "
+            "a readable graph file to re-enable persistence."
+        )
+    if os.environ.get("SEMANTICA_KG_AUTO_RELOAD", "").strip().lower() == "true":
+        if _graph_cache is None:
+            raise ValueError("The graph source has not been loaded.")
+        _graph_cache.save_graph(graph, path)
+    else:
+        graph.save_to_file(path)
+
+
 def get_embedder() -> Any:
     """
     Return the shared EmbeddingGenerator instance, creating it on first call.
