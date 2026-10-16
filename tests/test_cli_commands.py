@@ -85,6 +85,32 @@ def _flatten(output: str) -> str:
     return " ".join(output.split())
 
 
+def _fake_decisions(*categories: str) -> list:
+    """MagicMock decisions, one per category, in the shape the CLI reads."""
+    decisions = []
+    for index, category in enumerate(categories):
+        d = MagicMock()
+        d.decision_id = f"d{index}"
+        d.scenario = f"Scenario {index}"
+        d.category = category
+        d.outcome = "ok"
+        d.confidence = 1.0
+        decisions.append(d)
+    return decisions
+
+
+def _patch_decision_query(monkeypatch, decisions: list) -> None:
+    """Serve ``decision list``/``query`` from a fake DecisionQuery."""
+    fake_dq = MagicMock()
+    fake_dq.find_by_time_range.return_value = decisions
+    monkeypatch.setitem(__import__("sys").modules,
+                        "semantica.context.decision_query",
+                        _fake_module(DecisionQuery=lambda *a, **kw: fake_dq))
+    monkeypatch.setitem(__import__("sys").modules,
+                        "semantica.graph_store",
+                        _fake_module(GraphStore=MagicMock(return_value=MagicMock())))
+
+
 # ─── Global flags ─────────────────────────────────────────────────────────────
 
 
@@ -1770,6 +1796,41 @@ class TestDecision:
         )
         _ok(result)
 
+    @pytest.mark.parametrize("filter_value", ["category:finance", "tag:finance"])
+    def test_query_matches_the_category_under_either_prefix(
+        self, runner, monkeypatch, filter_value
+    ):
+        """The filter compares the category; tag: is an alias of category:."""
+        _patch_decision_query(monkeypatch, _fake_decisions("finance", "general"))
+
+        result = runner.invoke(
+            cli_module.main,
+            ["--store", "neo4j", "decision", "query", "--filter", filter_value,
+             "--format", "json"],
+        )
+        _ok(result)
+        assert [d["category"] for d in json.loads(result.output)] == ["finance"]
+
+    def test_query_filter_matches_the_category_not_a_tag(self, runner, monkeypatch):
+        """Decisions carry no tag, so two decisions in one category both match."""
+        _patch_decision_query(
+            monkeypatch, _fake_decisions("finance", "finance", "general")
+        )
+
+        result = runner.invoke(
+            cli_module.main,
+            ["--store", "neo4j", "decision", "query", "--filter", "category:finance",
+             "--format", "json"],
+        )
+        _ok(result)
+        assert [d["category"] for d in json.loads(result.output)] == ["finance", "finance"]
+
+    def test_query_help_says_what_the_filter_matches(self, runner):
+        result = runner.invoke(cli_module.main, ["decision", "query", "--help"])
+        _ok(result)
+        assert "category:finance" in _flatten(result.output)
+        assert "tag:finance is an alias" in _flatten(result.output)
+
     # (filter, matching category, decoy category the mangled filter also hits)
     # lstrip("tag:") strips leading t/a/g/: characters, so "tag:auth" became
     # "uth" — which still substring-matches "auth", but ALSO matches "south".
@@ -1821,7 +1882,7 @@ class TestDecision:
         assert cli_module._tag_filter_value("tag:tag") == "tag"
         assert cli_module._tag_filter_value("plain") == "plain"
 
-    @pytest.mark.parametrize("filter_str", ["tag:", ""])
+    @pytest.mark.parametrize("filter_str", ["tag:", "category:", ""])
     def test_query_empty_tag_filter_is_rejected(self, runner, monkeypatch, filter_str):
         """An empty tag value matched every decision; it must be a usage error."""
         fake_dq = MagicMock()

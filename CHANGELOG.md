@@ -23,6 +23,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`semantica decision query --filter tag:` matched the category, not a tag** (fixes #2025) by @pkupt
+  - `decision record --tags` stores the tag list and makes its first tag the decision's `category`, and `--filter` compared the value after the prefix against that category. Two decisions whose first tag agrees cannot be told apart by the filter, and their remaining tags are not reachable through it: `tag:vendor`, a tag the recorded decision carries, matched nothing, while `tag:finance` matched every decision that merely shares the first tag
+  - `category:` is the prefix now, naming the field that is compared, and `tag:` stays as an alias so existing invocations keep working. A value without a prefix is still passed through unchanged, and an empty value is still rejected before anything is read
+  - The `--filter` help text and the `query` docstring advertised a tag filter — and an `entity` filter, which this command has never had — so both promised more than the command did. They name the category now. Matching the rest of a decision's tags needs the tag field tracked in #2021: the memory backend keeps the list as node properties and the graph backend in the recorder's cross-system context, and neither reaches `decision query` today
+  - New cases in `tests/test_cli_commands.py::TestDecision` pin both prefixes, the match against the category, and the help wording
+
 - **The `semantica pipeline` command group called APIs that do not exist** (fixes #2012) by @nilaymallikk
   - `init`, `run`, `status` and `stop` all raised `AttributeError` before doing any work, calling `PipelineTemplateManager.scaffold()` and `ExecutionEngine.run()` / `.status()` / `.stop()`, none of which exist. `validate` reported `Pipeline config valid` for every input, including a file with a missing dependency, because it was handed the file *path string* where `PipelineValidator.validate()` expects a `Pipeline` — a `str` has no steps to complain about
   - `init` now calls `create_pipeline_from_template()` and serialises the built `Pipeline` to the output file. Its `--template` choices and default were five names the manager has never registered, so each one would have reached `Template not found` next; they are the four real templates now, pinned against `PipelineTemplateManager.list_templates()` by a test

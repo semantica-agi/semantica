@@ -3469,32 +3469,45 @@ def decision_list(cli_ctx: CLIContext, limit: int, fmt: str, local_json: bool) -
 
 
 def _tag_filter_value(filter_str: str) -> str:
-    """Return the value part of a ``tag:<value>`` decision filter, lowercased.
+    """Return the value that ``--filter`` matches against, lowercased.
 
-    ``str.lstrip("tag:")`` strips any leading ``t``, ``a``, ``g`` or ``:``
-    *characters*, not the prefix: ``tag:auth`` became ``uth`` and ``tag:git``
-    became ``it``, so the filter silently matched the wrong text. Anything
-    without the prefix is passed through unchanged. An empty value is rejected,
-    since ``"" in category`` is true for every decision.
+    The value is compared against a decision's ``category``. ``decision record
+    --tags`` stores the tag list and makes its first tag the category, so a
+    ``tag:<value>`` filter has only ever matched the category: two decisions
+    whose first tag agrees cannot be told apart, and their remaining tags are
+    not reachable through this command. ``tag:`` is kept as an alias of
+    ``category:``, the prefix that names what is compared.
+
+    A value without either prefix is passed through unchanged. An empty value
+    is rejected, since ``"" in category`` is true for every decision.
+
+    The prefixes go through ``removeprefix``, not ``lstrip``: stripping the
+    *characters* of ``"tag:"`` turned ``tag:auth`` into ``uth`` and ``tag:git``
+    into ``it``, so the filter silently matched the wrong text (fixed in
+    a066362e).
     """
-    value = filter_str.removeprefix("tag:").lower()
+    value = filter_str
+    for prefix in ("tag:", "category:"):
+        value = value.removeprefix(prefix)
+    value = value.lower()
     if not value:
         raise click.BadParameter(
-            "tag: filter requires a non-empty value, e.g. tag:finance",
+            "the filter requires a non-empty value, e.g. category:finance",
             param_hint="'--filter'",
         )
     return value
 
 
 @decision.command("query")
-@click.option("--filter", "filter_str", default=None, help="e.g. tag:finance")
+@click.option("--filter", "filter_str", default=None,
+              help="match the category, e.g. category:finance (tag:finance is an alias)")
 @click.option("--since", default=None, help="ISO 8601 date.")
 @click.option("--format", "fmt", type=click.Choice(["table", "json"]), default="table")
 @click.option("--json", "local_json", is_flag=True, default=False)
 @click.pass_obj
 def decision_query(cli_ctx: CLIContext, filter_str: Optional[str],
                    since: Optional[str], fmt: str, local_json: bool) -> None:
-    """Filter decisions by tag, entity, or date."""
+    """Query decisions, filtered by category and date."""
     cli_ctx = _require_ctx(cli_ctx)
 
     def _action() -> None:
