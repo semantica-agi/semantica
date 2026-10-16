@@ -5268,9 +5268,9 @@ pylatexenc==2.11 \
     --hash=sha256:305a072a99ce736246049c9da05841b9d718c0f7ea8888f5f596cf15cb621053 \
     --hash=sha256:e78e7391d6c104f1ed150e21cfaa58016cdb50aa54406a2eecb793649ffdfdd0
     # via docling-slim
-pymilvus==3.0.1 \
-    --hash=sha256:c02389059088b18d6e598cd175541e445c772fab4926c5e527c4913be34887f1 \
-    --hash=sha256:c5a8d5c1fa1de7b416e3529d383d8cc2e7da2170433ffa4a2d9087e14f70171a
+pymilvus==3.0.2 \
+    --hash=sha256:0ec7ca3a7d24d2ce13b2610c577f0978b08f461176222ea4dc1440375efc1cea \
+    --hash=sha256:607ac1bcc96719c1716e0027d4a59c6411ad783fb934cbe0618b6d6c0831550d
     # via semantica (pyproject.toml)
 pynndescent==0.6.0 \
     --hash=sha256:7ffde0fb5b400741e055a9f7d377e3702e02250616834231f6c209e39aac24f5 \
