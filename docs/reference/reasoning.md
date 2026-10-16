@@ -293,7 +293,7 @@ SPARQLReasoner(
 ```
 
 <Note>
-  `execute_query()` returns empty bindings when no `triplet_store` is configured. Pass a `TripletStore` instance via the `triplet_store=` kwarg to execute queries against a live backend.
+  `execute_query()` requires a `triplet_store`. With none configured it raises an actionable error rather than returning empty bindings, which callers would misread as "no matches". Pass a `TripletStore` instance via the `triplet_store=` kwarg to execute queries against a live backend.
 </Note>
 
 

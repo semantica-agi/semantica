@@ -145,13 +145,13 @@ Return derived tuples as a relation table. Show rule derivation counts.
 Run a SPARQL query over the knowledge graph and return results.
 
 ```python
+from semantica.triplet_store import TripletStore
 from semantica.reasoning.sparql_reasoner import SPARQLReasoner
-from semantica.context import ContextGraph
 
-graph = ContextGraph()
-reasoner = SPARQLReasoner()
+store = TripletStore(backend="blazegraph", endpoint="http://localhost:9999/blazegraph")
+reasoner = SPARQLReasoner(triplet_store=store)
 
-results = reasoner.query(sparql_query=query, graph=graph)
+result = reasoner.execute_query(query)   # SPARQLQueryResult(bindings, variables, metadata)
 ```
 
 Return as a Markdown table with bound variable columns matching the SELECT clause.
