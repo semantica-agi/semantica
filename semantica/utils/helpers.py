@@ -70,7 +70,7 @@ from collections.abc import Mapping
 from dataclasses import asdict, is_dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple, Type, Union
+from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple, Type, Union
 
 from .exceptions import ProcessingError, ValidationError
 
@@ -262,6 +262,7 @@ def write_json_file(
     filepath: Union[str, Path],
     indent: int = 2,
     ensure_ascii: bool = False,
+    default: Optional[Callable[[Any], Any]] = str,
 ) -> None:
     """
     Write data to JSON file safely.
@@ -271,12 +272,19 @@ def write_json_file(
         filepath: Path to JSON file
         indent: JSON indentation level
         ensure_ascii: Whether to ensure ASCII encoding
+        default: Fallback for values json cannot serialise natively (a
+            datetime, a Decimal, ...). Defaults to ``str`` so an export payload
+            carrying such a value is written as its string form instead of
+            failing the whole file; pass ``None`` to keep the strict ``json``
+            behaviour. All current callers are export writers (#1967).
     """
     filepath = Path(filepath)
     ensure_directory(filepath.parent)
 
     with open(filepath, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=indent, ensure_ascii=ensure_ascii)
+        json.dump(
+            data, f, indent=indent, ensure_ascii=ensure_ascii, default=default
+        )
 
 
 def get_file_size(filepath: Union[str, Path]) -> int:

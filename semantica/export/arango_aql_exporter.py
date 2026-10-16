@@ -304,7 +304,7 @@ class ArangoAQLExporter:
             documents.append(doc)
 
         # Format as AQL
-        docs_json = json.dumps(documents, indent=2, ensure_ascii=False)
+        docs_json = json.dumps(documents, indent=2, ensure_ascii=False, default=str)
         statement = f"FOR doc IN {docs_json}\n  INSERT doc INTO {collection}"
 
         return statement
@@ -432,7 +432,7 @@ class ArangoAQLExporter:
             return ""
 
         # Format as AQL
-        docs_json = json.dumps(documents, indent=2, ensure_ascii=False)
+        docs_json = json.dumps(documents, indent=2, ensure_ascii=False, default=str)
         statement = f"FOR doc IN {docs_json}\n  INSERT doc INTO {collection}"
 
         return statement
