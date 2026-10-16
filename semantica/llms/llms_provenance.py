@@ -50,6 +50,10 @@ import uuid
 
 from pydantic import BaseModel
 
+from ..utils.logging import get_logger
+
+logger = get_logger("llms.provenance")
+
 
 def _preview_result(result: Any) -> Optional[str]:
     """Render a structured/typed result as a 200-char preview.
@@ -163,6 +167,48 @@ class LLMProvenanceMixin:
                 }
             )
 
+    def _track_failed_call(
+        self,
+        call_id_prefix: str,
+        prompt: str,
+        error: Exception,
+        start_time: float,
+        activity_started_at_time: str,
+        **metadata,
+    ) -> None:
+        """Record a failed call without letting tracking replace ``error``.
+
+        Called from an ``except`` block that re-raises. A failure while
+        writing the entry is logged and dropped, so the caller still sees the
+        LLM's own exception.
+
+        Args:
+            call_id_prefix: Prefix for the generated call id.
+            prompt: Input prompt.
+            error: The exception raised by the wrapped call; only its class
+                name is recorded.
+            start_time: ``time.time()`` taken before the call.
+            activity_started_at_time: ISO timestamp taken before the call.
+            **metadata: Extra metadata recorded with the entry.
+        """
+        try:
+            self._track_llm_call(
+                call_id=f"{call_id_prefix}_{uuid.uuid4().hex[:8]}",
+                prompt=prompt,
+                response=None,
+                error=type(error).__name__,
+                latency_seconds=time.time() - start_time,
+                activity_started_at_time=activity_started_at_time,
+                activity_ended_at_time=datetime.utcnow().isoformat(),
+                **metadata,
+            )
+        except Exception as tracking_error:
+            logger.warning(
+                "Could not record provenance for a failed %s call: %s",
+                self.__class__.__name__,
+                tracking_error,
+            )
+
     def _track_generation(
         self,
         kind: str,
@@ -186,7 +232,19 @@ class LLMProvenanceMixin:
         """
         start_time = time.time()
         activity_started_at_time = datetime.utcnow().isoformat()
-        result = invoke()
+        try:
+            result = invoke()
+        except Exception as e:
+            self._track_failed_call(
+                call_id_prefix,
+                prompt,
+                e,
+                start_time,
+                activity_started_at_time,
+                generation_mode=kind,
+                **metadata,
+            )
+            raise
         elapsed = time.time() - start_time
         activity_ended_at_time = datetime.utcnow().isoformat()
 
@@ -254,7 +312,20 @@ class GroqLLMWithProvenance(LLMProvenanceMixin):
         """
         start_time = time.time()
         activity_started_at_time = datetime.utcnow().isoformat()
-        response = self._llm.generate(prompt, **kwargs)
+        try:
+            response = self._llm.generate(prompt, **kwargs)
+        except Exception as e:
+            self._track_failed_call(
+                "groq_call",
+                prompt,
+                e,
+                start_time,
+                activity_started_at_time,
+                temperature=kwargs.get("temperature"),
+                max_tokens=kwargs.get("max_tokens"),
+                top_p=kwargs.get("top_p"),
+            )
+            raise
         elapsed = time.time() - start_time
         activity_ended_at_time = datetime.utcnow().isoformat()
 
@@ -366,7 +437,19 @@ class OpenAILLMWithProvenance(LLMProvenanceMixin):
         """
         start_time = time.time()
         activity_started_at_time = datetime.utcnow().isoformat()
-        response = self._llm.generate(prompt, **kwargs)
+        try:
+            response = self._llm.generate(prompt, **kwargs)
+        except Exception as e:
+            self._track_failed_call(
+                "openai_call",
+                prompt,
+                e,
+                start_time,
+                activity_started_at_time,
+                temperature=kwargs.get("temperature"),
+                max_tokens=kwargs.get("max_tokens"),
+            )
+            raise
         elapsed = time.time() - start_time
         activity_ended_at_time = datetime.utcnow().isoformat()
 
@@ -477,7 +560,19 @@ class HuggingFaceLLMWithProvenance(LLMProvenanceMixin):
         """
         start_time = time.time()
         activity_started_at_time = datetime.utcnow().isoformat()
-        response = self._llm.generate(prompt, **kwargs)
+        try:
+            response = self._llm.generate(prompt, **kwargs)
+        except Exception as e:
+            self._track_failed_call(
+                "hf_call",
+                prompt,
+                e,
+                start_time,
+                activity_started_at_time,
+                max_length=kwargs.get("max_length"),
+                temperature=kwargs.get("temperature"),
+            )
+            raise
         elapsed = time.time() - start_time
         activity_ended_at_time = datetime.utcnow().isoformat()
 
@@ -567,7 +662,18 @@ class LiteLLMWithProvenance(LLMProvenanceMixin):
         """
         start_time = time.time()
         activity_started_at_time = datetime.utcnow().isoformat()
-        response = self._llm.generate(prompt, **kwargs)
+        try:
+            response = self._llm.generate(prompt, **kwargs)
+        except Exception as e:
+            self._track_failed_call(
+                "lite_call",
+                prompt,
+                e,
+                start_time,
+                activity_started_at_time,
+                provider=kwargs.get("provider"),
+            )
+            raise
         elapsed = time.time() - start_time
         activity_ended_at_time = datetime.utcnow().isoformat()
 
