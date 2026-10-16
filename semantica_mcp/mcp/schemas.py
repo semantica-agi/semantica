@@ -186,6 +186,10 @@ ADD_ENTITY = {
             "type": "string",
             "description": "Node type, e.g. 'Person', 'Organisation', 'Concept'",
         },
+        "content": {
+            "type": "string",
+            "description": "Node content (defaults to the label)",
+        },
         "metadata": {
             "type": "object",
             "description": "Additional key-value properties",
