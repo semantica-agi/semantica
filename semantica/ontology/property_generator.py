@@ -254,6 +254,17 @@ class PropertyGenerator:
             existing["domain"] = self._merge_property_values(
                 existing.get("domain", []), prop.get("domain", [])
             )
+            # Properties that normalize to the same name merge here, so the
+            # second spelling's raw key would otherwise be lost. Keep every
+            # source key so SHACL serialization can still map it onto this
+            # property's IRI (#1814 review).
+            metadata = existing.setdefault("metadata", {})
+            incoming_source = (prop.get("metadata") or {}).get("inferred_from")
+            if isinstance(incoming_source, str):
+                sources = metadata.setdefault("inferred_from_all", [])
+                for source in (metadata.get("inferred_from"), incoming_source):
+                    if source is not None and source not in sources:
+                        sources.append(source)
             if prop.get("type") == "object":
                 existing["range"] = self._merge_property_values(
                     existing.get("range", []), prop.get("range", [])
