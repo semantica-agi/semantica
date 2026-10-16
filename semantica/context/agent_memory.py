@@ -371,9 +371,9 @@ class AgentMemory:
                 replaced = self._replace_memory_item(
                     memory_id,
                     content,
-                    metadata=metadata or {},
-                    entities=entities or [],
-                    relationships=relationships or [],
+                    metadata=copy.deepcopy(metadata) if metadata else {},
+                    entities=copy.deepcopy(entities) if entities else [],
+                    relationships=copy.deepcopy(relationships) if relationships else [],
                     timestamp=timestamp,
                     **replacement_options,
                 )
@@ -388,13 +388,15 @@ class AgentMemory:
                 )
                 return memory_id
 
-            # Create memory item
+            # Create memory item. The caller's containers are copied, not
+            # referenced: sharing them let a later mutation of the dict the
+            # caller passed in rewrite what was "stored" (#1794).
             memory_item = MemoryItem(
                 content=content,
                 timestamp=timestamp,
-                metadata=metadata or {},
-                entities=entities or [],
-                relationships=relationships or [],
+                metadata=copy.deepcopy(metadata) if metadata else {},
+                entities=copy.deepcopy(entities) if entities else [],
+                relationships=copy.deepcopy(relationships) if relationships else [],
                 memory_id=memory_id,
             )
 
@@ -547,9 +549,12 @@ class AgentMemory:
                                     "content": memory_item.content,
                                     "score": result.score,
                                     "timestamp": memory_item.timestamp.isoformat(),
-                                    "metadata": memory_item.metadata,
-                                    "entities": memory_item.entities,
-                                    "relationships": memory_item.relationships,
+                                    # Copies, not the stored containers: the
+                                    # caller mutating a result must not write
+                                    # back into the record (#1794).
+                                    "metadata": copy.deepcopy(memory_item.metadata),
+                                    "entities": copy.deepcopy(memory_item.entities),
+                                    "relationships": copy.deepcopy(memory_item.relationships),
                                 }
                             )
                             seen_ids.add(memory_id)
@@ -600,13 +605,15 @@ class AgentMemory:
 
         memory_item = self.memory_items[memory_id]
 
+        # Return copies: handing back the stored containers turned a read into
+        # a write channel -- mutating the result mutated the record (#1794).
         return {
             "memory_id": memory_id,
             "content": memory_item.content,
             "timestamp": memory_item.timestamp.isoformat(),
-            "metadata": memory_item.metadata,
-            "entities": memory_item.entities,
-            "relationships": memory_item.relationships,
+            "metadata": copy.deepcopy(memory_item.metadata),
+            "entities": copy.deepcopy(memory_item.entities),
+            "relationships": copy.deepcopy(memory_item.relationships),
         }
 
     @_with_memory_lock
@@ -772,9 +779,10 @@ class AgentMemory:
                         "content": item.content,
                         "score": score,
                         "timestamp": item.timestamp.isoformat(),
-                        "metadata": item.metadata,
-                        "entities": item.entities,
-                        "relationships": item.relationships,
+                        # Copies, not the stored containers (#1794).
+                        "metadata": copy.deepcopy(item.metadata),
+                        "entities": copy.deepcopy(item.entities),
+                        "relationships": copy.deepcopy(item.relationships),
                         "source": "short_term",
                     }
                 )
@@ -1064,9 +1072,10 @@ class AgentMemory:
                         "content": memory_item.content,
                         "score": score,
                         "timestamp": memory_item.timestamp.isoformat(),
-                        "metadata": memory_item.metadata,
-                        "entities": memory_item.entities,
-                        "relationships": memory_item.relationships,
+                        # Copies, not the stored containers (#1794).
+                        "metadata": copy.deepcopy(memory_item.metadata),
+                        "entities": copy.deepcopy(memory_item.entities),
+                        "relationships": copy.deepcopy(memory_item.relationships),
                     }
                 )
 
