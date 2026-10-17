@@ -31,6 +31,7 @@ if sys.platform == "win32":
     if sys.stderr is not None and hasattr(sys.stderr, "reconfigure"):
         sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
+import ast
 from dataclasses import asdict, dataclass, field, is_dataclass
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath, PureWindowsPath
@@ -4860,6 +4861,73 @@ _PIPELINE_TEMPLATES = [
 ]
 
 
+class PipelineFileError(click.ClickException):
+    """A pipeline file that parses but is not a usable pipeline definition.
+
+    ``errors`` keeps the per-entry messages so ``--json`` can report each
+    offending entry instead of one flattened sentence.
+    """
+
+    def __init__(self, message: str, errors: Optional[List[str]] = None) -> None:
+        super().__init__(message)
+        self.errors = list(errors) if errors else [message]
+
+
+def _pipeline_step_errors(payload: Dict[str, Any]) -> List[str]:
+    """Return an error for every step ``PipelineBuilder`` would silently drop.
+
+    ``PipelineBuilder.build_pipeline`` keeps a step only when both ``name`` and
+    ``type`` are truthy (``pipeline_builder.py`` — ``if step_name and
+    step_type``). Every other entry disappears before the validator sees it, so
+    a partly malformed file used to be reported valid. Check the shape here,
+    while the offending index is still known.
+    """
+    steps = payload.get("steps", [])
+    if steps is None:
+        steps = []
+    if not isinstance(steps, list):
+        return [f"'steps' must be a list, got {type(steps).__name__}"]
+    errors: List[str] = []
+    for index, step in enumerate(steps):
+        if not isinstance(step, dict):
+            errors.append(
+                f"steps[{index}] is not a mapping (got {type(step).__name__})"
+            )
+            continue
+        label = f"steps[{index}]"
+        name = step.get("name")
+        if isinstance(name, str) and name.strip():
+            label += f" ('{name}')"
+        for field_name in ("name", "type"):
+            value = step.get(field_name)
+            if not (isinstance(value, str) and value.strip()):
+                errors.append(
+                    f"{label} is missing a non-empty '{field_name}'"
+                )
+    return errors
+
+
+def _pipeline_builder_error_messages(exc: BaseException) -> List[str]:
+    """Split the builder's ``Pipeline validation failed: [...]`` message.
+
+    ``PipelineBuilder.build_pipeline`` raises one ``ValidationError`` whose
+    message embeds the list of validation errors as a Python literal, so a
+    ``--json`` caller that only got that string would have to parse it back.
+    """
+    detail = str(exc)
+    prefix = "Pipeline validation failed: "
+    if detail.startswith(prefix):
+        detail = detail[len(prefix):]
+    if detail.startswith("[") and detail.endswith("]"):
+        try:
+            parsed = ast.literal_eval(detail)
+        except (ValueError, SyntaxError):
+            return [detail]
+        if isinstance(parsed, list):
+            return [str(item) for item in parsed]
+    return [detail]
+
+
 def _load_pipeline_file(path: str) -> Any:
     """Load a pipeline config file into a ``Pipeline`` object.
 
@@ -4877,9 +4945,15 @@ def _load_pipeline_file(path: str) -> Any:
     except yaml.YAMLError as exc:
         raise click.ClickException(f"Could not parse {path} as YAML: {exc}") from exc
     if not isinstance(payload, dict):
-        raise click.ClickException(
+        raise PipelineFileError(
             f"{path} is not a pipeline definition: expected a mapping with a "
             f"'steps' list, got {type(payload).__name__}."
+        )
+    step_errors = _pipeline_step_errors(payload)
+    if step_errors:
+        raise PipelineFileError(
+            f"{path} is not a valid pipeline definition: " + "; ".join(step_errors),
+            errors=step_errors,
         )
     return PipelineSerializer().deserialize_pipeline(payload)
 
@@ -4930,36 +5004,75 @@ def pipeline_validate(cli_ctx: CLIContext, pipeline_file: str, local_json: bool)
     cli_ctx = _require_ctx(cli_ctx)
 
     def _action() -> None:
-        pipeline = _load_pipeline_file(pipeline_file)
+        # --json promises its own {valid, errors, warnings, pipeline} object, so a
+        # file the loader (or the builder inside it) rejects must still be reported
+        # in that shape instead of falling through to the generic error envelope.
+        json_mode = _is_json(cli_ctx, local_json)
+        errors: List[str] = []
+        warnings_found: List[str] = []
+        pipeline = None
         try:
-            from .pipeline import PipelineValidator
-        except ImportError as exc:
-            raise click.ClickException(f"Pipeline module not available: {exc}") from exc
-        # The old wrapper passed the file path straight to validate(). A str has no
-        # steps, so it type-checked nothing and reported valid for any input.
-        result = PipelineValidator().validate(pipeline)
-        errors = [str(e) for e in (getattr(result, "errors", None) or [])]
-        warnings_found = [str(w) for w in (getattr(result, "warnings", None) or [])]
-        if _is_json(cli_ctx, local_json):
+            pipeline = _load_pipeline_file(pipeline_file)
+        except PipelineFileError as exc:
+            if not json_mode:
+                raise
+            errors = exc.errors
+        except click.ClickException as exc:
+            if not json_mode:
+                raise
+            errors = [str(exc.format_message())]
+        except SemanticaError as exc:  # the builder rejected the payload
+            if not json_mode:
+                raise
+            errors = _pipeline_builder_error_messages(exc)
+        except Exception as exc:  # malformed in some way we did not anticipate
+            if not json_mode:
+                raise
+            errors = [str(exc)]
+
+        if pipeline is not None:
+            try:
+                from .pipeline import PipelineValidator
+            except ImportError as exc:
+                raise click.ClickException(
+                    f"Pipeline module not available: {exc}"
+                ) from exc
+            # The old wrapper passed the file path straight to validate(). A str has
+            # no steps, so it type-checked nothing and reported valid for any input.
+            result = PipelineValidator().validate(pipeline)
+            errors = [str(e) for e in (getattr(result, "errors", None) or [])]
+            warnings_found = [
+                str(w) for w in (getattr(result, "warnings", None) or [])
+            ]
+            valid = bool(getattr(result, "valid", False))
+        else:
+            valid = False
+
+        if json_mode:
             _jecho({
-                "valid": bool(getattr(result, "valid", False)),
+                "valid": valid,
                 "errors": errors,
                 "warnings": warnings_found,
                 "pipeline": pipeline_file,
             })
-        elif not getattr(result, "valid", False):
+            if not valid:
+                # Text mode already exits non-zero on an invalid file; JSON mode
+                # used to return 0, so callers had to parse the body to notice.
+                raise SystemExit(1)
+            return
+
+        if not valid:
             for err in errors:
                 _warn(cli_ctx, err)
             raise click.ClickException(
                 f"Pipeline config invalid: {pipeline_file} "
                 f"({len(errors)} error(s), {len(warnings_found)} warning(s))"
             )
-        else:
-            _ok(
-                cli_ctx,
-                f"Pipeline config valid: {pipeline_file} "
-                f"({len(warnings_found)} warning(s))",
-            )
+        _ok(
+            cli_ctx,
+            f"Pipeline config valid: {pipeline_file} "
+            f"({len(warnings_found)} warning(s))",
+        )
 
     _run_with_error_handling(_action)
 

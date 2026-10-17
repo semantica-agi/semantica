@@ -2793,6 +2793,130 @@ class TestPipeline:
         assert result.exit_code != 0
         assert "not a pipeline definition" in _flatten(result.output)
 
+    def test_validate_rejects_a_step_the_builder_would_drop(self, runner):
+        # build_pipeline() keeps a step only when both name and type are truthy,
+        # so a half-written step vanished before the validator ran and the file
+        # was reported valid (#2026).
+        with runner.isolated_filesystem():
+            with open("pl.yaml", "w") as f:
+                f.write(
+                    "steps:\n"
+                    "  - name: ingest\n"
+                    "    type: ingest\n"
+                    "  - name: broken\n"
+                    "    config: {}\n"
+                )
+            result = runner.invoke(
+                cli_module.main,
+                ["pipeline", "validate", "pl.yaml"],
+            )
+        assert result.exit_code != 0
+        flat = _flatten(result.output)
+        assert "steps[1]" in flat
+        assert "broken" in flat
+        assert "non-empty 'type'" in flat
+
+    def test_validate_json_reports_a_dropped_step_in_its_own_shape(self, runner):
+        # The structured object has to survive the loader rejecting the file,
+        # otherwise --json callers only see the generic error envelope.
+        with runner.isolated_filesystem():
+            with open("pl.yaml", "w") as f:
+                f.write(
+                    "steps:\n"
+                    "  - name: ingest\n"
+                    "    type: ingest\n"
+                    "  - name: broken\n"
+                    "    config: {}\n"
+                )
+            result = runner.invoke(
+                cli_module.main,
+                ["pipeline", "validate", "pl.yaml", "--json"],
+            )
+        assert result.exit_code != 0
+        payload = json.loads([
+            line for line in result.output.splitlines() if line.startswith("{")
+        ][-1])
+        assert payload["valid"] is False
+        assert payload["pipeline"] == "pl.yaml"
+        assert payload["errors"] == ["steps[1] ('broken') is missing a non-empty 'type'"]
+        assert payload["warnings"] == []
+
+    def test_validate_rejects_a_step_that_is_not_a_mapping(self, runner):
+        # Used to reach dict() inside deserialize_pipeline and surface as
+        # "dictionary update sequence element #0 has length 1; 2 is required".
+        with runner.isolated_filesystem():
+            with open("pl.yaml", "w") as f:
+                f.write("steps:\n  - just-a-string\n")
+            result = runner.invoke(
+                cli_module.main,
+                ["pipeline", "validate", "pl.yaml"],
+            )
+        assert result.exit_code != 0
+        flat = _flatten(result.output)
+        assert "steps[0] is not a mapping (got str)" in flat
+        assert "dictionary update sequence" not in flat
+
+    def test_validate_json_reports_a_builder_rejection_in_its_own_shape(self, runner):
+        # deserialize_pipeline() runs builder validation, which raises on a
+        # missing dependency. --json used to fall through to the error envelope
+        # on stderr instead of printing {valid, errors, warnings, pipeline}.
+        with runner.isolated_filesystem():
+            with open("pl.yaml", "w") as f:
+                f.write(
+                    "steps:\n"
+                    "  - name: orphan\n"
+                    "    type: export\n"
+                    "    dependencies: [does_not_exist]\n"
+                )
+            result = runner.invoke(
+                cli_module.main,
+                ["pipeline", "validate", "pl.yaml", "--json"],
+            )
+        assert result.exit_code != 0
+        payload = json.loads([
+            line for line in result.output.splitlines() if line.startswith("{")
+        ][-1])
+        assert payload["valid"] is False
+        assert payload["errors"] == [
+            "Missing dependency 'does_not_exist' for step 'orphan'"
+        ]
+        assert payload["warnings"] == []
+        assert payload["pipeline"] == "pl.yaml"
+
+    def test_validate_json_keeps_the_object_for_a_non_pipeline_file(self, runner):
+        with runner.isolated_filesystem():
+            with open("pl.yaml", "w") as f:
+                f.write("just a string\n")
+            result = runner.invoke(
+                cli_module.main,
+                ["pipeline", "validate", "pl.yaml", "--json"],
+            )
+        assert result.exit_code != 0
+        payload = json.loads([
+            line for line in result.output.splitlines() if line.startswith("{")
+        ][-1])
+        assert payload["valid"] is False
+        assert "not a pipeline definition" in payload["errors"][0]
+
+    def test_run_rejects_a_step_the_builder_would_drop(self, runner):
+        # run loads through the same helper, so it must not silently execute a
+        # pipeline that is missing a step.
+        with runner.isolated_filesystem():
+            with open("pl.yaml", "w") as f:
+                f.write(
+                    "steps:\n"
+                    "  - name: ingest\n"
+                    "    type: ingest\n"
+                    "  - name: broken\n"
+                    "    config: {}\n"
+                )
+            result = runner.invoke(
+                cli_module.main,
+                ["pipeline", "run", "pl.yaml"],
+            )
+        assert result.exit_code != 0
+        assert "steps[1]" in _flatten(result.output)
+
     def test_run_dry_run(self, runner):
         with runner.isolated_filesystem():
             with open("pl.yaml", "w") as f:
