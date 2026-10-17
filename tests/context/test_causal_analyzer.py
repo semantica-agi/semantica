@@ -129,9 +129,51 @@ class TestCausalChainAnalyzer:
         assert len(chain) == 1
         assert chain[0].decision_id == "decision_002"
     
+    def test_get_causal_chain_both_merges_both_queries(self, causal_analyzer, mock_graph_store):
+        """direction="both" runs the upstream and downstream queries and merges them (#1815)."""
+
+        def record(decision_id, distance):
+            return {
+                "decision_id": decision_id,
+                "category": "credit_approval",
+                "scenario": decision_id,
+                "reasoning": "",
+                "outcome": "approved",
+                "confidence": 0.9,
+                "timestamp": datetime.now().isoformat(),
+                "decision_maker": "ai_agent_001",
+                "distance": distance,
+            }
+
+        # Query results come nearest first, as RETURN DISTINCT end, length(path)
+        # ... ORDER BY distance gives them; a decision reached by two paths of
+        # different length comes back twice.
+        mock_graph_store.execute_query.side_effect = [
+            [
+                record("decision_001", 1),
+                record("decision_000", 2),
+                record("decision_000", 3),  # same cause by a longer path
+            ],  # upstream
+            [record("decision_003", 1), record("decision_001", 2)],  # downstream, with a cycle
+        ]
+
+        chain = causal_analyzer.get_causal_chain("decision_002", "both", 5)
+
+        # Causes farthest first (as ContextGraph orders them), then effects;
+        # every decision once, at its nearest distance.
+        assert [d.decision_id for d in chain] == ["decision_000", "decision_001", "decision_003"]
+        assert [d.metadata["causal_distance"] for d in chain] == [2, 1, 1]
+        assert [d.metadata["causal_direction"] for d in chain] == [
+            "upstream", "upstream", "downstream"
+        ]
+        queries = [call.args[0] for call in mock_graph_store.execute_query.call_args_list]
+        assert len(queries) == 2
+        assert "<-[:CAUSED" in queries[0]
+        assert "]->" in queries[1]
+
     def test_get_causal_chain_invalid_direction(self, causal_analyzer):
         """Test causal chain retrieval with invalid direction."""
-        with pytest.raises(ValueError, match="Direction must be 'upstream' or 'downstream'"):
+        with pytest.raises(ValueError, match="Direction must be 'upstream', 'downstream' or 'both'"):
             causal_analyzer.get_causal_chain("decision_001", "invalid", 5)
     
     def test_get_causal_chain_invalid_max_depth(self, causal_analyzer):

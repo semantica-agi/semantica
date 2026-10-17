@@ -23,6 +23,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`get_causal_chain` rejected `direction="both"`, which the MCP tool schema advertises** (fixes #1815) by @costajohnt
+  - `ContextGraph.get_causal_chain` and `CausalChainAnalyzer.get_causal_chain` now accept `"both"` and return the upstream chain followed by the downstream one, each walked up to `max_depth`. Causes come farthest first and effects nearest first on both backends, each decision is listed once (at its nearest distance, as upstream if reachable both ways) and carries `metadata["causal_direction"]`. The MCP `get_causal_chain` tool (and the legacy `semantica.mcp_server` one, whose schema now lists `"both"`) no longer errors for this value.
+
 - **The `semantica pipeline` command group called APIs that do not exist** (fixes #2012) by @nilaymallikk
   - `init`, `run`, `status` and `stop` all raised `AttributeError` before doing any work, calling `PipelineTemplateManager.scaffold()` and `ExecutionEngine.run()` / `.status()` / `.stop()`, none of which exist. `validate` reported `Pipeline config valid` for every input, including a file with a missing dependency, because it was handed the file *path string* where `PipelineValidator.validate()` expects a `Pipeline` — a `str` has no steps to complain about
   - `init` now calls `create_pipeline_from_template()` and serialises the built `Pipeline` to the output file. Its `--template` choices and default were five names the manager has never registered, so each one would have reached `Template not found` next; they are the four real templates now, pinned against `PipelineTemplateManager.list_templates()` by a test
