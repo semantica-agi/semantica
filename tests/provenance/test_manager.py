@@ -1865,3 +1865,106 @@ class TestMixedFormatTimestampComparisons:
         prov_mgr = self._manager_with("not-a-timestamp", "2026-08-19T12:00:00+00:00")
         entries = prov_mgr.audit_log(since="2026-08-19T11:00:00", format="json")
         assert [e["entity_id"] for e in entries] == ["entity_1"]
+
+
+def test_verify_chain_rejects_a_truncated_store_when_the_count_is_known(tmp_path):
+    """A dropped tail keeps the surviving rows internally consistent.
+
+    The chain cannot see it; the caller's expected count can.
+    """
+    storage = str(tmp_path / "prov.json")
+    manager = ProvenanceManager(storage_path=storage)
+    for index in range(4):
+        manager.track_entity(f"E-{index}", source="src", entity_type="row_set")
+
+    full = manager.verify_chain()
+    assert full["valid"] is True
+    assert full["total_entries"] == 4
+    head = full["head"]
+    assert head
+
+    # Drop the last record, the way a shortened export pack would.
+    import sqlite3
+
+    connection = sqlite3.connect(storage)
+    connection.execute(
+        "delete from provenance where sequence_id = (select max(sequence_id) from provenance)"
+    )
+    connection.commit()
+    connection.close()
+
+    truncated = ProvenanceManager(storage_path=storage)
+    # Without an expectation the surviving three rows are still consistent.
+    assert truncated.verify_chain()["valid"] is True
+    # With one, the missing record is caught.
+    result = truncated.verify_chain(expected_count=4, expected_head=head)
+    assert result["valid"] is False
+    assert result["count_matches"] is False
+    assert result["head_matches"] is False
+    assert result["total_entries"] == 3
+
+
+def test_verify_chain_passes_when_the_expectations_match(tmp_path):
+    storage = str(tmp_path / "prov.json")
+    manager = ProvenanceManager(storage_path=storage)
+    manager.track_entity("E-0", source="src", entity_type="row_set")
+
+    result = manager.verify_chain(expected_count=1, expected_head=manager.verify_chain()["head"])
+
+    assert result["valid"] is True
+    assert result["count_matches"] is True
+    assert result["head_matches"] is True
+
+
+def test_an_unsequenced_record_is_invisible_to_the_expected_count(tmp_path):
+    """A row without a sequence_id is outside the chain, so it is not counted.
+
+    Only direct storage access can create one; every track_* call assigns a
+    sequence. Such a row is still exported, which is why the count cannot see
+    it, and the result is documented rather than silently surprising.
+    """
+    import sqlite3
+
+    storage = str(tmp_path / "prov.json")
+    manager = ProvenanceManager(storage_path=storage)
+    for index in range(3):
+        manager.track_entity(f"E-{index}", source="src", entity_type="row_set")
+
+    connection = sqlite3.connect(storage)
+    connection.execute(
+        "insert into provenance (entity_id, entity_type, activity_id, agent_id,"
+        " source_document, timestamp, first_seen, last_updated, confidence,"
+        " checksum, metadata, version, sequence_id)"
+        " select 'E-extra', entity_type, activity_id, agent_id, source_document,"
+        " timestamp, first_seen, last_updated, confidence, checksum, metadata,"
+        " version, NULL from provenance limit 1"
+    )
+    connection.commit()
+    connection.close()
+
+    result = ProvenanceManager(storage_path=storage).verify_chain(expected_count=3)
+
+    assert result["unsequenced_records"] == 1
+    assert result["count_matches"] is True
+    assert result["valid"] is True
+
+
+def test_unsequenced_records_do_not_break_the_default_call(tmp_path):
+    import sqlite3
+
+    storage = str(tmp_path / "prov.json")
+    manager = ProvenanceManager(storage_path=storage)
+    manager.track_entity("E-0", source="src", entity_type="row_set")
+    connection = sqlite3.connect(storage)
+    connection.execute(
+        "insert into provenance (entity_id, entity_type, activity_id, agent_id,"
+        " source_document, timestamp, first_seen, last_updated, confidence,"
+        " checksum, metadata, version, sequence_id)"
+        " select 'E-extra', entity_type, activity_id, agent_id, source_document,"
+        " timestamp, first_seen, last_updated, confidence, checksum, metadata,"
+        " version, NULL from provenance limit 1"
+    )
+    connection.commit()
+    connection.close()
+
+    assert ProvenanceManager(storage_path=storage).verify_chain()["valid"] is True
