@@ -312,6 +312,15 @@ class TestCausalChainSerializationWithRealGraph(unittest.TestCase):
             {"Require BAA from vendors": 1, "Host on AWS": 2},
         )
 
+    def test_both_directions_round_trip_through_tools_call(self):
+        # The schema advertises "both"; the engine used to reject it (#1815).
+        payload = self._tools_call({"decision_id": self.ids[1], "direction": "both"})
+        self.assertNotIn("error", payload)
+        self.assertEqual(
+            [(d["scenario"], d["metadata"]["causal_direction"]) for d in payload["chain"]],
+            [("Adopt HIPAA program", "upstream"), ("Host on AWS", "downstream")],
+        )
+
     def test_non_json_metadata_is_stringified(self):
         from datetime import datetime
 
