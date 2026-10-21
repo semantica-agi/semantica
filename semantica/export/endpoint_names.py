@@ -49,6 +49,15 @@ ENDPOINT_ALIASES: Dict[str, Tuple[str, ...]] = {
 }
 
 
+def is_unset_id(value: Any) -> bool:
+    """Whether an id value counts as missing: ``None`` or ``""`` (#2018).
+
+    A reader then tries the next accepted name. Anything else, ``0`` included,
+    is a real id.
+    """
+    return value is None or value == ""
+
+
 def has_endpoints(sample: Dict[str, Any]) -> bool:
     """Whether a record carries both ends of a relationship, under any name."""
     return any(k in sample for k in SOURCE_ENDPOINT_NAMES) and any(
@@ -60,8 +69,11 @@ def canonical_endpoints(records: Any) -> Any:
     """Return ``records`` with relationship endpoints under their canonical keys.
 
     Records that already carry ``source_id``/``target_id`` are returned
-    untouched, as are non-dict records. The original list is returned when
-    nothing needed adding, so callers that pass a canonical graph pay nothing.
+    untouched, as are non-dict records. An unset canonical value (see
+    ``is_unset_id``) takes the first set alias, so ``source_id=""`` next to
+    ``start_node_id="alice"`` becomes ``source_id="alice"``. The original list
+    is returned when nothing needed adding, so callers that pass a canonical
+    graph pay nothing.
     """
     if not isinstance(records, list):
         return records
@@ -75,10 +87,10 @@ def canonical_endpoints(records: Any) -> Any:
 
         resolved: Dict[str, Any] = {}
         for canonical, aliases in ENDPOINT_ALIASES.items():
-            if record.get(canonical) is not None:
+            if not is_unset_id(record.get(canonical)):
                 continue
             for alias in aliases:
-                if record.get(alias) is not None:
+                if not is_unset_id(record.get(alias)):
                     resolved[canonical] = record[alias]
                     break
 
