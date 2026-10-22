@@ -260,6 +260,34 @@ jobs:
           diff \
             <(grep -E '^[a-zA-Z0-9._-]+==' .github/requirements/open-ontologies-extra.txt | sed 's/ \\$//') \
             <(grep -E '^[a-zA-Z0-9._-]+==' /tmp/open-ontologies-extra-check.txt)
+      - name: Verify the other requirements-ci.txt-constrained files are up to date
+        run: |
+          # Same freshness contract again, for the remaining files compiled
+          # with --constraint requirements-ci.txt. Without this they drift
+          # whenever requirements-ci.txt moves: benchmark-extra.txt went stale
+          # this way and benchmark.yml ran against a different dependency set
+          # than the rest of CI. Each command repeats the header of its
+          # committed file, flags included (see the note in the step above).
+          # Direct-URL requirements (`pkg @ url`, e.g. en-core-web-sm in
+          # benchmark-extra.txt) are compared too, so a URL change in a .in
+          # file without regenerating the .txt is caught.
+          check() {
+            local file="$1"; shift
+            uv pip compile "$@" --constraint requirements-ci.txt -o /tmp/freshness-check.txt
+            diff \
+              <(grep -E '^[a-zA-Z0-9._-]+(==| @ )' "$file" | sed 's/ \\$//') \
+              <(grep -E '^[a-zA-Z0-9._-]+(==| @ )' /tmp/freshness-check.txt | sed 's/ \\$//')
+          }
+          check .github/requirements/base-deps.txt \
+            pyproject.toml --python-version 3.11 --python-platform linux
+          check .github/requirements/explorer-extra-py311.txt \
+            pyproject.toml --extra explorer --python-version 3.11 --python-platform linux
+          check .github/requirements/explorer-extra-py313.txt \
+            pyproject.toml --extra explorer --python-version 3.13 --python-platform linux
+          check .github/requirements/benchmark-extra.txt \
+            .github/requirements/benchmark-extra.in --python-version 3.11 --python-platform linux
+          check .github/requirements/pytest-tool.txt \
+            .github/requirements/pytest-tool.in --python-version 3.11 --python-platform linux
       - name: Verify uv.lock is up to date
         run: |
           # uv.lock backs the `uv sync` contributor workflow. It is a universal
