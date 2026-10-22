@@ -234,7 +234,8 @@ jobs:
           #   https://github.com/semantica-agi/semantica/actions/runs/34296586683
           #   where this ignore list had only the GHSA id but the report's `id`
           #   was the CVE, so the gate still failed.
-          # - pillow 12.3.0, eight advisories (TIFF/GIF/EPS/PDF decoding and
+          # - pillow 12.3.0, twenty-eight advisories (TIFF/GIF/EPS/PDF decoding,
+          #   _imagingmorph and the 2026-10-22 batch), all fixed only in 13.0.0.
           #   _imagingmorph), all fixed only in 13.0.0 with no patched 12.x.
           #   NOT non-actionable: ImageParser opens caller-supplied files, so
           #   these are reachable. Accepted temporarily only because every
@@ -248,6 +249,30 @@ jobs:
           #   GHSA-pchr-8j38-3x4p / CVE-2026-112896
           #   GHSA-q45j-58j2-45rg / CVE-2026-112897
           #   GHSA-vx6w-vv9f-6gvg / CVE-2026-112899
+          #   GHSA-22hg-r758-rrw9 / CVE-2026-112390
+          #   GHSA-254f-3936-288h / CVE-2026-112391
+          #   GHSA-27h8-gf7j-v5hc / CVE-2026-112392
+          #   GHSA-332p-7hrc-92wf / CVE-2026-112393
+          #   GHSA-4rr5-89j8-mwwm / CVE-2026-112396
+          #   GHSA-5xm2-6676-qcp9 / CVE-2026-112399
+          #   GHSA-74r2-7ff9-mjj2 / CVE-2026-112401
+          #   GHSA-7mwm-ghpf-9vrm / CVE-2026-112402
+          #   GHSA-cp9v-662q-vvx9 / CVE-2026-112405
+          #   GHSA-f2g6-542v-9j58 / CVE-2026-112406
+          #   GHSA-fc9g-5qg7-mf45 / CVE-2026-112891
+          #   GHSA-gg2r-wvfm-q9rx / CVE-2026-112892
+          #   GHSA-j4m9-6w36-pw47 / CVE-2026-112893
+          #   GHSA-jg86-v3jv-hrpm / CVE-2026-112894
+          #   GHSA-w889-685w-c8fh / CVE-2026-112900
+          #   GHSA-xgh8-jp6q-p5x8 / CVE-2026-112901
+          #   GHSA-4558-3h8r-v8xp / CVE-2026-112394
+          #   GHSA-8g5g-8vmr-9782 / CVE-2026-112403
+          #   GHSA-rfgq-q3w2-pmv2 / CVE-2026-112898
+          #   GHSA-xvh5-g6gv-559v / CVE-2026-112902
+          #   Four of the 28 (CVE-2026-112394/112403/112898/112902) are not in
+          #   pip-audit's report today but osv.dev lists them for 12.3.0, so they
+          #   are accepted here in the same window; 112898 was missing from the
+          #   original eight-entry list for the 112895-112899 batch.
           #   The acceptance expires on 2027-01-21, the same date as the
           #   ignoreUntil in osv-scanner.toml; after that the scan fails again
           #   until #2067 is resolved or the acceptance is explicitly renewed.
@@ -261,6 +286,26 @@ jobs:
             IGNORED_VULN_IDS="$IGNORED_VULN_IDS,GHSA-pchr-8j38-3x4p,CVE-2026-112896"
             IGNORED_VULN_IDS="$IGNORED_VULN_IDS,GHSA-q45j-58j2-45rg,CVE-2026-112897"
             IGNORED_VULN_IDS="$IGNORED_VULN_IDS,GHSA-vx6w-vv9f-6gvg,CVE-2026-112899"
+            IGNORED_VULN_IDS="$IGNORED_VULN_IDS,GHSA-22hg-r758-rrw9,CVE-2026-112390"
+            IGNORED_VULN_IDS="$IGNORED_VULN_IDS,GHSA-254f-3936-288h,CVE-2026-112391"
+            IGNORED_VULN_IDS="$IGNORED_VULN_IDS,GHSA-27h8-gf7j-v5hc,CVE-2026-112392"
+            IGNORED_VULN_IDS="$IGNORED_VULN_IDS,GHSA-332p-7hrc-92wf,CVE-2026-112393"
+            IGNORED_VULN_IDS="$IGNORED_VULN_IDS,GHSA-4rr5-89j8-mwwm,CVE-2026-112396"
+            IGNORED_VULN_IDS="$IGNORED_VULN_IDS,GHSA-5xm2-6676-qcp9,CVE-2026-112399"
+            IGNORED_VULN_IDS="$IGNORED_VULN_IDS,GHSA-74r2-7ff9-mjj2,CVE-2026-112401"
+            IGNORED_VULN_IDS="$IGNORED_VULN_IDS,GHSA-7mwm-ghpf-9vrm,CVE-2026-112402"
+            IGNORED_VULN_IDS="$IGNORED_VULN_IDS,GHSA-cp9v-662q-vvx9,CVE-2026-112405"
+            IGNORED_VULN_IDS="$IGNORED_VULN_IDS,GHSA-f2g6-542v-9j58,CVE-2026-112406"
+            IGNORED_VULN_IDS="$IGNORED_VULN_IDS,GHSA-fc9g-5qg7-mf45,CVE-2026-112891"
+            IGNORED_VULN_IDS="$IGNORED_VULN_IDS,GHSA-gg2r-wvfm-q9rx,CVE-2026-112892"
+            IGNORED_VULN_IDS="$IGNORED_VULN_IDS,GHSA-j4m9-6w36-pw47,CVE-2026-112893"
+            IGNORED_VULN_IDS="$IGNORED_VULN_IDS,GHSA-jg86-v3jv-hrpm,CVE-2026-112894"
+            IGNORED_VULN_IDS="$IGNORED_VULN_IDS,GHSA-w889-685w-c8fh,CVE-2026-112900"
+            IGNORED_VULN_IDS="$IGNORED_VULN_IDS,GHSA-xgh8-jp6q-p5x8,CVE-2026-112901"
+            IGNORED_VULN_IDS="$IGNORED_VULN_IDS,GHSA-4558-3h8r-v8xp,CVE-2026-112394"
+            IGNORED_VULN_IDS="$IGNORED_VULN_IDS,GHSA-8g5g-8vmr-9782,CVE-2026-112403"
+            IGNORED_VULN_IDS="$IGNORED_VULN_IDS,GHSA-rfgq-q3w2-pmv2,CVE-2026-112898"
+            IGNORED_VULN_IDS="$IGNORED_VULN_IDS,GHSA-xvh5-g6gv-559v,CVE-2026-112902"
           else
             echo "::warning::The pillow advisory acceptance expired on 2027-01-21 and those findings now fail the scan. See #2067."
           fi

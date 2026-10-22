@@ -19,7 +19,7 @@ accelerate ships a fix - see .github/workflows/security-scan.yml for the
 matching pip-audit exclusion.
 """
 
-# pillow 12.3.0: eight advisories fixed only in 13.0.0, but every docling
+# pillow 12.3.0: twenty-eight advisories fixed only in 13.0.0, but every docling
 # release (latest 2.141.0) requires pillow<13, so no fix is installable yet.
 # These ARE reachable (ImageParser opens caller-supplied files); this is a
 # time-boxed acceptance, not a non-actionable finding. Tracked in #2067; see
@@ -62,6 +62,106 @@ reason = "pillow 12.3.0, fixed in 13.0.0; blocked by docling's pillow<13 cap. Se
 
 [[IgnoredVulns]]
 id = "GHSA-vx6w-vv9f-6gvg"
+ignoreUntil = 2027-01-21
+reason = "pillow 12.3.0, fixed in 13.0.0; blocked by docling's pillow<13 cap. See #2067."
+
+[[IgnoredVulns]]
+id = "GHSA-22hg-r758-rrw9"
+ignoreUntil = 2027-01-21
+reason = "pillow 12.3.0, fixed in 13.0.0; blocked by docling's pillow<13 cap. See #2067."
+
+[[IgnoredVulns]]
+id = "GHSA-254f-3936-288h"
+ignoreUntil = 2027-01-21
+reason = "pillow 12.3.0, fixed in 13.0.0; blocked by docling's pillow<13 cap. See #2067."
+
+[[IgnoredVulns]]
+id = "GHSA-27h8-gf7j-v5hc"
+ignoreUntil = 2027-01-21
+reason = "pillow 12.3.0, fixed in 13.0.0; blocked by docling's pillow<13 cap. See #2067."
+
+[[IgnoredVulns]]
+id = "GHSA-332p-7hrc-92wf"
+ignoreUntil = 2027-01-21
+reason = "pillow 12.3.0, fixed in 13.0.0; blocked by docling's pillow<13 cap. See #2067."
+
+[[IgnoredVulns]]
+id = "GHSA-4rr5-89j8-mwwm"
+ignoreUntil = 2027-01-21
+reason = "pillow 12.3.0, fixed in 13.0.0; blocked by docling's pillow<13 cap. See #2067."
+
+[[IgnoredVulns]]
+id = "GHSA-5xm2-6676-qcp9"
+ignoreUntil = 2027-01-21
+reason = "pillow 12.3.0, fixed in 13.0.0; blocked by docling's pillow<13 cap. See #2067."
+
+[[IgnoredVulns]]
+id = "GHSA-74r2-7ff9-mjj2"
+ignoreUntil = 2027-01-21
+reason = "pillow 12.3.0, fixed in 13.0.0; blocked by docling's pillow<13 cap. See #2067."
+
+[[IgnoredVulns]]
+id = "GHSA-7mwm-ghpf-9vrm"
+ignoreUntil = 2027-01-21
+reason = "pillow 12.3.0, fixed in 13.0.0; blocked by docling's pillow<13 cap. See #2067."
+
+[[IgnoredVulns]]
+id = "GHSA-cp9v-662q-vvx9"
+ignoreUntil = 2027-01-21
+reason = "pillow 12.3.0, fixed in 13.0.0; blocked by docling's pillow<13 cap. See #2067."
+
+[[IgnoredVulns]]
+id = "GHSA-f2g6-542v-9j58"
+ignoreUntil = 2027-01-21
+reason = "pillow 12.3.0, fixed in 13.0.0; blocked by docling's pillow<13 cap. See #2067."
+
+[[IgnoredVulns]]
+id = "GHSA-fc9g-5qg7-mf45"
+ignoreUntil = 2027-01-21
+reason = "pillow 12.3.0, fixed in 13.0.0; blocked by docling's pillow<13 cap. See #2067."
+
+[[IgnoredVulns]]
+id = "GHSA-gg2r-wvfm-q9rx"
+ignoreUntil = 2027-01-21
+reason = "pillow 12.3.0, fixed in 13.0.0; blocked by docling's pillow<13 cap. See #2067."
+
+[[IgnoredVulns]]
+id = "GHSA-j4m9-6w36-pw47"
+ignoreUntil = 2027-01-21
+reason = "pillow 12.3.0, fixed in 13.0.0; blocked by docling's pillow<13 cap. See #2067."
+
+[[IgnoredVulns]]
+id = "GHSA-jg86-v3jv-hrpm"
+ignoreUntil = 2027-01-21
+reason = "pillow 12.3.0, fixed in 13.0.0; blocked by docling's pillow<13 cap. See #2067."
+
+[[IgnoredVulns]]
+id = "GHSA-w889-685w-c8fh"
+ignoreUntil = 2027-01-21
+reason = "pillow 12.3.0, fixed in 13.0.0; blocked by docling's pillow<13 cap. See #2067."
+
+[[IgnoredVulns]]
+id = "GHSA-xgh8-jp6q-p5x8"
+ignoreUntil = 2027-01-21
+reason = "pillow 12.3.0, fixed in 13.0.0; blocked by docling's pillow<13 cap. See #2067."
+
+[[IgnoredVulns]]
+id = "GHSA-4558-3h8r-v8xp"
+ignoreUntil = 2027-01-21
+reason = "pillow 12.3.0, fixed in 13.0.0; blocked by docling's pillow<13 cap. See #2067."
+
+[[IgnoredVulns]]
+id = "GHSA-8g5g-8vmr-9782"
+ignoreUntil = 2027-01-21
+reason = "pillow 12.3.0, fixed in 13.0.0; blocked by docling's pillow<13 cap. See #2067."
+
+[[IgnoredVulns]]
+id = "GHSA-rfgq-q3w2-pmv2"
+ignoreUntil = 2027-01-21
+reason = "pillow 12.3.0, fixed in 13.0.0; blocked by docling's pillow<13 cap. See #2067."
+
+[[IgnoredVulns]]
+id = "GHSA-xvh5-g6gv-559v"
 ignoreUntil = 2027-01-21
 reason = "pillow 12.3.0, fixed in 13.0.0; blocked by docling's pillow<13 cap. See #2067."
 
