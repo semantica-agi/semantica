@@ -19,11 +19,14 @@ accelerate ships a fix - see .github/workflows/security-scan.yml for the
 matching pip-audit exclusion.
 """
 
-# pillow 12.3.0: twenty-eight advisories fixed only in 13.0.0, but every docling
-# release (latest 2.141.0) requires pillow<13, so no fix is installable yet.
-# These ARE reachable (ImageParser opens caller-supplied files); this is a
-# time-boxed acceptance, not a non-actionable finding. Tracked in #2067; see
-# the matching IGNORED_VULN_IDS entries in .github/workflows/security-scan.yml.
+# pillow 12.3.0: twenty-eight advisories (3 CRITICAL, 16 HIGH, 9 MODERATE) fixed
+# only in 13.0.0, but every docling release (latest 2.141.0) requires
+# pillow<13, so no fix is installable yet. Some ARE reachable: GHSA-5xm2 (APNG)
+# through ImageParser's default formats, and more through docling, which opens
+# embedded images with every Pillow plugin enabled. This is a time-boxed
+# acceptance, not a non-actionable finding. Tracked in #2067; see the matching
+# IGNORED_VULN_IDS entries and per-advisory notes in
+# .github/workflows/security-scan.yml.
 
 [[IgnoredVulns]]
 id = "GHSA-462x-pgg6-55fp"

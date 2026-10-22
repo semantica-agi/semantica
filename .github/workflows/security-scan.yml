@@ -234,13 +234,22 @@ jobs:
           #   https://github.com/semantica-agi/semantica/actions/runs/34296586683
           #   where this ignore list had only the GHSA id but the report's `id`
           #   was the CVE, so the gate still failed.
-          # - pillow 12.3.0, twenty-eight advisories (TIFF/GIF/EPS/PDF decoding,
-          #   _imagingmorph and the 2026-10-22 batch), all fixed only in 13.0.0.
-          #   _imagingmorph), all fixed only in 13.0.0 with no patched 12.x.
-          #   NOT non-actionable: ImageParser opens caller-supplied files, so
-          #   these are reachable. Accepted temporarily only because every
-          #   docling release (latest 2.141.0) requires pillow<13, so no fix
-          #   is installable. Remove once docling allows pillow 13 - see #2067.
+          # - pillow 12.3.0, twenty-eight advisories across many plugins and
+          #   operations (3 CRITICAL, 16 HIGH, 9 MODERATE), all fixed only in
+          #   13.0.0 with no patched 12.x. The CRITICAL ones are a JPEG decode
+          #   overflow via draft()/thumbnail() (GHSA-8g5g), a TIFF-save-to-
+          #   BytesIO overflow (GHSA-332p) and Ghostscript argument injection
+          #   (GHSA-w889).
+          #   NOT non-actionable. ImageParser opens caller-supplied files; its
+          #   default limits (#2079: PNG/JPEG/WEBP/BMP only, no EPS, PNG output,
+          #   no draft/thumbnail) keep most of these out, but GHSA-5xm2 (APNG
+          #   allocates the full canvas before the bomb check) is reachable with
+          #   the defaults. docling also opens embedded images (DOCX, PPTX,
+          #   HTML) with every Pillow plugin enabled, so more of these may be
+          #   reachable through DoclingParser. Accepted temporarily only because
+          #   every docling release (latest 2.141.0) requires pillow<13, so no
+          #   fix is installable. Remove once docling allows pillow 13 - see
+          #   #2067.
           #   GHSA-462x-pgg6-55fp / CVE-2026-112395
           #   GHSA-58r4-6rv3-gfh8 / CVE-2026-112397
           #   GHSA-65qm-jvmh-6pqg / CVE-2026-112400
@@ -271,8 +280,9 @@ jobs:
           #   GHSA-xvh5-g6gv-559v / CVE-2026-112902
           #   Four of the 28 (CVE-2026-112394/112403/112898/112902) are not in
           #   pip-audit's report today but osv.dev lists them for 12.3.0, so they
-          #   are accepted here in the same window; 112898 was missing from the
-          #   original eight-entry list for the 112895-112899 batch.
+          #   are accepted here in the same window. 112403 (GHSA-8g5g) was
+          #   already published when the original eight were accepted but was
+          #   missed then; the other three were published afterwards.
           #   The acceptance expires on 2027-01-21, the same date as the
           #   ignoreUntil in osv-scanner.toml; after that the scan fails again
           #   until #2067 is resolved or the acceptance is explicitly renewed.

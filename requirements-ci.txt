@@ -4304,6 +4304,7 @@ packaging==26.3 \
     #   statsmodels
     #   thinc
     #   transformers
+    #   virtualenv
     #   weasel
 pandas==3.0.5 \
     --hash=sha256:08d24fe11a17dc33bd6e937dc9c665f9cba08fbdc9f657f405713515febe300d \
