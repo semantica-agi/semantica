@@ -33,6 +33,7 @@ License: MIT
 import io
 import os
 import stat
+import struct
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
@@ -62,6 +63,12 @@ BLOCKED_FORMATS = frozenset({"EPS"})
 FORMAT_ALIASES = {"JPG": "JPEG", "TIF": "TIFF", "MPO": "JPEG"}
 
 DEFAULT_MAX_FILE_SIZE = 50 * 1024 * 1024  # bytes
+
+PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
+
+# Most chunks accepted between a PNG's IHDR and its image data. Real files
+# have a few dozen; libpng stops storing ancillary chunks after 1000.
+MAX_PNG_HEADER_CHUNKS = 1000
 
 # Image modes Pillow's PNG encoder can write. 32-bit "I" is not one of them:
 # Pillow 13 no longer clips it to 16 bits on save, so it is converted first.
@@ -109,6 +116,50 @@ def _webp_canvas_size(data: bytes) -> Optional[tuple]:
         bits = int.from_bytes(data[21:25], "little")
         return ((bits & 0x3FFF) + 1, ((bits >> 14) & 0x3FFF) + 1)
     return None
+
+
+def _png_canvas_size(data: bytes) -> Optional[tuple]:
+    """
+    Read the canvas size from a PNG header without decoding.
+
+    For an APNG whose first frame disposes to the background, Pillow before
+    13.0 allocates the full canvas inside Image.open, before it checks the
+    image size (GHSA-5xm2-6676-qcp9), so a tiny PNG can claim a huge canvas.
+
+    Args:
+        data: File contents
+
+    Returns:
+        tuple: (width, height), or None if the header can't be read, there
+            is more than one IHDR chunk, or there are more than
+            MAX_PNG_HEADER_CHUNKS chunks before the image data
+    """
+    # IHDR must be the first chunk: length, type, then big-endian width and
+    # height.
+    if len(data) < 24 or data[:8] != PNG_SIGNATURE or data[12:16] != b"IHDR":
+        return None
+
+    # Image.open reads chunks up to the image data and takes the size from
+    # the last IHDR, so a second one could claim a bigger canvas than the
+    # first. The PNG spec allows only one. The walk is bounded, so a file of
+    # millions of empty chunks can't stall it.
+    pos = 20 + int.from_bytes(data[8:12], "big")
+    for _ in range(MAX_PNG_HEADER_CHUNKS + 1):
+        if pos + 8 > len(data):
+            break
+        length, chunk = struct.unpack_from(">I4s", data, pos)
+        if chunk == b"IHDR":
+            return None
+        if chunk in (b"IDAT", b"fdAT", b"IEND"):
+            break
+        pos += 12 + length
+    else:
+        return None
+
+    return (
+        int.from_bytes(data[16:20], "big"),
+        int.from_bytes(data[20:24], "big"),
+    )
 
 
 def _ocr_copy(img: PILImage) -> PILImage:
@@ -310,6 +361,15 @@ class ImageParser:
             size = _webp_canvas_size(data)
             if size is None:
                 raise ValidationError(f"Unreadable WebP header: {file_path}")
+            self._check_pixels(size, file_path)
+
+        # Likewise Pillow's PNG plugin for some APNGs, before Pillow 13.0.
+        # Every PNG is checked, since they all share the header.
+        is_png = data[:8] == PNG_SIGNATURE
+        if is_png and "PNG" in self.allowed_formats:
+            size = _png_canvas_size(data)
+            if size is None:
+                raise ValidationError(f"Unreadable PNG header: {file_path}")
             self._check_pixels(size, file_path)
 
         try:

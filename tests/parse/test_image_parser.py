@@ -12,8 +12,8 @@ Covers:
       refused without blocking
     - Unexpected open failures are logged and wrapped as ProcessingError
     - The OCR input keeps text in 16-bit and transparent images
-    - Config validation, pixel limits (including WebP headers and Pillow's
-      own bomb check) and error mapping
+    - Config validation, pixel limits (including WebP and PNG headers and
+      Pillow's own bomb check) and error mapping
 """
 
 import os
@@ -28,7 +28,12 @@ from unittest.mock import MagicMock, patch
 
 from PIL import Image
 
-from semantica.parse.image_parser import ImageParser, _webp_canvas_size
+from semantica.parse.image_parser import (
+    MAX_PNG_HEADER_CHUNKS,
+    ImageParser,
+    _png_canvas_size,
+    _webp_canvas_size,
+)
 from semantica.utils.exceptions import ProcessingError, ValidationError
 
 
@@ -348,8 +353,14 @@ class TestImageParserLimits(unittest.TestCase):
 
     # --- Pixel limits ---
 
-    def _png_header(self, width, height):
-        """A PNG with only a header and an empty IDAT: opens, never decodes."""
+    def _png_header(self, width, height, animated=False):
+        """
+        A PNG with only a header and an empty IDAT: opens, never decodes.
+
+        animated adds the acTL and fcTL chunks of an APNG whose first frame
+        disposes to the background, for which Pillow before 13.0 allocates
+        the whole canvas inside Image.open.
+        """
 
         def chunk(kind, body):
             return (
@@ -360,26 +371,44 @@ class TestImageParserLimits(unittest.TestCase):
             )
 
         ihdr = struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)
+        frames = b""
+        if animated:
+            # Sequence, size, offset, delay, then dispose_op 1 (background).
+            fctl = struct.pack(">IIIIIHHBB", 0, width, height, 0, 0, 1, 1, 1, 0)
+            frames = chunk(b"acTL", struct.pack(">II", 1, 0)) + chunk(b"fcTL", fctl)
         path = self.dir / f"{width}x{height}.png"
         path.write_bytes(
             b"\x89PNG\r\n\x1a\n"
             + chunk(b"IHDR", ihdr)
+            + frames
             + chunk(b"IDAT", b"")
             + chunk(b"IEND", b"")
         )
+        return path
+
+    def _bmp_header(self, width, height):
+        """
+        A BMP with only a header: opens, never decodes.
+
+        Unlike PNG and WebP, its size isn't checked before Image.open, so
+        it reaches Pillow's own bomb check.
+        """
+        info = struct.pack("<IiiHHIIiiII", 40, width, height, 1, 24, 0, 0, 0, 0, 0, 0)
+        path = self.dir / f"{width}x{height}.bmp"
+        path.write_bytes(struct.pack("<2sIHHI", b"BM", 54, 0, 0, 54) + info)
         return path
 
     def test_over_pillow_hard_limit_is_validation_error(self):
         # Over 2 * MAX_IMAGE_PIXELS, Pillow raises DecompressionBombError.
         side = int((2 * Image.MAX_IMAGE_PIXELS) ** 0.5) + 10
         with self.assertRaises(ValidationError):
-            ImageParser().extract_metadata(self._png_header(side, side))
+            ImageParser().extract_metadata(self._bmp_header(side, side))
 
     def test_pillow_warning_does_not_escape(self):
         # Between MAX and 2 * MAX Pillow only warns; our own check must
         # still produce a ValidationError, even when warnings are errors.
         side = int((1.5 * Image.MAX_IMAGE_PIXELS) ** 0.5)
-        path = self._png_header(side, side)
+        path = self._bmp_header(side, side)
         with warnings.catch_warnings():
             warnings.simplefilter("error")
             with self.assertRaises(ValidationError):
@@ -391,7 +420,7 @@ class TestImageParserLimits(unittest.TestCase):
         # depend on.
         parser = ImageParser()
         png = self._image("a.png", "PNG")
-        oversized = self._png_header(10_000, 10_000)
+        oversized = self._bmp_header(10_000, 10_000)
 
         # Pillow's own warning still reaches the caller as usual; our check
         # then rejects the image.
@@ -438,6 +467,74 @@ class TestImageParserLimits(unittest.TestCase):
                 with Image.open(path) as img:
                     expected = img.size
                 self.assertEqual(_webp_canvas_size(path.read_bytes()), expected)
+
+    def test_png_canvas_checked_before_pillow_opens_it(self):
+        # A tiny APNG claiming a 22000 x 22000 canvas: Pillow before 13.0
+        # would allocate about 1.9 GB inside Image.open (GHSA-5xm2-6676-qcp9),
+        # so it must be refused before that. Plain PNGs are checked the same
+        # way.
+        for animated in (True, False):
+            with self.subTest(animated=animated):
+                path = self._png_header(22_000, 22_000, animated=animated)
+                with patch("semantica.parse.image_parser.Image.open") as image_open:
+                    with self.assertRaises(ValidationError):
+                        ImageParser().extract_metadata(path)
+                    image_open.assert_not_called()
+
+    def test_unreadable_png_header_is_refused(self):
+        # The PNG signature, but no IHDR chunk after it.
+        path = self.dir / "a.png"
+        path.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 16)
+        with patch("semantica.parse.image_parser.Image.open") as image_open:
+            with self.assertRaises(ValidationError):
+                ImageParser().extract_metadata(path)
+            image_open.assert_not_called()
+
+    def test_second_png_ihdr_is_refused(self):
+        # Pillow takes the size from the last IHDR, so a small first one
+        # followed by a 22000 x 22000 one must not get past the check.
+        big_ihdr = self._png_header(22_000, 22_000).read_bytes()[8:33]
+        path = self._png_header(1, 1, animated=True)
+        data = path.read_bytes()
+        path.write_bytes(data[:33] + big_ihdr + data[33:])
+        with patch("semantica.parse.image_parser.Image.open") as image_open:
+            with self.assertRaises(ValidationError):
+                ImageParser().extract_metadata(path)
+            image_open.assert_not_called()
+
+    def test_png_header_chunk_walk_is_bounded(self):
+        # Up to MAX_PNG_HEADER_CHUNKS chunks before the image data are
+        # walked; one more is refused without walking the rest, so millions
+        # of empty chunks can't stall the check.
+        data = self._image("a.png", "PNG").read_bytes()
+        empty = struct.pack(">I", 0) + b"tEXt" + struct.pack(">I", zlib.crc32(b"tEXt"))
+        path = self.dir / "chunks.png"
+
+        path.write_bytes(data[:33] + empty * MAX_PNG_HEADER_CHUNKS + data[33:])
+        self.assertEqual(ImageParser().extract_metadata(path).width, 8)
+
+        path.write_bytes(data[:33] + empty * (MAX_PNG_HEADER_CHUNKS + 1) + data[33:])
+        with patch("semantica.parse.image_parser.Image.open") as image_open:
+            with self.assertRaises(ValidationError):
+                ImageParser().extract_metadata(path)
+            image_open.assert_not_called()
+
+    def test_png_header_size_matches_pillow(self):
+        # The header reader must agree with Pillow for PNG and APNG.
+        variants = {
+            "plain": {},
+            "animated": {
+                "save_all": True,
+                "append_images": [Image.new("RGB", (37, 21), "red")],
+            },
+        }
+        for name, kwargs in variants.items():
+            with self.subTest(variant=name):
+                path = self.dir / f"{name}.png"
+                Image.new("RGB", (37, 21)).save(path, format="PNG", **kwargs)
+                with Image.open(path) as img:
+                    expected = img.size
+                self.assertEqual(_png_canvas_size(path.read_bytes()), expected)
 
     # --- Error mapping and metadata ---
 
