@@ -62,3 +62,50 @@ class TestValidateSkosHierarchy(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_strict_mode_rejects_a_malformed_hierarchy_edge():
+    import pytest
+
+    with pytest.raises(ValueError):
+        validate_skos_hierarchy([{"type": "skos:broader"}], strict=True)
+
+
+def test_strict_mode_rejects_a_blank_endpoint():
+    import pytest
+
+    with pytest.raises(ValueError):
+        validate_skos_hierarchy(
+            [{"type": "skos:narrower", "source": "  ", "target": "B"}], strict=True
+        )
+
+
+def test_strict_mode_still_ignores_non_hierarchy_edges():
+    validate_skos_hierarchy(
+        [{"type": "related_to", "source": "A"}],
+        strict=True,
+    )
+
+
+def test_strict_mode_accepts_a_well_formed_edge():
+    validate_skos_hierarchy(
+        [{"type": "skos:broader", "source": "B", "target": "A"}],
+        strict=True,
+    )
+
+
+def test_strict_mode_uses_the_fallback_endpoint_field():
+    """source=None with a usable source_id is not a malformed edge."""
+    validate_skos_hierarchy(
+        [{"type": "skos:broader", "source": None, "source_id": "B", "target": "A"}],
+        strict=True,
+    )
+
+
+def test_strict_mode_still_rejects_an_edge_with_no_endpoint_at_all():
+    import pytest
+
+    with pytest.raises(ValueError):
+        validate_skos_hierarchy(
+            [{"type": "skos:broader", "source": None, "target": "  "}], strict=True
+        )
