@@ -140,6 +140,10 @@ class TestScientificNotationHandler(unittest.TestCase):
         self.assertEqual(self.handler.parse_scientific_notation("1.23e4"), 12300.0)
         self.assertEqual(self.handler.parse_scientific_notation("1.23E-2"), 0.0123)
 
+    def test_normalize_precision_keeps_sign(self):
+        self.assertEqual(self.handler.normalize_precision(1234.5, 2), 1200.0)
+        self.assertEqual(self.handler.normalize_precision(-1234.5, 2), -1200.0)
+
 
 if __name__ == "__main__":
     unittest.main()

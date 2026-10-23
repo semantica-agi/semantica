@@ -30,6 +30,7 @@ Author: Semantica Contributors
 License: MIT
 """
 
+import math
 import re
 from typing import Any, Dict, List, Optional, Union
 
@@ -843,4 +844,4 @@ class ScientificNotationHandler:
         # Round to significant digits
         rounded = round(magnitude, significant_digits - 1)
 
-        return rounded * (10**order)
+        return math.copysign(rounded * (10**order), number)
