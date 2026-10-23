@@ -9,12 +9,18 @@ import time
 import tempfile
 import os
 import threading
-import psutil
 import statistics
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import List, Dict, Any, Tuple
 
 import pytest
+
+# psutil is not declared in any extra and is not in base-deps.txt.
+# Every test class's setup_method builds a PerformanceTestSuite, which
+# calls psutil.Process() to measure RSS, so the whole module needs it.
+pytest.importorskip("psutil")
+import psutil  # noqa: E402
+
 from semantica.change_management import (
     TemporalVersionManager,
     OntologyVersionManager,

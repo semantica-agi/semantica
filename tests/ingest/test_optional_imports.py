@@ -429,3 +429,116 @@ else:
     assert result.returncode == 0, result.stderr
     assert "ImportError" in result.stdout
     assert "ingest-looker" in result.stdout
+
+
+def test_web_ingestion_reports_missing_beautifulsoup_at_import() -> None:
+    """The probe import must fail fast, not defer to call time.
+
+    `semantica.ingest.__getattr__` raises for a backend whose module imported
+    with its dependency set to None, so `try: from semantica.ingest import X`
+    stays a usable availability check.
+    """
+    result = _run_python_with_blocked_modules(
+        """
+try:
+    from semantica.ingest import WebIngestor
+except ImportError as exc:
+    print("ImportError", exc)
+else:
+    raise SystemExit("expected WebIngestor to fail without beautifulsoup4")
+""",
+        ("bs4",),
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "ImportError" in result.stdout
+    assert "Web ingestion" in result.stdout
+    assert "beautifulsoup4" in result.stdout
+
+
+def test_feed_ingestion_reports_missing_beautifulsoup_at_import() -> None:
+    result = _run_python_with_blocked_modules(
+        """
+try:
+    from semantica.ingest import FeedIngestor
+except ImportError as exc:
+    print("ImportError", exc)
+else:
+    raise SystemExit("expected FeedIngestor to fail without beautifulsoup4")
+""",
+        ("bs4",),
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "ImportError" in result.stdout
+    assert "Feed ingestion" in result.stdout
+
+
+def test_web_ingestor_module_imports_without_beautifulsoup() -> None:
+    """Importing the module must not require the extra.
+
+    Six test modules import `semantica.ingest.web_ingestor` directly; a bare
+    `from bs4 import BeautifulSoup` there aborted collection for all of them.
+    """
+    result = _run_python_with_blocked_modules(
+        """
+import semantica.ingest.web_ingestor as web
+
+print("imported", web.BeautifulSoup is None)
+""",
+        ("bs4",),
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "imported True" in result.stdout
+
+
+def test_html_parsing_reports_missing_beautifulsoup_when_used() -> None:
+    """The guarded branch raises with the install hint rather than crashing."""
+    result = _run_python_with_blocked_modules(
+        """
+from semantica.ingest.web_ingestor import _parse_html
+
+try:
+    _parse_html("<p>hi</p>")
+except Exception as exc:
+    print(type(exc).__name__, exc)
+else:
+    raise SystemExit("expected HTML parsing to fail without beautifulsoup4")
+""",
+        ("bs4",),
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "ProcessingError" in result.stdout
+    assert "beautifulsoup4" in result.stdout
+
+
+def test_feed_discovery_does_not_report_no_feeds_without_beautifulsoup() -> None:
+    """discover_feeds must raise, not return [].
+
+    Its `except Exception` returns an empty list, so a dependency checked
+    inside the try would read as "this site publishes no feeds".
+    """
+    result = _run_python_with_blocked_modules(
+        """
+import logging
+from semantica.ingest.feed_ingestor import FeedIngestor
+
+ingestor = FeedIngestor.__new__(FeedIngestor)
+ingestor.allow_private_ips = False
+ingestor.logger = logging.getLogger("probe")
+
+try:
+    result = ingestor.discover_feeds("https://example.com")
+except Exception as exc:
+    print(type(exc).__name__, exc)
+else:
+    raise SystemExit(f"expected discover_feeds to raise, got {result!r}")
+""",
+        ("bs4",),
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "ProcessingError" in result.stdout
+    assert "beautifulsoup4" in result.stdout

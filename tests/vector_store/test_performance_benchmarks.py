@@ -17,16 +17,21 @@ import pytest
 import numpy as np
 import time
 import threading
-import psutil
 import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Dict, List, Any
+
 
 from semantica.vector_store import VectorStore, DecisionEmbeddingPipeline, HybridSimilarityCalculator
 from semantica.context import DecisionContext, ContextRetriever
 from semantica.vector_store.decision_vector_methods import (
     quick_decision, find_precedents, batch_decisions
 )
+
+# psutil is not declared in any extra and is not in base-deps.txt.
+# This module measures RSS through psutil in its benchmark helpers.
+pytest.importorskip("psutil")
+import psutil  # noqa: E402
 
 
 class TestPerformanceBenchmarks:
