@@ -1,9 +1,9 @@
 """
 Shared graph session — lazy singleton across all tool handlers.
 
-The graph is initialised once on first access and shared for the
-lifetime of the MCP server process.  Set SEMANTICA_KG_PATH to
-automatically load a persisted graph on start.
+Set SEMANTICA_KG_PATH to load a persisted graph on first use. With
+SEMANTICA_KG_AUTO_RELOAD=true, changed file revisions reload before graph
+operations; unavailable or invalid sources refuse access until repaired.
 """
 
 from __future__ import annotations
@@ -28,18 +28,36 @@ _vector_store: Optional[Any] = None
 # configured SEMANTICA_KG_PATH file.  When True (or no path was configured)
 # mutation handlers are allowed to save.  When False an existing file failed
 # to load; saving would overwrite the original data with an empty graph, so
-# persistence is blocked until the process is restarted with a readable file.
+# persistence is blocked until restart, or a successful opt-in source reload.
 _load_ok: bool = True
+
+
+_graph_cache: Optional[Any] = None
 
 
 def get_graph() -> Any:
     """
-    Return the shared ContextGraph instance, creating it on first call.
+    Return the shared ContextGraph, optionally reloading changed file revisions.
 
     The graph is created with advanced_analytics=True so all centrality,
     community-detection, and embedding features are available.
     """
-    global _graph, _load_ok
+    global _graph, _load_ok, _graph_cache
+    if os.environ.get("SEMANTICA_KG_AUTO_RELOAD", "").strip().lower() == "true":
+        if _graph_cache is None:
+            from semantica.context._graph_cache import _PersistedGraphCache
+
+            _graph_cache = _PersistedGraphCache()
+        try:
+            _graph = _graph_cache.get_graph(
+                _graph, os.environ.get("SEMANTICA_KG_PATH", "").strip()
+            )
+        except Exception:
+            _load_ok = False
+            raise
+        _load_ok = True
+        return _graph
+
     if _graph is None:
         from semantica.context import ContextGraph
 
@@ -60,11 +78,27 @@ def get_graph() -> Any:
                     log.warning(
                         "Could not load graph from %s: %s — persistence disabled "
                         "to protect existing data; restart the server to retry.",
-                        kg_path, exc,
+                        kg_path,
+                        exc,
                     )
                     _load_ok = False  # do not overwrite the original file
-
     return _graph
+
+
+def save_graph(graph: Any, path: str) -> None:
+    """Persist a mutation under this session's load and revision contract."""
+    if not is_persistence_safe():
+        raise ValueError(
+            "Persistence blocked: the configured SEMANTICA_KG_PATH "
+            "could not be loaded at startup. Restart the server with "
+            "a readable graph file to re-enable persistence."
+        )
+    if os.environ.get("SEMANTICA_KG_AUTO_RELOAD", "").strip().lower() == "true":
+        if _graph_cache is None:
+            raise ValueError("The graph source has not been loaded.")
+        _graph_cache.save_graph(graph, path)
+    else:
+        graph.save_to_file(path)
 
 
 def get_embedder() -> Any:
@@ -175,6 +209,7 @@ def is_persistence_safe() -> bool:
 
 def reset_graph() -> None:
     """Reset the singleton (mainly useful in tests)."""
-    global _graph, _load_ok
+    global _graph, _load_ok, _graph_cache
     _graph = None
     _load_ok = True
+    _graph_cache = None
