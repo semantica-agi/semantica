@@ -258,8 +258,15 @@ class GraphExporter:
 
             # Add attributes if requested
             if self.include_attributes:
+                # A decision's confidence is commonly nested under
+                # "properties" rather than at the top level (#1796).
+                confidence = entity.get("confidence")
+                if confidence is None:
+                    confidence = (entity.get("properties") or {}).get(
+                        "confidence", 1.0
+                    )
                 node["attributes"] = {
-                    "confidence": entity.get("confidence", 1.0),
+                    "confidence": confidence,
                     **entity.get("metadata", {}),
                 }
 
@@ -276,8 +283,15 @@ class GraphExporter:
 
             # Add attributes if requested
             if self.include_attributes:
+                # Relationships nest extra fields under "metadata" rather
+                # than "properties" (#1796).
+                confidence = rel.get("confidence")
+                if confidence is None:
+                    confidence = (rel.get("metadata") or {}).get(
+                        "confidence", 1.0
+                    )
                 edge["attributes"] = {
-                    "confidence": rel.get("confidence", 1.0),
+                    "confidence": confidence,
                     **rel.get("metadata", {}),
                 }
 
