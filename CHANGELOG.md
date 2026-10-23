@@ -23,6 +23,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Parquet and Arrow relationship export lost graph-backend endpoint names** (refs #2018) by @george07-t
+  - `ParquetExporter.export_relationships()` and `ArrowExporter.export_relationships()` read only `source`/`source_id` and `target`/`target_id`, so a record shaped by a graph backend (`start_node_id`/`end_node_id` from Neo4j, FalkorDB and Neptune, `start_id`/`end_id` from raw AGE edges) made Parquet raise `ValidationError` and wrote Arrow rows with empty `source_id` and `target_id`. Both now run the records through `canonical_endpoints` first, so the shared list, order and empty-value rule apply; Parquet keeps its `from_id`/`from`/`to_id`/`to` fallbacks, and an integer id of `0` is now kept as a real id in both, as the shared helper treats it (it used to be dropped by their `or` chains)
+  - New tests in `tests/export/test_columnar_exporters_endpoint_names.py` read the written files back for every accepted spelling, an empty canonical value, precedence, an id of `0`, untouched input and mixed batches
+
 - **LLM provenance recorded the constructor's model, so a per-call `model=` was misattributed** (fixes #2051) by @faresrafat3
   - `_track_llm_call()` resolved the model from `self.model`, the value the wrapper was constructed with, so a call that passed its own `model=` was recorded under a model the request never used. The recorded entry now names the model the call actually used: a per-call `model=` wins, and a call that passes none keeps the constructor's model
   - The rule lives in the shared recorder, so all four wrappers (`Groq`, `OpenAI`, `HuggingFace`, `LiteLLM`) inherit it on the `generate()` path and on the `generate_structured()` / `generate_typed()` paths, which reach the recorder through `_track_generation()`. The failure path that #2016 adds reaches the same recorder and inherits the rule too: the four `generate()` failure call sites forward the per-call value alongside the other options, so a failed `generate(model=...)` names the same model a successful one would
