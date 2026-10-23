@@ -25,6 +25,18 @@ from semantica.change_management import (
     verify_checksum
 )
 
+# The assertions here are wall-clock times and memory footprints against
+# absolute thresholds, so they measure the machine as much as the code. On a
+# shared CI runner one or another of them goes over on different runs -- two
+# runs of the same commit failed on two different tests -- which turns
+# unrelated pull requests red at random. They still run locally, where the
+# numbers mean something. Gating them for real belongs in a dedicated
+# performance job, not in the correctness suite.
+pytestmark = pytest.mark.skipif(
+    os.environ.get("CI", "").lower() in {"1", "true"},
+    reason="absolute performance thresholds are not meaningful on shared CI runners",
+)
+
 
 class PerformanceTestSuite:
     """Comprehensive performance test suite for change management module."""
