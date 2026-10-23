@@ -5477,9 +5477,9 @@ def _collect_backup_sources(
 ) -> Tuple[List[Tuple[str, Path]], List[Dict[str, str]]]:
     """Return (arcname, local_path) pairs for local files to include in a backup.
 
-    Also returns each configured store whose local path does not exist, so the
-    caller can report it instead of writing a partial archive with no sign that
-    a store was dropped (#2009).
+    Also returns each configured store whose local path does not exist or holds
+    no files, so the caller can report it instead of writing a partial archive
+    with no sign that a store was dropped (#2009, #2014).
     """
     sources: List[Tuple[str, Path]] = []
     skipped: List[Dict[str, str]] = []
@@ -5498,11 +5498,26 @@ def _collect_backup_sources(
         if ont_path:
             p = Path(ont_path)
             if p.is_dir():
+                before = len(sources)
                 for f in p.rglob("*"):
                     if f.is_file():
                         sources.append((f"ontology/{f.relative_to(p)}", f))
+                if len(sources) == before:
+                    # An existing-but-empty directory contributed nothing; report
+                    # it instead of dropping it silently (#2014).
+                    skipped.append({
+                        "store": "ontology",
+                        "backend": "file",
+                        "path": _redact(ont_path),
+                    })
             elif p.is_file():
                 sources.append((f"ontology/{p.name}", p))
+            else:
+                skipped.append({
+                    "store": "ontology",
+                    "backend": "file",
+                    "path": _redact(ont_path),
+                })
 
     store_map = {"graph": "graph_db", "vector": "vector_store", "triplet": "triplet_store"}
     for store_type, cfg_key in store_map.items():
@@ -5520,9 +5535,19 @@ def _collect_backup_sources(
             continue
         p = Path(data_path)
         if p.is_dir():
+            before = len(sources)
             for f in p.rglob("*"):
                 if f.is_file():
                     sources.append((f"{store_type}/{f.relative_to(p)}", f))
+            if len(sources) == before:
+                # Same reporting rule as a missing path: an empty directory
+                # yields no files, so the store would vanish from the archive
+                # with no sign of it (#2014).
+                skipped.append({
+                    "store": store_type,
+                    "backend": str(info.get("backend", "unknown")),
+                    "path": _redact(data_path),
+                })
         elif p.is_file():
             sources.append((f"{store_type}/{p.name}", p))
         else:
@@ -5535,6 +5560,33 @@ def _collect_backup_sources(
             })
 
     return sources, skipped
+
+
+def _skip_label(store: str) -> str:
+    """Human label for a skipped entry, without calling ontology a 'store'."""
+    return "ontology" if store == "ontology" else f"{store} store"
+
+
+def _warn_skipped(cli_ctx: CLIContext, skipped: List[Dict[str, str]]) -> None:
+    """Name every configured path that contributed no files (#2009, #2014)."""
+    for entry in skipped:
+        _warn(
+            cli_ctx,
+            f"Skipping {_skip_label(entry['store'])} ({entry['backend']}): "
+            f"path does not exist or contains no files: {entry['path']}",
+        )
+
+
+def _raise_on_skipped(skipped: List[Dict[str, str]], *, target: str) -> None:
+    """Raise the --fail-on-skip error naming every skipped path."""
+    if not skipped:
+        return
+    missing = ", ".join(f"{e['store']} ({e['path']})" for e in skipped)
+    raise click.ClickException(
+        f"Configured store path does not exist or contains no files: {missing}. "
+        f"Nothing from those stores would be {target}; create the path, drop it "
+        "from the config, or omit --fail-on-skip to continue with the rest."
+    )
 
 
 def _redact(uri: str) -> str:
@@ -5656,12 +5708,7 @@ def backup_create(
         # so a partial archive was reported as a success (#2009). Report every
         # one before the prompts, and before the empty-archive check below so
         # the missing paths are named even when no store is left to back up.
-        for entry in skipped:
-            _warn(
-                cli_ctx,
-                f"Skipping {entry['store']} store ({entry['backend']}): "
-                f"path does not exist: {entry['path']}",
-            )
+        _warn_skipped(cli_ctx, skipped)
 
         # Fail before any prompt instead of writing an archive with no
         # store data in it (#1820).
@@ -5677,13 +5724,8 @@ def backup_create(
                 "to see how to back up other backends."
             )
 
-        if skipped and fail_on_skip:
-            missing = ", ".join(f"{e['store']} ({e['path']})" for e in skipped)
-            raise click.ClickException(
-                f"Configured store path does not exist: {missing}. Nothing from "
-                "those stores would be in the archive; create the path, drop it "
-                "from the config, or omit --fail-on-skip to back up the rest."
-            )
+        if fail_on_skip:
+            _raise_on_skipped(skipped, target="in the archive")
 
         if encrypt and passphrase is None:
             passphrase = click.prompt("Backup passphrase", hide_input=True,
@@ -5775,11 +5817,13 @@ def backup_create(
 @click.option("--include",
               type=click.Choice(["graph", "vector", "triplet", "config", "ontology", "all"]),
               default="all", show_default=True)
+@click.option("--fail-on-skip", is_flag=True, default=False,
+              help="Exit non-zero when a configured store path is missing or empty.")
 @click.option("--dry-run", "local_dry", is_flag=True, default=False)
 @click.option("--quiet", "local_quiet", is_flag=True, default=False)
 @click.pass_obj
 def backup_sync(cli_ctx: CLIContext, destination: str, include: str,
-                local_dry: bool, local_quiet: bool) -> None:
+                fail_on_skip: bool, local_dry: bool, local_quiet: bool) -> None:
     """Incremental folder sync (idempotent, copies only changed files).
 
     \b
@@ -5793,13 +5837,18 @@ def backup_sync(cli_ctx: CLIContext, destination: str, include: str,
         import shutil
         dest = Path(destination)
         cfg = cli_ctx.config.to_dict()
-        sources, _skipped = _collect_backup_sources(
+        sources, skipped = _collect_backup_sources(
             cfg, cli_ctx.config_path, include, strip_config=False,
         )
         if _is_dry(cli_ctx, local_dry):
             _dry(cli_ctx, "sync backup", destination=str(dest), include=include,
                  files=[a for a, _ in sources])
             return
+        # A skipped store used to be discarded here, so a sync after a partial
+        # create reported success for an incomplete store set (#2014).
+        _warn_skipped(cli_ctx, skipped)
+        if fail_on_skip:
+            _raise_on_skipped(skipped, target="included in the sync")
         dest.mkdir(parents=True, exist_ok=True)
         try:
             os.chmod(str(dest), 0o700)

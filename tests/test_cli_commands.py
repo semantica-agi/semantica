@@ -3543,6 +3543,167 @@ class TestBackup:
             {"store": "graph", "backend": "local", "path": "gone.json"}
         ]
 
+    def test_create_reports_a_store_whose_directory_is_empty(self, runner):
+        # Regression for #2014: a configured store whose path exists but holds
+        # no files took the is_dir() branch, contributed nothing, and never
+        # reached `skipped`, so the manifest reported "skipped": [] and the
+        # command exited 0.
+        with runner.isolated_filesystem():
+            os.makedirs("empty_graph")
+            os.makedirs("vecs")
+            with open("vecs/index.json", "w") as f:
+                f.write("{}")
+            with open("cfg.yaml", "w") as f:
+                f.write(
+                    "graph_db:\n"
+                    "  backend: local\n"
+                    "  path: empty_graph\n"
+                    "vector_store:\n"
+                    "  backend: local\n"
+                    "  path: vecs\n"
+                )
+            result = runner.invoke(
+                cli_module.main,
+                ["--config", "cfg.yaml", "backup", "create", "out.tar.gz",
+                 "--strip-config"],
+            )
+            _ok(result)
+            flat = _flatten(result.output)
+            assert "Skipping graph store" in flat
+            assert "empty_graph" in flat
+            with tarfile.open("out.tar.gz") as tar:
+                manifest = json.loads(
+                    tar.extractfile("semantica-backup/backup_manifest.json").read()
+                )
+        assert manifest["skipped"] == [
+            {"store": "graph", "backend": "local", "path": "empty_graph"}
+        ]
+
+    def test_create_empty_dir_fail_on_skip_exits_nonzero(self, runner):
+        with runner.isolated_filesystem():
+            os.makedirs("empty_graph")
+            os.makedirs("vecs")
+            with open("vecs/index.json", "w") as f:
+                f.write("{}")
+            with open("cfg.yaml", "w") as f:
+                f.write(
+                    "graph_db:\n"
+                    "  backend: local\n"
+                    "  path: empty_graph\n"
+                    "vector_store:\n"
+                    "  backend: local\n"
+                    "  path: vecs\n"
+                )
+            result = runner.invoke(
+                cli_module.main,
+                ["--config", "cfg.yaml", "backup", "create", "out.tar.gz",
+                 "--strip-config", "--fail-on-skip"],
+            )
+            assert result.exit_code != 0
+            assert "Configured store path does not exist" in _flatten(result.output)
+            assert not os.path.exists("out.tar.gz")
+
+    def test_collect_backup_sources_marks_empty_directories_as_skipped(self, runner):
+        with runner.isolated_filesystem():
+            os.makedirs("empty_graph")
+            os.makedirs("vecs")
+            with open("vecs/index.json", "w") as f:
+                f.write("{}")
+            cfg = {
+                "graph_db": {"backend": "local", "path": "empty_graph"},
+                "vector_store": {"backend": "local", "path": "vecs"},
+            }
+            sources, skipped = cli_module._collect_backup_sources(
+                cfg, None, "all", strip_config=True,
+            )
+        assert [arcname for arcname, _ in sources] == ["vector/index.json"]
+        assert skipped == [
+            {"store": "graph", "backend": "local", "path": "empty_graph"}
+        ]
+
+    def test_collect_backup_sources_reports_empty_ontology_directory(self, runner):
+        # #2014 also flagged the ontology branch: an existing-but-empty (or
+        # absent) ontology path produced no sources and no skip entry.
+        with runner.isolated_filesystem():
+            os.makedirs("empty_onto")
+            os.makedirs("vecs")
+            with open("vecs/index.json", "w") as f:
+                f.write("{}")
+            cfg = {
+                "ontology_path": "empty_onto",
+                "vector_store": {"backend": "local", "path": "vecs"},
+            }
+            sources, skipped = cli_module._collect_backup_sources(
+                cfg, None, "all", strip_config=True,
+            )
+        assert [arcname for arcname, _ in sources] == ["vector/index.json"]
+        assert skipped == [
+            {"store": "ontology", "backend": "file", "path": "empty_onto"}
+        ]
+
+    def test_sync_names_a_skipped_store(self, runner):
+        with runner.isolated_filesystem():
+            os.makedirs("empty_graph")
+            os.makedirs("vecs")
+            with open("vecs/index.json", "w") as f:
+                f.write("{}")
+            with open("cfg.yaml", "w") as f:
+                f.write(
+                    "graph_db:\n"
+                    "  backend: local\n"
+                    "  path: empty_graph\n"
+                    "vector_store:\n"
+                    "  backend: local\n"
+                    "  path: vecs\n"
+                )
+            result = runner.invoke(
+                cli_module.main,
+                ["--config", "cfg.yaml", "backup", "sync", "sync_dest"],
+            )
+            _ok(result)
+            flat = _flatten(result.output)
+            assert "Skipping graph store" in flat
+            assert "empty_graph" in flat
+            assert os.path.isfile(os.path.join("sync_dest", "vector", "index.json"))
+
+    def test_sync_fail_on_skip_exits_nonzero(self, runner):
+        with runner.isolated_filesystem():
+            os.makedirs("empty_graph")
+            os.makedirs("vecs")
+            with open("vecs/index.json", "w") as f:
+                f.write("{}")
+            with open("cfg.yaml", "w") as f:
+                f.write(
+                    "graph_db:\n"
+                    "  backend: local\n"
+                    "  path: empty_graph\n"
+                    "vector_store:\n"
+                    "  backend: local\n"
+                    "  path: vecs\n"
+                )
+            result = runner.invoke(
+                cli_module.main,
+                ["--config", "cfg.yaml", "backup", "sync", "sync_dest",
+                 "--fail-on-skip"],
+            )
+            assert result.exit_code != 0
+            assert "Configured store path does not exist" in _flatten(result.output)
+            assert not os.path.exists("sync_dest")
+
+    def test_sync_without_skips_does_not_warn(self, runner):
+        with runner.isolated_filesystem():
+            os.makedirs("kg")
+            with open("kg/graph.db", "w") as f:
+                f.write("data")
+            with open("cfg.yaml", "w") as f:
+                f.write("graph_db:\n  backend: sqlite\n  path: kg\n")
+            result = runner.invoke(
+                cli_module.main,
+                ["--config", "cfg.yaml", "backup", "sync", "sync_dest"],
+            )
+            _ok(result)
+            assert "Skipping" not in _flatten(result.output)
+
     @pytest.mark.parametrize("extra_args", [[], ["--fail-on-skip"]])
     def test_create_names_every_missing_store_when_none_exist(self, runner, extra_args):
         # When every configured store path is missing, the empty-archive error
