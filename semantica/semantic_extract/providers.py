@@ -518,6 +518,7 @@ class BaseProvider:
                             if kwargs.get("temperature") is not None
                             else 0.1
                         ),
+                        "stream": False,
                     }
                     self._add_if_set(
                         create_kwargs,
@@ -532,6 +533,7 @@ class BaseProvider:
                         "logit_bias",
                         "user",
                         "top_k",
+                        "stream",
                     )
 
                     if provider_name == "GroqProvider":
@@ -810,6 +812,7 @@ class OpenAIProvider(BaseProvider):
         create_kwargs = {
             "model": kwargs.get("model", self.model),
             "messages": [{"role": "user", "content": prompt}],
+            "stream": False,
         }
         self._add_if_set(
             create_kwargs,
@@ -824,6 +827,7 @@ class OpenAIProvider(BaseProvider):
             "stop",
             "logit_bias",
             "user",
+            "stream",
         )
 
         response = self.client.chat.completions.create(**create_kwargs)
@@ -841,6 +845,7 @@ class OpenAIProvider(BaseProvider):
         create_kwargs = {
             "model": kwargs.get("model", self.model),
             "messages": [{"role": "user", "content": prompt}],
+            "stream": False,
         }
         # response_format=json_object is only safe for standard OpenAI endpoints.
         # Custom gateways (base_url set) often reject or mishandle this parameter,
@@ -861,6 +866,7 @@ class OpenAIProvider(BaseProvider):
             "stop",
             "logit_bias",
             "user",
+            "stream",
         )
 
         response = self.client.chat.completions.create(**create_kwargs)
