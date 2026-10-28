@@ -59,6 +59,9 @@ if TYPE_CHECKING:
     from .core.orchestrator import Semantica
 
 console = Console()
+# --json reserves stdout for the machine-readable payload, so warnings go
+# here instead. See the --json promise in the CLI context setup below.
+err_console = Console(stderr=True)
 
 # Supported interpreter range: ``requires-python = ">=3.11,<3.14"`` in
 # pyproject.toml. tests/test_python_support_policy.py fails if the two drift.
@@ -658,8 +661,9 @@ def main(
         # Reinitialize the module-level console if --no-color was requested so
         # all subsequent console.print() calls in this invocation respect the flag.
         if no_color:
-            global console  # noqa: PLW0603
+            global console, err_console  # noqa: PLW0603
             console = Console(no_color=True)
+            err_console = Console(stderr=True, no_color=True)
         ctx.obj = CLIContext(
             config_path=_resolve_config_path(config_path),
             config=config,
@@ -1759,7 +1763,10 @@ def _info(cli_ctx: CLIContext, text: str) -> None:
 
 
 def _warn(cli_ctx: CLIContext, text: str) -> None:
-    console.print(f"[{_WARN_STY}] ⚠[/{_WARN_STY}] {text}")
+    # Under --json the payload owns stdout, so the warning goes to stderr and
+    # the output stays one parseable document.
+    stream = err_console if cli_ctx.json_output else console
+    stream.print(f"[{_WARN_STY}] ⚠[/{_WARN_STY}] {text}")
 
 
 def _dry(cli_ctx: CLIContext, action: str, *, json_out: bool = False, **fields: Any) -> None:
@@ -5657,7 +5664,7 @@ def backup_info(cli_ctx: CLIContext, local_json: bool) -> None:
 @click.option("--strip-config", is_flag=True, default=False,
               help="Exclude semantica.yaml to avoid storing credentials at rest.")
 @click.option("--fail-on-skip", is_flag=True, default=False,
-              help="Exit non-zero when a configured store path does not exist.")
+              help="Exit non-zero when a configured store path is missing or empty.")
 @click.option("--dry-run", "local_dry", is_flag=True, default=False)
 @click.option("--quiet", "local_quiet", is_flag=True, default=False)
 @click.pass_obj
@@ -5677,7 +5684,22 @@ def backup_create(
 
     def _action() -> None:
         if _is_dry(cli_ctx, local_dry):
-            _dry(cli_ctx, "backup create", destination=destination, include=include)
+            # A dry run is a preview of the real command, so it has to report
+            # the same skipped stores and honour --fail-on-skip (#2109).
+            cfg = cli_ctx.config.to_dict()
+            _, skipped = _collect_backup_sources(
+                cfg, cli_ctx.config_path, include, strip_config,
+            )
+            _warn_skipped(cli_ctx, skipped)
+            if fail_on_skip:
+                _raise_on_skipped(skipped, target="in the archive")
+            _dry(
+                cli_ctx,
+                "backup create",
+                destination=destination,
+                include=include,
+                skipped=skipped,
+            )
             return
 
         if keyfile:
@@ -5842,15 +5864,15 @@ def backup_sync(cli_ctx: CLIContext, destination: str, include: str,
         sources, skipped = _collect_backup_sources(
             cfg, cli_ctx.config_path, include, strip_config=False,
         )
-        if _is_dry(cli_ctx, local_dry):
-            _dry(cli_ctx, "sync backup", destination=str(dest), include=include,
-                 files=[a for a, _ in sources])
-            return
         # A skipped store used to be discarded here, so a sync after a partial
         # create reported success for an incomplete store set (#2014).
         _warn_skipped(cli_ctx, skipped)
         if fail_on_skip:
             _raise_on_skipped(skipped, target="included in the sync")
+        if _is_dry(cli_ctx, local_dry):
+            _dry(cli_ctx, "sync backup", destination=str(dest), include=include,
+                 files=[a for a, _ in sources], skipped=skipped)
+            return
         dest.mkdir(parents=True, exist_ok=True)
         try:
             os.chmod(str(dest), 0o700)

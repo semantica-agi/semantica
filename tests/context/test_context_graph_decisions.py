@@ -233,10 +233,70 @@ class TestContextGraphDecisions:
         assert chain[1].decision_id == "decision_003"
         assert chain[0].metadata["causal_distance"] == 1
         assert chain[1].metadata["causal_distance"] == 2
-    
+
+    def test_get_causal_chain_both(self, context_graph):
+        """direction="both" returns the upstream chain, then the downstream one (#1815)."""
+        # decision_001 -> decision_002 -> decision_003 -> decision_004
+        for i in range(1, 5):
+            context_graph.add_decision(
+                Decision(
+                    decision_id=f"decision_{i:03d}",
+                    category="test",
+                    scenario=f"scenario {i}",
+                    reasoning=f"reasoning {i}",
+                    outcome="approved",
+                    confidence=0.8,
+                    timestamp=datetime.now() - timedelta(hours=i),
+                    decision_maker="test_agent",
+                )
+            )
+        for i in range(1, 4):
+            context_graph.add_causal_relationship(
+                f"decision_{i:03d}", f"decision_{i + 1:03d}", "CAUSED"
+            )
+
+        chain = context_graph.get_causal_chain("decision_002", direction="both", max_depth=5)
+
+        assert [d.decision_id for d in chain] == ["decision_001", "decision_003", "decision_004"]
+        assert [d.metadata["causal_distance"] for d in chain] == [1, 1, 2]
+        assert [d.metadata["causal_direction"] for d in chain] == [
+            "upstream", "downstream", "downstream"
+        ]
+
+        # max_depth applies to each direction.
+        chain = context_graph.get_causal_chain("decision_002", direction="both", max_depth=1)
+        assert [d.decision_id for d in chain] == ["decision_001", "decision_003"]
+
+    def test_get_causal_chain_both_lists_a_decision_once(self, context_graph):
+        """A decision reachable both ways (a cycle) appears once, as upstream."""
+        # decision_001 -> decision_002 -> decision_003 -> decision_001
+        for i in (1, 2, 3):
+            context_graph.add_decision(
+                Decision(
+                    decision_id=f"decision_{i:03d}",
+                    category="test",
+                    scenario=f"scenario {i}",
+                    reasoning=f"reasoning {i}",
+                    outcome="approved",
+                    confidence=0.8,
+                    timestamp=datetime.now(),
+                    decision_maker="test_agent",
+                )
+            )
+        context_graph.add_causal_relationship("decision_001", "decision_002", "CAUSED")
+        context_graph.add_causal_relationship("decision_002", "decision_003", "CAUSED")
+        context_graph.add_causal_relationship("decision_003", "decision_001", "INFLUENCED")
+
+        chain = context_graph.get_causal_chain("decision_001", direction="both", max_depth=5)
+
+        # Upstream distances (2, 1), not the downstream ones (1, 2).
+        assert [d.decision_id for d in chain] == ["decision_002", "decision_003"]
+        assert [d.metadata["causal_distance"] for d in chain] == [2, 1]
+        assert {d.metadata["causal_direction"] for d in chain} == {"upstream"}
+
     def test_get_causal_chain_invalid_direction(self, context_graph):
         """Test getting causal chain with invalid direction."""
-        with pytest.raises(ValueError, match="Direction must be 'upstream' or 'downstream'"):
+        with pytest.raises(ValueError, match="Direction must be 'upstream', 'downstream' or 'both'"):
             context_graph.get_causal_chain("decision_001", "invalid", 5)
     
     def test_get_causal_chain_max_depth(self, context_graph):

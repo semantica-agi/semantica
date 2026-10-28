@@ -2032,7 +2032,7 @@ class AgentContext:
         
         Args:
             decision_id: Decision ID to analyze
-            direction: "upstream" (causes) or "downstream" (effects)
+            direction: "upstream" (causes), "downstream" (effects) or "both"
             max_depth: Maximum traversal depth
             
         Returns:

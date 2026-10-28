@@ -826,10 +826,17 @@ class ScientificNotationHandler:
             significant_digits: Number of significant digits to preserve
 
         Returns:
-            float: Normalized number with specified significant digits
+            float: Normalized number with specified significant digits.
+                Non-finite input (inf, -inf, nan) comes back unchanged, and a
+                result of zero is returned as 0.0 rather than -0.0.
         """
         if number == 0:
             return 0.0
+
+        # inf has no order of magnitude: abs(inf) stays inf in the loop below.
+        # nan keeps the behaviour it had before this guard.
+        if not math.isfinite(number):
+            return number
 
         # Calculate order of magnitude
         magnitude = abs(number)
@@ -844,4 +851,7 @@ class ScientificNotationHandler:
         # Round to significant digits
         rounded = round(magnitude, significant_digits - 1)
 
-        return math.copysign(rounded * (10**order), number)
+        result = math.copysign(rounded * (10**order), number)
+        # copysign turns a zero result into -0.0 for negative input, and that
+        # serialises as -0.0. The value is zero, so return the plain zero.
+        return 0.0 if result == 0 else result

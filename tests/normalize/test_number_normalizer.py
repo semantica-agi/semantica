@@ -1,3 +1,4 @@
+import math
 import unittest
 
 from semantica.normalize.number_normalizer import (
@@ -144,6 +145,22 @@ class TestScientificNotationHandler(unittest.TestCase):
         self.assertEqual(self.handler.normalize_precision(1234.5, 2), 1200.0)
         self.assertEqual(self.handler.normalize_precision(-1234.5, 2), -1200.0)
         self.assertEqual(self.handler.normalize_precision(-0.000123, 2), -0.00012)
+
+    def test_normalize_precision_returns_non_finite_inputs(self):
+        self.assertEqual(
+            self.handler.normalize_precision(float("inf"), 2), float("inf")
+        )
+        self.assertEqual(
+            self.handler.normalize_precision(float("-inf"), 2), float("-inf")
+        )
+        self.assertTrue(
+            math.isnan(self.handler.normalize_precision(float("nan"), 2))
+        )
+
+    def test_normalize_precision_does_not_return_negative_zero(self):
+        # round(4.0, -1) is zero, and copysign(0.0, -4) is -0.0, which
+        # serialises as -0.0. The value is zero, so the sign is dropped.
+        self.assertEqual(repr(self.handler.normalize_precision(-4, 0)), "0.0")
 
 
 if __name__ == "__main__":

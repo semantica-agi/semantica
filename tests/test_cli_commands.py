@@ -3603,6 +3603,181 @@ class TestBackup:
             assert "Configured store path does not exist" in _flatten(result.output)
             assert not os.path.exists("out.tar.gz")
 
+    def test_create_dry_run_fail_on_skip_exits_nonzero(self, runner):
+        # #2109: a dry run has to match the real command.
+        with runner.isolated_filesystem():
+            os.makedirs("empty_graph")
+            os.makedirs("vecs")
+            with open("vecs/index.json", "w") as f:
+                f.write("{}")
+            with open("cfg.yaml", "w") as f:
+                f.write(
+                    "graph_db:\n"
+                    "  backend: local\n"
+                    "  path: empty_graph\n"
+                    "vector_store:\n"
+                    "  backend: local\n"
+                    "  path: vecs\n"
+                )
+            result = runner.invoke(
+                cli_module.main,
+                ["--config", "cfg.yaml", "backup", "create", "out.tar.gz",
+                 "--strip-config", "--dry-run", "--fail-on-skip"],
+            )
+            assert result.exit_code != 0
+            flat = _flatten(result.output)
+            assert "Skipping graph store" in flat
+            assert "empty_graph" in flat
+            assert "Configured store path does not exist" in flat
+            assert not os.path.exists("out.tar.gz")
+
+    def test_create_dry_run_reports_a_skipped_store(self, runner):
+        with runner.isolated_filesystem():
+            os.makedirs("empty_graph")
+            os.makedirs("vecs")
+            with open("vecs/index.json", "w") as f:
+                f.write("{}")
+            with open("cfg.yaml", "w") as f:
+                f.write(
+                    "graph_db:\n"
+                    "  backend: local\n"
+                    "  path: empty_graph\n"
+                    "vector_store:\n"
+                    "  backend: local\n"
+                    "  path: vecs\n"
+                )
+            result = runner.invoke(
+                cli_module.main,
+                ["--config", "cfg.yaml", "backup", "create", "out.tar.gz",
+                 "--strip-config", "--dry-run"],
+            )
+            _ok(result)
+            flat = _flatten(result.output)
+            assert "Skipping graph store" in flat
+            assert "empty_graph" in flat
+            assert not os.path.exists("out.tar.gz")
+
+    def test_create_dry_run_json_stays_parseable_when_a_store_is_skipped(self, runner):
+        # #2110 review: the skip warning used to land on stdout ahead of the
+        # payload, so --json could not be parsed in exactly the case this PR
+        # fixes.
+        with runner.isolated_filesystem():
+            os.makedirs("empty_graph")
+            os.makedirs("vecs")
+            with open("vecs/index.json", "w") as f:
+                f.write("{}")
+            with open("cfg.yaml", "w") as f:
+                f.write(
+                    "graph_db:\n"
+                    "  backend: local\n"
+                    "  path: empty_graph\n"
+                    "vector_store:\n"
+                    "  backend: local\n"
+                    "  path: vecs\n"
+                )
+            result = runner.invoke(
+                cli_module.main,
+                ["--config", "cfg.yaml", "--json", "backup", "create",
+                 "out.tar.gz", "--strip-config", "--dry-run"],
+            )
+            _ok(result)
+            payload = json.loads(result.stdout)
+            assert payload["skipped"] == [
+                {"store": "graph", "backend": "local", "path": "empty_graph"}
+            ]
+            assert "Skipping graph store" in result.stderr
+            assert not os.path.exists("out.tar.gz")
+
+    def test_sync_dry_run_json_stays_parseable_when_a_store_is_skipped(self, runner):
+        with runner.isolated_filesystem():
+            os.makedirs("empty_graph")
+            os.makedirs("vecs")
+            with open("vecs/index.json", "w") as f:
+                f.write("{}")
+            with open("cfg.yaml", "w") as f:
+                f.write(
+                    "graph_db:\n"
+                    "  backend: local\n"
+                    "  path: empty_graph\n"
+                    "vector_store:\n"
+                    "  backend: local\n"
+                    "  path: vecs\n"
+                )
+            result = runner.invoke(
+                cli_module.main,
+                ["--config", "cfg.yaml", "--json", "backup", "sync",
+                 "sync_dest", "--dry-run"],
+            )
+            _ok(result)
+            payload = json.loads(result.stdout)
+            assert payload["skipped"] == [
+                {"store": "graph", "backend": "local", "path": "empty_graph"}
+            ]
+            assert "Skipping graph store" in result.stderr
+            assert not os.path.exists("sync_dest")
+
+    def test_no_color_strips_colour_from_the_json_warning_on_stderr(
+        self, runner, monkeypatch
+    ):
+        # Under --json the warning goes to err_console, not console. Give that
+        # console a forced terminal first, so a rebind that misses it would
+        # leave escape codes in the captured stderr.
+        monkeypatch.setenv("TERM", "xterm-256color")
+        original = cli_module.err_console
+        cli_module.err_console = cli_module.Console(stderr=True, force_terminal=True)
+        try:
+            with runner.isolated_filesystem():
+                os.makedirs("empty_graph")
+                os.makedirs("vecs")
+                with open("vecs/index.json", "w") as f:
+                    f.write("{}")
+                with open("cfg.yaml", "w") as f:
+                    f.write(
+                        "graph_db:\n"
+                        "  backend: local\n"
+                        "  path: empty_graph\n"
+                        "vector_store:\n"
+                        "  backend: local\n"
+                        "  path: vecs\n"
+                    )
+                result = runner.invoke(
+                    cli_module.main,
+                    [
+                        "--config",
+                        "cfg.yaml",
+                        "--json",
+                        "--no-color",
+                        "backup",
+                        "sync",
+                        "sync_dest",
+                        "--dry-run",
+                    ],
+                )
+                _ok(result)
+                assert "Skipping graph store" in result.stderr
+                assert "\x1b[" not in result.stderr
+        finally:
+            cli_module.err_console = original
+
+    def test_dry_run_json_reports_no_skips_when_every_store_is_present(self, runner):
+        with runner.isolated_filesystem():
+            os.makedirs("vecs")
+            with open("vecs/index.json", "w") as f:
+                f.write("{}")
+            with open("cfg.yaml", "w") as f:
+                f.write(
+                    "vector_store:\n"
+                    "  backend: local\n"
+                    "  path: vecs\n"
+                )
+            result = runner.invoke(
+                cli_module.main,
+                ["--config", "cfg.yaml", "--json", "backup", "create",
+                 "out.tar.gz", "--strip-config", "--dry-run"],
+            )
+            _ok(result)
+            assert json.loads(result.stdout)["skipped"] == []
+
     def test_collect_backup_sources_marks_empty_directories_as_skipped(self, runner):
         with runner.isolated_filesystem():
             os.makedirs("empty_graph")
@@ -3688,6 +3863,60 @@ class TestBackup:
             )
             assert result.exit_code != 0
             assert "Configured store path does not exist" in _flatten(result.output)
+            assert not os.path.exists("sync_dest")
+
+    def test_sync_dry_run_fail_on_skip_exits_nonzero(self, runner):
+        # #2109: the dry-run branch used to return before the skip handling.
+        with runner.isolated_filesystem():
+            os.makedirs("empty_graph")
+            os.makedirs("vecs")
+            with open("vecs/index.json", "w") as f:
+                f.write("{}")
+            with open("cfg.yaml", "w") as f:
+                f.write(
+                    "graph_db:\n"
+                    "  backend: local\n"
+                    "  path: empty_graph\n"
+                    "vector_store:\n"
+                    "  backend: local\n"
+                    "  path: vecs\n"
+                )
+            result = runner.invoke(
+                cli_module.main,
+                ["--config", "cfg.yaml", "backup", "sync", "sync_dest",
+                 "--dry-run", "--fail-on-skip"],
+            )
+            assert result.exit_code != 0
+            flat = _flatten(result.output)
+            assert "Skipping graph store" in flat
+            assert "empty_graph" in flat
+            assert "Configured store path does not exist" in flat
+            assert not os.path.exists("sync_dest")
+
+    def test_sync_dry_run_reports_a_skipped_store(self, runner):
+        with runner.isolated_filesystem():
+            os.makedirs("empty_graph")
+            os.makedirs("vecs")
+            with open("vecs/index.json", "w") as f:
+                f.write("{}")
+            with open("cfg.yaml", "w") as f:
+                f.write(
+                    "graph_db:\n"
+                    "  backend: local\n"
+                    "  path: empty_graph\n"
+                    "vector_store:\n"
+                    "  backend: local\n"
+                    "  path: vecs\n"
+                )
+            result = runner.invoke(
+                cli_module.main,
+                ["--config", "cfg.yaml", "backup", "sync", "sync_dest",
+                 "--dry-run"],
+            )
+            _ok(result)
+            flat = _flatten(result.output)
+            assert "Skipping graph store" in flat
+            assert "empty_graph" in flat
             assert not os.path.exists("sync_dest")
 
     def test_sync_without_skips_does_not_warn(self, runner):

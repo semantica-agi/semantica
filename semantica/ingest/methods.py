@@ -567,6 +567,7 @@ def ingest_web(
 
     try:
         try:
+            from . import web_ingestor as _web_ingestor
             from .web_ingestor import WebIngestor
         except ModuleNotFoundError as exc:
             if _is_missing_dependency(exc, "bs4"):
@@ -575,6 +576,13 @@ def ingest_web(
                     "beautifulsoup4",
                 ) from exc
             raise
+
+        # The module now imports with BeautifulSoup = None rather than raising,
+        # so the translation above no longer fires. Keep this entry point
+        # reporting the same ConfigurationError, before any validation or
+        # network work, instead of a late ProcessingError from the parser.
+        if getattr(_web_ingestor, "BeautifulSoup", None) is None:
+            raise _missing_optional_dependency("Web ingestion", "beautifulsoup4")
 
         # Get config
         config = ingest_config.get_method_config("web")
@@ -754,6 +762,7 @@ def ingest_feed(
 
     try:
         try:
+            from . import feed_ingestor as _feed_ingestor
             from .feed_ingestor import FeedIngestor
         except ModuleNotFoundError as exc:
             if _is_missing_dependency(exc, "bs4"):
@@ -762,6 +771,13 @@ def ingest_feed(
                     "beautifulsoup4",
                 ) from exc
             raise
+
+        # The module now imports with BeautifulSoup = None rather than raising,
+        # so the translation above no longer fires. Keep this entry point
+        # reporting the same ConfigurationError, before any validation or
+        # network work, instead of a late ProcessingError from the parser.
+        if getattr(_feed_ingestor, "BeautifulSoup", None) is None:
+            raise _missing_optional_dependency("Feed ingestion", "beautifulsoup4")
 
         # Get config
         config = ingest_config.get_method_config("feed")
@@ -985,6 +1001,7 @@ def ingest_email(
 
     try:
         try:
+            from . import email_ingestor as _email_ingestor
             from .email_ingestor import EmailIngestor
         except ModuleNotFoundError as exc:
             if _is_missing_dependency(exc, "bs4"):
@@ -993,6 +1010,13 @@ def ingest_email(
                     "beautifulsoup4",
                 ) from exc
             raise
+
+        # The module now imports with BeautifulSoup = None rather than raising,
+        # so the translation above no longer fires. Keep this entry point
+        # reporting the same ConfigurationError, before any validation or
+        # network work, instead of a late ProcessingError from the parser.
+        if getattr(_email_ingestor, "BeautifulSoup", None) is None:
+            raise _missing_optional_dependency("Email ingestion", "beautifulsoup4")
 
         # Get config
         config = ingest_config.get_method_config("email")
