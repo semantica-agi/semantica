@@ -62,7 +62,11 @@ from ..utils.progress_tracker import get_progress_tracker
 _W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
 _TXBX_CONTENT = _W + "txbxContent"
 _W_P = _W + "p"
+_W_R = _W + "r"
 _W_T = _W + "t"
+_W_TAB = _W + "tab"
+_W_BR = _W + "br"
+_W_CR = _W + "cr"
 _MC_FALLBACK = "{http://schemas.openxmlformats.org/markup-compatibility/2006}Fallback"
 
 
@@ -74,7 +78,16 @@ def _textbox_text(paragraph: Paragraph) -> str:
             # The VML copy of a text box already covered by `mc:Choice`.
             continue
         for inner in container.iter(_W_P):
-            text = "".join(node.text or "" for node in inner.iter(_W_T))
+            parts: List[str] = []
+            for run in inner.iter(_W_R):
+                for node in run:
+                    if node.tag == _W_T:
+                        parts.append(node.text or "")
+                    elif node.tag == _W_TAB:
+                        parts.append("\t")
+                    elif node.tag in (_W_BR, _W_CR):
+                        parts.append("\n")
+            text = "".join(parts)
             if text.strip():
                 blocks.append(text.strip())
     return "\n".join(blocks)

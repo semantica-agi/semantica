@@ -148,3 +148,22 @@ def test_section_content_includes_text_box_text(tmp_path):
     result = _parse(document, tmp_path)
 
     assert "CALLOUT_TEXT" in result["sections"][0]["content"]
+
+
+@pytest.mark.parametrize("textbox", [_vml_textbox, _alternate_content_textbox])
+def test_text_box_preserves_tabs_breaks_and_carriage_returns(tmp_path, textbox):
+    document = docx.Document()
+    document.add_heading("Heading One", level=1)
+    xml = textbox("LEFT").replace(
+        "<w:t>LEFT</w:t>",
+        "<w:t>LEFT</w:t><w:tab/><w:t>MID</w:t>"
+        "</w:r><w:r><w:br/><w:t>END</w:t><w:cr/><w:t>CR_TEXT</w:t>",
+    )
+    _insert_after(document.paragraphs[-1], xml)
+
+    result = _parse(document, tmp_path)
+
+    expected = "LEFT\tMID\nEND\nCR_TEXT"
+    assert result["paragraphs"][-1] == expected
+    assert result["full_text"].count(expected) == 1
+    assert result["sections"][0]["content"] == expected + "\n\n"
