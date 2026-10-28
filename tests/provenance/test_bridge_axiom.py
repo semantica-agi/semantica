@@ -664,14 +664,17 @@ class TestProvenanceFailClosed:
         layer = trace_translation_chain(chain, _LeakyManager())["layers"][0]
         assert layer["provenance_error"] == "RuntimeError"
 
-    def test_real_manager_storage_failure_names_the_reason(self, monkeypatch):
-        # ProvenanceManager swallows the storage exception, so the message
-        # has to say what went wrong rather than name an exception type.
+    def test_real_manager_storage_failure_preserves_the_cause(self, monkeypatch):
+        # Strict tracking exposes the real cause while keeping its text out
+        # of the public error message.
         manager = ProvenanceManager()
         self._broken_storage(manager, monkeypatch)
 
-        with pytest.raises(ProvenanceRecordingError, match="did not persist"):
+        with pytest.raises(ProvenanceRecordingError, match="OSError") as caught:
             self._axiom().apply("in", 3, prov_manager=manager)
+
+        assert isinstance(caught.value.__cause__, OSError)
+        assert "disk full" not in str(caught.value)
 
     def test_falsy_manager_still_fails_closed(self):
         """A manager that defines __len__ (an empty store) is falsy, but it is

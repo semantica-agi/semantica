@@ -276,20 +276,32 @@ class ProvenanceManager:
         source: str,
         metadata: Optional[Dict[str, Any]] = None,
         _conn: Optional[Any] = None,
+        *,
+        raise_on_error: bool = False,
         **kwargs
     ) -> Optional[ProvenanceEntry]:
         """
         Track entity provenance (kg.ProvenanceTracker compatible).
+
+        Subclass overrides must honor raise_on_error=True so strict callers can
+        detect failed retries even when their metadata matches the prior entry.
         
         Args:
             entity_id: Entity identifier
             source: Source identifier (document ID, DOI, file path)
             metadata: Optional metadata dictionary
+            raise_on_error: If True, propagate a tracking or transaction failure
+                instead of returning the pre-failure state. Defaults to False.
+                A shared transaction (_conn) always propagates failures so its
+                caller can roll back. Success with _conn remains subject to
+                the caller committing that transaction.
             **kwargs: Additional fields (confidence, source_location, etc.)
             
         Returns:
             Optional[ProvenanceEntry]: ProvenanceEntry on success, deepcopy of existing
-            entry if update fails, or None if brand-new entity storage fails
+            entry if update fails, or None if brand-new entity storage fails.
+            With raise_on_error=True, returns an entry only after its transaction
+            succeeds (or after staging it in the caller's shared transaction).
             
         Example:
             >>> prov_mgr.track_entity(
@@ -408,7 +420,8 @@ class ProvenanceManager:
             # When called from a batch's shared transaction (_conn is not None),
             # propagate so the caller's per-item try/except can skip counting
             # this item instead of reporting an unpersisted entry as tracked (#807).
-            if _conn is not None:
+            # Opt-in strict callers also need the original failure after rollback.
+            if _conn is not None or raise_on_error:
                 raise
             self.logger.error(
                 "Failed to track entity '%s' (transaction rolled back): %s. "

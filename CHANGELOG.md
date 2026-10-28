@@ -34,6 +34,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Failed identical-input BridgeAxiom retries could report provenance as recorded** (fixes #2154)
+  - `ProvenanceManager.track_entity()` now accepts keyword-only `raise_on_error=True` to propagate the original tracking or transaction exception after rollback. Its default still returns `None` for a failed new write or a copy of the previous entry for a failed update; shared transactions and batch savepoints retain their existing behavior.
+  - `BridgeAxiom.apply()` requests strict tracking from `ProvenanceManager` and retains the missing-entry/metadata-mismatch guard for older overrides. Subclasses must honor strict tracking for identical-input failure detection; matching metadata alone does not prove persistence. Required mode raises `ProvenanceRecordingError` with the original cause; best-effort mode reports the failure. Public errors still expose only the exception type, and duck-typed legacy managers retain their existing contract.
+
 - **Provenance checksums were not injective: two records that differed only in where a field boundary fell hashed the same** (fixes #2136) by @pkupt
   - `compute_checksum()` pasted the 16 hashed fields together with nothing between them, so `{"entity_type": "ab", "activity_id": "c"}` and `{"entity_type": "a", "activity_id": "bc"}` produced the same digest, and a row rewritten across a field boundary still passed `verify_checksum()` and `verify_chain()`. `used_entities` had the same hole once joined: `["a,b"]` and `["a", "b"]` collided
   - The v2 encoding writes a `prov-v2\0` header, then every value as a 1-byte type tag, a 4-byte big-endian length and the UTF-8 bytes; lists carry an element count and each element is length-prefixed in turn, so a boundary cannot move. It also settles a divergence v1 left open: a `None` field hashed as `''` through the dict path but as `'None'` through the dataclass path, so one record could hash two ways

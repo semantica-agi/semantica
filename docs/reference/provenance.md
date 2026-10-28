@@ -87,6 +87,20 @@ icon: "link"
 
 **`ProvenanceManager`** is the central tracker for all lineage data. Every call to `track_entity`, `track_relationship`, or `track_chunk` automatically computes and stores a **SHA-256 checksum** for tamper detection.
 
+`track_entity()` keeps its best-effort default: a failed new write returns `None`,
+and a failed update returns a copy of the previous entry. Pass
+`raise_on_error=True` when the caller needs a reliable failure signal:
+
+```python
+entry = manager.track_entity("entity_1", source="document_1", raise_on_error=True)
+```
+
+The original tracking or transaction exception propagates after rollback. This
+also detects failed retries with identical metadata, for which the default
+return value can look like success. With an internal shared transaction (`_conn`),
+failures always propagate, and a successful return stages the entry until the
+caller commits that transaction.
+
 ### Constructor
 
 ```python
@@ -395,6 +409,17 @@ print(chain.confidence)  # 0.92
 ```
 
 When a `prov_manager` is passed and the provenance record cannot be written, `apply()` raises `ProvenanceRecordingError` (from `semantica.utils`) rather than returning an unrecorded result, and `create_translation_chain()` lets it propagate. Pass `require_provenance=False` for best effort: the call then returns normally and the result carries `provenance_recorded` (`bool`) and `provenance_error` (`str` or `None`) so the caller can see whether the record was written.
+
+For a `ProvenanceManager`, `apply()` requests strict tracking even in best-effort
+mode so a failed retry is reported accurately. Public errors contain only the
+exception type; required-mode errors retain the original exception as their
+cause. Duck-typed legacy managers keep their exception-only success contract.
+
+`ProvenanceManager` subclasses that override `track_entity()` must honor
+`raise_on_error=True` for reliable detection of failed identical-input retries.
+`apply()` still rejects missing entries or mismatched metadata as a secondary
+compatibility guard for older overrides. Matching metadata alone does not prove
+that storage persisted the entry.
 
 ## Integration with GraphBuilder
 
