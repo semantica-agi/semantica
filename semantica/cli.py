@@ -5586,6 +5586,27 @@ def _warn_skipped(cli_ctx: CLIContext, skipped: List[Dict[str, str]]) -> None:
         )
 
 
+def _raise_on_no_store_data(sources: List[Tuple[str, Path]], include: str) -> None:
+    """Refuse a backup that would hold no store data at all (#1820).
+
+    Called by the real command and by its dry run alike: a preview that
+    reports success for an archive the real command refuses to write is the
+    same surprise as a successful backup with nothing in it (#2122).
+    """
+    if include not in ("graph", "vector", "triplet", "all"):
+        return
+    if any(arcname.startswith(("graph/", "vector/", "triplet/"))
+           for arcname, _ in sources):
+        return
+    stores = "graph, vector and triplet stores" if include == "all" else f"{include} store"
+    raise click.ClickException(
+        f"No store data to back up: found no local files for the {stores}. "
+        "backup create only copies file-based stores (a graph_db / vector_store / "
+        "triplet_store path that exists on disk); run `semantica backup info` "
+        "to see how to back up other backends."
+    )
+
+
 def _raise_on_skipped(skipped: List[Dict[str, str]], *, target: str) -> None:
     """Raise the --fail-on-skip error naming every skipped path."""
     if not skipped:
@@ -5685,12 +5706,14 @@ def backup_create(
     def _action() -> None:
         if _is_dry(cli_ctx, local_dry):
             # A dry run is a preview of the real command, so it has to report
-            # the same skipped stores and honour --fail-on-skip (#2109).
+            # the same skipped stores, honour --fail-on-skip and refuse an
+            # archive the real run would not write (#2109, #2122).
             cfg = cli_ctx.config.to_dict()
-            _, skipped = _collect_backup_sources(
+            sources, skipped = _collect_backup_sources(
                 cfg, cli_ctx.config_path, include, strip_config,
             )
             _warn_skipped(cli_ctx, skipped)
+            _raise_on_no_store_data(sources, include)
             if fail_on_skip:
                 _raise_on_skipped(skipped, target="in the archive")
             _dry(
@@ -5736,17 +5759,7 @@ def backup_create(
 
         # Fail before any prompt instead of writing an archive with no
         # store data in it (#1820).
-        if include in ("graph", "vector", "triplet", "all") and not any(
-            arcname.startswith(("graph/", "vector/", "triplet/"))
-            for arcname, _ in sources
-        ):
-            stores = "graph, vector and triplet stores" if include == "all" else f"{include} store"
-            raise click.ClickException(
-                f"No store data to back up: found no local files for the {stores}. "
-                "backup create only copies file-based stores (a graph_db / vector_store / "
-                "triplet_store path that exists on disk); run `semantica backup info` "
-                "to see how to back up other backends."
-            )
+        _raise_on_no_store_data(sources, include)
 
         if fail_on_skip:
             _raise_on_skipped(skipped, target="in the archive")

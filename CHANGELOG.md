@@ -84,6 +84,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Undirected traversal (`directed=false`) can walk a stored edge backwards; `total_weight` costed those hops against the directed view and fell back to the default `1.0`, and `resolve_path_edge_ids` scanned only outgoing adjacency so the hop contributed no id. Both now resolve reverse hops, and the reported edge is the lowest-weight parallel edge — the one the path is costed against
   - `POST /api/graph/distance-matrix` rebuilt the whole graph once per node pair; it is now built once per request
 
+### Security
+
+- **Bumped the three packages behind the failing audit gate: `authlib` 1.8.0 → 1.9.1, `litellm` 1.100.1 → 1.100.4, `msgpack` 1.2.2 → 1.2.3**
+  - New advisories were published against pins we already had, so `security-scan` started failing on `main` on 2026-10-28 with no dependency change of our own. pip-audit reports 8 actionable findings in these three packages: 6 for `authlib` (CVE-2026-114615/114616/114617/114618/114620/96760 — JWS signature forgery, nonce and audience validation in the OAuth paths, and a `request_uri` SSRF), `litellm` CVE-2026-114612 and `msgpack` CVE-2026-114613. The 9th finding, `opentelemetry-api` CVE-2026-114603, is already accepted in `security-scan.yml` because every `google-adk` release caps that package below the fix
+  - Each pin is the lowest release that clears its own package, so `litellm` stops at 1.100.4 instead of the latest 1.106.5, which needs `filelock<4` (we pin 4.2.4) and `boto3>=1.43.117` (we pin 1.43.85). No `pyproject.toml` range changes: all three versions were already inside the declared ranges
+  - `uv.lock` is a separate universal resolution, is not what the audit gate reads, and still carries the old versions
+
 ## [0.7.0] - 2026-09-22
 
 ### Added

@@ -3377,8 +3377,17 @@ class TestBackup:
 
     def test_create_dry_run(self, runner):
         with runner.isolated_filesystem():
-            result = runner.invoke(cli_module.main, ["backup", "create", "backup.tar.gz", "--dry-run"])
+            os.makedirs("kg")
+            with open("kg/graph.db", "w") as f:
+                f.write("data")
+            with open("cfg.yaml", "w") as f:
+                f.write("graph_db:\n  backend: sqlite\n  path: kg\n")
+            result = runner.invoke(
+                cli_module.main,
+                ["--config", "cfg.yaml", "backup", "create", "backup.tar.gz", "--dry-run"],
+            )
             _ok(result)
+            assert "Dry run: would backup create" in _flatten(result.output)
 
     def test_create_unencrypted_with_config_requires_confirm(self, runner):
         with runner.isolated_filesystem():
@@ -3630,6 +3639,67 @@ class TestBackup:
             assert "empty_graph" in flat
             assert "Configured store path does not exist" in flat
             assert not os.path.exists("out.tar.gz")
+
+    @pytest.mark.parametrize("extra_args", [[], ["--fail-on-skip"]])
+    def test_create_dry_run_fails_when_no_store_has_data(self, runner, extra_args):
+        # #2122: --dry-run previewed a backup the real command refuses to
+        # write, so it exited 0 on a config where nothing would be archived.
+        with runner.isolated_filesystem():
+            os.makedirs("empty_graph")
+            with open("cfg.yaml", "w") as f:
+                f.write(
+                    "graph_db:\n"
+                    "  backend: local\n"
+                    "  path: empty_graph\n"
+                    "vector_store:\n"
+                    "  backend: local\n"
+                    "  path: missing_vecs\n"
+                )
+            result = runner.invoke(
+                cli_module.main,
+                ["--config", "cfg.yaml", "backup", "create", "out.tar.gz",
+                 "--strip-config", "--dry-run", *extra_args],
+            )
+            assert result.exit_code != 0
+            flat = _flatten(result.output)
+            assert "Skipping graph store" in flat
+            assert "empty_graph" in flat
+            assert "Skipping vector store" in flat
+            assert "missing_vecs" in flat
+            assert "No store data to back up" in flat
+            assert "Dry run: would backup create" not in flat
+            assert not os.path.exists("out.tar.gz")
+
+    def test_create_dry_run_without_store_config_fails(self, runner):
+        # Same #2122 case as above with no store configured at all: the real
+        # command refuses it (#1820), so the preview must too.
+        with runner.isolated_filesystem():
+            with open("cfg.yaml", "w") as f:
+                f.write("processing:\n  batch_size: 8\n")
+            result = runner.invoke(
+                cli_module.main,
+                ["--config", "cfg.yaml", "backup", "create", "out.tar.gz",
+                 "--strip-config", "--dry-run"],
+            )
+            assert result.exit_code != 0
+            flat = _flatten(result.output)
+            assert "No store data to back up" in flat
+            assert "Skipping" not in flat
+
+    def test_create_dry_run_json_fails_when_no_store_has_data(self, runner):
+        # --json must not print a payload for a preview that cannot happen.
+        with runner.isolated_filesystem():
+            os.makedirs("empty_graph")
+            with open("cfg.yaml", "w") as f:
+                f.write("graph_db:\n  backend: local\n  path: empty_graph\n")
+            result = runner.invoke(
+                cli_module.main,
+                ["--config", "cfg.yaml", "--json", "backup", "create",
+                 "out.tar.gz", "--strip-config", "--dry-run"],
+            )
+            assert result.exit_code != 0
+            assert result.stdout.strip() == ""
+            assert "No store data to back up" in _flatten(result.stderr)
 
     def test_create_dry_run_reports_a_skipped_store(self, runner):
         with runner.isolated_filesystem():
@@ -4056,8 +4126,14 @@ class TestBackup:
 
     def test_create_dry_run_json(self, runner):
         # backup create has no per-command --json; use global --json
-        result = runner.invoke(cli_module.main, ["--json", "backup", "create", "backup.tar.gz",
-                                      "--dry-run"])
+        with runner.isolated_filesystem():
+            os.makedirs("kg")
+            with open("kg/graph.db", "w") as f:
+                f.write("data")
+            with open("cfg.yaml", "w") as f:
+                f.write("graph_db:\n  backend: sqlite\n  path: kg\n")
+            result = runner.invoke(cli_module.main, ["--config", "cfg.yaml", "--json",
+                                      "backup", "create", "backup.tar.gz", "--dry-run"])
         _ok(result)
         data = _json_output(result)
         assert data["dry_run"] is True
