@@ -4437,6 +4437,7 @@ class ContextGraph:
         metadata: Optional[Dict[str, Any]] = None,
         valid_from: Optional[Union[str, int, float, datetime]] = None,
         valid_until: Optional[Union[str, int, float, datetime]] = None,
+        decision_id: Optional[str] = None,
         **kwargs
     ) -> str:
         """
@@ -4451,6 +4452,11 @@ class ContextGraph:
             entities: Related entities
             decision_maker: Who made the decision
             metadata: Additional metadata
+            valid_from: Start of the decision's validity window
+            valid_until: End of the decision's validity window
+            decision_id: Optional pre-generated decision ID. When omitted, a
+                UUID is generated. A caller-supplied ID must not already
+                exist in this graph.
             **kwargs: Additional decision data
             
         Returns:
@@ -4525,7 +4531,15 @@ class ContextGraph:
             if len(str(value)) > 1000:
                 raise ValueError("Additional field values must be 1000 characters or less")
         
-        decision_id = str(uuid.uuid4())
+        if decision_id is not None:
+            if not isinstance(decision_id, str) or not decision_id.strip():
+                raise ValueError("Decision ID must be a non-empty string")
+            if decision_id in self.nodes or decision_id in getattr(
+                self, "_decisions", {}
+            ):
+                raise ValueError(f"Decision ID {decision_id!r} already exists")
+        else:
+            decision_id = str(uuid.uuid4())
         timestamp = datetime.now().timestamp()
         
         # Sanitize inputs

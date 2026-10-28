@@ -81,6 +81,43 @@ class TestContextGraphDecisions:
         assert isinstance(id_from_object, str) and len(id_from_object) > 0
         assert isinstance(id_from_kwargs, str) and len(id_from_kwargs) > 0
 
+    def test_record_decision_accepts_explicit_decision_id(self, context_graph):
+        """Callers that pre-generate an ID (e.g. for an eval case) keep it."""
+        decision_id = context_graph.record_decision(
+            category="loan",
+            scenario="mortgage application",
+            reasoning="strong credit history",
+            outcome="approved",
+            confidence=0.9,
+            decision_id="custom-decision-id",
+        )
+
+        assert decision_id == "custom-decision-id"
+        assert "custom-decision-id" in context_graph.nodes
+        assert context_graph._decisions[decision_id]["category"] == "loan"
+
+    def test_record_decision_rejects_duplicate_explicit_decision_id(
+        self, context_graph
+    ):
+        context_graph.record_decision(
+            category="loan",
+            scenario="mortgage application",
+            reasoning="strong credit history",
+            outcome="approved",
+            confidence=0.9,
+            decision_id="custom-decision-id",
+        )
+
+        with pytest.raises(ValueError, match="already exists"):
+            context_graph.record_decision(
+                category="loan",
+                scenario="another application",
+                reasoning="another reason",
+                outcome="approved",
+                confidence=0.8,
+                decision_id="custom-decision-id",
+            )
+
     def test_add_decision_with_embeddings(self, context_graph):
         """Test adding decision with embeddings."""
         decision = Decision(
