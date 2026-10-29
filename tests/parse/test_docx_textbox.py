@@ -205,3 +205,15 @@ def test_text_box_in_table_preserves_edge_separators(tmp_path, textbox):
     result = _parse(document, tmp_path)
 
     assert result["tables"][0]["rows"][0][0] == "\tEDGE\n"
+
+
+@pytest.mark.parametrize("textbox", [_vml_textbox, _alternate_content_textbox])
+def test_text_box_ignores_space_only_content(tmp_path, textbox):
+    document = docx.Document()
+    document.add_heading("Heading One", level=1)
+    _insert_after(document.paragraphs[-1], textbox("   "))
+
+    result = _parse(document, tmp_path)
+
+    assert result["paragraphs"] == ["Heading One"]
+    assert result["sections"][0]["content"] == ""

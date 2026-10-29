@@ -87,7 +87,7 @@ def _textbox_text(paragraph: Paragraph) -> str:
                         parts.append("\t")
                     elif node.tag in (_W_BR, _W_CR):
                         parts.append("\n")
-            text = "".join(parts)
+            text = "".join(parts).strip(" ")
             if text:
                 blocks.append(text)
     return "\n".join(blocks)
