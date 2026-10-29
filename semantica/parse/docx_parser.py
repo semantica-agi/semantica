@@ -88,16 +88,16 @@ def _textbox_text(paragraph: Paragraph) -> str:
                     elif node.tag in (_W_BR, _W_CR):
                         parts.append("\n")
             text = "".join(parts)
-            if text.strip():
-                blocks.append(text.strip())
+            if text:
+                blocks.append(text)
     return "\n".join(blocks)
 
 
 def _paragraph_text(paragraph: Paragraph) -> str:
     """``Paragraph.text`` plus the text of any text boxes it anchors."""
-    return "\n".join(
-        part for part in (paragraph.text, _textbox_text(paragraph)) if part
-    )
+    textbox = _textbox_text(paragraph)
+    text = "\n".join(part for part in (paragraph.text, textbox) if part)
+    return text if textbox else text.strip()
 
 
 @dataclass
@@ -190,7 +190,7 @@ class DOCXParser:
                 # Extract paragraphs
                 paragraphs = []
                 for para in doc.paragraphs:
-                    text = _paragraph_text(para).strip()
+                    text = _paragraph_text(para)
                     if text:
                         paragraphs.append(text)
 
@@ -288,9 +288,20 @@ class DOCXParser:
         for row in table.rows:
             row_data = []
             for cell in row.cells:
-                cell_text = "\n".join(
-                    _paragraph_text(p) for p in cell.paragraphs
-                ).strip()
+                cell_paragraphs = cell.paragraphs
+                if any(
+                    next(p._p.iter(_TXBX_CONTENT), None) is not None
+                    for p in cell_paragraphs
+                ):
+                    parts = [_paragraph_text(p) for p in cell_paragraphs]
+                    while parts and not parts[0]:
+                        parts.pop(0)
+                    while parts and not parts[-1]:
+                        parts.pop()
+                    cell_text = "\n".join(parts)
+                else:
+                    # Preserve the existing normalization for ordinary cells.
+                    cell_text = "\n".join(p.text for p in cell_paragraphs).strip()
                 row_data.append(cell_text)
             table_data["rows"].append(row_data)
 
@@ -304,7 +315,7 @@ class DOCXParser:
         current_section = None
 
         for para in doc.paragraphs:
-            text = _paragraph_text(para).strip()
+            text = _paragraph_text(para)
             # Check if paragraph is a heading
             if para.style.name.startswith("Heading"):
                 # Get heading level
