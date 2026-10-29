@@ -70,6 +70,34 @@ from ..utils.logging import get_logger
 from .decision_models import Decision
 
 
+def _causal_rel_pattern(direction: str, *, rel_var: Optional[str] = None) -> str:
+    """Return the Cypher relationship pattern for a causal traversal.
+
+    Uses the same canonical-and-alias vocabulary as the in-memory
+    ``ContextGraph`` traversal.  A Neo4j/FalkorDB/AGE graph can contain edges
+    written through ``add_edge(edge_type="causes")``; a canonical-only Cypher
+    pattern silently omits them from an audit chain.
+    """
+    if direction not in ("upstream", "downstream"):
+        raise ValueError("direction must be 'upstream' or 'downstream'")
+
+    from .context_graph import _CAUSAL_TRAVERSAL_TYPES
+
+    # In-memory traversal compares ``edge_type.upper()``, so both the
+    # canonical uppercase spelling and the present-tense lowercase spelling
+    # can be stored by ``add_edge()``. Include both in the Cypher type filter.
+    types = sorted(
+        {
+            variant
+            for edge_type in _CAUSAL_TRAVERSAL_TYPES
+            for variant in (edge_type, edge_type.lower())
+        }
+    )
+    type_filter = "|".join(types)
+    inner = f"[{rel_var}:{type_filter}]" if rel_var else f"[:{type_filter}]"
+    return f"<-{inner}-" if direction == "upstream" else f"-{inner}->"
+
+
 class CausalChainAnalyzer:
     """
     Analyzes causal chains between decisions.
@@ -146,11 +174,8 @@ class CausalChainAnalyzer:
             if direction not in ["upstream", "downstream"]:
                 raise ValueError("Direction must be 'upstream', 'downstream' or 'both'")
             
-            # Define relationship direction based on traversal direction
-            if direction == "upstream":
-                rel_pattern = "<-[:CAUSED|:INFLUENCED|:PRECEDENT_FOR]-"
-            else:
-                rel_pattern = "-[:CAUSED|:INFLUENCED|:PRECEDENT_FOR]->"
+            # Define relationship direction based on traversal direction.
+            rel_pattern = _causal_rel_pattern(direction)
             
             query = f"""
             MATCH (start:Decision {{decision_id: $decision_id}})
@@ -199,7 +224,7 @@ class CausalChainAnalyzer:
             return self._trace_at_time_from_context_graph(event_id, cutoff, direction, max_depth)
 
         if hasattr(self.graph_store, "execute_query"):
-            rel_pattern = "<-[rel:CAUSED|INFLUENCED|PRECEDENT_FOR]-" if direction == "upstream" else "-[rel:CAUSED|INFLUENCED|PRECEDENT_FOR]->"
+            rel_pattern = _causal_rel_pattern(direction, rel_var="rel")
             query = f"""
             MATCH (start:Decision {{decision_id: $decision_id}})
             MATCH path = (start){rel_pattern}{{1,{max_depth}}}(end:Decision)

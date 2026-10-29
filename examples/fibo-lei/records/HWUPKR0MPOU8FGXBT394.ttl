@@ -1,0 +1,35 @@
+# GLEIF LEI record HWUPKR0MPOU8FGXBT394, converted to FIBO terms for the Semantica fibo-lei example.
+# Source: https://api.gleif.org/api/v1/lei-records/HWUPKR0MPOU8FGXBT394
+# GLEIF registration.lastUpdateDate: 2026-03-03T16:34:33Z (fetched 2026-10-22). Data: CC0 1.0.
+# Fields used: lei, entity.legalName.name, entity.jurisdiction, registration.status.
+
+@prefix cmns-col: <https://www.omg.org/spec/Commons/Collections/> .
+@prefix cmns-dsg: <https://www.omg.org/spec/Commons/Designators/> .
+@prefix cmns-id: <https://www.omg.org/spec/Commons/Identifiers/> .
+@prefix cmns-org: <https://www.omg.org/spec/Commons/Organizations/> .
+@prefix cmns-rga: <https://www.omg.org/spec/Commons/RegulatoryAgencies/> .
+@prefix ex: <https://example.org/fibo-lei/> .
+@prefix fibo-be-le-lei: <https://spec.edmcouncil.org/fibo/ontology/BE/LegalEntities/LEIEntities/> .
+@prefix fibo-fbc-fct-breg: <https://spec.edmcouncil.org/fibo/ontology/FBC/FunctionalEntities/BusinessRegistries/> .
+@prefix fibo-fnd-rel-rel: <https://spec.edmcouncil.org/fibo/ontology/FND/Relations/Relations/> .
+
+# The legal entity (entity.legalName, entity.jurisdiction)
+ex:entity-HWUPKR0MPOU8FGXBT394 a fibo-be-le-lei:LEIRegisteredEntity, cmns-org:LegalEntity ;
+    fibo-fnd-rel-rel:hasLegalName "Apple Inc." ;
+    cmns-rga:isOrganizedIn ex:jurisdiction-US-CA ;
+    cmns-id:isIdentifiedBy ex:lei-HWUPKR0MPOU8FGXBT394 .
+
+# The LEI itself (lei)
+ex:lei-HWUPKR0MPOU8FGXBT394 a fibo-be-le-lei:LegalEntityIdentifier ;
+    fibo-fnd-rel-rel:hasTag "HWUPKR0MPOU8FGXBT394" ;
+    cmns-id:identifies ex:entity-HWUPKR0MPOU8FGXBT394 ;
+    cmns-dsg:isDefinedIn fibo-be-le-lei:ISO17442-CodeSet .
+
+# The registry entry that carries the status (registration.status = ISSUED)
+ex:registry-entry-HWUPKR0MPOU8FGXBT394 a fibo-fbc-fct-breg:LegalEntityIdentifierRegistryEntry ;
+    cmns-col:comprises ex:lei-HWUPKR0MPOU8FGXBT394 ;
+    fibo-fbc-fct-breg:hasRegistrationStatus fibo-fbc-fct-breg:IssuedStatus .
+
+# The jurisdiction, as its ISO 3166 code
+ex:jurisdiction-US-CA a cmns-rga:Jurisdiction ;
+    fibo-fnd-rel-rel:hasTag "US-CA" .
