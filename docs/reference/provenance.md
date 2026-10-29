@@ -414,9 +414,19 @@ For a `ProvenanceManager`, `apply()` requests strict tracking even in best-effor
 mode so a failed retry is reported accurately. Public errors contain only the
 exception type; required-mode errors retain the original exception as their
 cause. Duck-typed legacy managers keep their exception-only success contract.
+Strict tracking failures in an owned transaction retain one traceback through
+the manager's existing internal diagnostic logger. This does not add metadata,
+source quotes or other input payloads to log messages; the existing internal
+exception diagnostics remain separate from the redacted public error strings.
+A failing diagnostic handler does not replace the original tracking exception.
 
 `ProvenanceManager` subclasses that override `track_entity()` must honor
 `raise_on_error=True` for reliable detection of failed identical-input retries.
+Overrides with an explicit older signature must accept the new keyword before
+they can be used by `apply()`, including when storage is healthy. Otherwise,
+required mode raises `ProvenanceRecordingError` with a `TypeError` cause, and
+best-effort mode reports `provenance_recorded=False` and `provenance_error="TypeError"`.
+Accepting the keyword without honoring it is insufficient for reliable tracking.
 `apply()` still rejects missing entries or mismatched metadata as a secondary
 compatibility guard for older overrides. Matching metadata alone does not prove
 that storage persisted the entry.
