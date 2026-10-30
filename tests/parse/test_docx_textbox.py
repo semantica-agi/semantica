@@ -197,9 +197,7 @@ def test_text_box_keeps_edge_and_separator_only_content(
 def test_text_box_in_table_preserves_edge_separators(tmp_path, textbox):
     document = docx.Document()
     cell = document.add_table(rows=1, cols=1).cell(0, 0)
-    xml = textbox("EDGE").replace(
-        "<w:t>EDGE</w:t>", "<w:tab/><w:t>EDGE</w:t><w:br/>"
-    )
+    xml = textbox("EDGE").replace("<w:t>EDGE</w:t>", "<w:tab/><w:t>EDGE</w:t><w:br/>")
     _insert_after(cell.paragraphs[0], xml)
 
     result = _parse(document, tmp_path)
