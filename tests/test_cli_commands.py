@@ -13,8 +13,10 @@ Strategy:
 - Service commands: subprocess.Popen is mocked so nothing actually launches.
 """
 
+import builtins
 import json
 import os
+import sys
 import time
 import re
 import stat
@@ -29,6 +31,20 @@ from click.testing import CliRunner
 
 import semantica.cli as cli_module
 
+# The ImportError-path tests below patch `builtins.__import__` and fall through
+# to `__import__` for the modules they do not want to block. Inside that patch
+# the name resolves to the patched builtin, so the fall-through called the mock
+# again and recursed until the interpreter ran out of stack — a hard crash on
+# Windows, a bare RecursionError (which the command's error handler then turned
+# into a passing "clean error") elsewhere. Keep the real function to fall back to.
+_real_import = builtins.__import__
+
+# A prefix check on the patched name never fires for the CLI's backend modules:
+# `cli.py` imports them relatively (`from .parse import ...`), so `__import__`
+# is called with the bare local name at level 1 (`'parse'`, never
+# `'semantica.parse'`). Those tests block the module by putting None in
+# `sys.modules` instead, which raises ImportError however the import is spelled.
+
 
 # ─── fixtures ─────────────────────────────────────────────────────────────────
 
@@ -36,6 +52,18 @@ import semantica.cli as cli_module
 @pytest.fixture
 def runner() -> CliRunner:
     return CliRunner()
+
+
+@pytest.fixture
+def graph_cfg(tmp_path) -> str:
+    """A config that points the memory graph backend at a throwaway file.
+
+    Keeps commands that read the configured graph away from the developer's own
+    ``~/.semantica/context_graph.json``.
+    """
+    cfg = tmp_path / "cfg.yaml"
+    cfg.write_text(f"graph_db:\n  backend: memory\n  path: {tmp_path / 'graph.json'}\n")
+    return str(cfg)
 
 
 @pytest.fixture(autouse=True)
@@ -84,6 +112,14 @@ def _flatten(output: str) -> str:
     for ch in "┌┐└┘│─":
         output = output.replace(ch, " ")
     return " ".join(output.split())
+
+
+def _iter_subcommands(group, prefix=()):
+    """Yield the CLI path of every registered subcommand, depth first."""
+    for name, command in getattr(group, "commands", {}).items():
+        path = prefix + (name,)
+        yield path
+        yield from _iter_subcommands(command, path)
 
 
 # ─── Global flags ─────────────────────────────────────────────────────────────
@@ -500,15 +536,12 @@ class TestParse:
         result = runner.invoke(cli_module.main, ["parse", "no_such_file.pdf"])
         assert result.exit_code != 0
 
-    def test_parse_real_file(self, runner):
+    def test_parse_real_file(self, runner, monkeypatch):
         with runner.isolated_filesystem():
             with open("doc.txt", "w") as f:
                 f.write("Hello world")
-            with patch("builtins.__import__", side_effect=lambda n, *a, **k: (
-                (_ for _ in ()).throw(ImportError(n))
-                if n.startswith("semantica.parse") else __import__(n, *a, **k)
-            )):
-                result = runner.invoke(cli_module.main, ["parse", "doc.txt"])
+            monkeypatch.setitem(sys.modules, "semantica.parse", None)
+            result = runner.invoke(cli_module.main, ["parse", "doc.txt"])
         assert result.exit_code != 0
         assert "Traceback" not in result.output
 
@@ -533,15 +566,12 @@ class TestSplit:
         result = runner.invoke(cli_module.main, ["split"])
         assert result.exit_code != 0
 
-    def test_split_with_import_error(self, runner):
+    def test_split_with_import_error(self, runner, monkeypatch):
         with runner.isolated_filesystem():
             with open("doc.txt", "w") as f:
                 f.write("content")
-            with patch("builtins.__import__", side_effect=lambda n, *a, **k: (
-                (_ for _ in ()).throw(ImportError(n))
-                if n.startswith("semantica.split") else __import__(n, *a, **k)
-            )):
-                result = runner.invoke(cli_module.main, ["split", "doc.txt"])
+            monkeypatch.setitem(sys.modules, "semantica.split", None)
+            result = runner.invoke(cli_module.main, ["split", "doc.txt"])
         assert result.exit_code != 0
         assert "Traceback" not in result.output
 
@@ -784,12 +814,9 @@ class TestExtract:
         assert seen["entities"] is ner_result
         assert seen["relations"] is relation_result
 
-    def test_import_error_is_clean(self, runner):
-        with patch("builtins.__import__", side_effect=lambda n, *a, **k: (
-            (_ for _ in ()).throw(ImportError(n))
-            if n.startswith("semantica.semantic_extract") else __import__(n, *a, **k)
-        )):
-            result = runner.invoke(cli_module.main, ["extract", "text"])
+    def test_import_error_is_clean(self, runner, monkeypatch):
+        monkeypatch.setitem(sys.modules, "semantica.semantic_extract", None)
+        result = runner.invoke(cli_module.main, ["extract", "text"])
         assert result.exit_code != 0
         assert "Traceback" not in result.output
 
@@ -827,7 +854,7 @@ class TestEmbed:
     def test_generate_import_error_is_clean(self, runner):
         with patch("builtins.__import__", side_effect=lambda n, *a, **k: (
             (_ for _ in ()).throw(ImportError(n))
-            if "embeddings" in n else __import__(n, *a, **k)
+            if "embeddings" in n else _real_import(n, *a, **k)
         )):
             result = runner.invoke(cli_module.main, ["embed", "generate", "entities.json"])
         assert result.exit_code != 0
@@ -836,7 +863,7 @@ class TestEmbed:
     def test_search_import_error_is_clean(self, runner):
         with patch("builtins.__import__", side_effect=lambda n, *a, **k: (
             (_ for _ in ()).throw(ImportError(n))
-            if "vector_store" in n else __import__(n, *a, **k)
+            if "vector_store" in n else _real_import(n, *a, **k)
         )):
             result = runner.invoke(cli_module.main, ["embed", "search", "CEO query"])
         assert result.exit_code != 0
@@ -966,7 +993,7 @@ class TestDeduplicate:
     def test_import_error_is_clean(self, runner):
         with patch("builtins.__import__", side_effect=lambda n, *a, **k: (
             (_ for _ in ()).throw(ImportError(n))
-            if "deduplication" in n else __import__(n, *a, **k)
+            if "deduplication" in n else _real_import(n, *a, **k)
         )):
             result = runner.invoke(cli_module.main, ["deduplicate"])
         assert result.exit_code != 0
@@ -1013,7 +1040,7 @@ class TestReason:
     def test_run_import_error_is_clean(self, runner):
         with patch("builtins.__import__", side_effect=lambda n, *a, **k: (
             (_ for _ in ()).throw(ImportError(n))
-            if "reasoning" in n else __import__(n, *a, **k)
+            if "reasoning" in n else _real_import(n, *a, **k)
         )):
             result = runner.invoke(cli_module.main, ["reason", "run"])
         assert result.exit_code != 0
@@ -1697,7 +1724,7 @@ class TestReason:
     def test_explain_import_error_is_clean(self, runner):
         with patch("builtins.__import__", side_effect=lambda n, *a, **k: (
             (_ for _ in ()).throw(ImportError(n))
-            if "reasoning" in n else __import__(n, *a, **k)
+            if "reasoning" in n else _real_import(n, *a, **k)
         )):
             result = runner.invoke(cli_module.main, ["reason", "explain", "Alice is-manager-of Eng"])
         assert result.exit_code != 0
@@ -1706,7 +1733,7 @@ class TestReason:
     def test_query_import_error_is_clean(self, runner):
         with patch("builtins.__import__", side_effect=lambda n, *a, **k: (
             (_ for _ in ()).throw(ImportError(n))
-            if "reasoning" in n else __import__(n, *a, **k)
+            if "reasoning" in n else _real_import(n, *a, **k)
         )):
             result = runner.invoke(cli_module.main, ["reason", "query", "SELECT ?x WHERE {}"])
         assert result.exit_code != 0
@@ -1741,12 +1768,9 @@ class TestDecision:
         data = _json_output(result)
         assert data["dry_run"] is True
 
-    def test_record_import_error_is_clean(self, runner):
-        with patch("builtins.__import__", side_effect=lambda n, *a, **k: (
-            (_ for _ in ()).throw(ImportError(n))
-            if "semantica.context" in n else __import__(n, *a, **k)
-        )):
-            result = runner.invoke(cli_module.main, ["decision", "record", "--title", "X"])
+    def test_record_import_error_is_clean(self, runner, monkeypatch):
+        monkeypatch.setitem(sys.modules, "semantica.context", None)
+        result = runner.invoke(cli_module.main, ["decision", "record", "--title", "X"])
         assert result.exit_code != 0
         assert "Traceback" not in result.output
 
@@ -1844,12 +1868,9 @@ class TestDecision:
         assert result.exit_code != 0
         fake_dq.find_by_time_range.assert_not_called()
 
-    def test_trace_import_error_is_clean(self, runner):
-        with patch("builtins.__import__", side_effect=lambda n, *a, **k: (
-            (_ for _ in ()).throw(ImportError(n))
-            if "semantica.context" in n else __import__(n, *a, **k)
-        )):
-            result = runner.invoke(cli_module.main, ["decision", "trace", "dec_123"])
+    def test_trace_import_error_is_clean(self, runner, monkeypatch):
+        monkeypatch.setitem(sys.modules, "semantica.context", None)
+        result = runner.invoke(cli_module.main, ["decision", "trace", "dec_123"])
         assert result.exit_code != 0
         assert "Traceback" not in result.output
 
@@ -2255,7 +2276,7 @@ class TestTemporal:
     def test_history_import_error_is_clean(self, runner):
         with patch("builtins.__import__", side_effect=lambda n, *a, **k: (
             (_ for _ in ()).throw(ImportError(n))
-            if n.startswith("semantica.kg") else __import__(n, *a, **k)
+            if n.startswith(("semantica.kg", "kg.")) else _real_import(n, *a, **k)
         )):
             result = runner.invoke(cli_module.main, ["temporal", "history", "entity_alice"])
         assert result.exit_code != 0
@@ -2279,7 +2300,7 @@ class TestProvenance:
     def test_lineage_import_error_is_clean(self, runner):
         with patch("builtins.__import__", side_effect=lambda n, *a, **k: (
             (_ for _ in ()).throw(ImportError(n))
-            if "provenance" in n else __import__(n, *a, **k)
+            if "provenance" in n else _real_import(n, *a, **k)
         )):
             result = runner.invoke(cli_module.main, ["provenance", "lineage", "entity_alice"])
         assert result.exit_code != 0
@@ -2304,7 +2325,7 @@ class TestProvenance:
     def test_check_exits_0_when_import_error(self, runner):
         with patch("builtins.__import__", side_effect=lambda n, *a, **k: (
             (_ for _ in ()).throw(ImportError(n))
-            if "provenance" in n else __import__(n, *a, **k)
+            if "provenance" in n else _real_import(n, *a, **k)
         )):
             result = runner.invoke(cli_module.main, ["provenance", "check"])
         assert result.exit_code != 0
@@ -2314,6 +2335,30 @@ class TestProvenance:
 # ─── validate ─────────────────────────────────────────────────────────────────
 
 
+_SHAPES_TURTLE = (
+    "@prefix sh: <http://www.w3.org/ns/shacl#> .\n"
+    "@prefix ex: <http://example.org/> .\n"
+    "ex:PersonShape a sh:NodeShape ;\n"
+    "    sh:targetClass ex:Person ;\n"
+    "    sh:property [ sh:path ex:name ; sh:minCount 1 ] .\n"
+)
+
+_DATA_WITH_NAME_TURTLE = (
+    "@prefix ex: <http://example.org/> .\n"
+    'ex:alice a ex:Person ; ex:name "Alice" .\n'
+)
+
+_DATA_WITHOUT_NAME_TURTLE = (
+    "@prefix ex: <http://example.org/> .\n"
+    "ex:alice a ex:Person .\n"
+)
+
+
+def _rdf_file(path, text):
+    path.write_text(text, encoding="utf-8")
+    return str(path)
+
+
 class TestValidate:
     def test_group_help(self, runner):
         result = runner.invoke(cli_module.main, ["validate", "--help"])
@@ -2321,43 +2366,161 @@ class TestValidate:
         for sub in ["shacl", "conflicts", "integrity"]:
             assert sub in result.output
 
-    def test_shacl_help(self, runner):
+    def test_shacl_help_names_the_data_and_shapes_arguments(self, runner):
         result = runner.invoke(cli_module.main, ["validate", "shacl", "--help"])
         _ok(result)
-        assert "--strictness" in result.output
+        assert "DATA" in result.output
+        assert "--shapes" in result.output
 
-    def test_shacl_import_error_is_clean(self, runner):
+    def test_shacl_conforms_on_matching_data(self, runner, tmp_path):
+        """#1814: the command had no way to check an RDF file against shapes."""
+        pytest.importorskip("pyshacl")
+        data = _rdf_file(tmp_path / "data.ttl", _DATA_WITH_NAME_TURTLE)
+        shapes = _rdf_file(tmp_path / "shapes.ttl", _SHAPES_TURTLE)
+        result = runner.invoke(
+            cli_module.main,
+            ["validate", "shacl", data, "--shapes", shapes, "--json"],
+        )
+        _ok(result)
+        payload = _json_output(result)
+        assert payload["conforms"] is True
+        assert payload["violations"] == []
+
+    def test_shacl_reports_a_violation(self, runner, tmp_path):
+        pytest.importorskip("pyshacl")
+        data = _rdf_file(tmp_path / "data.ttl", _DATA_WITHOUT_NAME_TURTLE)
+        shapes = _rdf_file(tmp_path / "shapes.ttl", _SHAPES_TURTLE)
+        result = runner.invoke(
+            cli_module.main,
+            ["validate", "shacl", data, "--shapes", shapes, "--json"],
+        )
+        # Non-conforming data exits 1 so CI can gate on it.
+        assert result.exit_code == 1, result.output
+        payload = json.loads(result.output.strip())
+        assert payload["conforms"] is False
+        assert payload["violation_count"] >= 1
+
+    def test_shacl_rejects_an_extension_it_cannot_read(self, runner, tmp_path):
+        data = _rdf_file(tmp_path / "data.rdf", _DATA_WITH_NAME_TURTLE)
+        shapes = _rdf_file(tmp_path / "shapes.ttl", _SHAPES_TURTLE)
+        result = runner.invoke(
+            cli_module.main,
+            ["validate", "shacl", data, "--shapes", shapes, "--json"],
+        )
+        assert result.exit_code == 2
+        assert "cannot tell the RDF format" in _flatten(result.output)
+
+    def test_shacl_import_error_is_clean(self, runner, tmp_path):
+        data = _rdf_file(tmp_path / "data.ttl", _DATA_WITH_NAME_TURTLE)
+        shapes = _rdf_file(tmp_path / "shapes.ttl", _SHAPES_TURTLE)
         with patch("builtins.__import__", side_effect=lambda n, *a, **k: (
             (_ for _ in ()).throw(ImportError(n))
-            if "ontology" in n else __import__(n, *a, **k)
+            if "ontology" in n else _real_import(n, *a, **k)
         )):
-            result = runner.invoke(cli_module.main, ["validate", "shacl"])
+            result = runner.invoke(
+                cli_module.main,
+                ["validate", "shacl", data, "--shapes", shapes],
+            )
         assert result.exit_code != 0
         assert "Traceback" not in result.output
 
-    def test_conflicts_json(self, runner, monkeypatch):
-        fake_conf = _fake_module(
-            detect_conflicts=lambda **kw: {"conflicts": [], "count": 0},
+    def test_conflicts_calls_the_detector_with_all_strategies(
+        self, runner, graph_cfg, monkeypatch
+    ):
+        """#1814: the CLI must call ConflictDetector, whose `all` method is the
+        command's default strategy. The module-level convenience function has no
+        `all` and no `property`, and it takes no config."""
+        import semantica.conflicts as conflicts_module
+
+        seen = {}
+
+        class _Detector:
+            def __init__(self, **kwargs):
+                seen["init"] = kwargs
+
+            def detect_conflicts(self, entities, **kwargs):
+                seen["entities"] = entities
+                seen["kwargs"] = kwargs
+                return []
+
+        monkeypatch.setattr(conflicts_module, "ConflictDetector", _Detector)
+        result = runner.invoke(
+            cli_module.main, ["--config", graph_cfg, "validate", "conflicts", "--json"]
         )
-        monkeypatch.setitem(__import__("sys").modules, "semantica.conflicts", fake_conf)
-        result = runner.invoke(cli_module.main, ["validate", "conflicts", "--json"])
         _ok(result)
-        data = _json_output(result)
-        assert isinstance(data, dict)
+        assert _json_output(result) == {"conflicts": [], "count": 0}
+        assert seen["kwargs"]["method"] == "all"
+        assert seen["kwargs"]["relationships"] == []
+
+    def test_conflicts_property_strategy_is_reachable(self, runner, graph_cfg):
+        """The advertised value/property strategies need a property name."""
+        result = runner.invoke(
+            cli_module.main,
+            [
+                "--config", graph_cfg, "validate", "conflicts",
+                "--strategy", "value", "--property", "name", "--json",
+            ],
+        )
+        _ok(result)
+        assert _json_output(result)["count"] == 0
+
+    def test_conflicts_value_strategy_without_property_is_a_usage_error(
+        self, runner, graph_cfg
+    ):
+        result = runner.invoke(
+            cli_module.main,
+            ["--config", graph_cfg, "validate", "conflicts", "--strategy", "value"],
+        )
+        assert result.exit_code == 2
+        assert "--property" in _flatten(result.output)
+
+    def test_conflicts_all_strategy_rejects_a_property(self, runner, graph_cfg):
+        result = runner.invoke(
+            cli_module.main,
+            [
+                "--config", graph_cfg, "validate", "conflicts",
+                "--strategy", "all", "--property", "name",
+            ],
+        )
+        assert result.exit_code == 2
+        assert "--property" in _flatten(result.output)
+
+    def test_conflict_entities_lift_the_nested_attributes(self):
+        """ConflictDetector's value strategy tests ``property_name in entity``,
+        while both graph adapters keep an entity's attributes under
+        ``properties`` — so a stored attribute was never compared and no
+        conflict was reported."""
+        graph = {
+            "entities": [{"id": "e1", "type": "Person", "properties": {"age": 30}}],
+            "relationships": [],
+        }
+        entity = cli_module._conflict_entities(graph)[0]
+        assert entity["age"] == 30
+        # A structural field keeps its own meaning on a name clash.
+        assert entity["type"] == "Person"
+
+    def test_ontology_input_graph_lifts_the_nested_attributes(self):
+        """OntologyGenerator infers properties from top-level keys and lists
+        ``properties`` itself as a control field, so an unadapted graph produced
+        an ontology with no property shapes at all."""
+        graph = {
+            "entities": [
+                {"id": "e1", "type": "Person", "properties": {"age": 30}}
+            ],
+            "relationships": [],
+        }
+        entity = cli_module._ontology_input_graph(graph)["entities"][0]
+        assert entity["age"] == 30
+        assert entity["id"] == "e1"
 
     def test_integrity_exits_0_with_import_error(self, runner):
         with patch("builtins.__import__", side_effect=lambda n, *a, **k: (
             (_ for _ in ()).throw(ImportError(n))
-            if n.startswith("semantica.kg") else __import__(n, *a, **k)
+            if n.startswith("semantica.kg") else _real_import(n, *a, **k)
         )):
             result = runner.invoke(cli_module.main, ["validate", "integrity"])
         assert result.exit_code != 0
         assert "Traceback" not in result.output
-
-    def test_strictness_choices(self, runner):
-        result = runner.invoke(cli_module.main, ["validate", "shacl", "--help"])
-        for s in ["strict", "moderate", "lenient"]:
-            assert s in result.output
 
 
 # ─── ontology ─────────────────────────────────────────────────────────────────
@@ -2421,7 +2584,7 @@ class TestOntology:
                 f.write("")
             with patch("builtins.__import__", side_effect=lambda n, *a, **k: (
                 (_ for _ in ()).throw(ImportError(n))
-                if "ontology" in n else __import__(n, *a, **k)
+                if "ontology" in n else _real_import(n, *a, **k)
             )):
                 result = runner.invoke(cli_module.main, ["ontology", "align",
                                               "--source", "s.ttl", "--target", "t.ttl"])
@@ -2431,11 +2594,170 @@ class TestOntology:
     def test_health_exits_0_with_import_error(self, runner):
         with patch("builtins.__import__", side_effect=lambda n, *a, **k: (
             (_ for _ in ()).throw(ImportError(n))
-            if "ontology" in n else __import__(n, *a, **k)
+            if "ontology" in n else _real_import(n, *a, **k)
         )):
             result = runner.invoke(cli_module.main, ["ontology", "health"])
         assert result.exit_code != 0
         assert "Traceback" not in result.output
+
+    # ── #1814: the CLI drifted from the library's signatures ──────────────────
+
+    def test_import_ingests_a_turtle_file(self, runner, graph_cfg, tmp_path):
+        """#1814: the CLI forwarded its own config into rdflib's parser, so every
+        import died on `TurtleParser.parse() got an unexpected keyword 'config'`."""
+        schema = tmp_path / "schema.ttl"
+        schema.write_text(
+            "@prefix owl: <http://www.w3.org/2002/07/owl#> .\n"
+            "@prefix ex: <http://example.org/> .\n"
+            "ex:Person a owl:Class .\n"
+        )
+        result = runner.invoke(
+            cli_module.main,
+            [
+                "--config",
+                graph_cfg,
+                "ontology",
+                "import",
+                str(schema),
+                "--format",
+                "turtle",
+                "--json",
+            ],
+        )
+        _ok(result)
+        assert _json_output(result)["status"] == "ok"
+
+    def test_validate_returns_an_ontology_report(self, runner, graph_cfg):
+        """#1814: validate_ontology() takes an ontology, not `shapes_file`."""
+        result = runner.invoke(
+            cli_module.main, ["--config", graph_cfg, "ontology", "validate", "--json"]
+        )
+        _ok(result)
+        data = _json_output(result)
+        assert {"valid", "consistent", "satisfiable"} <= set(data)
+
+    def test_shacl_generates_shapes_from_the_ontology(self, runner, graph_cfg):
+        """#1814: SHACLGenerator.generate() requires the ontology argument."""
+        result = runner.invoke(
+            cli_module.main, ["--config", graph_cfg, "ontology", "shacl", "--json"]
+        )
+        _ok(result)
+        assert "shacl" in _json_output(result)
+
+    def test_version_reports_no_snapshots_yet(self, runner, graph_cfg):
+        """#1814: OntologyVersionManager has no `current`; list_versions() does."""
+        result = runner.invoke(
+            cli_module.main, ["--config", graph_cfg, "ontology", "version", "--json"]
+        )
+        _ok(result)
+        data = _json_output(result)
+        assert data["version"] is None
+        assert "No persistent version store selected" in data["message"]
+
+    def test_version_rejects_a_missing_store_file(self, runner, graph_cfg, tmp_path):
+        """A mistyped path used to create an empty store and report no versions;
+        the flag now fails fast instead."""
+        result = runner.invoke(
+            cli_module.main,
+            [
+                "--config", graph_cfg, "ontology", "version",
+                "--storage", str(tmp_path / "typo.db"), "--json",
+            ],
+        )
+        assert result.exit_code == 2
+        assert "does not exist" in _flatten(result.output)
+
+    def test_version_rejects_a_missing_configured_store(self, runner, tmp_path):
+        """The config key must not create an empty store either."""
+        cfg = tmp_path / "cfg.yaml"
+        cfg.write_text(
+            "custom:\n  ontology:\n"
+            f"    version_storage_path: {tmp_path / 'typo.db'}\n"
+        )
+        result = runner.invoke(
+            cli_module.main, ["--config", str(cfg), "ontology", "version", "--json"]
+        )
+        assert result.exit_code == 1
+        assert "does not exist" in _flatten(result.output)
+        assert not (tmp_path / "typo.db").exists()
+
+    def test_version_hints_the_key_it_actually_reads(self, runner):
+        result = runner.invoke(cli_module.main, ["ontology", "version"])
+        assert "custom.ontology.version_storage_path" in _flatten(result.output)
+
+    def test_validate_shapes_points_at_validate_shacl(self, runner):
+        # --shapes moved to `validate shacl`; an existing script should get a
+        # pointer rather than Click's "No such option" (#1814 review).
+        result = runner.invoke(cli_module.main,
+                               ["ontology", "validate", "--shapes", "x.ttl"])
+        assert result.exit_code != 0
+        assert "validate shacl" in _flatten(result.output)
+
+    def test_health_returns_a_quality_report(self, runner, graph_cfg):
+        """#1814: OntologyValidator has no `health`; the quality gate does."""
+        result = runner.invoke(
+            cli_module.main, ["--config", graph_cfg, "ontology", "health", "--json"]
+        )
+        _ok(result)
+        assert "passed" in _json_output(result)
+
+    # ── #1814 review: paths, vocabularies and format names ────────────────────
+
+    def test_import_maps_the_advertised_format_names(
+        self, runner, graph_cfg, tmp_path, monkeypatch
+    ):
+        """The CLI advertises rdflib's public format names but hands an explicit
+        format to Dataset.parse, which wants its own parser names; passing them
+        through meant rdfxml/jsonld/ntriples never reached their parsers."""
+        import semantica.ontology as ontology_module
+
+        seen = {}
+
+        def _ingest(source, **kwargs):
+            seen.update(kwargs)
+            return {"status": "ok"}
+
+        monkeypatch.setattr(ontology_module, "ingest_ontology", _ingest)
+        source = tmp_path / "schema.rdf"
+        source.write_text(
+            "<rdf:RDF xmlns:rdf='http://www.w3.org/1999/02/22-rdf-syntax-ns#'/>"
+        )
+        result = runner.invoke(
+            cli_module.main,
+            [
+                "--config",
+                graph_cfg,
+                "ontology",
+                "import",
+                str(source),
+                "--format",
+                "rdfxml",
+                "--json",
+            ],
+        )
+        _ok(result)
+        assert seen["format"] == "xml"
+
+    def test_health_passes_the_graph_to_the_quality_gate(
+        self, runner, graph_cfg, monkeypatch
+    ):
+        """The generated ontology does not retain the instances, so without the
+        graph the report omitted every instance-level check."""
+        import semantica.ontology as ontology_module
+
+        seen = {}
+
+        class _Engine:
+            def quality_check(self, ontology, graph_data=None):
+                seen["graph_data"] = graph_data
+                return {"passed": True}
+
+        monkeypatch.setattr(ontology_module, "OntologyEngine", _Engine)
+        result = runner.invoke(
+            cli_module.main, ["--config", graph_cfg, "ontology", "health", "--json"]
+        )
+        _ok(result)
+        assert set(seen["graph_data"]) == {"entities", "relationships"}
 
 
 # ─── export ───────────────────────────────────────────────────────────────────
@@ -2665,7 +2987,7 @@ class TestVisualize:
     def test_import_error_is_clean(self, runner, sub):
         with patch("builtins.__import__", side_effect=lambda n, *a, **k: (
             (_ for _ in ()).throw(ImportError(n))
-            if "visualization" in n else __import__(n, *a, **k)
+            if "visualization" in n else _real_import(n, *a, **k)
         )):
             result = runner.invoke(cli_module.main, ["visualize", sub])
         assert result.exit_code != 0
@@ -4565,7 +4887,7 @@ class TestExitCodes:
     def test_import_error_is_nonzero(self, runner):
         with patch("builtins.__import__", side_effect=lambda n, *a, **k: (
             (_ for _ in ()).throw(ImportError(n))
-            if "deduplication" in n else __import__(n, *a, **k)
+            if "deduplication" in n else _real_import(n, *a, **k)
         )):
             result = runner.invoke(cli_module.main, ["deduplicate"])
         assert result.exit_code != 0
@@ -5462,6 +5784,79 @@ class TestOntologyAlignOutput:
         assert "alignments" in df.columns
 
 
+class TestProvenanceCliStorageEnv:
+    """#1810: `semantica provenance audit` must read the DB the Explorer writes.
+
+    The CLI builds ``ProvenanceManager(config=...)`` with no storage path, so
+    before the fix every read command inspected a fresh in-memory store and the
+    env var the Explorer honours was invisible to it.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _isolate_storage(self, monkeypatch):
+        from semantica.provenance import ProvenanceManager
+
+        monkeypatch.delenv("SEMANTICA_PROVENANCE_DB", raising=False)
+        monkeypatch.delenv("EXPLORER_PROVENANCE_DB", raising=False)
+        original = ProvenanceManager._default_storage_path
+        ProvenanceManager._default_storage_path = None
+        try:
+            yield
+        finally:
+            ProvenanceManager._default_storage_path = original
+
+    @staticmethod
+    def _seed_db(path):
+        from semantica.provenance import ProvenanceManager
+
+        writer = ProvenanceManager(storage_path=str(path))
+        writer.track_entity(
+            entity_id="ent1", source="t.py", activity="creation", agent="tester"
+        )
+        writer.track_entity(
+            entity_id="ent2", source="t.py", activity="creation", agent="tester"
+        )
+
+    def test_audit_reads_the_db_named_by_the_env_var(
+        self, runner, monkeypatch, tmp_path
+    ):
+        db = tmp_path / "cli_prov.db"
+        self._seed_db(db)
+        monkeypatch.setenv("SEMANTICA_PROVENANCE_DB", str(db))
+
+        result = runner.invoke(
+            cli_module.main, ["provenance", "audit", "--format", "json", "--json"]
+        )
+        _ok(result)
+        entries = json.loads(result.output.strip())
+        assert [e["entity_id"] for e in entries] == ["ent1", "ent2"]
+
+    def test_audit_is_empty_when_no_env_var_points_at_a_db(self, runner, tmp_path):
+        self._seed_db(tmp_path / "cli_prov.db")
+
+        result = runner.invoke(
+            cli_module.main, ["provenance", "audit", "--format", "json", "--json"]
+        )
+        _ok(result)
+        assert json.loads(result.output.strip()) == []
+
+    def test_configured_storage_path_wins_over_the_env_var(
+        self, runner, monkeypatch, tmp_path
+    ):
+        configured = tmp_path / "configured.db"
+        self._seed_db(configured)
+        monkeypatch.setenv("SEMANTICA_PROVENANCE__STORAGE_PATH", str(configured))
+        monkeypatch.setenv("SEMANTICA_PROVENANCE_DB", str(tmp_path / "other.db"))
+
+        result = runner.invoke(
+            cli_module.main, ["provenance", "audit", "--format", "json", "--json"]
+        )
+        _ok(result)
+        entries = json.loads(result.output.strip())
+        assert [e["entity_id"] for e in entries] == ["ent1", "ent2"]
+        assert not (tmp_path / "other.db").exists()
+
+
 class _FakeUrlopenResponse:
     """Minimal context-manager response for a stubbed urllib.request.urlopen."""
 
@@ -5594,3 +5989,27 @@ class TestChangelogWithoutPackaging:
         result = runner.invoke(cli_module.main, ["changelog", "--json"])
         _ok(result)
         assert json.loads(result.output)["update_available"] is expected
+
+
+# ─── subcommand smoke ─────────────────────────────────────────────────────────
+
+
+class TestSubcommandSmoke:
+    """Every registered subcommand must at least answer ``--help``.
+
+    The command-family tests invoke the subcommands they care about, so one that
+    was registered but never wired up — a decorator that dropped its options, an
+    argument the callback cannot accept — can break unnoticed until a user runs
+    it. Walk the whole command tree instead of a hand-picked list.
+    """
+
+    def test_every_registered_subcommand_answers_help(self, runner):
+        paths = list(_iter_subcommands(cli_module.main))
+        # Guard against the walk silently finding nothing and passing vacuously.
+        assert len(paths) > 20
+        failures = []
+        for path in paths:
+            result = runner.invoke(cli_module.main, list(path) + ["--help"])
+            if result.exit_code != 0:
+                failures.append((path, result.exit_code, result.output[-200:]))
+        assert failures == []

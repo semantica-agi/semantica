@@ -1968,3 +1968,36 @@ def test_unsequenced_records_do_not_break_the_default_call(tmp_path):
     connection.close()
 
     assert ProvenanceManager(storage_path=storage).verify_chain()["valid"] is True
+
+
+class TestStoragePathFromEnv:
+    """#1810: the env path is resolved for the CLI and Explorer only."""
+
+    @pytest.fixture(autouse=True)
+    def _clear_env(self, monkeypatch):
+        monkeypatch.delenv("SEMANTICA_PROVENANCE_DB", raising=False)
+        monkeypatch.delenv("EXPLORER_PROVENANCE_DB", raising=False)
+
+    def test_semantica_var_wins_over_the_explorer_one(self, monkeypatch):
+        from semantica.provenance import storage_path_from_env
+
+        monkeypatch.setenv("SEMANTICA_PROVENANCE_DB", "primary.db")
+        monkeypatch.setenv("EXPLORER_PROVENANCE_DB", "secondary.db")
+        assert storage_path_from_env() == "primary.db"
+
+    def test_explorer_var_is_the_fallback(self, monkeypatch):
+        from semantica.provenance import storage_path_from_env
+
+        monkeypatch.setenv("EXPLORER_PROVENANCE_DB", "secondary.db")
+        assert storage_path_from_env() == "secondary.db"
+
+    def test_unset_returns_none(self):
+        from semantica.provenance import storage_path_from_env
+
+        assert storage_path_from_env() is None
+
+    def test_manager_does_not_read_the_env_var(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("SEMANTICA_PROVENANCE_DB", str(tmp_path / "env.db"))
+        with ProvenanceManager.default_storage_path(None):
+            pm = ProvenanceManager()
+        assert isinstance(pm.storage, InMemoryStorage)

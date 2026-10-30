@@ -94,7 +94,7 @@ from ..utils.exceptions import ProcessingError, ValidationError
 from ..utils.helpers import ensure_directory
 from ..utils.logging import get_logger
 from ..utils.progress_tracker import get_progress_tracker
-from .endpoint_names import canonical_endpoints, has_endpoints
+from .endpoint_names import canonical_endpoints, first_set_id, has_endpoints
 
 # Explicit Arrow Schemas (no inference)
 if ARROW_AVAILABLE:
@@ -485,15 +485,17 @@ class ArrowExporter:
 
         # Normalize relationship data to consistent format
         normalized_rels = []
-        for i, rel in enumerate(relationships):
+        for i, rel in enumerate(canonical_endpoints(relationships)):
             if not isinstance(rel, dict):
                 self.logger.warning(f"Relationship {i} is not a dictionary, skipping")
                 continue
 
             # Extract and normalize fields
             rel_id = rel.get("id", f"rel_{i}")
-            source_id = rel.get("source_id") or rel.get("source", "")
-            target_id = rel.get("target_id") or rel.get("target", "")
+            source_id = first_set_id(rel, ("source_id", "source"))
+            target_id = first_set_id(rel, ("target_id", "target"))
+            source_id = "" if source_id is None else source_id
+            target_id = "" if target_id is None else target_id
             rel_type = rel.get("type") or rel.get("relationship_type", "")
             confidence = rel.get("confidence")
 

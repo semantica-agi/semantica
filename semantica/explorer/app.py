@@ -16,6 +16,7 @@ from fastapi.staticfiles import StaticFiles
 from .. import __version__
 from ..context.agent_memory import AgentMemory
 from ..context.context_graph import ContextGraph
+from ..provenance.manager import storage_path_from_env
 from .dependencies import anonymous_access_allowed, get_expected_api_key, require_auth
 from .markdown_resources import MarkdownResourceRegistry
 from .runtime import explorer_capabilities, install_mutation_bridge
@@ -52,10 +53,7 @@ def _read_explorer_settings() -> dict:
         # ContextGraph and does not open a network connection to FalkorDB.
         "falkordb_host": os.environ.get("FALKORDB_HOST", "localhost"),
         "falkordb_port": _read_int_env("FALKORDB_PORT", 6379),
-        "provenance_storage_path": os.environ.get(
-            "SEMANTICA_PROVENANCE_DB",
-            os.environ.get("EXPLORER_PROVENANCE_DB"),
-        ),
+        "provenance_storage_path": storage_path_from_env(),
     }
 
 
