@@ -43,7 +43,7 @@ python -m semantica.mcp_server
 - **15 MCP Tools** — Extract entities, extract relations, record decisions, query decisions, find precedents, trace causal chains, add entities, add relationships, run analytics, summarise graph, run reasoning, export graph, query the live graph, update nodes, archive nodes.
 - **3 Readable Resources** — Live graph JSON (`semantica://graph/summary`), decision list, and schema/version info: readable by any MCP client.
 - **Zero Infrastructure** — Runs over stdio: no server, no port, no Docker required. One config block to activate in any MCP client.
-- **Persistent Graphs** — Point `SEMANTICA_KG_PATH` at a saved graph file to reload it automatically on every server startup.
+- **Persistent Graphs** — Point `SEMANTICA_KG_PATH` at a saved graph file to load it on first use. Opt into `SEMANTICA_KG_AUTO_RELOAD=true` for same-session file refresh.
 - **Decision Intelligence** — Record decisions, find precedents via hybrid similarity search, and trace causal chains across agent runs.
 - **REST Alternative** — The [Explorer](/reference/explorer) module offers a full HTTP API and browser dashboard if you prefer programmatic access.
 
@@ -139,19 +139,33 @@ The MCP server is included in the base install: no extras required.
     # Send a JSON-RPC initialize message to confirm it's working
     echo '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1.0"}}}' | semantica-mcp
     ```
+
   </Step>
 </Steps>
 
 ## Environment Variables
 
-| Variable | Default | Description |
-| :-------- | :------- | :----------- |
-| `SEMANTICA_KG_PATH` | *(none: in-memory graph)* | Path to a persisted graph file to load on startup |
-| `SEMANTICA_LOG_LEVEL` | `WARNING` | Log verbosity: `DEBUG`, `INFO`, `WARNING` |
+| Variable                   | Default                   | Description                                                                          |
+| :------------------------- | :------------------------ | :----------------------------------------------------------------------------------- |
+| `SEMANTICA_KG_PATH`        | _(none: in-memory graph)_ | Path to a persisted graph file to load on first use                                  |
+| `SEMANTICA_KG_AUTO_RELOAD` | `false`                   | Set to `true` to reload changed graph-file revisions before the next graph operation |
+| `SEMANTICA_LOG_LEVEL`      | `WARNING`                 | Log verbosity: `DEBUG`, `INFO`, `WARNING`                                            |
 
 <Warning>
   **The graph starts empty unless you set `SEMANTICA_KG_PATH`.** The MCP server creates a fresh in-memory `ContextGraph` on first use. Set `SEMANTICA_KG_PATH` to a previously saved graph file to restore state across server restarts. Without it, all data is lost when the process exits.
 </Warning>
+
+### Opt-in file refresh
+
+The default remains a graph loaded once and shared for the lifetime of the server. Configure `SEMANTICA_KG_AUTO_RELOAD=true` at launch only when the persisted file is authoritative for graph operations. With this option, operations check the file's identity, size, modification time and change time. An unchanged revision reuses the current graph; a changed revision loads a fresh `ContextGraph` and replaces the cache only after loading completes against a stable revision. Prefer `ContextGraph.save_to_file()`, which publishes JSON through an atomic file replacement. Both the console entry point and `python -m semantica_mcp.mcp` use the same revision rules, with separate session-local caches.
+
+A missing or initially empty destination can still initialise an empty graph. Once a populated source has been accepted, deletion, truncation, an unreadable or invalid replacement, or a change during loading refuses that graph operation rather than serving stale or partially loaded data. Repair the source and retry in the same MCP session; failed reads do not write to the file. In-memory sessions without `SEMANTICA_KG_PATH` retain their existing behavior.
+
+Before a mutation saves, this mode compares the destination's current revision with the revision loaded into the graph. A mismatch refuses persistence and restores the still-owned in-memory changes instead of overwriting the pipeline publication. Rollback uses native mutation events and leaves audit callbacks enabled. Independent callback changes, dependent edges and conflicting fields are preserved; an operation that cannot fully undo its own changes reports `rollback incomplete`, not a successful rollback. Suspended mutation callbacks refuse persisted operations before mutation; memory-only operations remain available. External audit effects cannot be undone.
+
+A successful native save is accepted only after a stable verification read matches its complete persistence snapshot. The cache retains that verified revision without reloading its own write. If saving may have published but verification fails, `Publication unverified` reports the in-memory rollback separately; the destination is preserved and the next operation must reload it. Reloaded cross-graph links must be reconnected with native `resolve_links()` before saving, since the native JSON writer does not persist unresolved links.
+
+This is file-revision cache coherence, not a cross-process write lock, cryptographic freshness proof or permanent source-revocation policy. A revision check cannot exclude a publisher that writes after that check but before the atomic save; simultaneous writers still need their own coordination. An externally restored valid old graph is a newly observed file revision. A reload replaces the graph instance from native persisted fields; retained Python references are not live views, and unpersisted state is not carried into the replacement. Vector-store caching is unchanged.
 
 <Tip>
   **Enable debug logging for troubleshooting.** Set `SEMANTICA_LOG_LEVEL=DEBUG` in your MCP client's `env` block, or run `python -m semantica.mcp_server` directly and inspect stderr output.
@@ -161,23 +175,23 @@ The MCP server is included in the base install: no extras required.
 
 The MCP server exposes 15 tools that any connected AI assistant can call:
 
-| Tool | Category | Description |
-| :---- | :-------- | :----------- |
-| `extract_entities` | Extraction | NER: find people, places, organisations, concepts |
-| `extract_relations` | Extraction | Typed relation and triplet extraction |
-| `record_decision` | Decision Intelligence | Save a decision with reasoning and outcome |
-| `query_decisions` | Decision Intelligence | Search recorded decisions by natural language or category |
-| `find_precedents` | Decision Intelligence | Hybrid similarity search over past decisions |
-| `get_causal_chain` | Decision Intelligence | Trace upstream / downstream causal chains |
-| `add_entity` | Graph Operations | Add a node to the live graph |
-| `add_relationship` | Graph Operations | Add a directed edge between two nodes |
-| `get_graph_summary` | Graph Operations | Node count, decision count, graph status |
-| `get_graph_analytics` | Graph Operations | PageRank centrality and community detection |
-| `query_graph` | Graph Operations | Fetch a node, traverse its neighbours, or keyword-search nodes |
-| `update_node` | Graph Operations | Merge properties onto a node and persist to `SEMANTICA_KG_PATH` |
-| `delete_node` | Graph Operations | Soft-delete (archive) a node and persist to `SEMANTICA_KG_PATH` |
-| `run_reasoning` | Reasoning | Forward-chain IF/THEN rules over facts |
-| `export_graph` | Reasoning & Export | Serialise the graph (`turtle`/`ttl`: RDF Turtle aliases, `nt`, `xml`, `json-ld`, `json`) |
+| Tool                  | Category              | Description                                                                              |
+| :-------------------- | :-------------------- | :--------------------------------------------------------------------------------------- |
+| `extract_entities`    | Extraction            | NER: find people, places, organisations, concepts                                        |
+| `extract_relations`   | Extraction            | Typed relation and triplet extraction                                                    |
+| `record_decision`     | Decision Intelligence | Save a decision with reasoning and outcome                                               |
+| `query_decisions`     | Decision Intelligence | Search recorded decisions by natural language or category                                |
+| `find_precedents`     | Decision Intelligence | Hybrid similarity search over past decisions                                             |
+| `get_causal_chain`    | Decision Intelligence | Trace upstream / downstream causal chains                                                |
+| `add_entity`          | Graph Operations      | Add a node to the live graph                                                             |
+| `add_relationship`    | Graph Operations      | Add a directed edge between two nodes                                                    |
+| `get_graph_summary`   | Graph Operations      | Node count, decision count, graph status                                                 |
+| `get_graph_analytics` | Graph Operations      | PageRank centrality and community detection                                              |
+| `query_graph`         | Graph Operations      | Fetch a node, traverse its neighbours, or keyword-search nodes                           |
+| `update_node`         | Graph Operations      | Merge properties onto a node and persist to `SEMANTICA_KG_PATH`                          |
+| `delete_node`         | Graph Operations      | Soft-delete (archive) a node and persist to `SEMANTICA_KG_PATH`                          |
+| `run_reasoning`       | Reasoning             | Forward-chain IF/THEN rules over facts                                                   |
+| `export_graph`        | Reasoning & Export    | Serialise the graph (`turtle`/`ttl`: RDF Turtle aliases, `nt`, `xml`, `json-ld`, `json`) |
 
 ### Knowledge Extraction
 
@@ -198,10 +212,34 @@ Extract named entities (people, places, organisations, concepts) from text using
 ```json
 {
   "entities": [
-    { "label": "Apple Inc.", "type": "ORGANIZATION", "start": 0,  "end": 10,  "confidence": 0.98 },
-    { "label": "Steve Jobs", "type": "PERSON",       "start": 26, "end": 36,  "confidence": 0.99 },
-    { "label": "Cupertino",  "type": "LOCATION",     "start": 40, "end": 49,  "confidence": 0.97 },
-    { "label": "1976",       "type": "DATE",          "start": 53, "end": 57,  "confidence": 0.95 }
+    {
+      "label": "Apple Inc.",
+      "type": "ORGANIZATION",
+      "start": 0,
+      "end": 10,
+      "confidence": 0.98
+    },
+    {
+      "label": "Steve Jobs",
+      "type": "PERSON",
+      "start": 26,
+      "end": 36,
+      "confidence": 0.99
+    },
+    {
+      "label": "Cupertino",
+      "type": "LOCATION",
+      "start": 40,
+      "end": 49,
+      "confidence": 0.97
+    },
+    {
+      "label": "1976",
+      "type": "DATE",
+      "start": 53,
+      "end": 57,
+      "confidence": 0.95
+    }
   ],
   "count": 4
 }
@@ -224,7 +262,12 @@ Extract typed relations and `(subject, predicate, object)` triplets from text.
 ```json
 {
   "relations": [
-    { "source": "Steve Jobs", "type": "founded", "target": "Apple Inc.", "confidence": 0.96 }
+    {
+      "source": "Steve Jobs",
+      "type": "founded",
+      "target": "Apple Inc.",
+      "confidence": 0.96
+    }
   ],
   "triplets": [
     { "subject": "Steve Jobs", "predicate": "founded", "object": "Apple Inc." }
@@ -487,11 +530,11 @@ Supported formats: `turtle`, `ttl`, `nt`, `xml`, `json-ld`, `json`. Default is `
 
 The MCP server exposes three readable resources:
 
-| URI | Description |
-| :--- | :----------- |
-| `semantica://graph/summary` | High-level graph statistics |
-| `semantica://decisions/list` | All recorded decisions (up to 50) |
-| `semantica://schema/info` | Server version and available tools |
+| URI                          | Description                        |
+| :--------------------------- | :--------------------------------- |
+| `semantica://graph/summary`  | High-level graph statistics        |
+| `semantica://decisions/list` | All recorded decisions (up to 50)  |
+| `semantica://schema/info`    | Server version and available tools |
 
 - [Context](/reference/context) — The ContextGraph that the MCP server operates on.
 - [Semantic Extract](/reference/semantic_extract) — NER and relation extraction powering the MCP tools.
