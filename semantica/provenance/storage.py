@@ -565,17 +565,40 @@ class SQLiteStorage(ProvenanceStorage):
         ("checksum_version", "INTEGER"),
     ]
 
-    def _migrate_schema(self, conn: sqlite3.Connection) -> None:
-        """Add any columns introduced after the table was first created to an
-        already-existing table (see _MIGRATION_COLUMNS)."""
-        cursor = conn.cursor()
+    def _missing_columns(self, cursor: sqlite3.Cursor) -> List[Tuple[str, str]]:
+        """The columns from _MIGRATION_COLUMNS the provenance table lacks."""
         cursor.execute("PRAGMA table_info(provenance)")
         existing_columns = {row[1] for row in cursor.fetchall()}
-        for column_name, column_def in self._MIGRATION_COLUMNS:
-            if column_name not in existing_columns:
+        return [
+            (column_name, column_def)
+            for column_name, column_def in self._MIGRATION_COLUMNS
+            if column_name not in existing_columns
+        ]
+
+    def _migrate_schema(self, conn: sqlite3.Connection) -> None:
+        """Add any columns introduced after the table was first created to an
+        already-existing table (see _MIGRATION_COLUMNS).
+
+        This runs on every open, and almost every open finds nothing to do, so
+        the table is read once without a lock and the method returns there. A
+        missing column means an older database, and only then does it take
+        ``BEGIN IMMEDIATE`` and read the table again: two processes opening
+        that database together are serialized, the second one finds the column
+        the first added, and neither ALTER runs twice.
+        """
+        cursor = conn.cursor()
+        if not self._missing_columns(cursor):
+            return
+        cursor.execute("BEGIN IMMEDIATE")
+        try:
+            for column_name, column_def in self._missing_columns(cursor):
                 cursor.execute(
                     f"ALTER TABLE provenance ADD COLUMN {column_name} {column_def}"
                 )
+            conn.commit()
+        except BaseException:
+            conn.rollback()
+            raise
 
     def _init_db(self) -> None:
         """Create tables with W3C PROV-O compliant schema."""
@@ -692,12 +715,66 @@ class SQLiteStorage(ProvenanceStorage):
     def _store_with_conn(self, conn: sqlite3.Connection, entry: ProvenanceEntry) -> None:
         """Internal store method using an active connection/transaction."""
         cursor = conn.cursor()
+        # Name the columns instead of relying on their position, and update the
+        # row in place instead of REPLACE: REPLACE deletes the row and inserts
+        # it again, which blanks any column a newer release added to the table.
         cursor.execute("""
-            INSERT OR REPLACE INTO provenance VALUES (
-                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+            INSERT INTO provenance (
+                entity_id, entity_type, activity_id, agent_id, source_document,
+                source_location, source_quote, timestamp, first_seen,
+                last_updated, confidence, checksum, parent_entity_id,
+                used_entities, start_index, end_index, credibility, metadata,
+                version, agent_type, is_automated, role, sequence_id,
+                previous_checksum, previous_version_id, derived_from_id,
+                invalidated, invalidated_at_time, invalidated_by,
+                invalidation_reason, activity_started_at_time,
+                activity_ended_at_time, acted_on_behalf_of,
+                informed_by_activities, valid_from, valid_until, revision_type,
+                supersedes, bundle_id, checksum_version
+            ) VALUES (
+                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
             )
+            ON CONFLICT(entity_id) DO UPDATE SET
+                entity_type = excluded.entity_type,
+                activity_id = excluded.activity_id,
+                agent_id = excluded.agent_id,
+                source_document = excluded.source_document,
+                source_location = excluded.source_location,
+                source_quote = excluded.source_quote,
+                timestamp = excluded.timestamp,
+                first_seen = excluded.first_seen,
+                last_updated = excluded.last_updated,
+                confidence = excluded.confidence,
+                checksum = excluded.checksum,
+                parent_entity_id = excluded.parent_entity_id,
+                used_entities = excluded.used_entities,
+                start_index = excluded.start_index,
+                end_index = excluded.end_index,
+                credibility = excluded.credibility,
+                metadata = excluded.metadata,
+                version = excluded.version,
+                agent_type = excluded.agent_type,
+                is_automated = excluded.is_automated,
+                role = excluded.role,
+                sequence_id = excluded.sequence_id,
+                previous_checksum = excluded.previous_checksum,
+                previous_version_id = excluded.previous_version_id,
+                derived_from_id = excluded.derived_from_id,
+                invalidated = excluded.invalidated,
+                invalidated_at_time = excluded.invalidated_at_time,
+                invalidated_by = excluded.invalidated_by,
+                invalidation_reason = excluded.invalidation_reason,
+                activity_started_at_time = excluded.activity_started_at_time,
+                activity_ended_at_time = excluded.activity_ended_at_time,
+                acted_on_behalf_of = excluded.acted_on_behalf_of,
+                informed_by_activities = excluded.informed_by_activities,
+                valid_from = excluded.valid_from,
+                valid_until = excluded.valid_until,
+                revision_type = excluded.revision_type,
+                supersedes = excluded.supersedes,
+                bundle_id = excluded.bundle_id,
+                checksum_version = excluded.checksum_version
         """, (
             entry.entity_id,
             entry.entity_type,
