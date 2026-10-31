@@ -4006,7 +4006,8 @@ class ContextGraph:
         self,
         decision_id: str,
         direction: str = "upstream",
-        max_depth: int = 10
+        max_depth: int = 10,
+        include_inactive: bool = False,
     ) -> List["Decision"]:
         """
         Get causal chain from graph.
@@ -4017,6 +4018,10 @@ class ContextGraph:
                 chain followed by the downstream one, each decision listed
                 once and tagged with metadata["causal_direction"])
             max_depth: Maximum traversal depth, per direction
+            include_inactive: Include retracted or not-yet-valid edges and
+                decision nodes. Defaults to False so the current causal chain
+                reflects the active graph; use ``state_at()`` or ``trace_at_time()``
+                for historical views.
 
         Returns:
             List of decisions in causal chain
@@ -4026,7 +4031,9 @@ class ContextGraph:
         if direction == "both":
             chain, seen = [], set()
             for side in ("upstream", "downstream"):
-                for d in self.get_causal_chain(decision_id, side, max_depth):
+                for d in self.get_causal_chain(
+                    decision_id, side, max_depth, include_inactive=include_inactive
+                ):
                     if d.decision_id not in seen:
                         seen.add(d.decision_id)
                         d.metadata["causal_direction"] = side
@@ -4035,6 +4042,14 @@ class ContextGraph:
 
         if direction not in ["upstream", "downstream"]:
             raise ValueError("Direction must be 'upstream', 'downstream' or 'both'")
+
+        now = datetime.utcnow()
+        if (
+            not include_inactive
+            and decision_id in self.nodes
+            and not self.nodes[decision_id].is_active(now)
+        ):
+            return []
 
         # Build the causal adjacency once.  The traversal below used to loop
         # over ``self.edges`` for every decision it dequeued, which is O(V*E)
@@ -4047,6 +4062,8 @@ class ContextGraph:
                 not isinstance(edge_type, str)
                 or edge_type.upper() not in _CAUSAL_TRAVERSAL_TYPES
             ):
+                continue
+            if not include_inactive and not edge.is_active(now):
                 continue
             if direction == "upstream":
                 causal_neighbors[edge.target_id].append(edge.source_id)
@@ -4071,6 +4088,8 @@ class ContextGraph:
                 # Get decision node
                 if current_id in self.nodes:
                     node = self.nodes[current_id]
+                    if not include_inactive and not node.is_active(now):
+                        continue
                     if (hasattr(node, 'node_type') and isinstance(node.node_type, str) and
                         node.node_type.lower() == "decision"):
                         decision_data = node.properties
