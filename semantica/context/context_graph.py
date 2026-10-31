@@ -641,14 +641,7 @@ class ContextGraph:
    
         self.kg_components = {}
         self._analytics_cache = {}
-
-        # In-memory node embeddings (e.g. node2vec). NodeEmbedder.store_embeddings()
-        # falls back to this dict for stores without property setters, so it must
-        # exist from construction and be round-tripped by the JSON save_to_file/
-        # load_from_file (the Markdown export paths do not carry embeddings) —
-        # otherwise precomputed embeddings die with the process (#1140).
-        self._node_embeddings: Dict[str, Any] = {}
-
+        
         self.mutation_callback = self.config.get("mutation_callback", None)
         self._suspend_mutation_callback = False
         
@@ -1422,13 +1415,6 @@ class ContextGraph:
                 "links": links_data,
             }
 
-            # Preserve precomputed node embeddings (e.g. node2vec) across
-            # save/load: NodeEmbedder.store_embeddings() keeps them in this
-            # in-memory dict for stores without property setters, so without
-            # this they would silently die with the process (#1140).
-            if self._node_embeddings:
-                data["node_embeddings"] = dict(self._node_embeddings)
-
         # Write atomically: serialize to a sibling temp file then replace the
         # destination in one OS-level rename.  This guarantees the destination
         # is either the old contents or the new contents — never a partial write
@@ -1515,7 +1501,6 @@ class ContextGraph:
             # would make entities in the loaded graph read as already retracted.
             self._retractions.clear()
             self._tombstones.clear()
-            self._node_embeddings.clear()
 
             if "graph_id" in data:
                 self.graph_id = data["graph_id"]
@@ -1544,14 +1529,6 @@ class ContextGraph:
                 link_id = link_meta.get("link_id")
                 if link_id:
                     self._unresolved_links[link_id] = link_meta
-
-            # Restore node embeddings preserved by save_to_file (e.g. node2vec,
-            # kept in this in-memory dict by NodeEmbedder.store_embeddings for
-            # stores without property setters). Old files without the key leave
-            # the dict empty; files produced by other tools are not affected.
-            embeddings_data = data.get("node_embeddings")
-            if isinstance(embeddings_data, dict):
-                self._node_embeddings.update(embeddings_data)
 
             # Rebuild all derived decision indexes from the freshly-loaded
             # nodes so that find_precedents_by_scenario, find_similar_decisions,
@@ -1903,8 +1880,6 @@ class ContextGraph:
             self._analytics_cache.clear()
             self._retractions.clear()
             self._tombstones.clear()
-            # In-memory node embeddings belong to the graph being replaced.
-            self._node_embeddings.clear()
             # Rebuild derived decision indexes from the freshly-loaded nodes.
             self._rebuild_decision_indexes()
 
@@ -3109,10 +3084,6 @@ class ContextGraph:
             self._decision_index = defaultdict(set)
             self._entity_index = defaultdict(set)
             self._temporal_index = []
-            # In-memory node embeddings belong to the graph being replaced;
-            # keeping them would leave ghost vectors for ids that no longer
-            # exist.
-            self._node_embeddings.clear()
         self.logger.debug("Graph state fully cleared.")
 
     # --- Internal Helpers ---
@@ -5870,7 +5841,7 @@ class ContextGraph:
                 entity_counts: Dict[str, List[str]] = {}
                 for entity in precedent["decision"].get("entities") or []:
                     for other in self._entity_index.get(entity, set()):
-                        if other in used_ids:
+                        if other in used_ids or other not in self._decisions:
                             continue
                         if not self._decision_matches_temporal_filters(
                             self._decisions[other],
@@ -5884,8 +5855,6 @@ class ContextGraph:
                 ):
                     if len(neighbors) >= include_neighbors:
                         break
-                    if other not in self._decisions:
-                        continue
                     used_ids.add(other)
                     neighbors.append({
                         "decision": self._decisions[other],

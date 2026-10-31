@@ -8,10 +8,8 @@ Tests for ranking semantics (soft_floor) and node-embedding persistence.
    and the reasoning-only match discounted below the 0.3 default — both
    overrideable with ``soft_floor`` (#1713 review).
 
-2. Node embeddings (e.g. node2vec) stored through
-   ``NodeEmbedder.store_embeddings()`` must stay readable through the
-   public path — an empty in-memory ``_node_embeddings`` dict must not
-   shadow property-backed vectors — and survive
+2. Node embeddings stored through ``NodeEmbedder.store_embeddings()`` live
+   in node properties on a ContextGraph. They stay readable and survive
    ``save_to_file()`` / ``load_from_file()``.
 """
 
@@ -152,82 +150,11 @@ class TestRankFirstSoftFloor:
 
 
 class TestNodeEmbeddingsPersistence:
-    """Embeddings survive save_to_file/load_from_file — both the in-memory
-    dict path (stores without property setters) and the public
-    ``NodeEmbedder.store_embeddings()`` path (property-backed stores)."""
-
-    def test_embeddings_round_trip(self, tmp_path):
-        """The in-memory _node_embeddings dict (the fallback path of
-        store_embeddings() for stores without property setters) is written
-        and restored."""
-        source = ContextGraph()
-        source.record_decision(
-            category="architecture",
-            scenario=SCENARIO,
-            reasoning="Short rationale",
-            outcome="postgres",
-            confidence=0.9,
-        )
-        source._node_embeddings = {
-            "node_a": [0.1, 0.2, 0.3],
-            "node_b": [0.4, 0.5, 0.6],
-        }
-
-        path = tmp_path / "kg.json"
-        source.save_to_file(path)
-
-        loaded = ContextGraph()
-        loaded.load_from_file(path)
-        assert loaded._node_embeddings == {
-            "node_a": [0.1, 0.2, 0.3],
-            "node_b": [0.4, 0.5, 0.6],
-        }
-
-    def test_old_files_without_embeddings_still_load(self, tmp_path):
-        """A file written before the key existed loads with empty embeddings
-        and decision search keeps working (backward compatibility)."""
-        source = ContextGraph()
-        source.record_decision(
-            category="architecture",
-            scenario=SCENARIO,
-            reasoning="Short rationale",
-            outcome="postgres",
-            confidence=0.9,
-        )
-        path = tmp_path / "kg_legacy.json"
-        source.save_to_file(path)
-
-        loaded = ContextGraph()
-        loaded.load_from_file(path)
-        assert loaded._node_embeddings == {}
-        assert len(loaded.find_similar_decisions(SCENARIO, soft_floor=0.0)) == 1
-
-    def test_load_replaces_stale_embeddings(self, tmp_path):
-        """Loading a graph replaces (not merges with) in-memory embeddings."""
-        stale = ContextGraph()
-        stale._node_embeddings = {"ghost": [1.0, 1.0]}
-
-        source = ContextGraph()
-        source._node_embeddings = {"real": [0.5, 0.5]}
-        path = tmp_path / "kg.json"
-        source.save_to_file(path)
-
-        stale.load_from_file(path)
-        assert stale._node_embeddings == {"real": [0.5, 0.5]}
-
-    def test_from_dict_resets_stale_embeddings(self):
-        """clear()/from_dict() reset the in-memory embeddings with the
-        graph: no ghost vectors for ids that no longer exist."""
-        stale = ContextGraph()
-        stale._node_embeddings = {"ghost": [1.0, 1.0, 1.0]}
-
-        stale.from_dict({"nodes": [], "edges": []})
-        assert stale._node_embeddings == {}
+    """Embeddings stored through ``NodeEmbedder.store_embeddings()`` are
+    readable and survive save_to_file/load_from_file."""
 
     def test_store_embeddings_public_path_reads_back(self):
-        """store_embeddings() through the public path must be readable back:
-        the always-present empty _node_embeddings dict must not shadow the
-        vectors stored as node properties (#1713 review)."""
+        """Vectors stored through store_embeddings() read back."""
         graph = ContextGraph()
         node_a = graph.record_decision(
             category="architecture",
@@ -259,9 +186,7 @@ class TestNodeEmbeddingsPersistence:
 
     def test_public_path_survives_round_trip(self, tmp_path):
         """store_embeddings() + save_to_file() + load_from_file(): the
-        embeddings must still be readable, including through
-        find_similar_nodes (persistence takes effect through the public
-        path — #1713 review)."""
+        embeddings are still readable, including through find_similar_nodes."""
         source = ContextGraph()
         node_a = source.record_decision(
             category="architecture",
@@ -421,3 +346,22 @@ class TestNeighborhoodRetrieval:
             n["decision"]["id"] == expired_id
             for n in revisited[0].get("neighbors", [])
         )
+
+    def test_neighbors_skip_ids_missing_from_decisions(self, graph):
+        """_entity_index can hold ids that are no longer in _decisions, e.g.
+        after the MCP server rolls back a decision that failed to persist."""
+        g, _ = graph
+        gone = g.record_decision(
+            category="architecture",
+            scenario="Rolled back decision",
+            reasoning="Not persisted",
+            outcome="none",
+            confidence=0.8,
+            entities=["postgres"],
+        )
+        del g._decisions[gone]
+        g._decision_index["architecture"].discard(gone)
+
+        hits = g.find_precedents_by_scenario(SCENARIO, include_neighbors=3)
+        assert len(hits) == 1
+        assert all(n["decision"]["id"] != gone for n in hits[0]["neighbors"])
