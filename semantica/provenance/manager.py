@@ -171,6 +171,8 @@ class ProvenanceManager:
         entry: ProvenanceEntry,
         _conn: Optional[Any] = None,
         _raise_on_error: bool = False,
+        *,
+        _log_on_error: bool = True,
     ) -> Optional[ProvenanceEntry]:
         """Compute checksum, store entry persistently, and log/handle storage errors (#783)."""
         # Hash-chain linkage (issue #825, Part A item 2): link this entry to
@@ -196,12 +198,13 @@ class ProvenanceManager:
             else:
                 self.storage.store(entry)
         except Exception as e:
-            self.logger.error(
-                "Failed to save provenance entry for entity '%s': %s",
-                entry.entity_id,
-                e,
-                exc_info=True,
-            )
+            if _log_on_error:
+                self.logger.error(
+                    "Failed to save provenance entry for entity '%s': %s",
+                    entry.entity_id,
+                    e,
+                    exc_info=True,
+                )
             # Propagate when called from a batch's shared transaction so the
             # caller's per-item try/except can skip counting this item instead
             # of reporting an unpersisted entry as tracked (#807).
@@ -291,20 +294,32 @@ class ProvenanceManager:
         source: str,
         metadata: Optional[Dict[str, Any]] = None,
         _conn: Optional[Any] = None,
+        *,
+        raise_on_error: bool = False,
         **kwargs
     ) -> Optional[ProvenanceEntry]:
         """
         Track entity provenance (kg.ProvenanceTracker compatible).
+
+        Subclass overrides must honor raise_on_error=True so strict callers can
+        detect failed retries even when their metadata matches the prior entry.
         
         Args:
             entity_id: Entity identifier
             source: Source identifier (document ID, DOI, file path)
             metadata: Optional metadata dictionary
+            raise_on_error: If True, propagate a tracking or transaction failure
+                instead of returning the pre-failure state. Defaults to False.
+                A shared transaction (_conn) always propagates failures so its
+                caller can roll back. Success with _conn remains subject to
+                the caller committing that transaction.
             **kwargs: Additional fields (confidence, source_location, etc.)
             
         Returns:
             Optional[ProvenanceEntry]: ProvenanceEntry on success, deepcopy of existing
-            entry if update fails, or None if brand-new entity storage fails
+            entry if update fails, or None if brand-new entity storage fails.
+            With raise_on_error=True, returns an entry only after its transaction
+            succeeds (or after staging it in the caller's shared transaction).
             
         Example:
             >>> prov_mgr.track_entity(
@@ -326,6 +341,7 @@ class ProvenanceManager:
         # If any step raises, the whole operation rolls back.
         existing = None
         entry = None
+        strict_owned_transaction = raise_on_error and _conn is None
         try:
             with self._get_or_create_transaction(_conn) as conn:
                 existing = self.storage._retrieve_with_conn(conn, entity_id)
@@ -418,12 +434,32 @@ class ProvenanceManager:
                 if archived_history_id and explicit_parent_supplied:
                     entry.used_entities.append(archived_history_id)
 
-                self._save_entry(entry, _conn=conn, _raise_on_error=True)
+                if strict_owned_transaction:
+                    # This call's outer handler owns the diagnostic, including
+                    # errors outside _save_entry. Avoid logging a store error twice.
+                    self._save_entry(
+                        entry, _conn=conn, _raise_on_error=True, _log_on_error=False
+                    )
+                else:
+                    self._save_entry(entry, _conn=conn, _raise_on_error=True)
         except Exception as e:
             # When called from a batch's shared transaction (_conn is not None),
             # propagate so the caller's per-item try/except can skip counting
             # this item instead of reporting an unpersisted entry as tracked (#807).
             if _conn is not None:
+                raise
+            if raise_on_error:
+                # Keep the existing internal traceback boundary; do not log
+                # metadata, source quotes or other input payloads.
+                try:
+                    self.logger.error(
+                        "Failed to track entity '%s' (transaction rolled back).",
+                        entity_id,
+                        exc_info=True,
+                    )
+                except Exception:
+                    # A broken diagnostic handler must not replace the failure.
+                    pass
                 raise
             self.logger.error(
                 "Failed to track entity '%s' (transaction rolled back): %s. "

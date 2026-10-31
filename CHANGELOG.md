@@ -34,6 +34,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Failed identical-input BridgeAxiom retries could report provenance as recorded** (fixes #2154)
+  - `ProvenanceManager.track_entity()` now accepts keyword-only `raise_on_error=True` to propagate the original tracking or transaction exception after rollback. Its default still returns `None` for a failed new write or a copy of the previous entry for a failed update; shared transactions and batch savepoints retain their existing behavior.
+  - `BridgeAxiom.apply()` requests strict tracking from `ProvenanceManager` and retains the missing-entry/metadata-mismatch guard for older overrides. Subclasses must honor strict tracking for identical-input failure detection; matching metadata alone does not prove persistence. Required mode raises `ProvenanceRecordingError` with the original cause; best-effort mode reports the failure. Public errors still expose only the exception type, and duck-typed legacy managers retain their existing contract.
+
 - **`joserfc` was pinned at 1.7.5, which the audit job now flags** by @Sameer6305
   - `CVE-2026-119284` (`GHSA-9pg5-8c7x-5hfx`): the compact JWS size guard allocated attacker-controlled segments before rejecting them. It is the only finding in `requirements-ci.txt`, so `security-scan` failed every pull request opened after the advisory landed
   - `requirements-ci.txt` and `uv.lock` now carry `joserfc==1.7.7`; 1.7.6 is the first fixed release. Nothing else moves: both files were re-resolved with only `joserfc` upgraded
