@@ -215,3 +215,33 @@ def test_text_box_ignores_space_only_content(tmp_path, textbox):
 
     assert result["paragraphs"] == ["Heading One"]
     assert result["sections"][0]["content"] == ""
+
+
+@pytest.mark.parametrize("textbox", [_vml_textbox, _alternate_content_textbox])
+@pytest.mark.parametrize("box_text", ["", "   ", "BOX"])
+def test_text_box_preserves_surrounding_cell_whitespace(tmp_path, textbox, box_text):
+    document = docx.Document()
+    cell = document.add_table(rows=1, cols=1).cell(0, 0)
+    cell.paragraphs[0].text = "  FIRST  "
+    _insert_after(cell.paragraphs[0], textbox(box_text))
+    cell.add_paragraph("  LAST  ")
+
+    result = _parse(document, tmp_path)
+
+    assert result["tables"][0]["rows"][0][0] == (
+        "FIRST  \n" + box_text.strip() + "\n  LAST"
+    )
+
+
+@pytest.mark.parametrize("textbox", [_vml_textbox, _alternate_content_textbox])
+def test_text_box_preserves_anchor_paragraph_normalization(tmp_path, textbox):
+    document = docx.Document()
+    document.add_heading("Heading One", level=1)
+    paragraph = document.add_paragraph("  HOST  ")
+    paragraph._p.append(oxml.parse_xml(textbox("BOX"))[0])
+
+    result = _parse(document, tmp_path)
+
+    assert result["paragraphs"][-1] == "HOST  \nBOX"
+    assert result["full_text"] == "Heading One\n\nHOST  \nBOX"
+    assert result["sections"][0]["content"] == "HOST  \nBOX\n\n"

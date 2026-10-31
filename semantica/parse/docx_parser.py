@@ -96,8 +96,9 @@ def _textbox_text(paragraph: Paragraph) -> str:
 def _paragraph_text(paragraph: Paragraph) -> str:
     """``Paragraph.text`` plus the text of any text boxes it anchors."""
     textbox = _textbox_text(paragraph)
-    text = "\n".join(part for part in (paragraph.text, textbox) if part)
-    return text if textbox else text.strip()
+    if textbox:
+        return "\n".join(part for part in (paragraph.text.lstrip(), textbox) if part)
+    return paragraph.text.strip()
 
 
 @dataclass
@@ -288,20 +289,24 @@ class DOCXParser:
         for row in table.rows:
             row_data = []
             for cell in row.cells:
-                cell_paragraphs = cell.paragraphs
-                if any(
-                    next(p._p.iter(_TXBX_CONTENT), None) is not None
-                    for p in cell_paragraphs
-                ):
-                    parts = [_paragraph_text(p) for p in cell_paragraphs]
-                    while parts and not parts[0]:
-                        parts.pop(0)
-                    while parts and not parts[-1]:
-                        parts.pop()
-                    cell_text = "\n".join(parts)
-                else:
-                    # Preserve the existing normalization for ordinary cells.
-                    cell_text = "\n".join(p.text for p in cell_paragraphs).strip()
+                parts = [(p.text, _textbox_text(p)) for p in cell.paragraphs]
+                # Normalize only the cell's outer whitespace, stopping at text
+                # box content so its leading/trailing separators survive.
+                while parts:
+                    text, textbox = parts[0]
+                    parts[0] = (text.lstrip(), textbox)
+                    if any(parts[0]):
+                        break
+                    parts.pop(0)
+                while parts and not parts[-1][1]:
+                    text, textbox = parts[-1]
+                    parts[-1] = (text.rstrip(), textbox)
+                    if parts[-1][0]:
+                        break
+                    parts.pop()
+                cell_text = "\n".join(
+                    "\n".join(part for part in paragraph if part) for paragraph in parts
+                )
                 row_data.append(cell_text)
             table_data["rows"].append(row_data)
 
