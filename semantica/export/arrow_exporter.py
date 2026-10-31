@@ -386,7 +386,11 @@ class ArrowExporter:
             entity_id = entity.get("id") or entity.get("entity_id", "")
             text = entity.get("text") or entity.get("label") or entity.get("name") or ""
             entity_type = entity.get("type") or entity.get("entity_type", "")
+            # A decision's confidence is commonly nested under "properties"
+            # rather than at the top level (#1796).
             confidence = entity.get("confidence")
+            if confidence is None:
+                confidence = (entity.get("properties") or {}).get("confidence")
             start = entity.get("start") or entity.get("start_offset")
             end = entity.get("end") or entity.get("end_offset")
 
@@ -497,7 +501,11 @@ class ArrowExporter:
             source_id = "" if source_id is None else source_id
             target_id = "" if target_id is None else target_id
             rel_type = rel.get("type") or rel.get("relationship_type", "")
+            # Relationships nest extra fields under "metadata" rather than
+            # "properties" (#1796).
             confidence = rel.get("confidence")
+            if confidence is None:
+                confidence = (rel.get("metadata") or {}).get("confidence")
 
             # Convert confidence to float
             if confidence is not None:

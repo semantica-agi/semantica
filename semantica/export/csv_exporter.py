@@ -284,6 +284,12 @@ class CSVExporter:
                 self.logger.warning(f"Entity {i} is not a dictionary, skipping")
                 continue
 
+            # A decision's confidence is commonly nested under "properties"
+            # rather than at the top level (#1796).
+            confidence = entity.get("confidence")
+            if confidence is None:
+                confidence = (entity.get("properties") or {}).get("confidence", "")
+
             normalized = {
                 "id": entity.get("id") or entity.get("entity_id", ""),
                 "text": (
@@ -293,7 +299,7 @@ class CSVExporter:
                     or ""
                 ),
                 "type": entity.get("type") or entity.get("entity_type", ""),
-                "confidence": entity.get("confidence", ""),
+                "confidence": confidence,
                 "start": entity.get("start") or entity.get("start_offset", ""),
                 "end": entity.get("end") or entity.get("end_offset", ""),
             }
@@ -371,12 +377,18 @@ class CSVExporter:
                 self.logger.warning(f"Relationship {i} is not a dictionary, skipping")
                 continue
 
+            # Relationships nest extra fields under "metadata" rather than
+            # "properties" (#1796).
+            confidence = rel.get("confidence")
+            if confidence is None:
+                confidence = (rel.get("metadata") or {}).get("confidence", "")
+
             normalized = {
                 "id": rel.get("id", ""),
                 "source_id": _first_endpoint(rel, SOURCE_ENDPOINT_NAMES),
                 "target_id": _first_endpoint(rel, TARGET_ENDPOINT_NAMES),
                 "type": rel.get("type") or rel.get("relationship_type", ""),
-                "confidence": rel.get("confidence", ""),
+                "confidence": confidence,
             }
 
             # Add metadata as JSON string if present
