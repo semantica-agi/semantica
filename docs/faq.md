@@ -13,7 +13,7 @@ icon: "circle-question"
 | Question | Answer |
 | :-------- | :------ |
 | License? | MIT: free forever, no paywalled features |
-| Python version? | 3.10+ (3.11+ recommended) |
+| Python version? | 3.11–3.13 (3.10 support ended in 0.8.0) |
 | API key required? | Optional: pattern extraction works with no keys |
 | Works with LangChain / LlamaIndex? | Yes: Semantica is a layer on top, not a replacement |
 | Production-ready? | Yes: 1,000+ tests, security fixes shipped in every release (see [CHANGELOG](https://github.com/semantica-agi/semantica/blob/main/CHANGELOG.md)) |
@@ -99,7 +99,9 @@ See [Installation](/installation) for virtual environment setup, optional extras
 
 <Accordion title="What Python version do I need?" icon="python">
 
-Python **3.10 or higher** (3.10–3.13 are supported). Python 3.11+ is recommended for best performance and compatibility.
+Python **3.11 or higher** (3.11–3.13 are supported).
+
+Python 3.10 support ended in **0.8.0**: 3.10 reached end of life in October 2026, and Pillow 13, which carries fixes for security advisories that no Pillow 12.x release has, requires 3.11. On Python 3.10, `pip install semantica` installs the last release that supports it (0.7.x), which no longer receives updates. Upgrade to Python 3.11 or newer to keep getting fixes.
 
 </Accordion>
 
@@ -119,7 +121,7 @@ If you're on an older version, install extras individually: `pip install "semant
 
 | Requirement | Minimum | Recommended |
 | :----------- | :------- | :----------- |
-| Python | 3.10 | 3.11+ |
+| Python | 3.11 | 3.11–3.13 |
 | RAM | 4 GB | 16 GB+ |
 | Storage | 2 GB | 20 GB+ |
 | GPU | Optional | CUDA for embeddings and ML models |
@@ -271,7 +273,7 @@ Groq, OpenAI, Anthropic, Google Gemini, Ollama (fully local), DeepSeek, Novita A
 
 Yes. Every release ships with:
 
-- 1,000+ passing tests, with installs verified weekly on Python 3.10–3.13
+- 1,000+ passing tests, with installs verified weekly on Python 3.11–3.13
 - `PipelineValidator` and `FailureHandler` with exponential backoff and configurable retry policies
 - W3C PROV-O provenance tracking across all modules
 - Change management with SHA-256 checksums and full audit trails

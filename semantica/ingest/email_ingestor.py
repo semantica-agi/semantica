@@ -40,11 +40,18 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlparse
 
-from bs4 import BeautifulSoup
 
 from ..utils.exceptions import ProcessingError, ValidationError
 from ..utils.logging import get_logger
 from ..utils.progress_tracker import get_progress_tracker
+
+# beautifulsoup4 ships in the optional `documents` extra, so guard it the way
+# the sibling ingestors guard theirs (`git` in repo_ingestor, `lxml` in
+# xml_ingestor): importing this module must not require the extra.
+try:
+    from bs4 import BeautifulSoup
+except (ImportError, OSError):
+    BeautifulSoup = None
 
 
 @dataclass
@@ -382,6 +389,14 @@ class EmailParser:
 
         # Extract from HTML if available
         if email_content.strip().startswith("<"):
+            # Checked before the try: the `except Exception: pass` below would
+            # suppress this and fall back to the regex scan, which misses
+            # relative URLs and href-only links, with no hint to the caller.
+            if BeautifulSoup is None:
+                raise ProcessingError(
+                    "HTML parsing requires 'beautifulsoup4'. "
+                    "Install it with: pip install 'semantica[documents]'"
+                )
             try:
                 soup = BeautifulSoup(email_content, "html.parser")
                 for link_tag in soup.find_all("a", href=True):

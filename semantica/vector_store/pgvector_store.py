@@ -513,7 +513,7 @@ class PgVectorStore:
         ids: List[str],
         vectors: Optional[Union[List[np.ndarray], np.ndarray]] = None,
         metadata: Optional[List[Dict[str, Any]]] = None,
-    ) -> bool:
+    ) -> List[str]:
         """
         Update existing vectors.
 
@@ -523,14 +523,16 @@ class PgVectorStore:
             metadata: Optional new metadata
 
         Returns:
-            True if successful
+            IDs the UPDATE matched, in request order and without
+            duplicates. Missing IDs are omitted. An empty request
+            returns an empty list.
 
         Raises:
             ValidationError: If input dimensions don't match
             ProcessingError: If database operation fails
         """
         if not ids:
-            return True
+            return []
 
         if vectors is None and metadata is None:
             raise ValidationError("Either vectors or metadata must be provided for update")
@@ -547,6 +549,8 @@ class PgVectorStore:
         with self._get_connection() as conn:
             try:
                 cur = conn.cursor()
+                confirmed_ids: List[str] = []
+                seen = set()
 
                 for i, vec_id in enumerate(ids):
                     updates = []
@@ -566,7 +570,8 @@ class PgVectorStore:
                         updates.append(psycopg_sql.SQL("metadata = %s"))
                         params.append(json.dumps(metadata[i]))
 
-                    # Build safe UPDATE query
+                    # Build safe UPDATE query. rowcount is read on this
+                    # statement so a mixed batch can name the matched ids.
                     update_sql = psycopg_sql.SQL("""
                         UPDATE {}
                         SET {}
@@ -577,11 +582,14 @@ class PgVectorStore:
                     )
                     params.append(vec_id)
                     cur.execute(update_sql, params)
+                    if cur.rowcount > 0 and vec_id not in seen:
+                        seen.add(vec_id)
+                        confirmed_ids.append(vec_id)
 
                 conn.commit()
                 cur.close()
-                self.logger.info(f"Updated {len(ids)} vectors")
-                return True
+                self.logger.info(f"Updated {len(confirmed_ids)} of {len(ids)} vectors")
+                return confirmed_ids
             except (ValidationError, ProcessingError):
                 conn.rollback()
                 raise

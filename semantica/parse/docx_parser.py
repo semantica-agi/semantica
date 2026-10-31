@@ -51,6 +51,41 @@ from ..utils.exceptions import ProcessingError, ValidationError
 from ..utils.logging import get_logger
 from ..utils.progress_tracker import get_progress_tracker
 
+# Text boxes.
+#
+# `Paragraph.text` concatenates only the `w:t` children of each direct `w:r`.
+# Text box content sits one level deeper -- `w:txbxContent` holds its own
+# `w:p`/`w:r`/`w:t` tree -- so a callout written in a text box is invisible to
+# that API and gets dropped without a warning. Word also stores the same text
+# box twice, as DrawingML under `mc:Choice` and as VML under `mc:Fallback`, so
+# walking every `w:t` under the paragraph would report the text twice.
+_W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
+_TXBX_CONTENT = _W + "txbxContent"
+_W_P = _W + "p"
+_W_T = _W + "t"
+_MC_FALLBACK = "{http://schemas.openxmlformats.org/markup-compatibility/2006}Fallback"
+
+
+def _textbox_text(paragraph: Paragraph) -> str:
+    """Text held in the text boxes anchored to ``paragraph``."""
+    blocks: List[str] = []
+    for container in paragraph._p.iter(_TXBX_CONTENT):
+        if any(parent.tag == _MC_FALLBACK for parent in container.iterancestors()):
+            # The VML copy of a text box already covered by `mc:Choice`.
+            continue
+        for inner in container.iter(_W_P):
+            text = "".join(node.text or "" for node in inner.iter(_W_T))
+            if text.strip():
+                blocks.append(text.strip())
+    return "\n".join(blocks)
+
+
+def _paragraph_text(paragraph: Paragraph) -> str:
+    """``Paragraph.text`` plus the text of any text boxes it anchors."""
+    return "\n".join(
+        part for part in (paragraph.text, _textbox_text(paragraph)) if part
+    )
+
 
 @dataclass
 class DocxSection:
@@ -142,8 +177,9 @@ class DOCXParser:
                 # Extract paragraphs
                 paragraphs = []
                 for para in doc.paragraphs:
-                    if para.text.strip():
-                        paragraphs.append(para.text.strip())
+                    text = _paragraph_text(para).strip()
+                    if text:
+                        paragraphs.append(text)
 
                 # Extract tables
                 tables = []
@@ -168,7 +204,9 @@ class DOCXParser:
                 self.progress_tracker.stop_tracking(
                     tracking_id,
                     status="completed",
-                    message=f"Parsed {len(paragraphs)} paragraphs, {len(tables)} tables",
+                    message=(
+                        f"Parsed {len(paragraphs)} paragraphs, {len(tables)} tables"
+                    ),
                 )
                 return {
                     "metadata": metadata.__dict__,
@@ -237,7 +275,10 @@ class DOCXParser:
         for row in table.rows:
             row_data = []
             for cell in row.cells:
-                row_data.append(cell.text.strip())
+                cell_text = "\n".join(
+                    _paragraph_text(p) for p in cell.paragraphs
+                ).strip()
+                row_data.append(cell_text)
             table_data["rows"].append(row_data)
 
         return table_data
@@ -250,6 +291,7 @@ class DOCXParser:
         current_section = None
 
         for para in doc.paragraphs:
+            text = _paragraph_text(para).strip()
             # Check if paragraph is a heading
             if para.style.name.startswith("Heading"):
                 # Get heading level
@@ -265,7 +307,7 @@ class DOCXParser:
 
                 # Create new section
                 current_section = DocxSection(
-                    heading=para.text.strip(),
+                    heading=text,
                     level=level,
                     content="",
                     paragraphs=[],
@@ -273,9 +315,9 @@ class DOCXParser:
                 )
             elif current_section:
                 # Add paragraph to current section
-                if para.text.strip():
-                    current_section.paragraphs.append(para.text.strip())
-                    current_section.content += para.text.strip() + "\n\n"
+                if text:
+                    current_section.paragraphs.append(text)
+                    current_section.content += text + "\n\n"
 
         # Add last section
         if current_section:

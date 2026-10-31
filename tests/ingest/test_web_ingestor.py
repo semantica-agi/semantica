@@ -79,16 +79,19 @@ def test_sitemap_invalid_xml() -> None:
     crawler = SitemapCrawler()
 
     with patch(
-        "requests.get",
+        "semantica.ingest.web_ingestor.request_with_ssrf_guard",
         return_value=MagicMock(status_code=200, content=b"NOT XML"),
-    ):
+    ) as mock_request:
         with pytest.raises(ProcessingError):
             crawler.parse_sitemap("http://s.xml")
+
+    mock_request.assert_called_once()
 
 
 # --- Content Extraction Tests ---
 def test_extract_links_schemes() -> None:
     """Ensure we ignore mailto and javascript links."""
+    pytest.importorskip("bs4")  # HTML parsing needs the optional documents extra
 
     extractor = ContentExtractor()
     html = """
@@ -105,6 +108,7 @@ def test_extract_links_schemes() -> None:
 
 def test_extract_metadata_empty() -> None:
     """Test extraction with missing meta tags."""
+    pytest.importorskip("bs4")  # HTML parsing needs the optional documents extra
 
     extractor = ContentExtractor()
     html = "<html><body>No Head</body></html>"
@@ -118,6 +122,7 @@ def test_extract_metadata_empty() -> None:
 @patch("semantica.ingest.web_ingestor.request_with_ssrf_guard")
 def test_ingest_url_happy(mock_get: MagicMock, sample_html: str) -> None:
     """Test successful URL ingestion."""
+    pytest.importorskip("bs4")  # HTML parsing needs the optional documents extra
 
     mock_get.return_value = MagicMock(status_code=200, text=sample_html)
     ingestor = WebIngestor(respect_robots=False)
@@ -209,6 +214,7 @@ def test_url_filters() -> None:
 
 def test_extract_text_cleaning() -> None:
     """Test stripping scripts and styles from text."""
+    pytest.importorskip("bs4")  # HTML parsing needs the optional documents extra
 
     extractor = ContentExtractor()
     html = """
@@ -268,6 +274,7 @@ def test_web_ingestor_crawl_sitemap_integration() -> None:
 
 def test_metadata_priority() -> None:
     """Test that OpenGraph tags take precedence over standard meta tags."""
+    pytest.importorskip("bs4")  # HTML parsing needs the optional documents extra
 
     extractor = ContentExtractor()
     html = """
@@ -395,6 +402,7 @@ def test_crawl_domain_max_pages() -> None:
 
 def test_metadata_opengraph_priority() -> None:
     """Test that OpenGraph tags are captured correctly."""
+    pytest.importorskip("bs4")  # HTML parsing needs the optional documents extra
     extractor = ContentExtractor()
     # HTML with both standard meta and OG tags
     html = """

@@ -45,6 +45,9 @@ class TestSemanticaFeatures(unittest.TestCase):
 
     def test_03_model_switching(self):
         """Test dynamic model switching"""
+        # Needs the optional embeddings-local extra; skip rather than fail on a
+        # core install.
+        pytest.importorskip("sentence_transformers")
         print("\nTesting Dynamic Model Switching...")
         embedder = TextEmbedder(method="sentence_transformers")
         info = embedder.get_model_info()
@@ -72,6 +75,9 @@ class TestSemanticaFeatures(unittest.TestCase):
 
     def test_04_vector_store_basic(self):
         """Test VectorStore storage and search"""
+        # Needs the optional vectorstore-faiss extra; skip rather than fail on a
+        # core install.
+        pytest.importorskip("faiss")
         print("\nTesting Vector Store Basic...")
         store = VectorStore(backend="faiss", dimension=768)
         
@@ -90,6 +96,9 @@ class TestSemanticaFeatures(unittest.TestCase):
 
     def test_05_faiss_store(self):
         """Test FAISSStore directly"""
+        # Needs the optional vectorstore-faiss extra; skip rather than fail on a
+        # core install.
+        pytest.importorskip("faiss")
         print("\nTesting FAISSStore...")
         store = FAISSStore(dimension=768)
         index = store.create_index(index_type="hnsw", metric="L2", m=16)

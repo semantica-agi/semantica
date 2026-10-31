@@ -94,6 +94,7 @@ from ..utils.exceptions import ProcessingError, ValidationError
 from ..utils.helpers import ensure_directory
 from ..utils.logging import get_logger
 from ..utils.progress_tracker import get_progress_tracker
+from .endpoint_names import canonical_endpoints, first_set_id, has_endpoints
 
 # Explicit Arrow Schemas (no inference)
 if ARROW_AVAILABLE:
@@ -484,15 +485,17 @@ class ArrowExporter:
 
         # Normalize relationship data to consistent format
         normalized_rels = []
-        for i, rel in enumerate(relationships):
+        for i, rel in enumerate(canonical_endpoints(relationships)):
             if not isinstance(rel, dict):
                 self.logger.warning(f"Relationship {i} is not a dictionary, skipping")
                 continue
 
             # Extract and normalize fields
             rel_id = rel.get("id", f"rel_{i}")
-            source_id = rel.get("source_id") or rel.get("source", "")
-            target_id = rel.get("target_id") or rel.get("target", "")
+            source_id = first_set_id(rel, ("source_id", "source"))
+            target_id = first_set_id(rel, ("target_id", "target"))
+            source_id = "" if source_id is None else source_id
+            target_id = "" if target_id is None else target_id
             rel_type = rel.get("type") or rel.get("relationship_type", "")
             confidence = rel.get("confidence")
 
@@ -670,14 +673,10 @@ class ArrowExporter:
             # Try to detect if data looks like entities or relationships
             sample = data[0] if data else {}
 
-            # Check for relationship-specific fields
-            has_source = any(k in sample for k in ["source_id", "source"])
-            has_target = any(k in sample for k in ["target_id", "target"])
-
             # Check for entity-specific fields
             has_text = any(k in sample for k in ["text", "label", "name"])
 
-            if has_source and has_target:
+            if has_endpoints(sample):
                 schema = RELATIONSHIP_SCHEMA
                 self.logger.debug("Auto-detected relationship schema")
             elif has_text or "type" in sample:
@@ -690,6 +689,13 @@ class ArrowExporter:
                     "Provide explicit schema or use "
                     "export_entities/export_relationships methods."
                 )
+
+        if schema == RELATIONSHIP_SCHEMA:
+            data = [dict(record) for record in canonical_endpoints(data)]
+            for record in data:
+                for key in ("id", "source_id", "target_id"):
+                    if record.get(key) is not None:
+                        record[key] = str(record[key])
 
         self.logger.debug(
             f"Writing Arrow IPC file: {len(data)} row(s), "

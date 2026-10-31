@@ -389,48 +389,41 @@ class TestEnhancedAlgorithmsE2E:
         results = {}
         
         for method in methods:
-            try:
-                result = community_detector.detect_communities(graph_dict, method=method)
-                results[method] = result
-                
-                # Verify result structure
-                assert 'communities' in result
-                assert 'node_assignments' in result
-                assert 'algorithm' in result
-                
-                # Verify communities
-                assert isinstance(result['communities'], list)
-                assert isinstance(result['node_assignments'], dict)
-                
-                # Verify node assignments
-                for node, community_id in result['node_assignments'].items():
-                    assert isinstance(node, str)
-                    assert isinstance(community_id, int)
-                
-                # Verify communities contain all nodes
-                all_nodes_in_communities = set()
-                for community in result['communities']:
-                    all_nodes_in_communities.update(community)
-                
-                assert all_nodes_in_communities == set(result['node_assignments'].keys())
-                
-            except Exception as e:
-                print(f"Warning: {method} community detection failed: {e}")
+            result = community_detector.detect_communities(graph_dict, method=method)
+            results[method] = result
+            
+            # Verify result structure
+            assert 'communities' in result
+            assert 'node_assignments' in result
+            assert result['algorithm'] == method
+            
+            # Verify communities
+            assert isinstance(result['communities'], list)
+            assert isinstance(result['node_assignments'], dict)
+            
+            # Verify node assignments
+            for node, community_id in result['node_assignments'].items():
+                assert isinstance(node, str)
+                assert isinstance(community_id, int)
+            
+            # Verify communities contain all nodes
+            all_nodes_in_communities = set()
+            for community in result['communities']:
+                all_nodes_in_communities.update(community)
+            
+            assert all_nodes_in_communities == set(result['node_assignments'].keys())
         
         # Test with parameters
-        try:
-            result_with_params = community_detector.detect_communities(
-                graph_dict,
-                method='label_propagation',
-                max_iterations=50,
-                random_seed=42
-            )
-            
-            assert 'communities' in result_with_params
-            results['with_params'] = result_with_params
-            
-        except Exception as e:
-            print(f"Warning: Community detection with params failed: {e}")
+        result_with_params = community_detector.detect_communities(
+            graph_dict,
+            method='label_propagation',
+            max_iterations=50,
+            random_seed=42
+        )
+        
+        assert result_with_params['algorithm'] == 'label_propagation'
+        assert 'communities' in result_with_params
+        results['with_params'] = result_with_params
         
         # Verify we got some results
         assert len(results) > 0
@@ -505,6 +498,7 @@ class TestEnhancedAlgorithmsE2E:
         
         # Step 3: Detect communities
         communities = community_detector.detect_communities(social_dict, method='label_propagation')
+        assert communities['algorithm'] == 'label_propagation'
         assert 'communities' in communities
         
         # Step 4: Find shortest paths

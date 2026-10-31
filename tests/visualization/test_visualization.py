@@ -1,4 +1,5 @@
 import unittest
+import pytest
 from unittest.mock import MagicMock, patch
 
 from semantica.visualization.kg_visualizer import KGVisualizer
@@ -97,6 +98,9 @@ class TestVisualization(unittest.TestCase):
         )
 
     def test_class_property_matrix_marks_every_domain_of_a_multi_domain_property(self):
+        # Needs the optional viz extra; skip rather than fail on a
+        # core install.
+        pytest.importorskip("plotly")
         viz = OntologyVisualizer()
         ontology = {
             "classes": [{"name": "Person"}, {"name": "Place"}],

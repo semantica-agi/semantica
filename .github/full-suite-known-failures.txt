@@ -34,6 +34,22 @@
 #     --ignore tests/integrations/open_ontologies/
 #   # HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1, no OPENAI/ANTHROPIC/GEMINI key
 #
+# The requirements-ci.txt install is part of the measurement, not an incidental
+# detail, and a local run on a core-only install (`pip install -e ".[dev]"`,
+# no extras) is not a substitute. Measured on 2026-10-10 against eba0abce, four
+# entries below report XPASS on such an install while the CI job running this
+# same list under the strict marker is green, so they do fail in the measured
+# environment:
+#
+#   tests/test_cli_commands.py::TestExportMultiFileFormats::test_reports_the_files_it_wrote  (all 3 params)
+#   tests/vector_store/test_backend_metadata_filtering.py::TestBackendMetadataFiltering::test_weaviate_store_filter_by_metadata_native_filter
+#
+# Installing the backend each one names (`neo4j`, `weaviate-client`) does not
+# change that, so the difference is somewhere else in the extras set and is not
+# characterised here. The point for a reader is only this: an XPASS seen on a
+# core-only install is not evidence that a line should be removed. Reproduce it
+# against requirements-ci.txt, or against the CI job, before delisting.
+#
 # Both runs were Windows 11 / CPython 3.11; CI is ubuntu-latest / CPython 3.11.
 # That measurement is not a superset of a Linux run: the entries appended below
 # from the suite's first Linux run are failures it could not see, so this list
@@ -64,13 +80,6 @@ tests/semantic_extract/test_cache_backends.py::test_sqlite_rejects_symlinked_db 
 tests/ingest/test_ingestors.py::TestUnifiedIngest::test_ingest_web_dispatch
 tests/ingest/test_ingestors.py::TestWebIngestor::test_ingest_url
 
-# --- Local embedding backend unavailable offline ------------------------------
-# The generator-config case is the exception: on the Linux runner the model does
-# load and the test passes, so it is marked `# windows-only` rather than left to
-# a strict xfail that would fail on that pass. The rest of this group is gone:
-# #1931 restored the semantic_extract config isolation and they now pass.
-tests/test_embedding_providers.py::TestEmbeddingProviders::test_embedding_generator_config  # windows-only
-
 # --- Progress tracking is forced off for the whole process --------------------
 # `semantica_mcp/mcp/__init__.py` sets `SEMANTICA_DISABLE_PROGRESS=1` at import
 # and `tests/test_mcp_package_export_graphml_parquet.py` sets it at module scope
@@ -89,7 +98,6 @@ tests/ingest/test_repo_ingestor_security.py::TestIsReservedNAT64Regression::test
 tests/integrations/agno/test_context_store.py::TestAgnoContextStoreUpsertNERAttributes::test_upsert_indexes_entity_label_as_type
 tests/integrations/agno/test_context_store.py::TestAgnoContextStoreUpsertNERAttributes::test_upsert_indexes_entity_text_not_repr
 tests/semantic_extract/test_cache_backends.py::test_zero_ttl_expires_immediately_on_both_backends  # windows-only
-tests/vector_store/test_vector_store.py::test_backend_mirroring_and_save
 
 # --- Integration tests outside the two dedicated integration directories ------
 # These carry the `integration` marker but live outside tests/integrations/

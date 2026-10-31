@@ -86,7 +86,11 @@ class SlidingWindowChunker:
                   chunk_size use character windows with stride capped at chunk_size.
 
         Returns:
-            list: List of chunks
+            list: Chunks whose offsets match their returned text in the input.
+
+        Notes:
+            Logs a warning if fixed windows leave input characters uncovered because
+                stride exceeds chunk_size and the text is longer than chunk_size.
         """
         tracking_id = self.progress_tracker.start_tracking(
             module="split",
@@ -109,6 +113,12 @@ class SlidingWindowChunker:
                 )
                 chunks = self._chunk_with_boundaries(text)
             else:
+                if self.stride > self.chunk_size and len(text) > self.chunk_size:
+                    self.logger.warning(
+                        "With preserve_boundaries=False, stride exceeds chunk_size, "
+                        "leaving some input characters uncovered. "
+                        "Use stride <= chunk_size for continuous coverage."
+                    )
                 self.progress_tracker.update_tracking(
                     tracking_id, message="Chunking with fixed-size windows..."
                 )
@@ -145,7 +155,7 @@ class SlidingWindowChunker:
                     metadata={
                         "chunk_index": chunk_index,
                         "chunk_size": len(chunk_text),
-                        "has_overlap": chunk_index > 0,
+                        "has_overlap": bool(chunks) and start < chunks[-1].end_index,
                     },
                 )
             )
@@ -168,7 +178,11 @@ class SlidingWindowChunker:
         group_end = 0
 
         def append_chunk(start: int, end: int, boundary_preserved: bool) -> None:
-            chunk_text = text[start:end].strip()
+            while start < end and text[start].isspace():
+                start += 1
+            while end > start and text[end - 1].isspace():
+                end -= 1
+            chunk_text = text[start:end]
             if chunk_text:
                 has_overlap = bool(chunks) and start < chunks[-1].end_index
                 chunks.append(
@@ -211,11 +225,11 @@ class SlidingWindowChunker:
                 # without changing configured stride or carrying partial sentences.
                 step = min(self.stride, self.chunk_size)
                 for fragment_start in range(start, end_pos, step):
-                    append_chunk(
-                        fragment_start,
-                        min(fragment_start + self.chunk_size, end_pos),
-                        False,
-                    )
+                    fragment_end = min(fragment_start + self.chunk_size, end_pos)
+                    append_chunk(fragment_start, fragment_end, False)
+                    # Later windows would only repeat an already covered suffix.
+                    if fragment_end == end_pos:
+                        break
             else:
                 if group_start is None:
                     group_start = start

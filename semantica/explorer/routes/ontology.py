@@ -10,9 +10,8 @@ import socket
 import uuid
 from datetime import datetime, timezone
 from difflib import SequenceMatcher
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Literal, Optional, Tuple
 from urllib.parse import urljoin, urlparse
-from typing_extensions import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field

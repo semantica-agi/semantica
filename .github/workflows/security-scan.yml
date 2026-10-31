@@ -34,7 +34,7 @@ jobs:
     outputs:
       src: ${{ steps.filter.outputs.src }}
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
       - name: Check for source changes
@@ -84,16 +84,17 @@ jobs:
       # pull_request (not pull_request_target): GitHub always forces a
       # read-only token for PRs from forks regardless of this permission.
       pull-requests: write
-      # Needed for the "Report Scheduled Failure" step below, which opens or
-      # updates a tracking issue when the scheduled run on main fails.
-      issues: write
+    # For the report-scheduled-result job, which cannot read this job's
+    # $GITHUB_ENV.
+    outputs:
+      ignored_vuln_ids: ${{ steps.pip_audit.outputs.ignored_vuln_ids }}
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up Python
-        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: '3.11'
         
@@ -114,6 +115,7 @@ jobs:
           pip install -r .github/requirements/security-scan-tools.txt --require-hashes --no-deps
 
       - name: Run pip-audit (Package Vulnerabilities)
+        id: pip_audit
         continue-on-error: true
         run: |
           # Keep publishing reports and the PR comment even when the audit
@@ -221,22 +223,32 @@ jobs:
           # later. Ignoring an ID below is for findings that are reviewed
           # and genuinely non-actionable, never a way to get CI green.
           #
-          # Vulnerability IDs reviewed and accepted as non-actionable for this
-          # project:
-          # - GHSA-4j2p-28q2-5m79 (aka CVE-2026-69112): accelerate<=1.14.0
-          #   (transitive via docling-slim). Path traversal in sharded checkpoint
-          #   index loading (load_checkpoint_in_model). 1.14.0 is the latest
-          #   available PyPI release; no upstream patch exists yet. Semantica does
-          #   not load arbitrary user checkpoints. Re-evaluate once accelerate
-          #   releases a fixed version.
+          # Vulnerability IDs accepted for this project. Comma-separated; give
+          # each entry a comment here saying what it covers and when to
+          # re-evaluate it.
           #   NOTE: pip-audit's OSV-backed report may surface either identifier as
           #   the primary `id` (with the other listed under `aliases`) depending on
-          #   which alias the backing database picks as canonical, so both need to
-          #   be listed here and the matching below checks aliases too - see
+          #   which alias the backing database picks as canonical, so list both
+          #   the GHSA and the CVE id of an advisory here; the matching below
+          #   checks aliases too - see
           #   https://github.com/semantica-agi/semantica/actions/runs/34296586683
           #   where this ignore list had only the GHSA id but the report's `id`
           #   was the CVE, so the gate still failed.
-          IGNORED_VULN_IDS="GHSA-4j2p-28q2-5m79,CVE-2026-69112"
+          # - opentelemetry-api 1.43.0, GHSA-xcq7-p3pf-p88h / CVE-2026-114603:
+          #   TraceState.from_header parses an inbound W3C tracestate header in
+          #   O(N^2) time. Fixed in 1.45.1, but every google-adk release
+          #   (latest 2.12.0) caps opentelemetry-api<=1.43, so no fix is
+          #   installable. Semantica never imports opentelemetry and its
+          #   google-adk integration runs no HTTP server, so nothing here
+          #   extracts trace context from inbound headers. Re-evaluate when
+          #   google-adk allows 1.45.1; the acceptance expires on 2027-01-23,
+          #   the same date as the ignoreUntil in osv-scanner.toml.
+          IGNORED_VULN_IDS=""
+          if [ "$(date -u +%Y%m%d)" -lt 20270123 ]; then
+            IGNORED_VULN_IDS="GHSA-xcq7-p3pf-p88h,CVE-2026-114603"
+          else
+            echo "::warning::The opentelemetry-api GHSA-xcq7-p3pf-p88h acceptance expired on 2027-01-23 and that finding now fails the scan."
+          fi
 
           # Exported so the "Comment PR with Security Results" step below can
           # apply the same exclusion list to the raw report - it reads
@@ -244,6 +256,10 @@ jobs:
           # comment would show an accepted finding as live even though this
           # gate correctly treats it as non-actionable.
           echo "IGNORED_VULN_IDS=$IGNORED_VULN_IDS" >> "$GITHUB_ENV"
+          # Also a step output for the report-scheduled-result job, since
+          # $GITHUB_ENV does not cross jobs. Written before any `exit 1` below
+          # so it is set even when the audit fails.
+          echo "ignored_vuln_ids=$IGNORED_VULN_IDS" >> "$GITHUB_OUTPUT"
 
           # No []? / || echo "0" fallback: if jq fails (malformed JSON) VULNS
           # will be empty or "null" so Guard 3 below catches it rather than
@@ -330,7 +346,7 @@ jobs:
         
       - name: Upload Security Reports
         if: always()
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: security-reports
           retention-days: 14
@@ -341,7 +357,7 @@ jobs:
         
       - name: Comment PR with Security Results
         if: always() && github.event_name == 'pull_request'
-        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
         with:
           script: |
             const fs = require('fs');
@@ -504,30 +520,110 @@ jobs:
             exit 1
           fi
 
-      # Runs after the gate so failure() also sees a pip-audit failure (the
-      # audit step itself is continue-on-error; the gate above re-raises it).
-      # Scheduled runs have no PR to comment on, so without this a failure on
-      # main is only visible to whoever opens the Actions tab.
-      - name: Report Scheduled Failure
-        if: failure() && github.event_name == 'schedule'
-        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9
+  # Scheduled runs have no PR to comment on, so without this a failure on
+  # main is only visible to whoever opens the Actions tab. A separate job
+  # rather than a step in security-scan, because:
+  #   - only this job holds `issues: write`; the scan job installs
+  #     PR-controlled dependencies on pull_request runs.
+  #   - a cancelled or timed-out scan job never reaches its later steps, but
+  #     this job still runs after it.
+  report-scheduled-result:
+    needs: [security-scan]
+    # always(), not failure(): failure() is false for cancelled runs, and a
+    # successful run is needed too, to close the tracking issue. The script
+    # acts on needs.security-scan.result.
+    if: always() && github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    # No contents: read; this job never checks out the repository.
+    permissions:
+      # Create the label, and open, comment on and close the tracking issue.
+      issues: write
+      # List this run's jobs and steps, to name the failed steps in the issue.
+      actions: read
+    steps:
+      # continue-on-error: a run cancelled before the upload step has no
+      # artifact; the script below then reports the audit report as missing.
+      - name: Download security reports
+        if: needs.security-scan.result != 'success'
+        continue-on-error: true
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: security-reports
+          path: security-reports
+
+      - name: Report scheduled result
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          SCAN_RESULT: ${{ needs.security-scan.result }}
+          IGNORED_VULN_IDS: ${{ needs.security-scan.outputs.ignored_vuln_ids }}
         with:
           script: |
             const fs = require('fs');
 
             // One tracking issue, found by this label, collects every
-            // scheduled failure until someone closes it. Later failures add a
-            // comment instead of opening duplicates.
+            // scheduled failure until the scan passes again. Later failures
+            // add a comment instead of opening duplicates.
             const label = 'security-scan-failure';
             const { owner, repo } = context.repo;
             const runUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
+            const scanResult = process.env.SCAN_RESULT;
 
-            // Same exclusion list the gate applied (exported through
-            // $GITHUB_ENV), so the issue lists exactly what failed the gate.
+            // Open tracking issues, oldest first. PRs share the issues API
+            // and can carry the label, so they are excluded. Listing by a
+            // label that does not exist yet returns an empty list.
+            const listOpen = async () =>
+              (await github.paginate(github.rest.issues.listForRepo, {
+                owner, repo, state: 'open', labels: label,
+              }))
+                .filter((issue) => !issue.pull_request)
+                .sort((a, b) => a.number - b.number);
+
+            // A re-run keeps the original event and commit, so re-running an
+            // older scheduled run must not close or open the tracking issue
+            // for a newer one. Only the latest scheduled run acts on it.
+            const { data: thisRun } = await github.rest.actions.getWorkflowRun({
+              owner, repo, run_id: context.runId,
+            });
+            const { data: { workflow_runs: [latest] } } = await github.rest.actions.listWorkflowRuns({
+              owner, repo, workflow_id: thisRun.workflow_id, event: 'schedule', per_page: 1,
+            });
+            if (latest && latest.run_number > thisRun.run_number) {
+              console.log(`Newer scheduled run #${latest.run_number} (${latest.html_url}) supersedes this one (#${thisRun.run_number}); leaving the tracking issue unchanged.`);
+              return;
+            }
+
+            // The scan recovered: close every open tracking issue.
+            if (scanResult === 'success') {
+              const open = await listOpen();
+              for (const issue of open) {
+                await github.rest.issues.createComment({
+                  owner, repo, issue_number: issue.number,
+                  body: `Scheduled Security Scan passed again on \`${context.ref}\` at \`${context.sha.slice(0, 7)}\`: ${runUrl}. Closing.`,
+                });
+                await github.rest.issues.update({
+                  owner, repo, issue_number: issue.number,
+                  state: 'closed', state_reason: 'completed',
+                });
+                console.log(`Closed #${issue.number} (scan recovered)`);
+              }
+              if (!open.length) console.log('Scan passed; no open tracking issue to close.');
+              return;
+            }
+
+            // Same exclusion list the gate applied, so the issue lists
+            // exactly what failed the gate.
             const ignoredVulnIds = (process.env.IGNORED_VULN_IDS || '')
               .split(',')
               .map((id) => id.trim())
               .filter(Boolean);
+
+            // Escapes a value for a markdown table cell: `|` would end the
+            // cell, a backtick would open a code span, and a row must stay on
+            // one line.
+            const cell = (value) => String(value ?? '')
+              .replace(/[\r\n]+/g, ' ')
+              .replace(/\|/g, '\\|')
+              .replace(/`/g, '\\`');
 
             // 'missing' (no file), 'invalid' (unparseable, or not the shape
             // the gate's Guard 2 accepts) or 'valid'. Only a valid report may
@@ -536,7 +632,7 @@ jobs:
             let findings = [];
             let report;
             try {
-              report = JSON.parse(fs.readFileSync('pip-audit-report.json', 'utf8'));
+              report = JSON.parse(fs.readFileSync('security-reports/pip-audit-report.json', 'utf8'));
             } catch (e) {
               reportState = e.code === 'ENOENT' ? 'missing' : 'invalid';
             }
@@ -558,7 +654,9 @@ jobs:
                   .map((vulnerability) => {
                     const aliases = (vulnerability.aliases || []).join(', ');
                     const fixes = (vulnerability.fix_versions || []).join(', ');
-                    return `| \`${dependency.name}\` | ${dependency.version} | ${vulnerability.id} | ${aliases || '—'} | ${fixes || 'none yet'} |`;
+                    // Plain text, not a code span: a backtick inside a code
+                    // span cannot be escaped.
+                    return `| ${cell(dependency.name)} | ${cell(dependency.version)} | ${cell(vulnerability.id)} | ${cell(aliases) || '—'} | ${cell(fixes) || 'none yet'} |`;
                   })
               );
             }
@@ -573,60 +671,85 @@ jobs:
               });
               failedSteps = jobs.flatMap((job) =>
                 (job.steps || [])
-                  .filter((step) => step.conclusion === 'failure')
-                  .map((step) => `${job.name} / ${step.name}`)
+                  // Cancelled steps show where a cancelled or timed-out run
+                  // stopped.
+                  .filter((step) => step.conclusion === 'failure' || step.conclusion === 'cancelled')
+                  .map((step) => `${job.name} / ${step.name} (${step.conclusion})`)
               );
             } catch (e) {
               console.log('Could not list failed steps:', e.message);
             }
 
-            let vulnSection;
-            if (reportState === 'missing') {
-              vulnSection = '⚠️ `pip-audit-report.json` is missing — the audit did not complete. Check the run logs.';
-            } else if (reportState === 'invalid') {
-              vulnSection = '⚠️ pip-audit report was empty or invalid — the audit result cannot be trusted. Check the run logs.';
-            } else if (findings.length === 0) {
-              vulnSection = 'pip-audit reported no actionable vulnerabilities; the failure is in another step (see above).';
-            } else {
-              vulnSection = [
-                '| Package | Version | ID | Aliases | First fixed |',
-                '|---|---|---|---|---|',
-                ...findings,
-              ].join('\n');
-            }
+            // GitHub rejects an issue or comment body over 65,536 characters,
+            // and then no issue is opened at all. .length counts UTF-16 code
+            // units, never fewer than characters, so capping on it is safe.
+            const MAX_BODY = 65536;
 
-            const body = [
-              `Scheduled Security Scan failed on \`${context.ref}\` at \`${context.sha.slice(0, 7)}\`: ${runUrl}`,
-              '',
-              '**Failed steps:** ' + (failedSteps.length ? failedSteps.map((s) => `\`${s}\``).join(', ') : 'unknown (see run)'),
-              '',
-              '### Vulnerable dependencies',
-              vulnSection,
-              '',
-              'When clearing an advisory, bump to the latest release with no known advisories, not the first fixed version — see the note above `IGNORED_VULN_IDS` in `.github/workflows/security-scan.yml`.',
-            ].join('\n');
+            // `rows` are the findings shown, `omitted` how many were cut to
+            // fit MAX_BODY.
+            const buildBody = (rows, omitted) => {
+              let vulnSection;
+              if (reportState === 'missing') {
+                vulnSection = '⚠️ `pip-audit-report.json` is missing — the audit did not complete. Check the run logs.';
+              } else if (reportState === 'invalid') {
+                vulnSection = '⚠️ pip-audit report was empty or invalid — the audit result cannot be trusted. Check the run logs.';
+              } else if (rows.length === 0 && omitted === 0) {
+                vulnSection = 'pip-audit reported no actionable vulnerabilities; the failure is in another step (see above).';
+              } else {
+                vulnSection = [
+                  '| Package | Version | ID | Aliases | First fixed |',
+                  '|---|---|---|---|---|',
+                  ...rows,
+                ].join('\n') + (omitted
+                  ? `\n\n_${omitted} more finding(s) not shown, to keep this under GitHub's 65,536-character limit. The full list is in the \`security-reports\` artifact of the run linked above._`
+                  : '');
+              }
+
+              return [
+                `Scheduled Security Scan ${scanResult === 'failure' ? 'failed' : `did not complete (result: \`${scanResult}\`)`} on \`${context.ref}\` at \`${context.sha.slice(0, 7)}\`: ${runUrl}`,
+                '',
+                '**Failed steps:** ' + (failedSteps.length ? failedSteps.map((s) => `\`${s}\``).join(', ') : 'unknown (see run)'),
+                '',
+                '### Vulnerable dependencies',
+                vulnSection,
+                '',
+                'When clearing an advisory, bump to the latest release with no known advisories, not the first fixed version — see the note above `IGNORED_VULN_IDS` in `.github/workflows/security-scan.yml`.',
+              ].join('\n');
+            };
+
+            let body = buildBody(findings, 0);
+            if (body.length > MAX_BODY) {
+              // Start from the body with no rows (it already carries the
+              // "not shown" note) and add rows while they fit. The note only
+              // gets shorter as rows are added. +1 is the joining newline.
+              let used = buildBody([], findings.length).length;
+              let shown = 0;
+              while (shown < findings.length && used + findings[shown].length + 1 <= MAX_BODY) {
+                used += findings[shown].length + 1;
+                shown++;
+              }
+              body = buildBody(findings.slice(0, shown), findings.length - shown);
+            }
+            // Last resort, e.g. for a very long failed-steps list.
+            if (body.length > MAX_BODY) body = body.slice(0, MAX_BODY);
 
             try {
               await github.rest.issues.createLabel({ owner, repo, name: label, color: 'b60205' });
             } catch (e) {
-              // 422: the label already exists.
+              // 422: the label already exists. Anything else is rethrown:
+              // the tracking issue is found by this label, so nothing below
+              // works without it.
+              if (e.status !== 422) throw e;
             }
-
-            // Open tracking issues, oldest first. PRs share the issues API
-            // and can carry the label, so they are excluded.
-            const listOpen = async () =>
-              (await github.paginate(github.rest.issues.listForRepo, {
-                owner, repo, state: 'open', labels: label,
-              }))
-                .filter((issue) => !issue.pull_request)
-                .sort((a, b) => a.number - b.number);
 
             const [existing] = await listOpen();
 
+            let postedTo;
             if (existing) {
               await github.rest.issues.createComment({
                 owner, repo, issue_number: existing.number, body,
               });
+              postedTo = existing.number;
               console.log(`Updated #${existing.number}`);
             } else {
               const { data: created } = await github.rest.issues.create({
@@ -635,29 +758,29 @@ jobs:
                 labels: [label],
                 body,
               });
+              postedTo = created.number;
               console.log(`Opened #${created.number}`);
+            }
 
-              // Two runs that both found no issue can each open one. Keep
-              // the lowest-numbered issue and close the rest, so every run
-              // converges on the same tracking issue.
-              const [keep, ...duplicates] = await listOpen();
-              if (keep && duplicates.length) {
-                if (keep.number !== created.number) {
-                  await github.rest.issues.createComment({
-                    owner, repo, issue_number: keep.number, body,
-                  });
-                  console.log(`Moved this run's report to #${keep.number}`);
-                }
-                for (const duplicate of duplicates) {
-                  await github.rest.issues.createComment({
-                    owner, repo, issue_number: duplicate.number,
-                    body: `Duplicate of #${keep.number}, opened by a concurrent scheduled run. Closing; this run's details are tracked there.`,
-                  });
-                  await github.rest.issues.update({
-                    owner, repo, issue_number: duplicate.number,
-                    state: 'closed', state_reason: 'not_planned',
-                  });
-                  console.log(`Closed duplicate #${duplicate.number}`);
-                }
-              }
+            // Two runs that both found no issue can each open one. Keep
+            // the lowest-numbered issue and close the rest, so every run
+            // converges on the same tracking issue. Runs every time, so
+            // duplicates left by earlier runs are closed too.
+            const [keep, ...duplicates] = await listOpen();
+            if (keep && keep.number !== postedTo) {
+              await github.rest.issues.createComment({
+                owner, repo, issue_number: keep.number, body,
+              });
+              console.log(`Moved this run's report to #${keep.number}`);
+            }
+            for (const duplicate of duplicates) {
+              await github.rest.issues.createComment({
+                owner, repo, issue_number: duplicate.number,
+                body: `Duplicate of #${keep.number}. Closing; scheduled scan failures are tracked there.`,
+              });
+              await github.rest.issues.update({
+                owner, repo, issue_number: duplicate.number,
+                state: 'closed', state_reason: 'not_planned',
+              });
+              console.log(`Closed duplicate #${duplicate.number}`);
             }

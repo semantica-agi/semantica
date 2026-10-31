@@ -28,5 +28,5 @@ Open `http://localhost:5174` for the interactive dashboard.
 
 ## Requirements
 
-- Python 3.10+
+- Python 3.11+
 - `pip install semantica`

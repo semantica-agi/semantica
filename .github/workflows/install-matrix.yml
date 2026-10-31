@@ -26,9 +26,10 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
         # Must match `requires-python` and the classifiers in pyproject.toml.
-        python-version: ['3.10', '3.11', '3.12', '3.13']
+        # 3.10 was dropped in 0.8.0 (Pillow 13 needs 3.11, see #2067).
+        python-version: ['3.11', '3.12', '3.13']
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Pin expected version for release-triggered runs
         id: expected-version

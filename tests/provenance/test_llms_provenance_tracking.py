@@ -1,18 +1,25 @@
 """Regression tests for what the LLM provenance wrappers actually record.
 
-Two gaps in the wrappers let calls go untracked or tracked without their
-usage/cost:
+Four gaps in the wrappers let calls go untracked, tracked without their
+usage/cost, tracked under the wrong model, or not tracked at all:
 
 * ``generate_structured`` / ``generate_typed`` fell through ``__getattr__`` to
   the wrapped LLM, so those calls produced no provenance entry at all.
 * ``generate`` read token counts and cost off the returned value, but the
   providers returned a plain ``str``, so ``prompt_tokens`` / ``completion_tokens``
   / ``total_cost`` were always ``None``.
+* Every entry named the model the wrapper was constructed with, so a call that
+  passed its own ``model=`` was recorded under a model it never used (#2051).
+* A per-call ``model=`` that is not a string reached the metadata verbatim, so
+  the storage layer could not serialize it: the write was rolled back and the
+  entry was never stored (#2051).
 
 These tests drive the wrappers with a stub LLM and a recording provenance
 manager so they stay offline and assert on the recorded metadata directly.
-A second group drives the providers themselves with a canned client, so a
-provider that stops carrying usage/cost turns the suite red.
+One test drives a real ``ProvenanceManager`` over a sqlite file in ``tmp_path``
+to prove the entry is really written, still offline. A second group drives the
+providers themselves with a canned client, so a provider that stops carrying
+usage/cost turns the suite red.
 """
 
 from types import SimpleNamespace
@@ -22,13 +29,39 @@ from pydantic import BaseModel
 
 from semantica.llms.llms_provenance import (
     GroqLLMWithProvenance,
+    HuggingFaceLLMWithProvenance,
     LiteLLMWithProvenance,
+    OpenAILLMWithProvenance,
 )
+from semantica.provenance import ProvenanceManager
 from semantica.semantic_extract.providers import (
     GroqProvider,
     OpenAIProvider,
     ResponseText,
 )
+
+_WRAPPER_CLASSES = {
+    "GroqLLMWithProvenance": GroqLLMWithProvenance,
+    "OpenAILLMWithProvenance": OpenAILLMWithProvenance,
+    "HuggingFaceLLMWithProvenance": HuggingFaceLLMWithProvenance,
+    "LiteLLMWithProvenance": LiteLLMWithProvenance,
+}
+_WRAPPER_NAMES = list(_WRAPPER_CLASSES)
+
+# The HuggingFace provider loads its model in its constructor and its generate
+# reads only the generation options, so a per-call ``model`` is ignored and the
+# constructor model is the one the call actually used.
+_HONOURS_PER_CALL_MODEL = {
+    "GroqLLMWithProvenance": True,
+    "OpenAILLMWithProvenance": True,
+    "HuggingFaceLLMWithProvenance": False,
+    "LiteLLMWithProvenance": True,
+}
+
+
+def _expected_model(wrapper_name, per_call="per-call-model"):
+    """The model an entry should name for *wrapper_name*."""
+    return per_call if _HONOURS_PER_CALL_MODEL[wrapper_name] else "constructor-model"
 
 
 class _RecordingProvenanceManager:
@@ -68,6 +101,38 @@ def _wrapper_with(llm):
     wrapper.provenance = True
     wrapper._prov_manager = recorder
     wrapper._llm = llm
+    return wrapper, recorder
+
+
+class _StubProvider:
+    """Stand-in for the provider class a wrapper constructs."""
+
+    def __init__(self, *args, **kwargs):
+        pass
+
+
+def _wrapper_for(wrapper_name, monkeypatch, constructor_model="constructor-model"):
+    """Build *wrapper_name* around a stub, with a known constructor model.
+
+    Each wrapper imports the class it wraps lazily, inside ``__init__``, so
+    the optional providers are stubbed here: the real HuggingFace provider
+    loads a transformer model while constructing, and LiteLLM refuses to
+    construct without the optional ``litellm`` package.
+    """
+    if wrapper_name == "HuggingFaceLLMWithProvenance":
+        monkeypatch.setattr(
+            "semantica.llms.huggingface.HuggingFaceLLMProvider", _StubProvider
+        )
+    if wrapper_name == "LiteLLMWithProvenance":
+        monkeypatch.setattr("semantica.llms.litellm.LITELLM_AVAILABLE", True)
+
+    wrapper = _WRAPPER_CLASSES[wrapper_name](provenance=False, model=constructor_model)
+    recorder = _RecordingProvenanceManager()
+    wrapper.provenance = True
+    wrapper._prov_manager = recorder
+    wrapper._llm = _StubLLM(
+        response="answer", structured={"answer": 42}, typed="validated"
+    )
     return wrapper, recorder
 
 
@@ -428,3 +493,216 @@ def test_litellm_wrapper_reads_cost_from_response_text(monkeypatch):
     wrapper.generate("question")
 
     assert recorder.calls[0]["metadata"]["total_cost"] == 0.007
+
+
+class TestRecordedModelFollowsTheCall:
+    """A recorded entry must name the model the call actually used (#2051)."""
+
+    @pytest.mark.parametrize("wrapper_name", _WRAPPER_NAMES)
+    def test_per_call_model_is_recorded(self, wrapper_name, monkeypatch):
+        """The entry names the model the call used, not the constructor's."""
+        wrapper, recorder = _wrapper_for(wrapper_name, monkeypatch)
+
+        wrapper.generate("question", model="per-call-model")
+
+        assert recorder.calls[0]["metadata"]["model"] == _expected_model(wrapper_name)
+
+    @pytest.mark.parametrize("wrapper_name", _WRAPPER_NAMES)
+    def test_call_without_a_model_records_the_constructor_model(
+        self, wrapper_name, monkeypatch
+    ):
+        """A call that names no model keeps the constructor's model."""
+        wrapper, recorder = _wrapper_for(wrapper_name, monkeypatch)
+
+        wrapper.generate("question")
+
+        assert recorder.calls[0]["metadata"]["model"] == "constructor-model"
+
+    @pytest.mark.parametrize("wrapper_name", _WRAPPER_NAMES)
+    def test_structured_path_records_the_per_call_model(
+        self, wrapper_name, monkeypatch
+    ):
+        """The structured path reaches the recorder and names the same model."""
+        wrapper, recorder = _wrapper_for(wrapper_name, monkeypatch)
+
+        wrapper.generate_structured("question", model="per-call-model")
+
+        assert recorder.calls[0]["metadata"]["model"] == _expected_model(wrapper_name)
+
+    @pytest.mark.parametrize("wrapper_name", _WRAPPER_NAMES)
+    def test_typed_path_records_the_per_call_model(self, wrapper_name, monkeypatch):
+        """The typed path reaches the recorder and names the same model."""
+        wrapper, recorder = _wrapper_for(wrapper_name, monkeypatch)
+
+        wrapper.generate_typed("question", schema=object, model="per-call-model")
+
+        assert recorder.calls[0]["metadata"]["model"] == _expected_model(wrapper_name)
+
+    def test_huggingface_records_the_model_its_provider_loaded(self, monkeypatch):
+        """HF loads its model at construction, so a per-call value never runs."""
+        wrapper, recorder = _wrapper_for("HuggingFaceLLMWithProvenance", monkeypatch)
+
+        wrapper.generate("question", model="per-call-model")
+
+        assert recorder.calls[0]["metadata"]["model"] == "constructor-model"
+
+    @pytest.mark.parametrize("wrapper_name", _WRAPPER_NAMES)
+    def test_none_model_falls_back_to_the_constructor_model(
+        self, wrapper_name, monkeypatch
+    ):
+        """A per-call ``model=None`` names no model, so the constructor's is kept."""
+        wrapper, recorder = _wrapper_for(wrapper_name, monkeypatch)
+
+        wrapper.generate("question", model=None)
+
+        assert recorder.calls[0]["metadata"]["model"] == "constructor-model"
+
+    @pytest.mark.parametrize("wrapper_name", _WRAPPER_NAMES)
+    def test_empty_model_falls_back_to_the_constructor_model(
+        self, wrapper_name, monkeypatch
+    ):
+        """An empty model name is not a model, so the constructor's is recorded."""
+        wrapper, recorder = _wrapper_for(wrapper_name, monkeypatch)
+
+        wrapper.generate("question", model="")
+
+        assert recorder.calls[0]["metadata"]["model"] == "constructor-model"
+
+    def test_only_the_model_field_changes(self, monkeypatch):
+        """No other recorded field may move when a per-call model is used."""
+        wrapper, recorder = _wrapper_for("GroqLLMWithProvenance", monkeypatch)
+
+        wrapper.generate("question")
+        wrapper.generate("question", model="per-call-model")
+
+        first, second = (call["metadata"] for call in recorder.calls)
+        assert first["model"] == "constructor-model"
+        assert second["model"] == "per-call-model"
+        # The model is the one field that must differ; the latency moves on
+        # its own between any two calls.
+        ignored = {"model", "latency_seconds"}
+        assert {k: v for k, v in first.items() if k not in ignored} == {
+            k: v for k, v in second.items() if k not in ignored
+        }
+
+
+class TestTheRecorderResolvesTheModel:
+    """The shared recorder, not the call sites, decides what is recorded."""
+
+    def test_the_recorder_records_the_model_it_is_handed(self, monkeypatch):
+        """A direct recorder call records the model it was given."""
+        wrapper, recorder = _wrapper_for("GroqLLMWithProvenance", monkeypatch)
+
+        wrapper._track_llm_call(
+            call_id="c1", prompt="p", response="r", model="direct-model"
+        )
+
+        assert recorder.calls[0]["metadata"]["model"] == "direct-model"
+
+    @pytest.mark.parametrize(
+        "model",
+        [None, "", "   "],
+        ids=["none", "empty", "whitespace"],
+    )
+    def test_the_recorder_falls_back_for_a_value_that_names_no_model(
+        self, model, monkeypatch
+    ):
+        """The recorder itself falls back; the call sites do not decide."""
+        wrapper, recorder = _wrapper_for("GroqLLMWithProvenance", monkeypatch)
+
+        wrapper._track_llm_call(call_id="c2", prompt="p", response="r", model=model)
+
+        assert recorder.calls[0]["metadata"]["model"] == "constructor-model"
+
+    def test_the_recorder_falls_back_for_a_value_that_is_not_a_string(
+        self, monkeypatch
+    ):
+        """A model that is not a string never reaches the recorded metadata."""
+        wrapper, recorder = _wrapper_for("GroqLLMWithProvenance", monkeypatch)
+
+        wrapper._track_llm_call(call_id="c3", prompt="p", response="r", model=object())
+
+        assert recorder.calls[0]["metadata"]["model"] == "constructor-model"
+
+
+class TestAModelThatNamesNoModelFallsBack:
+    """A per-call model that names no model never becomes the recorded one."""
+
+    @pytest.mark.parametrize(
+        "model",
+        [None, "", "   ", 0, False, object()],
+        ids=["none", "empty", "whitespace", "zero", "false", "object"],
+    )
+    @pytest.mark.parametrize("wrapper_name", _WRAPPER_NAMES)
+    def test_a_value_that_names_no_model_falls_back(
+        self, wrapper_name, model, monkeypatch
+    ):
+        """Every value that names no model records the constructor's model."""
+        wrapper, recorder = _wrapper_for(wrapper_name, monkeypatch)
+
+        wrapper.generate("question", model=model)
+
+        recorded = recorder.calls[0]["metadata"]["model"]
+        assert recorded == "constructor-model"
+        assert isinstance(recorded, str)
+
+    def test_a_non_string_model_never_reaches_the_metadata(self, monkeypatch):
+        """The raw value is dropped, so nothing unserializable is recorded."""
+        wrapper, recorder = _wrapper_for("GroqLLMWithProvenance", monkeypatch)
+        unserializable = object()
+
+        wrapper.generate("question", model=unserializable)
+
+        metadata = recorder.calls[0]["metadata"]
+        assert metadata["model"] == "constructor-model"
+        assert unserializable not in metadata.values()
+
+    def test_a_non_serializable_model_still_writes_the_entry(self, tmp_path):
+        """The entry survives a model the storage layer cannot serialize."""
+        wrapper = GroqLLMWithProvenance(provenance=False, model="constructor-model")
+        manager = ProvenanceManager(storage_path=str(tmp_path / "provenance.db"))
+        wrapper.provenance = True
+        wrapper._prov_manager = manager
+        wrapper._llm = _StubLLM(response="answer")
+
+        wrapper.generate("question", model=object())
+
+        stored = manager.storage.retrieve_all(entity_type="llm_generation")
+        assert len(stored) == 1
+        assert stored[0].metadata["model"] == "constructor-model"
+
+
+class _RaisingLLM(_StubLLM):
+    """A stub whose generation entry points raise, to drive the failure path."""
+
+    def generate(self, prompt, **kwargs):
+        raise RuntimeError("provider failed")
+
+
+class TestFailedCallsRecordTheModelTheyWereGiven:
+    """A failed call names the model it asked for, not the constructor's."""
+
+    @pytest.mark.parametrize("wrapper_name", _WRAPPER_NAMES)
+    def test_failed_generate_records_the_per_call_model(
+        self, wrapper_name, monkeypatch
+    ):
+        wrapper, recorder = _wrapper_for(wrapper_name, monkeypatch)
+        wrapper._llm = _RaisingLLM()
+
+        with pytest.raises(RuntimeError):
+            wrapper.generate("question", model="per-call-model")
+
+        assert recorder.calls, "no entry was recorded for the failed call"
+        assert recorder.calls[0]["metadata"]["model"] == _expected_model(wrapper_name)
+
+    @pytest.mark.parametrize("wrapper_name", _WRAPPER_NAMES)
+    def test_failed_generate_without_a_model_keeps_the_constructor_model(
+        self, wrapper_name, monkeypatch
+    ):
+        wrapper, recorder = _wrapper_for(wrapper_name, monkeypatch)
+        wrapper._llm = _RaisingLLM()
+
+        with pytest.raises(RuntimeError):
+            wrapper.generate("question")
+
+        assert recorder.calls[0]["metadata"]["model"] == "constructor-model"

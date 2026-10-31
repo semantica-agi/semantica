@@ -721,6 +721,13 @@ class CommunityDetector:
             ValueError: If graph is empty or parameters are invalid
             RuntimeError: If community detection fails
         """
+        if (
+            isinstance(chunk_size, bool)
+            or not isinstance(chunk_size, int)
+            or chunk_size < 1
+        ):
+            raise ValueError("chunk_size must be an integer at least 1")
+
         try:
             self.logger.info("Detecting communities using Label Propagation algorithm")
 
@@ -945,12 +952,11 @@ class CommunityDetector:
             if hasattr(graph, "neighbors") or hasattr(graph, "get_neighbors")
             else build_adjacency(graph)
         )
-        # Its edge types are read once too, so the filter below costs O(E)
-        # rather than one edge-list scan per neighbour.
+        # The edge types of a graph dictionary or a ContextGraph are read once
+        # too, so the filter below costs O(E) rather than one edge-list scan
+        # per neighbour.
         edge_types = (
-            build_edge_type_index(graph)
-            if relationship_types is not None and isinstance(graph, dict)
-            else None
+            build_edge_type_index(graph) if relationship_types is not None else None
         )
 
         for node in rows:

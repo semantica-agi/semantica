@@ -137,9 +137,13 @@ class TestNotebook14(unittest.TestCase):
         self.assertEqual(len(messy_ontology['classes']), 2)
         self.assertEqual(len(clean_ontology['classes']), 1)
 
+    # visualize_structure delegates to KGVisualizer, which holds its own
+    # module-level plotly reference, so it has to be mocked as well for the
+    # test to run without the optional viz extra.
+    @patch("semantica.visualization.kg_visualizer.go")
     @patch("semantica.visualization.ontology_visualizer.make_subplots")
     @patch("semantica.visualization.ontology_visualizer.go")
-    def test_visualization(self, mock_go, mock_make_subplots):
+    def test_visualization(self, mock_go, mock_make_subplots, mock_kg_go):
         """Test OntologyVisualizer usage (mocking plotly)."""
         viz = OntologyVisualizer()
         ontology = self._run_full_pipeline()
