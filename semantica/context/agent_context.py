@@ -81,7 +81,7 @@ from .agent_memory import AgentMemory
 from .context_retriever import ContextRetriever, RetrievedContext
 from .entity_linker import EntityLinker
 from .decision_models import Decision
-from .decision_recorder import DecisionRecorder, evaluate_and_enrich_decision
+from .decision_recorder import DecisionRecorder, evaluate_and_enrich_decision, execute_decision_evaluators
 from .decision_query import DecisionQuery
 from .causal_analyzer import CausalChainAnalyzer
 from .policy_engine import PolicyEngine
@@ -135,7 +135,7 @@ class AgentContext:
         advanced_analytics: bool = True,
         kg_algorithms: bool = True,
         vector_store_features: bool = True,
-        evaluators: Optional[List[str]] = None,
+        evaluators: Optional[List[Any]] = None,
         eval_config: Optional[Dict[str, Any]] = None,
         **kwargs,
     ):
@@ -179,9 +179,9 @@ class AgentContext:
         self.knowledge_graph = knowledge_graph
         self._checkpoints: Dict[str, Dict[str, Any]] = {}
         self._temporal_version_manager = kwargs.get("temporal_version_manager")
-        self.evaluators = evaluators
-        self.eval_config = eval_config or {}
-
+        self.evaluators = evaluators if evaluators is not None else kwargs.get("evaluators")
+        self.eval_config = eval_config if eval_config is not None else kwargs.get("eval_config", {})
+        
         # Store advanced feature flags
         self.config = {
             "decision_tracking": decision_tracking,
@@ -191,6 +191,8 @@ class AgentContext:
             "graph_expansion": graph_expansion,
             "max_expansion_hops": max_expansion_hops,
             "hybrid_alpha": hybrid_alpha,
+            "evaluators": self.evaluators,
+            "eval_config": self.eval_config,
             **kwargs
         }
 
@@ -1699,6 +1701,7 @@ class AgentContext:
         decision_maker: Optional[str] = "ai_agent",
         valid_from: Optional[Union[str, datetime]] = None,
         valid_until: Optional[Union[str, datetime]] = None,
+        metadata: Optional[Dict[str, Any]] = None,
     ) -> str:
         """
         Record decision (wrapper for DecisionRecorder).
@@ -1712,6 +1715,9 @@ class AgentContext:
             entities: Optional list of entity IDs
             cross_system_context: Optional cross-system context
             decision_maker: Decision maker identifier
+            valid_from: Optional valid from timestamp
+            valid_until: Optional valid until timestamp
+            metadata: Optional decision metadata
             
         Returns:
             Decision ID
@@ -1725,23 +1731,27 @@ class AgentContext:
         from .decision_models import Decision
         import uuid
         
-        decision = Decision(
-            decision_id=str(uuid.uuid4()),
-            category=category,
-            scenario=scenario,
-            reasoning=reasoning,
-            outcome=outcome,
-            confidence=confidence,
-            timestamp=datetime.now(),
-            decision_maker=decision_maker or "ai_agent",
-            valid_from=valid_from,
-            valid_until=valid_until,
-        )
-        
+        decision_metadata: Dict[str, Any] = dict(metadata or {})
+        if cross_system_context:
+            decision_metadata["cross_system_context"] = cross_system_context
+
         entities = entities or []
         source_documents = []  # Could be enhanced to capture source docs
 
         if self._decision_backend == "graph_store":
+            decision = Decision(
+                decision_id=str(uuid.uuid4()),
+                category=category,
+                scenario=scenario,
+                reasoning=reasoning,
+                outcome=outcome,
+                confidence=confidence,
+                timestamp=datetime.now(),
+                decision_maker=decision_maker or "ai_agent",
+                valid_from=valid_from,
+                valid_until=valid_until,
+                metadata=decision_metadata,
+            )
             decision_id = self._decision_recorder.record_decision(
                 decision, entities, source_documents
             )
@@ -1756,28 +1766,11 @@ class AgentContext:
         if not hasattr(self.knowledge_graph, "record_decision"):
             raise RuntimeError("Decision tracking backend does not support decisions")
 
-        # Delegate to ContextGraph. Run the same opt-in evaluator hook as the
-        # DecisionRecorder path before persisting, so eval_* metadata is
-        # available on both decision backends.
-        if self.evaluators:
-            evaluate_and_enrich_decision(
-                decision, self.evaluators, self.eval_config, self.logger
-            )
-        metadata = dict(decision.metadata or {})
-        # ContextGraph rejects metadata values whose str() exceeds 1000
-        # characters. An evaluator's diagnostic detail can cross that limit
-        # (for example a long outcome echoed into a mismatch reason), and the
-        # evaluator hook is explicitly non-blocking, so keep the compact score
-        # and pass/fail fields and omit the oversized diagnostic payload.
-        if "eval_details" in metadata and len(str(metadata["eval_details"])) > 1000:
-            self.logger.warning(
-                f"Decision evaluation details for {decision.decision_id} exceed "
-                "ContextGraph's metadata value limit; storing eval_score and "
-                "eval_passed without eval_details"
-            )
-            metadata.pop("eval_details", None)
+        # Delegate to ContextGraph
+        graph_metadata = dict(metadata or {})
         if cross_system_context:
-            metadata["cross_system_context"] = cross_system_context
+            graph_metadata["cross_system_context"] = cross_system_context
+
         decision_id = self.knowledge_graph.record_decision(
             category=category,
             scenario=scenario,
@@ -1788,8 +1781,9 @@ class AgentContext:
             decision_maker=decision_maker,
             valid_from=valid_from,
             valid_until=valid_until,
-            decision_id=decision.decision_id,
-            metadata=metadata or None,
+            metadata=graph_metadata if graph_metadata else None,
+            evaluators=self.evaluators,
+            eval_config=self.eval_config,
         )
 
         return decision_id
