@@ -482,8 +482,8 @@ class BlazegraphStore:
                 f"?o = {self._format_object_for_sparql(Triplet(subject='', predicate='', object=object))}"
             )
 
-        where_clause = " ".join(where_clauses) if where_clauses else ""
-        query = f"SELECT ?s ?p ?o WHERE {{ ?s ?p ?o {where_clause} }}"
+        where_clause = f" FILTER({' && '.join(where_clauses)})" if where_clauses else ""
+        query = f"SELECT ?s ?p ?o WHERE {{ ?s ?p ?o .{where_clause} }}"
 
         result = self.execute_sparql(query, **options)
 
