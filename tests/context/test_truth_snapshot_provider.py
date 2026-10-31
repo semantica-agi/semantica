@@ -273,9 +273,7 @@ def test_assert_current_rejects_other_provider_with_matching_counters(
     provider = TruthSnapshotProvider(source, namespace=NAMESPACE)
     other = TruthSnapshotProvider(other_source, namespace=NAMESPACE)
     coordinates = (
-        {"valid_at": at(15), "known_at": at(15)}
-        if read_kind == "historical"
-        else {}
+        {"valid_at": at(15), "known_at": at(15)} if read_kind == "historical" else {}
     )
     view = provider.capture(**coordinates)
     foreign = other.capture(**coordinates)
@@ -382,3 +380,48 @@ def test_temporal_stamp_rejects_naive_coordinates(field):
     coordinates[field] = datetime(2026, 9, 15)
     with pytest.raises(ValidationError, match="timezone aware"):
         SnapshotStamp(NAMESPACE, "temporal", graph_revision=1, **coordinates)
+
+
+@pytest.mark.parametrize(
+    "coordinates",
+    [
+        {"valid_at": at(20), "known_at": at(15)},
+        {"valid_at": at(15), "known_at": at(20)},
+    ],
+)
+def test_live_temporal_view_detects_one_coordinate_moving(coordinates):
+    managed = synced_adapter()
+    provider = TruthSnapshotProvider(managed, namespace=NAMESPACE)
+    live = provider.capture()
+
+    managed.advance(**coordinates)
+
+    assert managed.graph_revision == live.stamp.graph_revision
+    with pytest.raises(ProcessingError):
+        provider.assert_current(live)
+
+
+def test_copied_provider_gets_its_own_identity():
+    from copy import deepcopy
+
+    provider = TruthSnapshotProvider(supported_session(), namespace=NAMESPACE)
+    clone = deepcopy(provider)
+    view = provider.capture()
+
+    provider.assert_current(view)
+    with pytest.raises(ValidationError, match="different provider"):
+        clone.assert_current(view)
+    with pytest.raises(ValidationError, match="different provider"):
+        provider.assert_current(clone.capture())
+
+
+def test_stamp_rejects_coordinates_outside_the_utc_range():
+    from datetime import timedelta
+
+    from semantica.context.grounded_context_types import SnapshotStamp
+
+    early = datetime.min.replace(tzinfo=timezone(timedelta(hours=5)))
+    with pytest.raises(ValidationError, match="valid_at"):
+        SnapshotStamp(
+            NAMESPACE, "temporal", graph_revision=0, valid_at=early, known_at=at(1)
+        )

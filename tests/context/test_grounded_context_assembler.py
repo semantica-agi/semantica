@@ -479,3 +479,92 @@ def test_mismatched_registry_namespace_fails_before_retrieval(with_candidates):
     with pytest.raises(ValidationError, match="namespace"):
         builder.assemble("query")
     assert local.vector_store.calls == 0
+
+
+class RowMemoryStore:
+    """Memory source returning its stored rows."""
+
+    def __init__(self, rows):
+        self.rows = rows
+
+    def retrieve(self, *, query, max_results):
+        return self.rows[:max_results]
+
+
+def unannotated_row(content, score):
+    return {"id": content, "content": content, "score": score, "metadata": {}}
+
+
+def test_blank_passage_is_excluded_instead_of_failing_assembly():
+    session, provider = session_with_provider(FactSupport("s1", "A(x)"))
+    blank = ordinary_row(provider, score=0.5)
+    blank["content"] = "   "
+    builder = GroundedContextAssembler(
+        retriever([ordinary_row(provider), blank]),
+        provider=provider,
+        artifacts=ContextArtifactIndex(namespace=NAMESPACE),
+    )
+    result = builder.assemble("query")
+    assert result.text == "[b1] Original source"
+    assert [(e.object_id, e.reason) for e in result.exclusions] == [
+        ("candidate:2", "empty_content")
+    ]
+
+
+def test_summary_returned_by_two_sources_is_admitted_once():
+    session, provider = session_with_provider(FactSupport("s1", "A(x)"))
+    index, citation, summary = registered_pair(provider)
+    local = ContextRetriever(
+        vector_store=StaticVectorStore([stored_row(summary)]),
+        memory_store=RowMemoryStore([stored_row(summary)]),
+        use_graph_expansion=False,
+    )
+    result = GroundedContextAssembler(
+        local, provider=provider, artifacts=index
+    ).assemble("query")
+    assert [block.source for block in result.blocks] == ["summary-v1"]
+    assert [(e.object_id, e.reason) for e in result.exclusions] == [
+        ("summary-v1", "duplicate")
+    ]
+
+
+def test_identical_passages_are_admitted_once():
+    session, provider = session_with_provider(FactSupport("s1", "A(x)"))
+    builder = GroundedContextAssembler(
+        retriever([ordinary_row(provider), ordinary_row(provider, score=0.8)]),
+        provider=provider,
+        artifacts=ContextArtifactIndex(namespace=NAMESPACE),
+    )
+    result = builder.assemble("query")
+    assert result.text == "[b1] Original source"
+    assert [(e.object_id, e.reason) for e in result.exclusions] == [
+        ("candidate:2", "duplicate")
+    ]
+
+
+def test_ungrounded_rows_do_not_push_grounded_rows_out_of_the_pool():
+    session, provider = session_with_provider(FactSupport("s1", "A(x)"))
+    rows = [
+        unannotated_row("noise one", 0.9),
+        unannotated_row("noise two", 0.8),
+        ordinary_row(provider, score=0.7),
+    ]
+    builder = GroundedContextAssembler(
+        retriever(rows),
+        provider=provider,
+        artifacts=ContextArtifactIndex(namespace=NAMESPACE),
+    )
+    assert builder.assemble("query", max_results=1).text == "[b1] Original source"
+    assert builder.assemble("query", max_results=1, candidate_pool=2).text == ""
+
+
+@pytest.mark.parametrize("candidate_pool", [0, -1, True, 1.5, "3"])
+def test_candidate_pool_must_be_a_positive_integer(candidate_pool):
+    session, provider = session_with_provider(FactSupport("s1", "A(x)"))
+    builder = GroundedContextAssembler(
+        retriever([ordinary_row(provider)]),
+        provider=provider,
+        artifacts=ContextArtifactIndex(namespace=NAMESPACE),
+    )
+    with pytest.raises(ValidationError, match="candidate_pool"):
+        builder.assemble("query", candidate_pool=candidate_pool)

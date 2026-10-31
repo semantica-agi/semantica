@@ -64,7 +64,9 @@ class StaticVectorStore:
 
     def search(self, *, query, limit):
         self.calls += 1
-        result = deepcopy(self.rows[:limit])
+        # Return the stored rows themselves, like a real in-process store,
+        # so tests can tell whether assembly writes into store state.
+        result = self.rows[:limit]
         if self.on_search is not None:
             self.on_search()
         return result
