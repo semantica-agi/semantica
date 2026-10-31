@@ -148,3 +148,100 @@ def test_section_content_includes_text_box_text(tmp_path):
     result = _parse(document, tmp_path)
 
     assert "CALLOUT_TEXT" in result["sections"][0]["content"]
+
+
+@pytest.mark.parametrize("textbox", [_vml_textbox, _alternate_content_textbox])
+def test_text_box_preserves_tabs_breaks_and_carriage_returns(tmp_path, textbox):
+    document = docx.Document()
+    document.add_heading("Heading One", level=1)
+    xml = textbox("LEFT").replace(
+        "<w:t>LEFT</w:t>",
+        "<w:t>LEFT</w:t><w:tab/><w:t>MID</w:t>"
+        "</w:r><w:r><w:br/><w:t>END</w:t><w:cr/><w:t>CR_TEXT</w:t>",
+    )
+    _insert_after(document.paragraphs[-1], xml)
+
+    result = _parse(document, tmp_path)
+
+    expected = "LEFT\tMID\nEND\nCR_TEXT"
+    assert result["paragraphs"][-1] == expected
+    assert result["full_text"].count(expected) == 1
+    assert result["sections"][0]["content"] == expected + "\n\n"
+
+
+@pytest.mark.parametrize("textbox", [_vml_textbox, _alternate_content_textbox])
+@pytest.mark.parametrize(
+    ("replacement", "expected"),
+    [
+        ("<w:tab/><w:t>EDGE</w:t><w:br/>", "\tEDGE\n"),
+        ("<w:tab/>", "\t"),
+        ("<w:cr/>", "\n"),
+    ],
+)
+def test_text_box_keeps_edge_and_separator_only_content(
+    tmp_path, textbox, replacement, expected
+):
+    document = docx.Document()
+    document.add_heading("Heading One", level=1)
+    xml = textbox("EDGE").replace("<w:t>EDGE</w:t>", replacement)
+    _insert_after(document.paragraphs[-1], xml)
+
+    result = _parse(document, tmp_path)
+
+    assert result["paragraphs"][-1] == expected
+    assert result["full_text"].endswith(expected)
+    assert result["sections"][0]["content"] == expected + "\n\n"
+
+
+@pytest.mark.parametrize("textbox", [_vml_textbox, _alternate_content_textbox])
+def test_text_box_in_table_preserves_edge_separators(tmp_path, textbox):
+    document = docx.Document()
+    cell = document.add_table(rows=1, cols=1).cell(0, 0)
+    xml = textbox("EDGE").replace("<w:t>EDGE</w:t>", "<w:tab/><w:t>EDGE</w:t><w:br/>")
+    _insert_after(cell.paragraphs[0], xml)
+
+    result = _parse(document, tmp_path)
+
+    assert result["tables"][0]["rows"][0][0] == "\tEDGE\n"
+
+
+@pytest.mark.parametrize("textbox", [_vml_textbox, _alternate_content_textbox])
+def test_text_box_ignores_space_only_content(tmp_path, textbox):
+    document = docx.Document()
+    document.add_heading("Heading One", level=1)
+    _insert_after(document.paragraphs[-1], textbox("   "))
+
+    result = _parse(document, tmp_path)
+
+    assert result["paragraphs"] == ["Heading One"]
+    assert result["sections"][0]["content"] == ""
+
+
+@pytest.mark.parametrize("textbox", [_vml_textbox, _alternate_content_textbox])
+@pytest.mark.parametrize("box_text", ["", "   ", "BOX"])
+def test_text_box_preserves_surrounding_cell_whitespace(tmp_path, textbox, box_text):
+    document = docx.Document()
+    cell = document.add_table(rows=1, cols=1).cell(0, 0)
+    cell.paragraphs[0].text = "  FIRST  "
+    _insert_after(cell.paragraphs[0], textbox(box_text))
+    cell.add_paragraph("  LAST  ")
+
+    result = _parse(document, tmp_path)
+
+    assert result["tables"][0]["rows"][0][0] == (
+        "FIRST  \n" + box_text.strip() + "\n  LAST"
+    )
+
+
+@pytest.mark.parametrize("textbox", [_vml_textbox, _alternate_content_textbox])
+def test_text_box_preserves_anchor_paragraph_normalization(tmp_path, textbox):
+    document = docx.Document()
+    document.add_heading("Heading One", level=1)
+    paragraph = document.add_paragraph("  HOST  ")
+    paragraph._p.append(oxml.parse_xml(textbox("BOX"))[0])
+
+    result = _parse(document, tmp_path)
+
+    assert result["paragraphs"][-1] == "HOST  \nBOX"
+    assert result["full_text"] == "Heading One\n\nHOST  \nBOX"
+    assert result["sections"][0]["content"] == "HOST  \nBOX\n\n"
