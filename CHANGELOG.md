@@ -32,6 +32,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Policy**: classifiers, the Install Matrix (3.11–3.13 on Ubuntu/macOS/Windows), `semantica doctor` (`MIN_PYTHON = (3, 11)`), the Dockerfile and `tests/test_python_support_policy.py` all agree on the new floor. `uv.lock` drops its 3.10-only resolutions (about 1,700 lines net)
   - **Security**: closes the 13 Pillow Dependabot alerts (including #392 and #425) and the 3 Python 3.10 filelock alerts. The 28 Pillow and 3 filelock acceptances are removed from `osv-scanner.toml` and `SECURITY.md`
 
+- **The remaining config modules load `.toml` files with stdlib `tomllib`** (#2107)
+  - `ConflictsConfig`, `DeduplicationConfig`, `EmbeddingsConfig`, `ExportConfig`, `IngestConfig`, `KGConfig`, `NormalizeConfig`, `OntologyConfig`, `ParseConfig` and `SplitConfig` loaded `.toml` with the third-party `toml` package (TOML 0.5) from a text file, then unwrapped their own section. `semantic_extract.config.Config` merged the whole document. All eleven now use stdlib `tomllib` (TOML 1.0) from a binary file, matching `graph_store`, `triplet_store`, `vector_store` and `visualization`. Section handling is unchanged. A file that uses TOML 1.0 syntax now loads; a file that depended on a `toml` 0.5 quirk can be rejected. `toml` stays a core dependency.
+
 ### Fixed
 
 - **`pyasn1` was pinned at 0.6.4, which the audit job now flags four times** (fixes #2182) by @sakshi04-ui
