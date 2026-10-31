@@ -225,6 +225,40 @@ class TestGlobalFlags:
 # ─── kg subcommands ───────────────────────────────────────────────────────────
 
 
+# Graph handed to the kg wrappers by these tests. The old versions replaced
+# `semantica.kg` wholesale with MagicMocks whose method signatures did not
+# match the real classes, so every defect in #1941 passed the suite: the
+# assertions were made against the fake, never against the code. Patching
+# only _kg_graph() lets the real GraphAnalyzer / PathFinder / EntityResolver /
+# LinkPredictor / GraphValidator run against a known graph instead.
+FIXTURE_KG = {
+    "entities": [
+        {"id": "Alice", "type": "person", "text": "Alice"},
+        {"id": "Bob", "type": "person", "text": "Bob"},
+        {"id": "Acme", "type": "org", "text": "Acme"},
+    ],
+    "relationships": [
+        {"id": "r1", "source": "Alice", "target": "Bob",
+         "type": "knows", "weight": 1.0},
+        {"id": "r2", "source": "Bob", "target": "Acme",
+         "type": "works_at", "weight": 1.0},
+    ],
+}
+
+
+def _fixture_graph(monkeypatch) -> None:
+    """Point the kg CLI at FIXTURE_KG, leaving the real KG classes in place.
+
+    Normalization runs too: the memory backend path applies it before handing
+    the graph to GraphValidator, which requires an entity ``name``.
+    """
+    monkeypatch.setattr(
+        cli_module,
+        "_kg_graph",
+        lambda cli_ctx: cli_module._normalize_kg_dict(FIXTURE_KG),
+    )
+
+
 class TestKgSubcommands:
     @pytest.mark.parametrize("sub", ["query", "stats", "analyze", "find-path",
                                       "resolve", "predict", "validate"])
@@ -248,74 +282,202 @@ class TestKgSubcommands:
         # Either exits 0 (fallback) or non-0 (clean error) — never traceback
         assert "Traceback" not in result.output
 
-    def test_kg_stats_json_with_mock(self, runner, monkeypatch):
-        fake_kg = _fake_module(
-            GraphAnalyzer=lambda **kw: MagicMock(
-                compute_metrics=lambda: {"nodes": 10, "edges": 25, "density": 0.5}
-            ),
-        )
-        monkeypatch.setitem(__import__("sys").modules, "semantica.kg", fake_kg)
+    def test_kg_stats_json_with_fixture_graph(self, runner, monkeypatch):
+        _fixture_graph(monkeypatch)
         result = runner.invoke(cli_module.main, ["kg", "stats", "--json"])
-        _ok(result)
         data = _json_output(result)
-        assert isinstance(data, dict)
-        assert "nodes" in data
+        assert data["num_nodes"] == len(FIXTURE_KG["entities"])
+        assert data["num_edges"] == len(FIXTURE_KG["relationships"])
 
-    def test_kg_analyze_json_with_mock(self, runner, monkeypatch):
-        fake_kg = _fake_module(
-            GraphAnalyzer=lambda **kw: MagicMock(
-                analyze=lambda mode: {"mode": mode, "communities": 3}
-            ),
-        )
-        monkeypatch.setitem(__import__("sys").modules, "semantica.kg", fake_kg)
-        result = runner.invoke(cli_module.main, ["kg", "analyze", "--mode", "community", "--json"])
-        _ok(result)
+    def test_kg_analyze_community_runs_only_community(self, runner, monkeypatch):
+        _fixture_graph(monkeypatch)
+        result = runner.invoke(cli_module.main, ["kg", "analyze",
+                                      "--mode", "community", "--json"])
         data = _json_output(result)
         assert isinstance(data, dict)
+        # `mode` used to be swallowed by GraphAnalyzer's **options, so
+        # --mode community ran the whole analysis; only the community
+        # detector reports an assignment map (#1941).
+        assert "node_assignments" in data
+        assert set(data["node_assignments"]) == {
+            e["id"] for e in FIXTURE_KG["entities"]
+        }
+
+    def test_kg_analyze_centrality_runs_only_centrality(self, runner, monkeypatch):
+        _fixture_graph(monkeypatch)
+        result = runner.invoke(cli_module.main, ["kg", "analyze",
+                                      "--mode", "centrality", "--json"])
+        data = _json_output(result)
+        assert isinstance(data, dict)
+        assert "node_assignments" not in data
 
     def test_kg_find_path_requires_from_and_to(self, runner):
         result = runner.invoke(cli_module.main, ["kg", "find-path"])
         assert result.exit_code != 0
 
-    def test_kg_find_path_json_with_mock(self, runner, monkeypatch):
-        fake_kg = _fake_module(
-            PathFinder=lambda **kw: MagicMock(
-                find_path=lambda f, t, path_type: {"from": f, "to": t, "path": [f, t]}
-            ),
-        )
-        monkeypatch.setitem(__import__("sys").modules, "semantica.kg", fake_kg)
+    def test_kg_find_path_json_traverses_fixture_graph(self, runner, monkeypatch):
+        _fixture_graph(monkeypatch)
         result = runner.invoke(cli_module.main, ["kg", "find-path",
-                                      "--from", "Alice", "--to", "Acme", "--json"])
-        _ok(result)
+                                      "--from", "Alice", "--to", "Acme",
+                                      "--json"])
         data = _json_output(result)
-        assert "from" in data
+        # PathFinder duck-types against neighbors()/get_edge_data(); handed
+        # the {"entities", "relationships"} dict it cannot traverse and
+        # reports "Source node Alice not found" on a graph that contains
+        # Alice (#1725). The CLI must pass the NetworkX projection.
+        assert data["path"] == ["Alice", "Bob", "Acme"]
 
-    def test_kg_resolve_exits_0_with_mock(self, runner, monkeypatch):
-        fake_kg = _fake_module(
-            EntityResolver=lambda **kw: MagicMock(resolve=lambda: {"resolved": 5}),
-        )
-        monkeypatch.setitem(__import__("sys").modules, "semantica.kg", fake_kg)
-        result = runner.invoke(cli_module.main, ["kg", "resolve"])
-        assert result.exit_code == 0
+    def test_kg_find_path_unknown_node_errors_cleanly(self, runner, monkeypatch):
+        _fixture_graph(monkeypatch)
+        result = runner.invoke(cli_module.main, ["kg", "find-path",
+                                      "--from", "nobody", "--to", "Acme",
+                                      "--json"])
+        assert result.exit_code != 0
+        assert "Traceback" not in result.output
 
-    def test_kg_predict_exits_0_with_mock(self, runner, monkeypatch):
-        fake_kg = _fake_module(
-            LinkPredictor=lambda **kw: MagicMock(predict=lambda: {"predictions": []}),
-        )
-        monkeypatch.setitem(__import__("sys").modules, "semantica.kg", fake_kg)
-        result = runner.invoke(cli_module.main, ["kg", "predict"])
-        assert result.exit_code == 0
+    def test_kg_find_path_unsupported_type_errors_cleanly(self, runner, monkeypatch):
+        _fixture_graph(monkeypatch)
+        result = runner.invoke(cli_module.main, ["kg", "find-path",
+                                      "--from", "Alice", "--to", "Acme",
+                                      "--type", "causal", "--json"])
+        assert result.exit_code != 0
+        assert "Traceback" not in result.output
 
-    def test_kg_validate_exits_0_with_mock(self, runner, monkeypatch):
-        fake_kg = _fake_module(
-            GraphValidator=lambda **kw: MagicMock(
-                validate=lambda: {"valid": True},
-                integrity_check=lambda: {"valid": True},
-            ),
+    def test_kg_find_path_accepts_entity_name_when_id_differs(self, runner, monkeypatch):
+        # --from/--to are documented as names; the projection is keyed by ID.
+        graph = {
+            "entities": [
+                {"id": "n1", "name": "Alice", "type": "person"},
+                {"id": "n2", "name": "Bob", "type": "person"},
+            ],
+            "relationships": [
+                {"id": "r1", "source": "n1", "target": "n2", "type": "knows"},
+            ],
+        }
+        monkeypatch.setattr(
+            cli_module, "_kg_graph",
+            lambda cli_ctx: cli_module._normalize_kg_dict(graph),
         )
-        monkeypatch.setitem(__import__("sys").modules, "semantica.kg", fake_kg)
-        result = runner.invoke(cli_module.main, ["kg", "validate"])
-        assert result.exit_code == 0
+        result = runner.invoke(cli_module.main, ["kg", "find-path",
+                                      "--from", "Alice", "--to", "Bob", "--json"])
+        _ok(result)
+        body = json.dumps(_json_output(result))
+        assert "n1" in body and "n2" in body
+
+    def test_graph_store_context_by_id_keeps_same_name_nodes_apart(self, monkeypatch):
+        # Using the display name as the ID merges same-name store nodes.
+        class _GS:
+            def get_nodes(self, limit=None):
+                return [
+                    {"id": "n1", "properties": {"name": "Alice"}, "labels": ["Person"]},
+                    {"id": "n2", "properties": {"name": "Alice"}, "labels": ["Person"]},
+                ]
+
+            def get_relationships(self, limit=None):
+                return []
+
+        monkeypatch.setattr(cli_module, "_get_graph_store", lambda ctx, **kw: _GS())
+        by_name = cli_module._graph_store_as_context(None)
+        by_id = cli_module._graph_store_as_context(None, by_id=True)
+        assert [e["id"] for e in by_name["entities"]] == ["Alice", "Alice"]
+        assert [e["id"] for e in by_id["entities"]] == ["n1", "n2"]
+        assert [e["name"] for e in by_id["entities"]] == ["Alice", "Alice"]
+
+    def test_kg_resolve_reports_merged_entities_read_only(self, runner, monkeypatch):
+        _fixture_graph(monkeypatch)
+        result = runner.invoke(cli_module.main, ["kg", "resolve", "--json"])
+        data = _json_output(result)
+        assert data["input"] == len(FIXTURE_KG["entities"])
+        assert data["input"] == data["resolved"] + data["merged"]
+        assert len(data["entities"]) == data["resolved"]
+        # Nothing is written back, so the text output must not imply it was.
+        text = runner.invoke(cli_module.main, ["kg", "resolve"]).output
+        assert "read-only" in _flatten(text)
+
+    def test_kg_predict_json_predicts_over_fixture_graph(self, runner, monkeypatch):
+        _fixture_graph(monkeypatch)
+        result = runner.invoke(cli_module.main, ["kg", "predict", "--json"])
+        data = _json_output(result)
+        assert data["count"] == len(data["predictions"])
+        # LinkPredictor enumerates candidate nodes through get_all_nodes(),
+        # which the dict and ContextGraph shapes do not provide: on the old
+        # code this was 0 predictions on a populated graph (#1941).
+        assert data["count"] > 0
+        assert {"source", "target", "score"} <= set(data["predictions"][0])
+
+    def test_kg_predict_reports_each_unlinked_pair_once(self, runner, monkeypatch):
+        # The scores are symmetric, so scoring ordered pairs would list every
+        # prediction twice and suggest reversing edges that already exist.
+        graph = {
+            "entities": [{"id": n, "name": n, "type": "t"} for n in "ABCD"],
+            "relationships": [
+                {"id": f"r{i}", "source": s, "target": t, "type": "e"}
+                for i, (s, t) in enumerate(
+                    [("C", "A"), ("C", "B"), ("A", "D"), ("B", "D")]
+                )
+            ],
+        }
+        monkeypatch.setattr(
+            cli_module, "_kg_graph",
+            lambda cli_ctx: cli_module._normalize_kg_dict(graph),
+        )
+        result = runner.invoke(cli_module.main, ["kg", "predict", "--json"])
+        pairs = [
+            frozenset((p["source"], p["target"]))
+            for p in _json_output(result)["predictions"]
+        ]
+        assert sorted(pairs, key=sorted) == [frozenset("AB"), frozenset("CD")]
+
+    def test_kg_validate_json_validates_fixture_graph(self, runner, monkeypatch):
+        _fixture_graph(monkeypatch)
+        result = runner.invoke(cli_module.main, ["kg", "validate", "--json"])
+        data = _json_output(result)
+        assert data["is_valid"] is True
+        assert data["stats"]["total_entities"] == len(FIXTURE_KG["entities"])
+        assert data["stats"]["total_relationships"] == len(
+            FIXTURE_KG["relationships"]
+        )
+
+
+class TestNormalizeKgDict:
+    """The memory backend's to_kg_dict() is not the shape the kg classes read.
+
+    It emits source_id/target_id and carries the node name under `text`;
+    GraphValidator and GraphAnalyzer read source/target and `name`, so
+    un-normalized input reads as 0 relationships and nameless entities
+    (#1941).
+    """
+
+    def test_adds_source_and_target_without_dropping_source_id(self):
+        out = cli_module._normalize_kg_dict({
+            "entities": [],
+            "relationships": [
+                {"source_id": "a", "target_id": "b", "type": "knows"},
+            ],
+        })
+        rel = out["relationships"][0]
+        assert rel["source"] == "a"
+        assert rel["target"] == "b"
+        assert rel["source_id"] == "a"
+
+    def test_derives_name_from_text_and_id(self):
+        out = cli_module._normalize_kg_dict({
+            "entities": [
+                {"id": "e1", "text": "Alice"},
+                {"id": "e2", "properties": {"name": "Bob"}},
+                {"id": "e3"},
+            ],
+            "relationships": [],
+        })
+        by_id = {e["id"]: e for e in out["entities"]}
+        assert by_id["e1"]["name"] == "Alice"
+        assert by_id["e2"]["name"] == "Bob"
+        assert by_id["e3"]["name"] == "e3"
+
+    def test_is_idempotent_on_an_already_normalized_graph(self):
+        out = cli_module._normalize_kg_dict(FIXTURE_KG)
+        assert out["relationships"] == FIXTURE_KG["relationships"]
+        assert cli_module._normalize_kg_dict(out) == out
 
 
 # ─── ingest ───────────────────────────────────────────────────────────────────
@@ -492,15 +654,11 @@ class TestIngest:
         assert "output" not in captured["kwargs"]
 
     def test_import_error_is_clean(self, runner, monkeypatch):
-        monkeypatch.setattr(cli_module, "__import__", _import_side_effect, raising=False)
-        original_import = __import__
-        with patch("builtins.__import__", side_effect=lambda n, *a, **k: (
-            (_ for _ in ()).throw(ImportError(n))
-            if n.startswith("semantica.ingest") else original_import(n, *a, **k)
-        )):
-            result = runner.invoke(cli_module.main, ["ingest", "data.pdf"])
+        monkeypatch.setitem(sys.modules, "semantica.ingest", None)
+        result = runner.invoke(cli_module.main, ["ingest", "data.pdf"])
         assert result.exit_code != 0
         assert "Traceback" not in result.output
+        assert "semantica.ingest" in result.output
 
     def test_type_choice_validation(self, runner):
         result = runner.invoke(cli_module.main, ["ingest", "x.pdf", "--type", "invalid_type"])
@@ -2273,14 +2431,16 @@ class TestTemporal:
                                       "--interval1", "int1", "--interval2", "int2"])
         assert result.exit_code != 0 or result.exit_code == 0  # depends on import
 
-    def test_history_import_error_is_clean(self, runner):
-        with patch("builtins.__import__", side_effect=lambda n, *a, **k: (
-            (_ for _ in ()).throw(ImportError(n))
-            if n.startswith(("semantica.kg", "kg.")) else _real_import(n, *a, **k)
-        )):
-            result = runner.invoke(cli_module.main, ["temporal", "history", "entity_alice"])
+    def test_history_import_error_is_clean(self, runner, monkeypatch):
+        # Earlier tests may already have imported the submodule, and a cached
+        # submodule resolves without consulting its parent package.
+        monkeypatch.setitem(sys.modules, "semantica.kg", None)
+        monkeypatch.setitem(sys.modules, "semantica.kg.temporal_reasoning", None)
+        result = runner.invoke(cli_module.main, ["temporal", "history",
+                                      "entity_alice"])
         assert result.exit_code != 0
         assert "Traceback" not in result.output
+        assert "semantica.kg" in result.output
 
 
 # ─── provenance ───────────────────────────────────────────────────────────────
@@ -2513,14 +2673,12 @@ class TestValidate:
         assert entity["age"] == 30
         assert entity["id"] == "e1"
 
-    def test_integrity_exits_0_with_import_error(self, runner):
-        with patch("builtins.__import__", side_effect=lambda n, *a, **k: (
-            (_ for _ in ()).throw(ImportError(n))
-            if n.startswith("semantica.kg") else _real_import(n, *a, **k)
-        )):
-            result = runner.invoke(cli_module.main, ["validate", "integrity"])
+    def test_integrity_exits_0_with_import_error(self, runner, monkeypatch):
+        monkeypatch.setitem(sys.modules, "semantica.kg", None)
+        result = runner.invoke(cli_module.main, ["validate", "integrity"])
         assert result.exit_code != 0
         assert "Traceback" not in result.output
+        assert "semantica.kg" in result.output
 
 
 # ─── ontology ─────────────────────────────────────────────────────────────────
@@ -2874,17 +3032,14 @@ class TestExport:
         result = runner.invoke(cli_module.main, ["export", "--format", "magic"])
         assert result.exit_code != 0
 
-    def test_import_error_is_clean(self, runner):
-        original_import = __import__
-        with patch("builtins.__import__", side_effect=lambda n, *a, **k: (
-            (_ for _ in ()).throw(ImportError(n))
-            if "semantica.export" in n else original_import(n, *a, **k)
-        )):
-            result = runner.invoke(
-                cli_module.main, ["--store", "neo4j", "export", "--format", "json"]
-            )
+    def test_import_error_is_clean(self, runner, monkeypatch):
+        monkeypatch.setitem(sys.modules, "semantica.export", None)
+        result = runner.invoke(
+            cli_module.main, ["--store", "neo4j", "export", "--format", "json"]
+        )
         assert result.exit_code != 0
         assert "Traceback" not in result.output
+        assert "semantica.export" in result.output
 
 
 class TestExportMultiFileFormats:

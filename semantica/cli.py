@@ -1817,13 +1817,19 @@ def _graph_store_facts(cli_ctx: CLIContext) -> List[str]:
     return facts
 
 
-def _graph_store_as_context(cli_ctx: CLIContext) -> Dict[str, List[Dict[str, Any]]]:
+def _graph_store_as_context(
+    cli_ctx: CLIContext, by_id: bool = False
+) -> Dict[str, List[Dict[str, Any]]]:
     """Read the configured graph store into GraphReasoner's expected shape.
 
     GraphReasoner._prepare_graph_context() reads a plain
     ``{"entities": [...], "relationships": [...]}`` dict -- distinct from
     both the raw GraphStore rows and the ``Label(arg)`` fact strings
     ``_graph_store_facts()`` builds for the other engines.
+
+    Each node's display name stands in for its ID, which suits the reasoning
+    path. ``by_id`` keeps the store ID instead (the name stays in ``name``), so
+    two nodes sharing a display name are not merged.
     """
     gs = _get_graph_store(cli_ctx)
     nodes = gs.get_nodes(limit=sys.maxsize)
@@ -1832,15 +1838,17 @@ def _graph_store_as_context(cli_ctx: CLIContext) -> Dict[str, List[Dict[str, Any
     entities = []
     for node in nodes:
         props = node.get("properties") or {}
-        name = props.get("name") or props.get("id") or node.get("id")
-        names[node.get("id")] = name
+        node_id = node.get("id")
+        name = props.get("name") or props.get("id") or node_id
+        names[node_id] = node_id if by_id else name
         labels = node.get("labels") or ["Entity"]
         # Multiple labels are all real classifications (mirrors the one
         # fact-per-label convention _graph_store_facts() uses); joining them
         # keeps a node with e.g. ["Person", "Employee"] fully described
         # instead of silently dropping every label but the first.
         entities.append({
-            "id": name, "name": name, "type": "/".join(labels), "properties": props,
+            "id": names[node_id], "name": name, "type": "/".join(labels),
+            "properties": props,
         })
     rel_out = []
     for rel in relationships:
@@ -1924,6 +1932,91 @@ def _ontology_from_graph(
     return OntologyGenerator(config=cli_ctx.config.to_dict()).generate_ontology(
         _ontology_input_graph(data)
     )
+
+
+def _normalize_kg_dict(kg: Dict[str, Any]) -> Dict[str, Any]:
+    """Map ``ContextGraph.to_kg_dict()`` onto the shape the kg APIs read.
+
+    ``to_kg_dict()`` emits ``source_id``/``target_id`` and no entity ``name``;
+    ``GraphValidator`` requires ``name`` and the NetworkX projection reads
+    ``source``/``target``.
+    """
+    entities = []
+    for entity in kg.get("entities", []) or []:
+        mapped = dict(entity)
+        properties = mapped.get("properties") or {}
+        mapped.setdefault("name", mapped.get("text") or properties.get("name")
+                          or mapped.get("id"))
+        mapped.setdefault("type", "Entity")
+        entities.append(mapped)
+    relationships = []
+    for rel in kg.get("relationships", []) or []:
+        mapped = dict(rel)
+        mapped.setdefault("source", mapped.get("source_id"))
+        mapped.setdefault("target", mapped.get("target_id"))
+        relationships.append(mapped)
+    return {"entities": entities, "relationships": relationships}
+
+
+def _kg_graph(cli_ctx: CLIContext) -> Dict[str, Any]:
+    """Load the configured graph as ``{"entities", "relationships"}`` (#1941)."""
+    if _uses_memory_graph(cli_ctx):
+        return _normalize_kg_dict(_load_context_graph(cli_ctx).to_kg_dict())
+    # The kg APIs key on entity ID, and two store nodes may share a name.
+    return _graph_store_as_context(cli_ctx, by_id=True)
+
+
+def _kg_nx_graph(cli_ctx: CLIContext) -> Any:
+    """NetworkX view of the configured graph for PathFinder and LinkPredictor.
+
+    Both duck-type against NetworkX methods and find nothing in the plain
+    dict, the same defect explorer fixed for PathFinder in #1725. Edges are
+    collapsed as in explorer's ``build_nx_graph``.
+    """
+    import networkx as nx
+
+    kg = _kg_graph(cli_ctx)
+    graph = nx.DiGraph()
+    for entity in kg.get("entities", []):
+        node_id = entity.get("id")
+        if node_id is not None:
+            graph.add_node(node_id, name=entity.get("name"))
+    for rel in kg.get("relationships", []):
+        source = rel.get("source")
+        target = rel.get("target")
+        if source is None or target is None:
+            continue
+        properties = rel.get("properties") or {}
+        try:
+            weight = float(rel.get("weight", properties.get("weight", 1.0)))
+        except (TypeError, ValueError):
+            weight = 1.0
+        existing = graph.get_edge_data(source, target)
+        if existing is not None:
+            weight = min(weight, existing.get("weight", weight))
+        graph.add_edge(source, target, weight=weight, type=rel.get("type"))
+    return graph
+
+
+def _resolve_entity(graph: Any, token: str) -> str:
+    """Map a ``--from``/``--to`` entity name or ID onto its graph node ID."""
+    if token in graph:
+        return token
+    matches = [
+        node for node, attrs in graph.nodes(data=True)
+        if attrs.get("name") == token
+    ]
+    if not matches:
+        raise click.ClickException(
+            f"No entity named '{token}' in the graph. Pass an entity name or ID "
+            "that `semantica kg query` reports."
+        )
+    if len(matches) > 1:
+        raise click.ClickException(
+            f"Entity name '{token}' is ambiguous ({len(matches)} nodes); pass "
+            "the entity ID instead: " + ", ".join(sorted(matches))
+        )
+    return matches[0]
 
 
 def _lowercase_datalog_args(fact_str: str) -> str:
@@ -2082,7 +2175,7 @@ def kg_stats(cli_ctx: CLIContext, fmt: str, local_json: bool) -> None:
 
             stats = GraphAnalyzer(
                 config=cli_ctx.config.to_dict()
-            ).compute_metrics()
+            ).compute_metrics(graph=_kg_graph(cli_ctx))
         except ImportError as exc:
             raise click.ClickException(f"KG module not available: {exc}") from exc
         if json_out:
@@ -2114,7 +2207,18 @@ def kg_analyze(cli_ctx: CLIContext, mode: str, local_json: bool) -> None:
             from .kg import GraphAnalyzer
         except ImportError as exc:
             raise click.ClickException(f"KG module not available: {exc}") from exc
-        result = GraphAnalyzer(config=cli_ctx.config.to_dict()).analyze(mode=mode)
+        analyzer = GraphAnalyzer(config=cli_ctx.config.to_dict())
+        graph = _kg_graph(cli_ctx)
+        # analyze() has no `mode`; it would run the whole analysis (#1941).
+        if mode == "all":
+            result = analyzer.analyze(graph)
+        else:
+            steps = {
+                "centrality": analyzer.calculate_centrality,
+                "community": analyzer.detect_communities,
+                "connectivity": analyzer.analyze_connectivity,
+            }
+            result = steps[mode](graph)
         if json_out:
             _jecho(result if isinstance(result, dict) else {"result": str(result)})
         else:
@@ -2127,7 +2231,7 @@ def kg_analyze(cli_ctx: CLIContext, mode: str, local_json: bool) -> None:
 @click.option("--from", "from_entity", required=True, help="Source entity name.")
 @click.option("--to", "to_entity", required=True, help="Target entity name.")
 @click.option("--type", "path_type",
-              type=click.Choice(["shortest", "semantic", "causal"]),
+              type=click.Choice(["shortest"]),
               default="shortest", show_default=True)
 @click.option("--json", "local_json", is_flag=True, default=False)
 @click.pass_obj
@@ -2142,8 +2246,11 @@ def kg_find_path(cli_ctx: CLIContext, from_entity: str, to_entity: str,
             from .kg import PathFinder
         except ImportError as exc:
             raise click.ClickException(f"KG module not available: {exc}") from exc
-        path = PathFinder(config=cli_ctx.config.to_dict()).find_path(
-            from_entity, to_entity, path_type=path_type
+        graph = _kg_nx_graph(cli_ctx)
+        path = PathFinder().dijkstra_shortest_path(
+            graph,
+            _resolve_entity(graph, from_entity),
+            _resolve_entity(graph, to_entity),
         )
         if json_out:
             _jecho(path if isinstance(path, dict) else {"path": path})
@@ -2157,7 +2264,7 @@ def kg_find_path(cli_ctx: CLIContext, from_entity: str, to_entity: str,
 @click.option("--json", "local_json", is_flag=True, default=False)
 @click.pass_obj
 def kg_resolve(cli_ctx: CLIContext, local_json: bool) -> None:
-    """Run entity resolution across the knowledge graph."""
+    """Resolve duplicate entities and report the merged result (read-only)."""
     cli_ctx = _require_ctx(cli_ctx)
 
     def _action() -> None:
@@ -2165,11 +2272,25 @@ def kg_resolve(cli_ctx: CLIContext, local_json: bool) -> None:
             from .kg import EntityResolver
         except ImportError as exc:
             raise click.ClickException(f"KG module not available: {exc}") from exc
-        result = EntityResolver(config=cli_ctx.config.to_dict()).resolve()
+        # resolve_entities() returns the merged list and writes nothing back.
+        entities = _kg_graph(cli_ctx).get("entities", [])
+        resolved = EntityResolver(
+            config=cli_ctx.config.to_dict()
+        ).resolve_entities(entities)
+        result = {
+            "input": len(entities),
+            "resolved": len(resolved),
+            "merged": max(len(entities) - len(resolved), 0),
+            "entities": resolved,
+        }
         if _is_json(cli_ctx, local_json):
-            _jecho(result if isinstance(result, dict) else {"result": str(result)})
+            _jecho(result)
         else:
-            _ok(cli_ctx, f"Entity resolution complete: {result}")
+            _ok(
+                cli_ctx,
+                f"Entity resolution computed (read-only, nothing written back): "
+                f"{len(entities)} in, {len(resolved)} out, {result['merged']} merged",
+            )
 
     _run_with_error_handling(_action)
 
@@ -2186,9 +2307,16 @@ def kg_predict(cli_ctx: CLIContext, local_json: bool) -> None:
             from .kg import LinkPredictor
         except ImportError as exc:
             raise click.ClickException(f"KG module not available: {exc}") from exc
-        result = LinkPredictor(config=cli_ctx.config.to_dict()).predict()
+        predictions = LinkPredictor().predict_links(graph=_kg_nx_graph(cli_ctx))
+        result = {
+            "count": len(predictions),
+            "predictions": [
+                {"source": source, "target": target, "score": score}
+                for source, target, score in predictions
+            ],
+        }
         if _is_json(cli_ctx, local_json):
-            _jecho(result if isinstance(result, dict) else {"result": str(result)})
+            _jecho(result)
         else:
             _pprint(cli_ctx, result)
 
@@ -2207,9 +2335,9 @@ def kg_validate_cmd(cli_ctx: CLIContext, local_json: bool) -> None:
             from .kg import GraphValidator
         except ImportError as exc:
             raise click.ClickException(f"KG module not available: {exc}") from exc
-        result = GraphValidator(config=cli_ctx.config.to_dict()).validate()
+        result = GraphValidator().validate(_kg_graph(cli_ctx)).to_dict()
         if _is_json(cli_ctx, local_json):
-            _jecho(result if isinstance(result, dict) else {"result": str(result)})
+            _jecho(result)
         else:
             _ok(cli_ctx, f"Graph validation: {result}")
 
@@ -4639,12 +4767,12 @@ def validate_integrity(cli_ctx: CLIContext, local_json: bool) -> None:
     def _action() -> None:
         try:
             from .kg import GraphValidator
-            v = GraphValidator(config=cli_ctx.config.to_dict())
-            result = v.integrity_check()
         except ImportError as exc:
             raise click.ClickException(f"KG module not available: {exc}") from exc
+        # GraphValidator has no integrity_check(); validate() is the check.
+        result = GraphValidator().validate(_kg_graph(cli_ctx)).to_dict()
         if _is_json(cli_ctx, local_json):
-            _jecho(result if isinstance(result, dict) else {"valid": bool(result)})
+            _jecho(result)
         else:
             _ok(cli_ctx, f"Integrity check: {result}")
 
