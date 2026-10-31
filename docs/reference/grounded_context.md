@@ -139,7 +139,8 @@ assert bundle.text == ""
 assert bundle.citations == ()
 ```
 
-The stored rows are untouched: `store.rows` still holds both records verbatim.
+The stored rows are untouched: `retriever.vector_store.rows` still holds both
+records verbatim.
 Only the assembled answer changed, because the summary is bound to the
 retracted citation.
 
@@ -284,6 +285,70 @@ later = assembler.assemble(
 assert later.text == ""
 ```
 
+## API Reference
+
+### `GroundedContextAssembler(retriever, *, provider, artifacts)`
+
+`retriever` is a `ContextRetriever`, `provider` a `TruthSnapshotProvider`, and
+`artifacts` a `ContextArtifactIndex` in the same namespace as the provider.
+
+### `assemble(query, *, max_results=5, max_context_chars=8000, valid_at=None, known_at=None, candidate_pool=None)`
+
+| Parameter | Default | Meaning |
+| :--- | :--- | :--- |
+| `query` | required | Non-empty search query |
+| `max_results` | `5` | Most body blocks in the result |
+| `max_context_chars` | `8000` | Budget for the full rendered text, footnotes included. Blocks that do not fit are skipped, never cut |
+| `valid_at`, `known_at` | `None` | Historical coordinates for a temporal provider; pass both or neither |
+| `candidate_pool` | `max(20, max_results * 4)` | Candidates fetched from each source before validation. Rows that fail validation still take room here, so raise it when your stores hold many unannotated passages |
+
+`reconcile` is not needed before `assemble`: assembly checks every artifact
+against the view it captures. Call `index.reconcile(view)` when you want the
+report of which artifacts were invalidated or became eligible again.
+
+Grounded assembly does not apply trust tiers (`min_trust_tier`); validity
+comes only from the declared dependencies.
+
+### `GroundedContext`
+
+| Field | Meaning |
+| :--- | :--- |
+| `text` | Rendered blocks (`[b1] ...`) followed by a `Sources:` list (`[c1] ...`) |
+| `blocks` | `ContextBlock` values: `block_id`, `content`, `source`, `citation_ids` |
+| `citations` | `ContextCitation` values: `label`, `artifact_id`, `content`, `support_ids` |
+| `stamp` | The `SnapshotStamp` of the view the result was assembled from |
+| `artifact_revision` | Registry revision used for the result |
+| `exclusions` | `Exclusion(object_id, reason)` for every candidate that was left out |
+
+### Exclusion reasons
+
+| Reason | When |
+| :--- | :--- |
+| `missing_annotation` | The candidate has no usable `truth_maintenance` annotation |
+| `invalid_annotation` | The annotation is malformed, or a citation was retrieved as body text |
+| `wrong_namespace` | Annotation or artifact belongs to another namespace or source kind |
+| `missing_fact` | A required fact is not in the view |
+| `missing_support` | A required support ID is not active in the view |
+| `unknown_artifact` | `grounded_artifact_id` is not registered |
+| `content_mismatch` | The retrieved text differs from the registered artifact |
+| `snapshot_mismatch` | A `snapshot`-policy artifact was built from a different view |
+| `invalid_citation` | A cited artifact is missing or itself invalid |
+| `empty_content` | The retrieved text is empty or whitespace |
+| `duplicate` | The same artifact or the same text was already admitted |
+| `budget_exceeded` | The block did not fit in `max_context_chars` |
+
+### Errors
+
+- `ValidationError`: invalid arguments, mismatched provider and registry
+  namespaces, a view from another provider passed to `assert_current`, or an
+  invalid artifact at registration.
+- `ProcessingError`: the source or the registry changed while the context
+  was being assembled. Call `assemble` again.
+
+`GroundedArtifact.validity_policy` defaults to `"snapshot"`, the strict
+policy: any new view invalidates the artifact. Use `"dependencies"` when the
+artifact should stay valid while its declared facts and supports hold.
+
 ## Boundaries
 
 The assembly guarantee is deliberately narrow. Each boundary below is a
@@ -323,11 +388,13 @@ commitment you can rely on — or a non-commitment you must not rely on:
   dependencies and never annotates records on your behalf. Ordinary candidates
   can participate with valid annotations without being registered; candidates
   with an unknown artifact ID cannot bypass registry validation.
-- **Value validation.** Read-view facts and artifact fact dependencies use PR1
-  ground-atom validation and canonical whitespace. Temporal stamps convert
-  timezone-aware coordinates to UTC without changing the instant; naive
-  coordinates are rejected. The provider and registry namespaces must match,
-  even when retrieval would return no candidates.
+- **Value validation.** Read-view facts and artifact fact dependencies use the
+  same ground-atom validation and canonical whitespace as the truth-maintenance
+  session. Temporal stamps store coordinates in UTC without changing the
+  instant. Coordinates passed to `capture` or `assemble` follow the temporal
+  adapter, which reads naive datetimes as UTC; a hand-built `SnapshotStamp`
+  requires timezone-aware values. The provider and registry namespaces must
+  match, even when retrieval would return no candidates.
 - **Historical reads are isolated.** Assembling at a `valid_at` / `known_at`
   coordinate evaluates history and never mutates the adapter, the provider,
   or the registry. Moving the live cursor (advance) during a historical
@@ -336,8 +403,9 @@ commitment you can rely on — or a non-commitment you must not rely on:
 - **Character budget.** Assembly selects content greedily within the
   configured budget; over-budget blocks are excluded and reported, not
   truncated mid-sentence. It continues through the ranked, threshold-filtered
-  candidate pool already collected, without a pre-budget top-k cut. Source
-  collection remains bounded; at most `max_results` blocks are emitted.
+  candidate pool already collected, without a pre-budget top-k cut. Each
+  source returns at most `candidate_pool` candidates; at most `max_results`
+  blocks are emitted.
   Ordinary retrieval retains its default top-k behavior.
 - **Freshness ends at return.** A returned bundle is a snapshot of the view
   it was assembled from. It does not expire, and it does not track later
