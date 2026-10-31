@@ -52,6 +52,12 @@ class TruthSnapshotProvider:
             else "session"
         )
 
+    def __setstate__(self, state: dict) -> None:
+        # Copies and unpickled providers may wrap a different source object,
+        # so they never share an identity with the provider they came from.
+        self.__dict__.update(state)
+        self._provider_id = uuid4().hex
+
     @property
     def namespace(self) -> str:
         """Namespace every view captured from this provider is stamped with."""

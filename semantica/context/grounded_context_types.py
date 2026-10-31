@@ -47,6 +47,8 @@ EXCLUSION_REASONS = (
     "snapshot_mismatch",
     "invalid_citation",
     "budget_exceeded",
+    "empty_content",
+    "duplicate",
 )
 
 
@@ -84,7 +86,10 @@ def _moment(value: Any, name: str) -> datetime:
         raise ValidationError(f"{name} must be a datetime, got {type(value).__name__}")
     if value.utcoffset() is None:
         raise ValidationError(f"{name} must be timezone aware")
-    return value.astimezone(timezone.utc)
+    try:
+        return value.astimezone(timezone.utc)
+    except (OverflowError, ValueError) as exc:
+        raise ValidationError(f"{name} is out of range in UTC: {value!r}") from exc
 
 
 def _unset(value: Any, name: str, source_kind: str) -> None:
@@ -303,17 +308,15 @@ class ArtifactRegistrySnapshot:
             "artifacts",
             _typed_tuple(self.artifacts, "artifacts", GroundedArtifact),
         )
-        ids = [artifact.artifact_id for artifact in self.artifacts]
-        if len(set(ids)) != len(ids):
+        by_id = {artifact.artifact_id: artifact for artifact in self.artifacts}
+        if len(by_id) != len(self.artifacts):
             raise ValidationError("artifacts must not repeat an artifact_id")
+        object.__setattr__(self, "_by_id", by_id)
 
     def get(self, artifact_id: str) -> GroundedArtifact | None:
         """Return the registered artifact with this ID, or ``None``."""
         _word(artifact_id, "artifact_id")
-        for artifact in self.artifacts:
-            if artifact.artifact_id == artifact_id:
-                return artifact
-        return None
+        return self._by_id.get(artifact_id)
 
 
 @dataclass(frozen=True)

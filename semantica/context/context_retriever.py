@@ -328,16 +328,15 @@ class ContextRetriever:
                 "'local', 'global', 'drift', 'hybrid'"
             )
 
-        if truth_filter is not None and not isinstance(
-            truth_filter, TruthMaintenanceContextFilter
-        ):
-            raise ValidationError(
-                "truth_filter must be a TruthMaintenanceContextFilter " "instance",
-                validation_context={"method": "ContextRetriever.retrieve"},
-            )
-        snapshot = truth_filter.snapshot() if truth_filter is not None else None
-
-        if truth_filter is not None:
+        def prepare():
+            if truth_filter is None:
+                return None, None
+            if not isinstance(truth_filter, TruthMaintenanceContextFilter):
+                raise ValidationError(
+                    "truth_filter must be a TruthMaintenanceContextFilter " "instance",
+                    validation_context={"method": "ContextRetriever.retrieve"},
+                )
+            snapshot = truth_filter.snapshot()
 
             def candidate_filter(candidates):
                 return truth_filter.filter_contexts(candidates, snapshot=snapshot)
@@ -345,20 +344,17 @@ class ContextRetriever:
             def final_check():
                 truth_filter.assert_current(snapshot)
 
-        else:
-            candidate_filter = None
-            final_check = None
+            return candidate_filter, final_check
 
         return self._retrieve_local(
             query,
             max_results=max_results,
             use_graph_expansion=use_graph_expansion,
             min_relevance_score=min_relevance_score,
-            candidate_filter=candidate_filter,
-            merge_duplicates=snapshot is None,
-            final_check=final_check,
+            prepare=prepare,
+            merge_duplicates=truth_filter is None,
             min_trust_tier=min_trust_tier,
-            **options,
+            options=options,
         )
 
     def _retrieve_local(
@@ -368,26 +364,32 @@ class ContextRetriever:
         max_results: int = 5,
         use_graph_expansion: bool | None = None,
         min_relevance_score: float = 0.0,
-        candidate_filter=None,
+        prepare=None,
         merge_duplicates: bool = True,
         limit_results: bool = True,
-        final_check=None,
+        candidate_limit: Optional[int] = None,
         min_trust_tier: Optional[TrustTier] = None,
-        **options,
+        options: Optional[Dict[str, Any]] = None,
     ) -> list[RetrievedContext]:
         """
         Shared local-retrieval seam for retrieve and grounded assembly.
 
-        The public :meth:`retrieve` keeps mode dispatch, truth-filter
-        validation and snapshot capture, then delegates here. This helper
-        owns tracking, source collection, ranking, thresholding and top-k
-        selection. ``candidate_filter`` receives the combined candidate list
-        before ranking and returns the validated candidates to keep;
-        ``limit_results=False`` leaves the bounded collected pool untruncated
-        for budget admission; source collection limits are unchanged.
-        ``final_check`` runs after thresholding and before the tracker is
-        stopped successfully, so a stale view still fails the tracking unit.
+        The public :meth:`retrieve` keeps mode dispatch, then delegates here.
+        This helper owns tracking, source collection, ranking, thresholding
+        and top-k selection. ``prepare`` runs inside the tracked block before
+        any source is read and returns ``(candidate_filter, final_check)``:
+        ``candidate_filter`` receives the combined candidate list before
+        ranking and returns the candidates to keep, and ``final_check`` runs
+        after thresholding and before the tracker is stopped successfully, so
+        a failed setup or a stale view still fails the tracking unit.
+        ``candidate_limit`` sets how many candidates each source returns
+        (default ``max_results * 2``). ``limit_results=False`` returns the
+        whole ranked pool for budget admission. ``options`` carries the
+        caller's retrieval options (``max_hops``).
         """
+
+        options = options or {}
+        per_source = candidate_limit or max_results * 2
 
         tracking_id = self.progress_tracker.start_tracking(
             file=None,
@@ -397,6 +399,9 @@ class ContextRetriever:
         )
 
         try:
+            candidate_filter, final_check = (
+                prepare() if prepare is not None else (None, None)
+            )
             use_expansion = (
                 use_graph_expansion
                 if use_graph_expansion is not None
@@ -409,7 +414,7 @@ class ContextRetriever:
             self.progress_tracker.update_tracking(
                 tracking_id, message="Retrieving from vector store..."
             )
-            vector_results = self._retrieve_from_vector(query, max_results * 2)
+            vector_results = self._retrieve_from_vector(query, per_source)
             all_results.extend(vector_results)
 
             # Graph-based retrieval
@@ -421,7 +426,7 @@ class ContextRetriever:
                 query_intent = self._extract_query_intent(query)
                 graph_results = self._retrieve_from_graph(
                     query,
-                    max_results * 2,
+                    per_source,
                     max_hops=options.get("max_hops", self.max_expansion_hops),
                     query_intent=query_intent,
                 )
@@ -432,7 +437,7 @@ class ContextRetriever:
                 self.progress_tracker.update_tracking(
                     tracking_id, message="Retrieving from memory..."
                 )
-                memory_results = self._retrieve_from_memory(query, max_results * 2)
+                memory_results = self._retrieve_from_memory(query, per_source)
                 all_results.extend(memory_results)
 
             # Combine and rank results

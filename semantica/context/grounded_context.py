@@ -63,6 +63,7 @@ class GroundedContextAssembler:
         max_context_chars: int = 8000,
         valid_at: Any = None,
         known_at: Any = None,
+        candidate_pool: int | None = None,
     ) -> GroundedContext:
         """
         Assemble one grounded context for ``query`` from a single read view.
@@ -74,6 +75,10 @@ class GroundedContextAssembler:
                 blocks are skipped, never truncated
             valid_at: Optional temporal coordinate forwarded to the provider
             known_at: Optional temporal coordinate forwarded to the provider
+            candidate_pool: Candidates fetched from each source before
+                validation (default ``max(20, max_results * 4)``). Rows that
+                fail validation still take room in this pool, so raise it
+                when the stores hold many ungrounded passages.
 
         Returns:
             Frozen GroundedContext describing this one read view
@@ -105,6 +110,17 @@ class GroundedContextAssembler:
                 "max_context_chars must be a non-negative integer",
                 validation_context={"method": "GroundedContextAssembler.assemble"},
             )
+        if candidate_pool is None:
+            candidate_pool = max(20, max_results * 4)
+        elif (
+            isinstance(candidate_pool, bool)
+            or not isinstance(candidate_pool, int)
+            or candidate_pool < 1
+        ):
+            raise ValidationError(
+                "candidate_pool must be a positive integer",
+                validation_context={"method": "GroundedContextAssembler.assemble"},
+            )
 
         view = self.provider.capture(valid_at=valid_at, known_at=known_at)
         registry = self.artifacts.snapshot()
@@ -134,22 +150,38 @@ class GroundedContextAssembler:
         ranked = self.retriever._retrieve_local(
             query,
             max_results=max_results,
-            candidate_filter=candidate_filter,
+            prepare=lambda: (candidate_filter, None),
             merge_duplicates=False,
             limit_results=False,
+            candidate_limit=candidate_pool,
         )
 
         admitted: list[GroundedArtifact | RetrievedContext] = []
+        admitted_keys: set[tuple[str, str]] = set()
         for candidate in ranked:
             if len(admitted) >= max_results:
                 break
             artifact_id = candidate.metadata.get("grounded_artifact_id")
+            key = (
+                ("artifact", artifact_id)
+                if artifact_id is not None
+                else ("content", candidate.content)
+            )
+            if key in admitted_keys:
+                exclusions.append(
+                    Exclusion(
+                        object_id=candidate_ids[id(candidate)], reason="duplicate"
+                    )
+                )
+                continue
             item = registry.get(artifact_id) if artifact_id is not None else candidate
             admitted.append(item)
+            admitted_keys.add(key)
             blocks, citations, text = self._render(admitted, registry)
             if len(text) <= max_context_chars:
                 continue
             admitted.pop()
+            admitted_keys.discard(key)
             exclusions.append(
                 Exclusion(
                     object_id=candidate_ids[id(candidate)], reason="budget_exceeded"
@@ -197,6 +229,16 @@ class GroundedContextAssembler:
         metadata = getattr(candidate, "metadata", None)
         if not isinstance(metadata, dict):
             return fallback, "missing_annotation"
+        content = getattr(candidate, "content", None)
+        if not isinstance(content, str) or not content.strip():
+            artifact_id = metadata.get("grounded_artifact_id")
+            if (
+                isinstance(artifact_id, str)
+                and artifact_id
+                and artifact_id.strip() == artifact_id
+            ):
+                return artifact_id, "empty_content"
+            return fallback, "empty_content"
         if "grounded_artifact_id" not in metadata:
             return fallback, evaluate_candidate(candidate, view=view)
         artifact_id = metadata["grounded_artifact_id"]
