@@ -4338,19 +4338,30 @@ def temporal_allen(
     _run_with_error_handling(_action)
 
 
-def _provenance_manager(cli_ctx: CLIContext) -> Any:
+def _provenance_manager(cli_ctx: CLIContext, *, create: bool = False) -> Any:
     """Open the provenance store the CLI's commands share.
 
     A configured ``provenance.storage_path`` wins; otherwise the CLI opens the
     database the Explorer uses (``SEMANTICA_PROVENANCE_DB`` /
     ``EXPLORER_PROVENANCE_DB``). Before this every command read a fresh
     in-memory store and reported nothing (#1810).
+
+    Opening a path that does not exist creates an empty SQLite database there,
+    so a mistyped path read back as an empty, valid store (#2166). Unless
+    ``create`` is set, as for ``invalidate``, which writes, the path must
+    already be a file.
     """
     from .provenance import ProvenanceManager, storage_path_from_env
 
-    storage_path = None
-    if not cli_ctx.config.get("provenance.storage_path"):
-        storage_path = storage_path_from_env()
+    configured = cli_ctx.config.get("provenance.storage_path")
+    storage_path = None if configured else storage_path_from_env()
+    path = configured or storage_path
+    if path and not create and not Path(path).is_file():
+        raise click.ClickException(
+            f"Provenance database '{path}' does not exist. Check "
+            "provenance.storage_path, SEMANTICA_PROVENANCE_DB or "
+            "EXPLORER_PROVENANCE_DB."
+        )
     return ProvenanceManager(storage_path=storage_path, config=cli_ctx.config.to_dict())
 
 
@@ -4518,7 +4529,7 @@ def provenance_invalidate(cli_ctx: CLIContext, entity_id: str, agent_id: str,
             _dry(cli_ctx, "invalidate provenance entity", entity_id=entity_id, by=agent_id, reason=reason)
             return
         try:
-            pm = _provenance_manager(cli_ctx)
+            pm = _provenance_manager(cli_ctx, create=True)
             result = pm.invalidate(entity_id, agent_id=agent_id, reason=reason)
         except ImportError as exc:
             raise click.ClickException(f"Provenance module not available: {exc}") from exc

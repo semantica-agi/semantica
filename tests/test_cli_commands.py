@@ -6011,6 +6011,57 @@ class TestProvenanceCliStorageEnv:
         assert [e["entity_id"] for e in entries] == ["ent1", "ent2"]
         assert not (tmp_path / "other.db").exists()
 
+    # #2166: opening a missing path creates an empty SQLite file, so a typo in
+    # the path read back as an empty, valid store and the command exited 0.
+    _READ_COMMANDS = [
+        ["audit", "--format", "json", "--json"],
+        ["verify-chain", "--json"],
+        ["check", "--json"],
+        ["lineage", "ent1", "--json"],
+        ["descendants", "ent1", "--json"],
+        ["export", "--format", "jsonld"],
+    ]
+
+    @pytest.mark.parametrize("args", _READ_COMMANDS, ids=lambda args: args[0])
+    def test_read_commands_refuse_a_missing_env_db_without_creating_it(
+        self, runner, monkeypatch, tmp_path, args
+    ):
+        missing = tmp_path / "typo.db"
+        monkeypatch.setenv("SEMANTICA_PROVENANCE_DB", str(missing))
+
+        result = runner.invoke(cli_module.main, ["provenance", *args])
+
+        assert result.exit_code != 0, result.output
+        assert "does not exist" in _flatten(result.output)
+        assert not missing.exists()
+
+    def test_read_command_refuses_a_missing_configured_db(
+        self, runner, monkeypatch, tmp_path
+    ):
+        missing = tmp_path / "configured.db"
+        monkeypatch.setenv("SEMANTICA_PROVENANCE__STORAGE_PATH", str(missing))
+
+        result = runner.invoke(
+            cli_module.main, ["provenance", "verify-chain", "--json"]
+        )
+
+        assert result.exit_code != 0, result.output
+        assert "does not exist" in _flatten(result.output)
+        assert not missing.exists()
+
+    def test_invalidate_may_still_create_the_db(self, runner, monkeypatch, tmp_path):
+        db = tmp_path / "new.db"
+        monkeypatch.setenv("SEMANTICA_PROVENANCE_DB", str(db))
+
+        result = runner.invoke(
+            cli_module.main, ["provenance", "invalidate", "ent1", "--by", "tester"]
+        )
+
+        # Nothing is tracked yet, so the entity is not found, but the command
+        # got as far as opening (and creating) the database it writes to.
+        assert "does not exist" not in _flatten(result.output)
+        assert db.exists()
+
 
 class _FakeUrlopenResponse:
     """Minimal context-manager response for a stubbed urllib.request.urlopen."""
