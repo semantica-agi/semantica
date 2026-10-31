@@ -66,6 +66,7 @@ import uuid
 from ..utils.exceptions import ProvenanceRecordingError
 from ..utils.helpers import utc_now_iso
 from .manager import ProvenanceManager
+from .storage import ProvenanceStorage
 
 
 @dataclass
@@ -142,6 +143,7 @@ class BridgeAxiom:
         input_value: float,
         prov_manager: Optional[Any] = None,
         require_provenance: bool = True,
+        _conn: Optional[Any] = None,
         **kwargs
     ) -> Dict[str, Any]:
         """
@@ -203,17 +205,22 @@ class BridgeAxiom:
             failure: Optional[str] = None
             cause: Optional[BaseException] = None
             try:
-                # Track the bridge axiom application
-                recorded = prov_manager.track_entity(
-                    entity_id=output_entity,
-                    source=self.source_doi,
-                    entity_type="bridge_axiom_result",
-                    activity_id=f"bridge_axiom_application_{self.axiom_id}",
-                    source_location=self.source_page,
-                    source_quote=self.source_quote,
-                    confidence=self.confidence,
-                    metadata=metadata,
-                )
+                # Track the bridge axiom application. _conn is only passed when
+                # there is a transaction to join: a duck-typed manager may have
+                # an explicit signature without this keyword.
+                track_call = {
+                    "entity_id": output_entity,
+                    "source": self.source_doi,
+                    "entity_type": "bridge_axiom_result",
+                    "activity_id": f"bridge_axiom_application_{self.axiom_id}",
+                    "source_location": self.source_page,
+                    "source_quote": self.source_quote,
+                    "confidence": self.confidence,
+                    "metadata": metadata,
+                }
+                if _conn is not None:
+                    track_call["_conn"] = _conn
+                recorded = prov_manager.track_entity(**track_call)
             except Exception as exc:
                 failure = type(exc).__name__
                 cause = exc
@@ -357,22 +364,122 @@ class TranslationChain:
         }
 
 
+def _storage_rolls_back(storage: Any) -> bool:
+    """True when a backend overrides the base transaction() with a real one.
+
+    The base class yields None and the store cannot undo anything, so a chain
+    that "shared" that transaction would still leave half-written steps behind
+    while believing it rolled back.
+    """
+    return type(storage).transaction is not ProvenanceStorage.transaction
+
+
+def _apply_translation_chain(
+    input_data: Dict[str, Any],
+    bridge_axioms: List[BridgeAxiom],
+    prov_manager: Optional[Any],
+    require_provenance: bool,
+    conn: Optional[Any],
+) -> TranslationChain:
+    """Run the axioms in order, writing provenance through ``conn`` if given."""
+    chain_id = str(uuid.uuid4())
+    chain = TranslationChain(chain_id=chain_id)
+
+    # Add L1 (input layer)
+    chain.add_layer(
+        layer_name="L1",
+        layer_type="input",
+        value=input_data.get("value"),
+        source=input_data.get("source"),
+        entity_id=input_data.get("entity_id")
+    )
+
+    current_value = input_data.get("value")
+    current_entity = input_data.get("entity_id")
+    recorded: List[str] = []
+    failures: List[Dict[str, Any]] = []
+
+    try:
+        for i, axiom in enumerate(bridge_axioms):
+            result = axiom.apply(
+                input_entity=current_entity,
+                input_value=current_value,
+                prov_manager=prov_manager,
+                require_provenance=require_provenance,
+                _conn=conn,
+            )
+
+            chain.add_layer(
+                layer_name=f"L{i+2}_axiom",
+                layer_type="bridge_axiom",
+                value=axiom.coefficient,
+                source=axiom.source_doi,
+                axiom_id=axiom.axiom_id,
+                axiom_name=axiom.name,
+                rule=axiom.rule,
+                provenance_recorded=result["provenance_recorded"],
+                provenance_error=result["provenance_error"],
+            )
+
+            if result["provenance_recorded"]:
+                recorded.append(result["output_entity"])
+            else:
+                failures.append({
+                    "axiom_id": axiom.axiom_id,
+                    "output_entity": result["output_entity"],
+                    "error": result["provenance_error"],
+                })
+
+            current_value = result["output_value"]
+            current_entity = result["output_entity"]
+            chain.confidence = min(chain.confidence, axiom.confidence)
+    except ProvenanceRecordingError as exc:
+        # Only reachable without a shared transaction: the steps applied so far
+        # are still in the store, so say which ones. With a transaction the
+        # rollback already removed them and there is nothing to report.
+        if conn is None and exc.recorded_entities is None:
+            exc.recorded_entities = list(recorded) or None
+        raise
+
+    if failures:
+        chain.metadata["provenance_failures"] = failures
+
+    chain.add_layer(
+        layer_name=f"L{len(bridge_axioms)+2}",
+        layer_type="output",
+        value=current_value,
+        entity_id=current_entity
+    )
+
+    return chain
+
+
 def create_translation_chain(
     input_data: Dict[str, Any],
     bridge_axioms: List[BridgeAxiom],
-    prov_manager: Optional[Any] = None
+    prov_manager: Optional[Any] = None,
+    require_provenance: bool = True,
 ) -> TranslationChain:
     """
     Create a complete translation chain through multiple bridge axioms.
-    
+
+    The chain's provenance writes are atomic when the manager uses a backend
+    that can roll back (SQLite, in-memory): either every step is recorded or
+    none is. Backends that cannot roll back still record step by step, and the
+    ProvenanceRecordingError then carries the entities that were written.
+
     Args:
         input_data: Input data dictionary with 'entity_id' and 'value'
         bridge_axioms: List of BridgeAxiom objects to apply in sequence
         prov_manager: ProvenanceManager instance (optional)
-        
+        require_provenance: If True (default), a failed provenance write stops
+            the chain and raises ProvenanceRecordingError. If False, the chain
+            finishes and each layer reports whether its write landed; failures
+            are also collected in ``chain.metadata["provenance_failures"]``.
+
     Returns:
         TranslationChain object with complete provenance
-        
+
     Example:
         >>> input_data = {
         ...     "entity_id": "cabo_pulmo_biomass",
@@ -382,57 +489,18 @@ def create_translation_chain(
         >>> axioms = [ba_001, ba_002]
         >>> chain = create_translation_chain(input_data, axioms, prov_mgr)
     """
-    chain_id = str(uuid.uuid4())
-    chain = TranslationChain(chain_id=chain_id)
-    
-    # Add L1 (input layer)
-    chain.add_layer(
-        layer_name="L1",
-        layer_type="input",
-        value=input_data.get("value"),
-        source=input_data.get("source"),
-        entity_id=input_data.get("entity_id")
+    atomic = (
+        isinstance(prov_manager, ProvenanceManager)
+        and _storage_rolls_back(prov_manager.storage)
     )
-    
-    # Apply bridge axioms sequentially
-    current_value = input_data.get("value")
-    current_entity = input_data.get("entity_id")
-    
-    for i, axiom in enumerate(bridge_axioms):
-        # Apply axiom
-        result = axiom.apply(
-            input_entity=current_entity,
-            input_value=current_value,
-            prov_manager=prov_manager
-        )
-        
-        # Add bridge axiom layer
-        chain.add_layer(
-            layer_name=f"L{i+2}_axiom",
-            layer_type="bridge_axiom",
-            value=axiom.coefficient,
-            source=axiom.source_doi,
-            axiom_id=axiom.axiom_id,
-            axiom_name=axiom.name,
-            rule=axiom.rule
-        )
-        
-        # Update for next iteration
-        current_value = result["output_value"]
-        current_entity = result["output_entity"]
-        
-        # Update chain confidence (minimum of all confidences)
-        chain.confidence = min(chain.confidence, axiom.confidence)
-    
-    # Add final output layer
-    chain.add_layer(
-        layer_name=f"L{len(bridge_axioms)+2}",
-        layer_type="output",
-        value=current_value,
-        entity_id=current_entity
+    if atomic:
+        with prov_manager._get_or_create_transaction() as conn:
+            return _apply_translation_chain(
+                input_data, bridge_axioms, prov_manager, require_provenance, conn
+            )
+    return _apply_translation_chain(
+        input_data, bridge_axioms, prov_manager, require_provenance, None
     )
-    
-    return chain
 
 
 def trace_translation_chain(
