@@ -21,6 +21,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `semantica.kg.RelationalSchemaMapper` maps rows from a relational source (`DBIngestor`, `SnowflakeIngestor`, `DatabricksIngestor`, `PandasIngestor`, a DataFrame or plain row dicts) to the `{"entities", "relationships"}` shape `GraphBuilder` and `OntologyGenerator` consume: entity tables become entities keyed by primary key, foreign keys become typed relationships, junction tables become relationships only
   - Every entity and relationship is tagged with the `source` it came from so `ConflictDetector` can key credibility on it. New `tests/kg/test_schema_mapper.py`
 
+- **Snapshot-consistent grounded context assembly** (#1731, closes #1730) by @cxzg007
+  - `GroundedContextAssembler` builds RAG context from one captured truth-maintenance view: every candidate is validated against that view before ranking, the rendered text and citation footnotes fit `max_context_chars`, and nothing is returned if the source or the registry changed during assembly
+  - `TruthSnapshotProvider` captures immutable session or bitemporal read views, and `ContextArtifactIndex` registers summaries and citations with explicit fact and support dependencies and reports which ones were invalidated or became eligible again
+  - Opt-in: existing `ContextRetriever.retrieve` and `TruthMaintenanceContextFilter` behavior is unchanged. See `docs/reference/grounded_context.md`
+
 ### Changed
 
 - **Breaking: Python 3.10 is no longer supported. Semantica now requires Python 3.11–3.13** (closes #2067)
