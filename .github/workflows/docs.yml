@@ -53,7 +53,7 @@ jobs:
       - name: Export static site
         run: |
           cd docs
-          npx mintlify export --output ../export.zip
+          npx --yes mintlify@4.2.632 export --output ../export.zip
           cd ..
           unzip -q export.zip -d site
 
