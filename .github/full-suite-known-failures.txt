@@ -1,0 +1,152 @@
+# Tests that already fail on an unmodified tree.
+#
+# `tests/conftest.py` reads this file and marks every id below `xfail`, so the
+# tests keep running instead of being deselected. The marker is strict in CI and
+# non-strict outside it, and never strict for a `# non-strict` entry: an entry
+# that starts passing reports XPASS, which fails the run in CI and is only a note
+# locally. In CI that is what forces its line out of the file, so the list cannot
+# quietly rot. Nothing here is caused by wiring the suite into CI, and none of it
+# is fixed here on purpose: the list reports the gap, it does not paper over it.
+#
+# Two markers change how an entry is treated, and both the step and the hook
+# read them so the two agree:
+#
+#   # windows-only   the id fails only in the Windows measurement. The step
+#                    deselects it on Windows alone, and the hook leaves it out
+#                    on Linux, so there it runs and gates.
+#   # non-strict     the hook marks the id xfail(strict=False), in CI as well as
+#                    locally: it keeps running, but a pass is reported as XPASS
+#                    without failing the run. For an entry that genuinely varies
+#                    with run order or timing (a thread race, for instance);
+#                    every other entry below is strict in CI.
+#
+# Provenance. Generated on a clean checkout of
+#
+#   4f4a0031776cb3fa873a77bdbd0148b658254bb2
+#
+# with the repository's own requirements-ci.txt installed, from the repository
+# root, with the LLM API keys removed from the environment and the Hugging
+# Face cache forced offline:
+#
+#   pytest -q tests -m "not integration"        # -> the 49 further down
+#   pytest -q tests -m integration \            # -> the 7 integration entries
+#     --ignore tests/integrations/google_adk/ \
+#     --ignore tests/integrations/open_ontologies/
+#   # HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1, no OPENAI/ANTHROPIC/GEMINI key
+#
+# The requirements-ci.txt install is part of the measurement, not an incidental
+# detail, and a local run on a core-only install (`pip install -e ".[dev]"`,
+# no extras) is not a substitute. Measured on 2026-10-10 against eba0abce, four
+# entries below report XPASS on such an install while the CI job running this
+# same list under the strict marker is green, so they do fail in the measured
+# environment:
+#
+#   tests/test_cli_commands.py::TestExportMultiFileFormats::test_reports_the_files_it_wrote  (all 3 params)
+#   tests/vector_store/test_backend_metadata_filtering.py::TestBackendMetadataFiltering::test_weaviate_store_filter_by_metadata_native_filter
+#
+# Installing the backend each one names (`neo4j`, `weaviate-client`) does not
+# change that, so the difference is somewhere else in the extras set and is not
+# characterised here. The point for a reader is only this: an XPASS seen on a
+# core-only install is not evidence that a line should be removed. Reproduce it
+# against requirements-ci.txt, or against the CI job, before delisting.
+#
+# Both runs were Windows 11 / CPython 3.11; CI is ubuntu-latest / CPython 3.11.
+# That measurement is not a superset of a Linux run: the entries appended below
+# from the suite's first Linux run are failures it could not see, so this list
+# is the union of the two runs rather than an upper bound from either. The
+# entries marked `# windows-only` are expected to pass on Linux. The rest are
+# expected to reproduce.
+#
+# Format: one pytest node id per line. A line is an id only when it is
+# non-empty and its first character is not `#`, so keep comments flush left —
+# an indented comment would be read as a node id. A trailing `# windows-only` or
+# `# non-strict` marker is stripped before the id is used. The hook matches
+# the id the way pytest writes it, relative to the rootdir (the repository root
+# unless --rootdir or -c overrides it).
+#
+# Delete a line to re-enable a test. Fixing the defect behind it is what should
+# drive that, not convenience.
+
+# --- Windows-only: symlink creation needs a privilege -------------------------
+# `OSError: [WinError 1314] 客户端没有所需的特权` — creating the symlink the
+# test needs requires Developer Mode or an elevated shell on Windows. On Linux
+# it runs, which is where the rejection is actually covered.
+tests/semantic_extract/test_cache_backends.py::test_sqlite_rejects_symlinked_db  # windows-only
+
+# --- A MagicMock reaches code that compares or parses it ----------------------
+# `TypeError: expected string or bytes-like object, got 'MagicMock'`. The
+# doubles these tests install no longer satisfy the signatures the production
+# code now uses, so the call raising is the production code behaving correctly.
+tests/ingest/test_ingestors.py::TestUnifiedIngest::test_ingest_web_dispatch
+tests/ingest/test_ingestors.py::TestWebIngestor::test_ingest_url
+
+# --- Progress tracking is forced off for the whole process --------------------
+# `semantica_mcp/mcp/__init__.py` sets `SEMANTICA_DISABLE_PROGRESS=1` at import
+# and `tests/test_mcp_package_export_graphml_parquet.py` sets it at module scope
+# as well, so the variable is already set while pytest collects the suite.
+# `ProgressTracker.enabled` then latches disabled for the process
+# (`progress_tracker.py:1140`) and the re-enable in `arrow_exporter.py:205` is a
+# no-op. Both pass alone and fail in every full-suite run — collection of the
+# MCP modules decides it, not the order — so they stay strict: fixing the
+# isolation makes them pass and the XPASS forces these lines out.
+tests/test_arrow_exporter.py::TestArrowExporter::test_progress_tracking
+tests/vector_store/test_backward_compatibility.py::TestVectorStoreBackwardCompatibility::test_progress_tracking_unchanged
+
+# --- Assertion drift in the test or its expectation ---------------------------
+tests/export/test_distance_exporter.py::test_hop_distance_no_warning_when_kg_unavailable
+tests/ingest/test_repo_ingestor_security.py::TestIsReservedNAT64Regression::test_nat64_local_prefix_not_blocked  # windows-only
+tests/integrations/agno/test_context_store.py::TestAgnoContextStoreUpsertNERAttributes::test_upsert_indexes_entity_label_as_type
+tests/integrations/agno/test_context_store.py::TestAgnoContextStoreUpsertNERAttributes::test_upsert_indexes_entity_text_not_repr
+tests/semantic_extract/test_cache_backends.py::test_zero_ttl_expires_immediately_on_both_backends  # windows-only
+
+# --- Integration tests outside the two dedicated integration directories ------
+# These carry the `integration` marker but live outside tests/integrations/
+# google_adk/ and tests/integrations/open_ontologies/, so the step runs them
+# with everything else. They need no service and no network: they already fail
+# on an unmodified tree for the same local reasons as the groups above — a
+# MagicMock double that no longer fits the production signature, an optional
+# `sqlalchemy` extra this job does not install, a fallback backend answering
+# because the real embedding model is offline, and two expectation drifts in
+# the deepdive suite.
+#
+# `test_06_hybrid_search` used to sit here: it failed because `HybridSearch`
+# dropped the `filter=` argument. #1827 fixed that, the test now passes on the
+# runner, and its line is gone. `test_03_model_switching` was here too; #1931
+# turned it green.
+tests/ingest/test_notebook_02.py::TestNotebook02DataIngestion::test_03_web_ingestion
+tests/ingest/test_notebook_02.py::TestNotebook02DataIngestion::test_08_database_ingestion
+tests/test_semantic_extract_deepdive.py::TestSemanticExtractDeepDive::test_ner_extractor_pattern
+tests/test_semantic_extract_deepdive_part2.py::TestSemanticExtractDeepDivePart2::test_coreference_resolver_pronouns
+tests/test_semantic_extract_deepdive_part2.py::TestSemanticExtractDeepDivePart2::test_event_detector_basic
+
+# -----------------------------------------------------------------------------
+# Added 2026-10-02 from CI run 36860808592 (job `build`, ubuntu-latest /
+# CPython 3.11), when the suite first ran there. The Windows measurement above
+# could not see these: they are environment and expectation drift. No file any
+# of them lives in is touched by the change that added this step, so nothing
+# here is caused by wiring the suite into CI.
+# -----------------------------------------------------------------------------
+
+# --- The CLI wraps the paths it reports mid-token -----------------------------
+# `test_reports_the_files_it_wrote` looks for the written filename in the
+# command's output, but the reporter hard-wraps that output every ~44 columns,
+# so a path is split mid-token (`graph_entities.ar\nrow`). The assertion is a
+# substring check, so the wrap decides whether it passes.
+tests/test_cli_commands.py::TestExportMultiFileFormats::test_reports_the_files_it_wrote[arrow-.arrow]
+tests/test_cli_commands.py::TestExportMultiFileFormats::test_reports_the_files_it_wrote[csv-.csv]
+tests/test_cli_commands.py::TestExportMultiFileFormats::test_reports_the_files_it_wrote[parquet-.parquet]
+
+# --- faiss PQ training hits a SIMD constraint in this environment -------------
+# `'ksub % 8 == 0' failed` inside `faiss::compute_PQ_dis_tables_dsub2` on the
+# AVX2 path: the training parameters the test passes do not satisfy the
+# constraint the installed faiss build enforces.
+tests/vector_store/test_faiss_index.py::test_builder_trains_pq_index
+
+# --- Count and mock-call drift ------------------------------------------------
+# `expected call not found`: the call the Weaviate test records no longer
+# matches what the store issues. `assert 2 == 5`: the Jena empty-graph test
+# counts operations that all complete only once every concurrent writer has
+# landed. That one is a thread race and can pass when the writers happen to
+# serialize, so it is `# non-strict`.
+tests/vector_store/test_backend_metadata_filtering.py::TestBackendMetadataFiltering::test_weaviate_store_filter_by_metadata_native_filter
+tests/triplet_store/test_jena_store_empty_graph.py::TestJenaStoreEmptyGraph::test_empty_graph_with_concurrent_operations  # non-strict

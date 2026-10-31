@@ -54,6 +54,45 @@ def test_method_dispatchers_import_without_extractor_cycle() -> None:
     assert callable(get_triplet_method("pattern"))
 
 
+def test_ml_is_a_registered_triplet_method() -> None:
+    """#1789 (Qodo) — 'ml' must resolve to a real triplet method.
+
+    The CLI defaults to ``--method ml`` across every mode, so the triplet
+    registry has to know that name. Otherwise the extractor swallows the
+    resulting ValueError and the requested method is silently ignored.
+    """
+    from semantica.semantic_extract.methods import (
+        extract_triplets_ml,
+        get_triplet_method,
+    )
+
+    assert get_triplet_method("ml") is extract_triplets_ml
+
+
+def test_ml_triplets_convert_supplied_relations() -> None:
+    """The ml triplet path must emit real triplets, not degrade silently."""
+    from semantica.semantic_extract.methods import extract_triplets_ml
+    from semantica.semantic_extract.types import Entity, Relation
+
+    alice = Entity(text="Alice", label="PER", start_char=0, end_char=5)
+    acme = Entity(text="Acme", label="ORG", start_char=15, end_char=19)
+    relation = Relation(
+        subject=alice, predicate="works_at", object=acme, confidence=0.9
+    )
+
+    triplets = extract_triplets_ml(
+        "Alice works at Acme", entities=[alice, acme], relations=[relation]
+    )
+
+    assert len(triplets) == 1
+    assert (
+        triplets[0].subject,
+        triplets[0].predicate,
+        triplets[0].object,
+    ) == ("Alice", "works_at", "Acme")
+    assert triplets[0].metadata["extraction_method"] == "ml"
+
+
 def test_import_order_methods_before_extractors() -> None:
     result = _run_python(
         """

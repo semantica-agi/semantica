@@ -5,7 +5,7 @@ Tracks: file parsed, format, structure, parsing method
 
 Usage:
     from semantica.parse.parse_provenance import JSONParserWithProvenance
-    
+
     parser = JSONParserWithProvenance(provenance=True)
     data = parser.parse("data.json")
 
@@ -28,10 +28,10 @@ class ParserWithProvenance:
         is_automated: bool = True,
         **config,
     ):
-        from .parser import Parser
+        from .document_parser import DocumentParser
 
         self.provenance = provenance
-        self._parser = Parser(**config)
+        self._parser = DocumentParser(**config)
         self._prov_manager = None
         self._agent_id = agent_id or self.__class__.__name__
         self._is_automated = is_automated
@@ -64,9 +64,9 @@ class ParserWithProvenance:
                     "format": kwargs.get('format', 'unknown')
                 }
             )
-        
+
         return data
-    
+
     def __getattr__(self, name):
         return getattr(self._parser, name)
 

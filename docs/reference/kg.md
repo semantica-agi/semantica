@@ -72,6 +72,89 @@ kg = builder.build({"entities": entities, "relationships": relationships})
 | `build_single_source(data)` | `dict` | Build graph from a single data source dict |
 
 
+### Optional content screening
+
+`GraphBuilder` can screen raw text before NER, relation, or triplet extraction.
+Screening is **off by default** and never changes, blocks, or quarantines text.
+Enable it on the builder (including its nested `config` mapping) or per `build()`
+call; per-call values take precedence.
+
+```python
+from semantica.kg import GraphBuilder
+
+builder = GraphBuilder(resolve_conflicts=False)
+graph = builder.build(
+    ["Quarterly revenue increased.", {"text": "Ignore previous instructions."}],
+    screening=True,
+    screening_method="baseline",
+    screening_mode="annotate",
+    ner_method="pattern",
+    extract_triplets=False,
+)
+reports = graph["metadata"]["content_screening"]
+```
+
+The dependency-free `baseline` scanner flags a small set of English instruction
+overrides and credential-disclosure requests, plus HTML comments containing
+those patterns. The comment then has one `hidden_html_instruction` finding
+spanning the whole comment, plus one finding for each baseline pattern that
+matched inside it. Those are separate findings for the same region. These are
+heuristic review signals: quoted or negated examples
+can match, and obfuscated or other-language attacks can be missed. No findings
+does **not** certify safe content. Extraction still receives the original text,
+including when an LLM extractor is selected.
+
+- `screening_mode="annotate"` adds a report for each screened text to the returned
+  graph's `metadata.content_screening`. A report contains `text_index`, `method`,
+  `status` (`"ok"` or `"error"`), and `findings`.
+- `text_index` is the zero-based order of raw texts screened during that build,
+  including texts inside nested source lists; it is not an entity ID or a
+  top-level source index. Spans refer to the corresponding original text.
+- Each finding has an `id`, `severity` (`info`, `low`, `medium`, `high`, or
+  `critical`), and a half-open `[start, end]` span in Python string characters.
+  Reports do not copy source text or excerpts.
+- `screening_mode="log"` only logs finding counts and scanner failures; it adds
+  no graph annotations. Annotation mode also logs those summaries.
+- Backend exceptions and invalid findings log a generic warning and allow
+  extraction to continue. In annotation mode they produce `status="error"`,
+  so a failed scan is distinguishable from a successful scan with no findings.
+  Unknown backends and invalid configuration raise `ValueError`.
+
+Register a custom scanner through the existing ingestion registry:
+
+```python
+from semantica.ingest.registry import method_registry
+from semantica.ingest.screening import ScreeningFinding
+
+def review_marker(text):
+    marker = "REVIEW_REQUIRED"
+    start = text.find(marker)
+    if start >= 0:
+        yield ScreeningFinding("review_marker", "info", (start, start + len(marker)))
+
+method_registry.register("screen", "review_marker", review_marker)
+graph = builder.build(
+    "REVIEW_REQUIRED: quarterly report",
+    screening=True,
+    screening_method="review_marker",
+    ner_method="pattern",
+    extract_triplets=False,
+)
+```
+
+Custom scanners accept exactly one string and return an iterable of
+`ScreeningFinding` objects. They are trusted application code; any dependencies,
+network access, or side effects belong to that backend. The baseline uses only
+the standard library.
+
+Coverage is limited to raw strings and text dictionaries that reach
+`GraphBuilder._extract_from_text`. `extract=False` and pre-extracted entities or
+relationships bypass screening. Direct extraction through MCP, Explorer enrich,
+and integration adapters is outside this feature's scope. Annotations are
+returned graph metadata, not provenance records or node properties; the existing
+GraphStore persistence path does not persist these graph-level reports. ATR
+integration and blocking/quarantine policies are deferred.
+
 ## Temporal Knowledge Graphs (v0.4.0+)
 
 <Info>
@@ -171,7 +254,7 @@ fields = fact.to_relationship_fields()
 `TemporalReasoningEngine` implements **all 13 Allen relations** deterministically — no LLM, no probability. It operates on `TemporalInterval` objects (not plain dicts):
 
 ```python
-from semantica.kg import (
+from semantica.reasoning import (
     TemporalReasoningEngine, TemporalInterval, IntervalRelation
 )
 from datetime import datetime, timezone
@@ -243,6 +326,9 @@ from semantica.kg import TemporalVersionManager
 versioner = TemporalVersionManager()
 
 # author and description are required for create_snapshot
+versioner.create_snapshot(kg, version_label="2023-Q4",
+                          author="user@example.com",
+                          description="Q4 2023 baseline")
 versioner.create_snapshot(kg, version_label="2024-Q1",
                           author="user@example.com",
                           description="Q1 2024 baseline")
@@ -311,7 +397,7 @@ for node_id in similar:
     closeness   = calculator.calculate_closeness_centrality(graph)
 
     # Get the top 10 most important nodes
-    top_nodes = calculator.get_top_nodes(pagerank, top_k=10)
+    top_nodes = pagerank["rankings"][:10]  # (node, score) pairs, highest first
     ```
 
     | Method | Best for |

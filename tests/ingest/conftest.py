@@ -16,7 +16,7 @@ by patching ``semantica.ingest.ssrf.socket.getaddrinfo`` with their own
 from __future__ import annotations
 
 import socket
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -33,3 +33,24 @@ def mock_dns():
         ],
     ):
         yield
+
+
+@pytest.fixture
+def stub_git_module(monkeypatch):
+    """Provide a stand-in ``git`` module so repo tests run without GitPython.
+
+    GitPython is the optional ``ingest-git`` extra, so
+    ``repo_ingestor.git`` is ``None`` on a core install and
+    ``patch("semantica.ingest.repo_ingestor.git.Repo")`` raises
+    ``AttributeError: None does not have the attribute 'Repo'``.
+
+    Tests that request this fixture never exercise real git — they replace
+    ``git.Repo`` wholesale and assert on what reaches ``clone_from`` — so a
+    stub preserves their coverage on a clean install. Deliberately not
+    ``autouse``: tests that assert the *absence* of GitPython must still see
+    ``git is None``. With GitPython installed this is a no-op.
+    """
+    from semantica.ingest import repo_ingestor as repo_ingestor_mod
+
+    if repo_ingestor_mod.git is None:
+        monkeypatch.setattr(repo_ingestor_mod, "git", MagicMock())

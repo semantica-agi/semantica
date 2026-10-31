@@ -311,6 +311,9 @@ def split_by_tokens(
             )
         )
 
+        if end_idx >= len(tokens):
+            break
+
         # Move to next chunk with overlap
         start_idx = max(start_idx + 1, end_idx - chunk_overlap)
         text_start = text_end - chunk_overlap * 4  # Approximate
@@ -530,6 +533,9 @@ def split_by_characters(
             )
         )
 
+        if end >= text_length:
+            break
+
         start = max(start + 1, end - chunk_overlap)
 
     return chunks
@@ -579,6 +585,9 @@ def split_by_words(
                 },
             )
         )
+
+        if end_idx >= len(words):
+            break
 
         start_idx = max(start_idx + 1, end_idx - chunk_overlap)
 
@@ -1611,9 +1620,13 @@ def split_sliding_window(
     Args:
         text: Input text
         chunk_size: Chunk size in characters
-        overlap: Overlap size in characters
-        stride: Stride size (default: chunk_size - overlap)
-        preserve_boundaries: Whether to preserve word/sentence boundaries
+        overlap: Character overlap, or the maximum character budget for complete
+            trailing sentences when preserve_boundaries is True
+        stride: Character-window step (default: chunk_size - overlap). Applies
+            to fixed windows and long-sentence fallback, not sentence grouping.
+            Long-sentence fallback caps the step at chunk_size to avoid gaps.
+        preserve_boundaries: Group complete sentences and repeat only whole
+            trailing sentences that fit both the overlap budget and chunk_size
         **kwargs: Additional options
 
     Returns:

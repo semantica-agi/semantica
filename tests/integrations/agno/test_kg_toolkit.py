@@ -67,6 +67,49 @@ def _fake_relation(src="Tesla", rel="FOUNDED_BY", tgt="Elon Musk", conf=0.85):
     return r
 
 
+class _DataclassNER:
+    """Returns Semantica's real ``Entity`` dataclass shape (text/label, no name)."""
+
+    def extract_entities(self, text):
+        from semantica.semantic_extract.types import Entity
+
+        return [
+            Entity(text="Tesla", label="ORG", start_char=0, end_char=5),
+            Entity(text="Elon Musk", label="PERSON", start_char=17, end_char=26),
+        ]
+
+
+class _DataclassRelExtractor:
+    """Returns Semantica's real ``Relation`` dataclass shape (subject/object).
+
+    Validates that ``entities`` is a list of real ``Entity`` objects, not
+    ``None`` or bare name strings (#1737). The non-empty check is intentionally
+    omitted: when the caller filters all entities out the real extractor returns
+    ``[]`` from its ``if not entities: return []`` guard; asserting non-empty
+    here would turn that into a caught ``AssertionError`` and mask the path.
+    """
+
+    def extract_relations(self, text, entities=None):
+        from semantica.semantic_extract.types import Entity, Relation
+
+        assert isinstance(entities, list), "entities must be a list"
+        assert all(isinstance(e, Entity) for e in entities), "entities must be Entity objects"
+
+        # Mirror the real extractor: return nothing when the caller has no entities.
+        if not entities:
+            return []
+
+        return [
+            Relation(
+                subject=Entity(text="Tesla", label="ORG", start_char=0, end_char=5),
+                predicate="FOUNDED_BY",
+                object=Entity(
+                    text="Elon Musk", label="PERSON", start_char=17, end_char=26
+                ),
+            )
+        ]
+
+
 class _FakeNER:
     def extract_entities(self, text):
         return [_fake_entity("Tesla"), _fake_entity("Elon Musk", "PERSON")]
@@ -79,28 +122,26 @@ class _FakeRelExtractor:
 
 class _FakeReasoner:
     def infer_facts(self, facts, rules):
-        result = MagicMock()
-        result.inferred_facts = ["Human(EthicalAI)"]
-        return result
+        return ["Human(EthicalAI)"]
 
 
 class _FakeGraph:
     """Fake ContextGraph whose signatures match the real ContextGraph API."""
 
     def __init__(self):
-        self._node_store: dict = {}   # node_id -> {"node_id": ..., "node_type": ...}
+        self._node_store: dict = {}
         self._edge_store: list = []
 
     # ContextGraph.find_nodes(node_type=None) -> List[Dict]
     def find_nodes(self, node_type=None):
         nodes = list(self._node_store.values())
         if node_type:
-            nodes = [n for n in nodes if n.get("node_type") == node_type]
+            nodes = [n for n in nodes if n.get("type") == node_type]
         return nodes
 
     # ContextGraph.add_node(node_id, node_type, content=None, **props) -> bool
     def add_node(self, node_id, node_type="Entity", content=None, **props):
-        self._node_store[node_id] = {"node_id": node_id, "node_type": node_type}
+        self._node_store[node_id] = {"id": node_id, "type": node_type}
         return True
 
     # ContextGraph.add_edge(source_id, target_id, edge_type, **props) -> bool
@@ -110,7 +151,7 @@ class _FakeGraph:
 
     # ContextGraph.get_neighbors(node_id, hops=1, ...) -> List[Dict]
     def get_neighbors(self, node_id, hops=1, relationship_types=None, min_weight=0.0):
-        return [{"node_id": f"Neighbour_of_{node_id}", "node_type": "Entity"}]
+        return [{"id": f"Neighbour_of_{node_id}", "type": "Entity", "relationship": "related_to"}]
 
 
 class TestAgnoKGToolkitInit(unittest.TestCase):
@@ -389,6 +430,80 @@ class TestExportSubgraph(unittest.TestCase):
         result = json.loads(result_str)
         # Either the real export or the fallback JSON — both are valid
         self.assertIsInstance(result, dict)
+
+
+class TestAgnoKGToolkitDataclassShapes(unittest.TestCase):
+    """Real Semantica ``Entity``/``Relation`` dataclasses (text/label,
+    subject/object) instead of MagicMock-shaped fakes."""
+
+    def setUp(self):
+        self.kit = AgnoKGToolkit(
+            ner_extractor=_DataclassNER(),
+            relation_extractor=_DataclassRelExtractor(),
+            reasoner=_FakeReasoner(),
+        )
+
+    def test_extract_entities_reads_text_label(self):
+        result = json.loads(
+            self.kit.extract_entities("Tesla founded by Elon Musk")
+        )
+        self.assertEqual(result["count"], 2)
+        self.assertEqual(result["entities"][0]["name"], "Tesla")
+        self.assertEqual(result["entities"][0]["type"], "ORG")
+        self.assertEqual(result["entities"][1]["name"], "Elon Musk")
+        self.assertEqual(result["entities"][1]["type"], "PERSON")
+
+    def test_extract_relations_reads_subject_object(self):
+        result = json.loads(
+            self.kit.extract_relations("Tesla founded by Elon Musk")
+        )
+        self.assertEqual(result["count"], 1)
+        self.assertEqual(result["relations"][0]["source"], "Tesla")
+        self.assertEqual(result["relations"][0]["relation"], "FOUNDED_BY")
+        self.assertEqual(result["relations"][0]["target"], "Elon Musk")
+
+
+class TestExtractRelationsAgainstRealExtractor(unittest.TestCase):
+    """extract_relations() against the real NERExtractor/RelationExtractor
+    (pattern method, no model download), not a fake that accepts whatever
+    it's given. The real RelationExtractor needs actual Entity objects, so
+    this is what would have caught #1737 (both with and without the
+    optional name filter)."""
+
+    def setUp(self):
+        from semantica.semantic_extract import NERExtractor, RelationExtractor
+
+        self.kit = AgnoKGToolkit(
+            ner_extractor=NERExtractor(method="pattern"),
+            relation_extractor=RelationExtractor(),
+            reasoner=_FakeReasoner(),
+        )
+        self.text = "Tim Cook works at Apple Inc."
+
+    def test_without_filter_finds_the_real_relation(self):
+        result = json.loads(self.kit.extract_relations(self.text))
+        self.assertNotIn("error", result)
+        self.assertEqual(result["count"], 1)
+        self.assertEqual(result["relations"][0]["source"], "Tim Cook")
+        self.assertEqual(result["relations"][0]["relation"], "works_for")
+        self.assertEqual(result["relations"][0]["target"], "Apple Inc.")
+
+    def test_filter_matching_both_names_still_finds_it(self):
+        result = json.loads(self.kit.extract_relations(
+            self.text, entities=json.dumps(["Tim Cook", "Apple Inc."])
+        ))
+        self.assertNotIn("error", result)
+        self.assertEqual(result["count"], 1)
+
+    def test_filter_dropping_one_name_finds_nothing(self):
+        # Restricting to one name removes the relation's other side from
+        # the real extractor's entity list, so it can no longer pair a
+        # subject with an object and correctly returns none.
+        result = json.loads(self.kit.extract_relations(
+            self.text, entities=json.dumps(["Tim Cook"])
+        ))
+        self.assertNotIn("error", result)
+        self.assertEqual(result["count"], 0)
 
 
 if __name__ == "__main__":

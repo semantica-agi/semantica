@@ -5,19 +5,19 @@
 # See https://github.com/google/osv-scanner#ignore-vulnerabilities-by-id for
 # the file format.
 
+# opentelemetry-api: TraceState.from_header parses an inbound W3C tracestate
+# header in O(N^2) time, fixed in 1.45.1. Pinned at 1.43.0 in requirements-ci.txt
+# and uv.lock (google-adk caps opentelemetry-api, at <=1.44 as of 2.13.0) and at
+# 1.37.0 in .github/requirements/security-scan-tools.txt (semgrep pins ~=1.37.0).
+# Semantica never imports opentelemetry, its google-adk integration runs no HTTP
+# server, and the semgrep CLI handles no inbound requests, so no inbound
+# tracestate header is parsed. See the matching IGNORED_VULN_IDS entry in
+# .github/workflows/security-scan.yml.
+
 [[IgnoredVulns]]
-id = "GHSA-4j2p-28q2-5m79"
-reason = """
-accelerate<=1.14.0 (transitive dependency via docling-slim, pinned in
-requirements-ci.txt) has an open path traversal / DoS advisory (also tracked
-as CVE-2026-69112) in load_checkpoint_in_model / load_checkpoint_and_dispatch,
-which fail to sanitize weight_map entries from sharded checkpoint indexes.
-1.14.0 is the latest release on PyPI; no patched version exists yet.
-Semantica does not call either function or load arbitrary/untrusted sharded
-checkpoints, so the vulnerable code path is not reachable. Re-evaluate once
-accelerate ships a fix - see .github/workflows/security-scan.yml for the
-matching pip-audit exclusion.
-"""
+id = "GHSA-xcq7-p3pf-p88h"
+ignoreUntil = 2027-01-23
+reason = "opentelemetry-api <1.45.1, capped by google-adk and semgrep; no inbound tracestate parsing. See security-scan.yml."
 
 # ---------------------------------------------------------------------------
 # chromadb / json-repair (previously pulled in transitively by an opt-in

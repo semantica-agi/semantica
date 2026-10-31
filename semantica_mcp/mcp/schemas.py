@@ -363,6 +363,12 @@ RETRIEVE_CONTEXT = {
             "maximum": 10,
             "description": "Maximum number of chunks to return (default: 5, capped at 10)",
         },
+        "max_results": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 10,
+            "description": "Alias for top_k, as in the Python retrieve_context API; top_k wins if both are set",
+        },
         "project": {
             "type": "string",
             "description": "Only return chunks stored under this project namespace (optional)",

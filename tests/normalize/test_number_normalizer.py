@@ -1,12 +1,14 @@
+import math
 import unittest
 
-from semantica.utils.exceptions import ValidationError
 from semantica.normalize.number_normalizer import (
-    NumberNormalizer,
-    UnitConverter,
     CurrencyNormalizer,
-    ScientificNotationHandler
+    NumberNormalizer,
+    ScientificNotationHandler,
+    UnitConverter,
 )
+from semantica.utils.exceptions import ValidationError
+
 
 class TestNumberNormalizer(unittest.TestCase):
     def setUp(self):
@@ -23,6 +25,7 @@ class TestNumberNormalizer(unittest.TestCase):
         result = self.normalizer.normalize_quantity("100 meters")
         self.assertEqual(result["value"], 100.0)
         self.assertEqual(result["unit"], "meter")
+
 
 class TestUnitConverter(unittest.TestCase):
     def setUp(self):
@@ -50,6 +53,7 @@ class TestUnitConverter(unittest.TestCase):
     def test_normalize_unit(self):
         self.assertEqual(self.converter.normalize_unit("km"), "kilometer")
         self.assertEqual(self.converter.normalize_unit("kgs"), "kilogram")
+
 
 class TestCurrencyNormalizer(unittest.TestCase):
     def setUp(self):
@@ -81,6 +85,53 @@ class TestCurrencyNormalizer(unittest.TestCase):
             self.assertEqual(result["amount"], 100.0)
             self.assertEqual(result["currency"], "USD")
 
+    def test_magnitude_suffixes_are_expanded(self):
+        result = self.normalizer.normalize_currency("$5M")
+        self.assertEqual(result["amount"], 5_000_000.0)
+        self.assertEqual(result["currency"], "USD")
+
+        result = self.normalizer.normalize_currency("$5m")
+        self.assertEqual(result["amount"], 5_000_000.0)
+
+        result = self.normalizer.normalize_currency("2.5M USD")
+        self.assertEqual(result["amount"], 2_500_000.0)
+        self.assertEqual(result["currency"], "USD")
+
+        result = self.normalizer.normalize_currency("$1.2K")
+        self.assertEqual(result["amount"], 1_200.0)
+
+        result = self.normalizer.normalize_currency("€3B")
+        self.assertEqual(result["amount"], 3_000_000_000.0)
+        self.assertEqual(result["currency"], "EUR")
+
+        # No suffix should behave exactly as before
+        result = self.normalizer.normalize_currency("$100")
+        self.assertEqual(result["amount"], 100.0)
+
+    def test_bare_leading_decimal_is_not_inflated(self):
+        result = self.normalizer.normalize_currency(".5")
+        self.assertEqual(result["amount"], 0.5)
+
+        result = self.normalizer.normalize_currency(".5M")
+        self.assertEqual(result["amount"], 500_000.0)
+
+    def test_malformed_amount_returns_none(self):
+        result = self.normalizer.normalize_currency("$1.2.3")
+        self.assertIsNone(result["amount"])
+
+    def test_mm_suffix_is_recognized_as_million(self):
+        result = self.normalizer.normalize_currency("$5MM")
+        self.assertEqual(result["amount"], 5_000_000.0)
+        self.assertEqual(result["currency"], "USD")
+        result = self.normalizer.normalize_currency("$5mm")
+        self.assertEqual(result["amount"], 5_000_000.0)
+        result = self.normalizer.normalize_currency("2.5MM USD")
+        self.assertEqual(result["amount"], 2_500_000.0)
+        result = self.normalizer.normalize_currency("5MM")
+        self.assertEqual(result["amount"], 5_000_000.0)
+        result = self.normalizer.normalize_currency("5MM1")
+        self.assertEqual(result["amount"], 5.0)
+
 
 class TestScientificNotationHandler(unittest.TestCase):
     def setUp(self):
@@ -89,6 +140,28 @@ class TestScientificNotationHandler(unittest.TestCase):
     def test_parse_scientific(self):
         self.assertEqual(self.handler.parse_scientific_notation("1.23e4"), 12300.0)
         self.assertEqual(self.handler.parse_scientific_notation("1.23E-2"), 0.0123)
+
+    def test_normalize_precision_keeps_sign(self):
+        self.assertEqual(self.handler.normalize_precision(1234.5, 2), 1200.0)
+        self.assertEqual(self.handler.normalize_precision(-1234.5, 2), -1200.0)
+        self.assertEqual(self.handler.normalize_precision(-0.000123, 2), -0.00012)
+
+    def test_normalize_precision_returns_non_finite_inputs(self):
+        self.assertEqual(
+            self.handler.normalize_precision(float("inf"), 2), float("inf")
+        )
+        self.assertEqual(
+            self.handler.normalize_precision(float("-inf"), 2), float("-inf")
+        )
+        self.assertTrue(
+            math.isnan(self.handler.normalize_precision(float("nan"), 2))
+        )
+
+    def test_normalize_precision_does_not_return_negative_zero(self):
+        # round(4.0, -1) is zero, and copysign(0.0, -4) is -0.0, which
+        # serialises as -0.0. The value is zero, so the sign is dropped.
+        self.assertEqual(repr(self.handler.normalize_precision(-4, 0)), "0.0")
+
 
 if __name__ == "__main__":
     unittest.main()

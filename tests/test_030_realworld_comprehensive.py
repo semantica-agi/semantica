@@ -822,6 +822,10 @@ class TestKGAlgorithmsRealWorld:
         assert score > 0.95  # Very similar vectors
 
     def test_node_embedder_generates_embeddings(self):
+        # Constructing NodeEmbedder requires gensim (the optional
+        # graph-embeddings extra); see tests/test_issue_1513_slim_core.py
+        # for the contract that it raises without it.
+        pytest.importorskip("gensim")
         G = _build_nx_tech_graph()
         embedder = NodeEmbedder(embedding_dimension=16, walk_length=10, num_walks=2, epochs=1)
         node_labels = list({data.get("type", "entity") for _, data in G.nodes(data=True)})

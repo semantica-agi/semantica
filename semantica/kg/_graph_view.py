@@ -1,7 +1,7 @@
 """Internal graph view helpers shared by KG analytics modules."""
 
 from dataclasses import dataclass
-from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
 
 @dataclass
@@ -172,6 +172,120 @@ def _edge_endpoints(edge: Any) -> Optional[Tuple[Any, Any]]:
     return source, target
 
 
+def _edge_type_of(edge: Any) -> Any:
+    """Read an edge's relationship type from a mapping or an object."""
+    if isinstance(edge, dict):
+        return _first_value(
+            edge, "type", "edge_type", "relationship_type", "relationship"
+        )
+    return _first_attribute(
+        edge, "edge_type", "type", "relationship_type", "relationship"
+    )
+
+
+@dataclass
+class EdgeTypeIndex:
+    """The declared edge types of a graph's edge list, read once.
+
+    ``typed`` records whether any edge record declares a type at all;
+    ``by_pair`` maps each ``(source, target)`` to the types declared from
+    ``source`` to ``target``; ``untyped`` holds every ``(source, target)``
+    joined by at least one edge that declares no type. The index records the
+    edges as declared; :func:`edge_types_between` decides what an untyped edge
+    means for each kind of graph.
+    """
+
+    typed: bool
+    by_pair: Dict[Tuple[Any, Any], Set[Any]]
+    untyped: Set[Tuple[Any, Any]]
+
+
+def _context_edges(graph: Any) -> Optional[Sequence[Any]]:
+    """Return a ``ContextGraph``-style edge list, or ``None`` for other graphs."""
+    edges = getattr(graph, "edges", None)
+    if isinstance(edges, (list, tuple)) and any(
+        hasattr(edge, "source_id") for edge in edges
+    ):
+        return edges
+    return None
+
+
+def _index_edges(edges: Iterable[Any]) -> EdgeTypeIndex:
+    """Read edge records once into an :class:`EdgeTypeIndex`."""
+    by_pair: Dict[Tuple[Any, Any], Set[Any]] = {}
+    untyped: Set[Tuple[Any, Any]] = set()
+    typed = False
+    for edge in edges:
+        edge_type = _edge_type_of(edge)
+        if edge_type:
+            typed = True
+        endpoints = _edge_endpoints(edge)
+        if endpoints is None:
+            continue
+        try:
+            if edge_type:
+                by_pair.setdefault(endpoints, set()).add(edge_type)
+            else:
+                untyped.add(endpoints)
+        except TypeError:
+            # An unhashable endpoint never equals a node id, which is always
+            # hashable, so it could not have matched a lookup anyway.
+            continue
+    return EdgeTypeIndex(typed=typed, by_pair=by_pair, untyped=untyped)
+
+
+def build_edge_type_index(graph: Any) -> Optional[EdgeTypeIndex]:
+    """Read a graph's edge records once for repeated type lookups.
+
+    A caller that classifies many links passes the result to
+    :func:`edge_types_between`, so the edge list is scanned once per graph
+    instead of once per link. A plain graph dictionary and a ``ContextGraph``
+    are indexed; any other graph is answered through ``get_edge_data()`` and
+    gets ``None``.
+    """
+    if isinstance(graph, dict):
+        return _index_edges(_extract_edges(graph))
+    context_edges = _context_edges(graph)
+    if context_edges is None:
+        return None
+    return _index_edges(context_edges)
+
+
+def _pair_types(
+    index: EdgeTypeIndex, source: Any, target: Any, directed: bool
+) -> Set[Any]:
+    """Union a pair's indexed types, reading both ways unless ``directed``."""
+    types: Set[Any] = set(index.by_pair.get((source, target), ()))
+    if not directed:
+        types |= index.by_pair.get((target, source), set())
+    return types
+
+
+def _dict_edge_types(
+    graph: Dict[str, Any],
+    source: Any,
+    target: Any,
+    directed: bool,
+    index: Optional[EdgeTypeIndex] = None,
+) -> Optional[Set[Any]]:
+    """Collect the types of every declared edge between two nodes.
+
+    Returns ``None`` when an edge joining the pair declares no type, matching
+    :func:`edge_types_between`: a caller filtering on relationship types has
+    nothing to classify that link with and keeps it. The decision is made per
+    edge, so typed records elsewhere in the graph do not change it.
+    """
+    if index is None:
+        index = _index_edges(_extract_edges(graph))
+    if not index.typed:
+        return None
+    if (source, target) in index.untyped or (
+        not directed and (target, source) in index.untyped
+    ):
+        return None
+    return _pair_types(index, source, target, directed)
+
+
 def _node_id(value: Any) -> Any:
     if isinstance(value, dict):
         value = _first_value(
@@ -203,4 +317,125 @@ def _first_attribute(value: Any, *names: str) -> Any:
         attribute = getattr(value, name, None)
         if attribute not in (None, ""):
             return attribute
+    return None
+
+
+def _label_of(node_data: Any) -> Optional[str]:
+    """Read a node label from a mapping entry or a node object."""
+    if isinstance(node_data, dict):
+        return _first_value(node_data, "label", "type", "node_type")
+    return _first_attribute(node_data, "node_type", "label", "type")
+
+
+def _dict_node_label(graph: Dict[str, Any], node: Any) -> Optional[str]:
+    """Read a node's label out of a plain graph dictionary."""
+    mapping = graph.get("nodes")
+    if isinstance(mapping, dict) and node in mapping:
+        return _label_of(mapping[node])
+
+    for value in _extract_nodes(graph):
+        if _node_id(value) == node:
+            return _label_of(value)
+    return None
+
+
+def graph_node_ids(graph: Any) -> List[Any]:
+    """Return the node ids of any supported graph.
+
+    NetworkX exposes ``nodes`` as a callable view, while
+    :class:`~semantica.context.context_graph.ContextGraph` exposes it as a
+    mapping keyed by node id. A plain ``{"entities": [...], "relationships":
+    [...]}`` mapping declares its nodes under ``entities``/``nodes`` instead, so
+    it is read through the same view builder the rest of the analytics use.
+    """
+    if isinstance(graph, dict):
+        return list(build_graph_view(graph).nodes)
+
+    nodes = getattr(graph, "nodes", None)
+    if nodes is None:
+        return []
+    if callable(nodes):
+        return list(nodes())
+    return list(nodes)
+
+
+def graph_node_label(graph: Any, node: Any) -> Optional[str]:
+    """Read a node's label from either a mapping or an object.
+
+    NetworkX stores node attributes in a dict, while ``ContextGraph`` stores a
+    :class:`~semantica.context.context_graph.ContextNode` dataclass whose label
+    is ``node_type``. A plain graph dictionary keeps its entities under
+    ``entities``/``nodes``, so the label comes from the matching entry.
+    """
+    if isinstance(graph, dict):
+        return _dict_node_label(graph, node)
+
+    return _label_of(graph.nodes[node])
+
+
+def edge_types_between(
+    graph: Any,
+    source: Any,
+    target: Any,
+    directed: bool = False,
+    edge_types: Optional[EdgeTypeIndex] = None,
+) -> Optional[Set[Any]]:
+    """Collect the relationship types of every edge between two nodes.
+
+    Returns ``None`` when the graph exposes no edge types at all, because a
+    caller cannot classify a link it has no metadata for. Callers keep the
+    neighbour on ``None`` and apply the filter to a set.
+
+    A plain graph dictionary is read through its ``relationships``/``edges``
+    entries and decides per edge: when an edge joining the pair declares no
+    type the result is ``None``, so that link is kept, while a pair joined only
+    by typed edges gets the set of their types. A ``ContextGraph`` or NetworkX
+    graph still answers for the pair as a whole: an empty set means the two
+    nodes are joined by edges that declare no type, and the filter drops them.
+
+    ``directed`` narrows the edge-list lookup to edges that leave ``source`` and
+    enter ``target``. The default reads the pair as undirected, which is what a
+    community detector wants; a caller walking an outgoing adjacency list has to
+    pass ``directed=True``, or a reverse edge of another type reads as a match.
+    The NetworkX lookup further down is keyed by the direction it is called with
+    already, so the flag changes nothing there.
+
+    ``ContextGraph`` keeps parallel edges and its ``get_edge_data()`` returns
+    only the first one, so the edge list is the only view that shows them all.
+    NetworkX returns plain attributes for a simple graph and a key-to-attributes
+    mapping for a multigraph.
+
+    ``edge_types`` is an optional :func:`build_edge_type_index` result for a
+    plain graph dictionary or a ``ContextGraph``. A caller classifying many
+    links builds it once, so the lookup does not rescan the edge list for every
+    pair.
+    """
+    if isinstance(graph, dict):
+        return _dict_edge_types(graph, source, target, directed, edge_types)
+
+    # Only a ContextGraph has an index here. It answers for the pair as a
+    # whole, so its untyped edges add nothing and such a pair gets an empty set.
+    index = edge_types if edge_types is not None else build_edge_type_index(graph)
+    if index is not None:
+        return _pair_types(index, source, target, directed)
+
+    if hasattr(graph, "get_edge_data"):
+        data = graph.get_edge_data(source, target)
+        if not isinstance(data, dict) or not data:
+            return set()
+        is_multigraph = getattr(graph, "is_multigraph", None)
+        if callable(is_multigraph) and is_multigraph():
+            candidates = data.values()
+        else:
+            candidates = [data]
+        types = set()
+        for attributes in candidates:
+            if isinstance(attributes, dict):
+                edge_type = attributes.get("type") or attributes.get(
+                    "relationship"
+                )
+                if edge_type:
+                    types.add(edge_type)
+        return types
+
     return None

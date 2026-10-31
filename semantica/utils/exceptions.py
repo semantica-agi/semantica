@@ -179,6 +179,32 @@ class TemporalAmbiguityWarning(UserWarning):
     pass
 
 
+class PartialIngestionWarning(UserWarning):
+    """
+    Warning raised when a directory ingestion completes but one or more files
+    could not be processed.
+
+    The successfully ingested files are still returned by
+    ``FileIngestor.ingest_directory()``.  This warning carries the count of
+    failures and the list of failed paths so callers can decide whether the
+    partial result is acceptable.
+
+    Example::
+
+        import warnings
+        from semantica.ingest import FileIngestor
+        from semantica.utils.exceptions import PartialIngestionWarning
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always", PartialIngestionWarning)
+            files = FileIngestor().ingest_directory("./docs")
+        if caught:
+            print(caught[0].message)
+    """
+
+    pass
+
+
 class ProcessingError(SemanticaError):
     """
     Exception raised for data processing errors.
@@ -276,6 +302,33 @@ class QualityError(SemanticaError):
         self.quality_score = details.get("quality_score")
         self.threshold = details.get("threshold")
         self.metrics = details.get("metrics", {})
+
+
+class ProvenanceRecordingError(SemanticaError):
+    """
+    Exception raised when an operation completes but its provenance record
+    could not be written, so the result has no audit trail behind it.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        provenance_context: Optional[Dict[str, Any]] = None,
+        **details: Any,
+    ):
+        """
+        Initialize provenance recording error.
+
+        Args:
+            message: Provenance recording error message
+            provenance_context: Provenance context dictionary
+            **details: Additional details (e.g. entity_id)
+        """
+        super().__init__(
+            message, context=provenance_context, error_code="SEM007", **details
+        )
+        self.provenance_context = provenance_context or {}
+        self.entity_id = details.get("entity_id")
 
 
 def handle_exception(

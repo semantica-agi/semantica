@@ -38,6 +38,7 @@ Example:
     'not_configured'
 """
 
+import contextlib
 import copy
 import inspect
 from dataclasses import dataclass, field
@@ -421,7 +422,20 @@ class ErasureCoordinator:
             }
 
         try:
-            deleted = getattr(target, method_name)(ids)
+            # Backend deletion bypasses the facade's public deletion method.
+            # Share its operation guard through accepted-result mirror cleanup
+            # so reinsertion and persistence cannot overtake this erasure.
+            # Standalone stores without the guard retain their existing path.
+            operation_lock = getattr(self.vector_store, "_operation_lock", None)
+            with (
+                operation_lock
+                if operation_lock is not None
+                else contextlib.nullcontext()
+            ):
+                deleted = getattr(target, method_name)(ids)
+                accepted, detail = _interpret_delete_result(deleted)
+                if accepted:
+                    _drop_from_facade_mirror(self.vector_store, ids)
         except NotImplementedError as exc:
             # The VectorStore facade declares delete_vectors() unconditionally
             # and only fails on the call when its backend cannot delete.
@@ -453,7 +467,6 @@ class ErasureCoordinator:
                 "detail": f"{type(exc).__name__}: {exc}",
             }
 
-        accepted, detail = _interpret_delete_result(deleted)
         result: Dict[str, Any] = {
             "status": STATUS_ERASED if accepted else STATUS_FAILED,
             "backend": backend,
@@ -773,6 +786,28 @@ def _vector_delete_capability(store: Any) -> Tuple[Optional[str], Any]:
         if callable(getattr(target, name, None)):
             return name, target
     return None, target
+
+
+def _drop_from_facade_mirror(store: Any, ids: Sequence[Any]) -> None:
+    """Remove erased ids from the ``VectorStore`` facade's in-process mirror.
+
+    The delete goes to the backend store directly (see
+    ``_vector_delete_capability``), which skips the mirror cleanup in
+    ``VectorStore.delete_vectors()``. Left alone, the facade keeps serving the
+    erased vectors and ``save()`` writes them back to disk (#1832).
+
+    The caller holds the facade's operation guard across backend deletion and
+    this cleanup. Acquire only the mirror lock here, preserving that order.
+    """
+    vectors = getattr(store, "vectors", None)
+    metadata = getattr(store, "metadata", None)
+    if not isinstance(vectors, dict) or not isinstance(metadata, dict):
+        return
+    lock = getattr(store, "_inmemory_lock", None)
+    with lock if lock is not None else contextlib.nullcontext():
+        for vector_id in ids:
+            vectors.pop(vector_id, None)
+            metadata.pop(vector_id, None)
 
 
 def _vector_backend_name(store: Any) -> str:

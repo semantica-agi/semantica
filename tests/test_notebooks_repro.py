@@ -42,6 +42,9 @@ class TestNotebooks(unittest.TestCase):
             self.fail(f"12_Embedding_Generation.ipynb failed: {e}")
 
     def test_13_vector_store_basic(self):
+        # Needs the optional vectorstore-faiss extra; skip rather than fail on a
+        # core install.
+        pytest.importorskip("faiss")
         print("\nTesting 13_Vector_Store.ipynb logic...")
         try:
             from semantica.vector_store import VectorStore
@@ -66,6 +69,9 @@ class TestNotebooks(unittest.TestCase):
             self.fail(f"13_Vector_Store.ipynb failed: {e}")
 
     def test_advanced_vector_store(self):
+        # Needs the optional vectorstore-faiss extra; skip rather than fail on a
+        # core install.
+        pytest.importorskip("faiss")
         print("\nTesting Advanced_Vector_Store_and_Search.ipynb logic...")
         try:
             from semantica.vector_store import FAISSStore, HybridSearch, MetadataFilter, SearchRanker, NamespaceManager

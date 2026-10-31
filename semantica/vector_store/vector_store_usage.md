@@ -103,7 +103,7 @@ results = search_vectors(query_vector, vectors, vector_ids, k=10, method="defaul
 filter = MetadataFilter().eq("category", "science")
 hybrid_results = hybrid_search(
     query_vector, vectors, metadata, vector_ids,
-    filter=filter, k=10, method="default"
+    metadata_filter=filter, k=10, method="default"
 )
 
 print(f"Found {len(results)} results")
@@ -130,7 +130,7 @@ vector_ids = [f"vec_{i}" for i in range(1000)]
 
 results = search.search(
     query_vector, vectors, metadata, vector_ids,
-    filter=filter, k=10
+    metadata_filter=filter, k=10
 )
 
 print(f"Found {len(results)} results")
@@ -466,7 +466,7 @@ filter = MetadataFilter().eq("category", "science").gt("year", 2021)
 # Perform hybrid search
 results = search.search(
     query_vector, vectors, metadata, vector_ids,
-    filter=filter, k=10
+    metadata_filter=filter, k=10
 )
 
 print(f"Found {len(results)} results")
@@ -1013,7 +1013,7 @@ results = adapter.search(index, query_vector, k=10)
 ```python
 # Hybrid search
 filter = MetadataFilter().eq("category", "science")
-results = hybrid_search(query_vector, vectors, metadata, vector_ids, filter=filter, k=10)
+results = hybrid_search(query_vector, vectors, metadata, vector_ids, metadata_filter=filter, k=10)
 ```
 
 #### Reciprocal Rank Fusion (RRF)
@@ -1632,7 +1632,7 @@ filter = MetadataFilter().eq("category", "science").gt("year", 2021)
 query_vector = np.random.rand(768)
 results = hybrid_search(
     query_vector, vectors, metadata, vector_ids,
-    filter=filter, k=10
+    metadata_filter=filter, k=10
 )
 
 print(f"Stored {len(vector_ids)} vectors")
@@ -1686,7 +1686,7 @@ filter = MetadataFilter().eq("category", "science")
 # Perform search
 results = search.search(
     query_vector, vectors, metadata, vector_ids,
-    filter=filter, k=10
+    metadata_filter=filter, k=10
 )
 
 # Custom ranking with weights

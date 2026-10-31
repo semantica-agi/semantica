@@ -211,7 +211,8 @@ compliance = knowledge.check_decision_rules({
     "scenario": "Mortgage application",
     "reasoning": "Good credit score, stable income",
     "outcome": "approved",
-    "confidence": 0.95
+    "confidence": 0.95,
+    "decision_maker": "loan_officer"
 })
 
 if compliance.get("compliant", False):

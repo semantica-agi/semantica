@@ -7,6 +7,7 @@ methods, with validation and serialization support.
 
 Supported Methods:
     - "pattern": Pattern-based triplet extraction from relations (default)
+    - "ml": ML-based triplet extraction from spaCy dependency relations
     - "rules": Rule-based triplet extraction using linguistic rules
     - "huggingface": Custom HuggingFace triplet extraction models
     - "llm": LLM-based triplet extraction using various providers
@@ -28,6 +29,7 @@ Algorithms Used:
 Key Features:
     - Multiple extraction methods:
         * Pattern-based: Pattern matching for triplet extraction (default)
+        * ML-based: spaCy dependency relations converted to triplets
         * Rules-based: Rule-based triplet extraction
         * HuggingFace: Custom HuggingFace triplet models
         * LLM-based: LLM-powered triplet extraction
@@ -97,6 +99,7 @@ class TripletExtractor:
         Args:
             method: Extraction method(s). Can be:
                 - "pattern": Pattern-based extraction (default)
+                - "ml": ML-based extraction from spaCy dependency relations
                 - "rules": Rule-based extraction
                 - "huggingface": HuggingFace model
                 - "llm": LLM-based extraction

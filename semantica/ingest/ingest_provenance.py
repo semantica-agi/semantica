@@ -5,7 +5,7 @@ Tracks: file paths, pages, metadata, ingestion timestamps
 
 Usage:
     from semantica.ingest.ingest_provenance import PDFIngestorWithProvenance
-    
+
     ingestor = PDFIngestorWithProvenance(provenance=True)
     docs = ingestor.ingest("document.pdf")
 
@@ -13,8 +13,9 @@ Author: Semantica Contributors
 License: MIT
 """
 
-from typing import Optional, List
+from typing import Optional
 from datetime import datetime
+from pathlib import Path
 import uuid
 
 
@@ -51,17 +52,35 @@ class PDFIngestorWithProvenance(IngestProvenanceMixin):
         is_automated: bool = True,
         **config,
     ):
-        from .pdf_ingestor import PDFIngestor
+        from .file_ingestor import FileIngestor
 
         IngestProvenanceMixin.__init__(
             self, provenance=provenance, agent_id=agent_id, is_automated=is_automated
         )
-        self._ingestor = PDFIngestor(**config)
+        self._ingestor = FileIngestor(**config)
 
     def ingest(self, file_path: str, **kwargs):
-        """Ingest PDF with provenance tracking."""
+        """Ingest a single PDF file with provenance tracking.
+
+        ``FileIngestor`` accepts any file or directory, but this wrapper records
+        every result as ``file_type="pdf"``.  To keep that provenance truthful,
+        only a single ``.pdf`` file is accepted; directories and other file
+        types are rejected before anything is read.
+
+        Raises:
+            ValidationError: If *file_path* does not have a ``.pdf`` extension,
+                or (from ``FileIngestor``) does not exist / is not a file.
+        """
+        from ..utils.exceptions import ValidationError
+
+        if Path(file_path).suffix.lower() != ".pdf":
+            raise ValidationError(
+                f"PDFIngestorWithProvenance only ingests .pdf files, got: {file_path}"
+            )
+
         activity_started_at_time = datetime.utcnow().isoformat()
-        docs = self._ingestor.ingest(file_path, **kwargs)
+        # ingest_file (not ingest) so a directory can never be expanded here.
+        docs = [self._ingestor.ingest_file(file_path, **kwargs)]
         activity_ended_at_time = datetime.utcnow().isoformat()
 
         if self.provenance and self._prov_manager:
@@ -81,9 +100,9 @@ class PDFIngestorWithProvenance(IngestProvenanceMixin):
                         "pages": getattr(doc, 'page_count', None)
                     }
                 )
-        
+
         return docs
-    
+
     def __getattr__(self, name):
         return getattr(self._ingestor, name)
 

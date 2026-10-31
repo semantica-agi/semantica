@@ -138,6 +138,11 @@ if TYPE_CHECKING:
         BigQueryData,
         BigQueryIngestor,
     )
+    from .dynamics365_ingestor import (
+        Dynamics365Connector,
+        Dynamics365Data,
+        Dynamics365Ingestor,
+    )
     from .powerbi_ingestor import (
         PowerBIConnector,
         PowerBIData,
@@ -161,6 +166,7 @@ from .file_ingestor import (
     FileObject,
     FileTypeDetector,
 )
+from ..utils.exceptions import PartialIngestionWarning
 from .methods import (
     get_ingest_method,
     ingest,
@@ -270,10 +276,22 @@ _LAZY_EXPORTS: Dict[str, Tuple[str, str]] = {
     "SalesforceIngestor": (".salesforce_ingestor", "SalesforceIngestor"),
     "SalesforceData": (".salesforce_ingestor", "SalesforceData"),
     "SalesforceConnector": (".salesforce_ingestor", "SalesforceConnector"),
+    # Tableau ingestion
+    "TableauIngestor": (".tableau_ingestor", "TableauIngestor"),
+    "TableauData": (".tableau_ingestor", "TableauData"),
+    "TableauConnector": (".tableau_ingestor", "TableauConnector"),
+    # Dynamics 365 ingestion
+    "Dynamics365Ingestor": (".dynamics365_ingestor", "Dynamics365Ingestor"),
+    "Dynamics365Data": (".dynamics365_ingestor", "Dynamics365Data"),
+    "Dynamics365Connector": (".dynamics365_ingestor", "Dynamics365Connector"),
     # Redshift ingestion
     "RedshiftIngestor": (".redshift_ingestor", "RedshiftIngestor"),
     "RedshiftData": (".redshift_ingestor", "RedshiftData"),
     "RedshiftConnector": (".redshift_ingestor", "RedshiftConnector"),
+    # Cassandra ingestion
+    "CassandraIngestor": (".cassandra_ingestor", "CassandraIngestor"),
+    "CassandraData": (".cassandra_ingestor", "CassandraData"),
+    "CassandraConnector": (".cassandra_ingestor", "CassandraConnector"),
     # Power BI ingestion
     "PowerBIIngestor": (".powerbi_ingestor", "PowerBIIngestor"),
     "PowerBIData": (".powerbi_ingestor", "PowerBIData"),
@@ -331,11 +349,23 @@ _OPTIONAL_DEPENDENCY_MESSAGES = {
     ".airflow_ingestor": (
         "Apache Airflow ingestion requires optional dependency 'requests'. "
         "Install it with: "
-        "pip install \"semantica[ingest-airflow]\""
+        'pip install \"semantica[ingest-airflow]\"'
+    ),
+    ".tableau_ingestor": (
+        "Tableau ingestion requires optional dependency 'tableauserverclient'. "
+        "Install it with: pip install 'semantica[ingest-tableau]'"
+    ),
+    ".dynamics365_ingestor": (
+        "Dynamics 365 ingestion requires optional dependency 'msal'. "
+        "Install it with: pip install 'semantica[ingest-dynamics365]'"
     ),
     ".redshift_ingestor": (
         "Redshift ingestion requires optional dependency 'redshift-connector'. "
         "Install it with: pip install 'semantica[db-redshift]'"
+    ),
+    ".cassandra_ingestor": (
+        "Cassandra ingestion requires optional dependency 'cassandra-driver'. "
+        "Install it with: pip install 'semantica[db-cassandra]'"
     ),
     ".bigquery_ingestor": (
         "BigQuery ingestion requires optional dependency 'google-cloud-bigquery'. "
@@ -346,7 +376,6 @@ _OPTIONAL_DEPENDENCY_MESSAGES = {
         "Install it with: pip install 'semantica[ingest-looker]'"
     ),
 }
-
 
 def __getattr__(name: str) -> Any:
     """Load optional ingestion backends only when callers request them."""
@@ -370,6 +399,7 @@ def __getattr__(name: str) -> Any:
                     "simple_salesforce",
                     "lxml",
                     "redshift_connector",
+                    "cassandra",
                     "google",
                     "looker_sdk",
                 )
@@ -383,6 +413,27 @@ def __getattr__(name: str) -> Any:
     # fail at import time rather than postponing failure to construction time.
     if module_name == ".repo_ingestor" and name in {"RepoIngestor"}:
         if getattr(module, "git", None) is None:
+            message = _OPTIONAL_DEPENDENCY_MESSAGES.get(module_name)
+            if message:
+                raise ImportError(message)
+
+    if module_name == ".web_ingestor" and name in {
+        "WebIngestor",
+        "ContentExtractor",
+    }:
+        if getattr(module, "BeautifulSoup", None) is None:
+            message = _OPTIONAL_DEPENDENCY_MESSAGES.get(module_name)
+            if message:
+                raise ImportError(message)
+
+    if module_name == ".feed_ingestor" and name in {"FeedIngestor"}:
+        if getattr(module, "BeautifulSoup", None) is None:
+            message = _OPTIONAL_DEPENDENCY_MESSAGES.get(module_name)
+            if message:
+                raise ImportError(message)
+
+    if module_name == ".email_ingestor" and name in {"EmailIngestor"}:
+        if getattr(module, "BeautifulSoup", None) is None:
             message = _OPTIONAL_DEPENDENCY_MESSAGES.get(module_name)
             if message:
                 raise ImportError(message)
@@ -414,11 +465,38 @@ def __getattr__(name: str) -> Any:
             if message:
                 raise ImportError(message)
 
+    if module_name == ".tableau_ingestor" and name in {
+        "TableauIngestor",
+        "TableauConnector",
+    }:
+        if not getattr(module, "TABLEAU_AVAILABLE", True):
+            message = _OPTIONAL_DEPENDENCY_MESSAGES.get(module_name)
+            if message:
+                raise ImportError(message)
+
+    if module_name == ".dynamics365_ingestor" and name in {
+        "Dynamics365Ingestor",
+        "Dynamics365Connector",
+    }:
+        if not getattr(module, "DYNAMICS_AVAILABLE", True):
+            message = _OPTIONAL_DEPENDENCY_MESSAGES.get(module_name)
+            if message:
+                raise ImportError(message)
+
     if module_name == ".redshift_ingestor" and name in {
         "RedshiftIngestor",
         "RedshiftConnector",
     }:
         if not getattr(module, "REDSHIFT_AVAILABLE", True):
+            message = _OPTIONAL_DEPENDENCY_MESSAGES.get(module_name)
+            if message:
+                raise ImportError(message)
+
+    if module_name == ".cassandra_ingestor" and name in {
+        "CassandraIngestor",
+        "CassandraConnector",
+    }:
+        if not getattr(module, "CASSANDRA_AVAILABLE", True):
             message = _OPTIONAL_DEPENDENCY_MESSAGES.get(module_name)
             if message:
                 raise ImportError(message)
@@ -452,6 +530,7 @@ __all__ = [
     "FileObject",
     "FileTypeDetector",
     "CloudStorageIngestor",
+    "PartialIngestionWarning",
     # Web ingestion
     "WebIngestor",
     "WebContent",
@@ -539,10 +618,22 @@ __all__ = [
     "SalesforceIngestor",
     "SalesforceData",
     "SalesforceConnector",
+    # Tableau ingestion
+    "TableauIngestor",
+    "TableauData",
+    "TableauConnector",
+    # Dynamics 365 ingestion
+    "Dynamics365Ingestor",
+    "Dynamics365Data",
+    "Dynamics365Connector",
     # Redshift ingestion
     "RedshiftIngestor",
     "RedshiftData",
     "RedshiftConnector",
+    # Cassandra ingestion
+    "CassandraIngestor",
+    "CassandraData",
+    "CassandraConnector",
     # Power BI ingestion
     "PowerBIIngestor",
     "PowerBIData",

@@ -85,6 +85,39 @@ class _FakeGraphBuilder:
         return MagicMock()
 
 
+class _DataclassNER:
+    """Returns Semantica's real ``Entity`` dataclass shape (text/label, no name)."""
+
+    def extract_entities(self, text):
+        from semantica.semantic_extract.types import Entity
+
+        return [Entity(text="Tesla", label="ORG", start_char=0, end_char=5)]
+
+
+class _DataclassRelExtractor:
+    """Returns Semantica's real ``Relation`` dataclass shape (subject/object)."""
+
+    def extract_relations(self, text, entities=None):
+        from semantica.semantic_extract.types import Entity, Relation
+
+        return [
+            Relation(
+                subject=Entity(text="Tesla", label="ORG", start_char=0, end_char=5),
+                predicate="FOUNDED_BY",
+                object=Entity(text="Elon Musk", label="PERSON", start_char=17, end_char=26),
+            )
+        ]
+
+
+class _CapturingGraphBuilder:
+    def __init__(self):
+        self.sources = None
+
+    def build(self, sources):
+        self.sources = sources
+        return MagicMock()
+
+
 class _FakeContextGraph:
     def find_nodes(self, label=None):
         node = MagicMock()
@@ -227,6 +260,22 @@ class TestAgnoKnowledgeGraphPathLoading(unittest.TestCase):
             self.assertEqual(len(kg._docs), 1)
         finally:
             os.unlink(tmp_path)
+
+
+class TestAgnoKnowledgeGraphDataclassShapes(unittest.TestCase):
+    """Real Semantica ``Entity``/``Relation`` dataclasses (text/label,
+    subject/object) instead of MagicMock-shaped fakes."""
+
+    def test_ingest_text_reads_entity_text(self):
+        builder = _CapturingGraphBuilder()
+        kg = AgnoKnowledgeGraph(
+            graph_builder=builder,
+            ner_extractor=_DataclassNER(),
+            relation_extractor=_DataclassRelExtractor(),
+            context_graph=_FakeContextGraph(),
+        )
+        kg._ingest_text("Tesla was founded by Elon Musk.", source="test")
+        self.assertEqual(builder.sources[0]["entities"], ["Tesla"])
 
 
 if __name__ == "__main__":

@@ -355,8 +355,9 @@ Each pattern dict has: `pattern_type`, `signature` (tuple of node IDs), `frequen
 `TemporalReasoningEngine` operates on `TemporalInterval` objects — a frozen dataclass with `start: datetime` and `end: datetime | TemporalBound`:
 
 ```python
-from semantica.kg import (
-    TemporalReasoningEngine, TemporalInterval, IntervalRelation, TemporalBound
+from semantica.kg import TemporalBound
+from semantica.reasoning import (
+    TemporalReasoningEngine, TemporalInterval, IntervalRelation
 )
 from datetime import datetime, timezone
 

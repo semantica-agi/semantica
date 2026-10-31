@@ -306,11 +306,10 @@ chunks = structural_chunker.chunk(text)
 
 # Sliding window chunking
 sliding_chunker = SlidingWindowChunker(
-    window_size=1000,
-    step_size=800,  # 200 overlap
-    min_chunk_size=100
+    chunk_size=1000,
+    overlap=200,  # max budget for repeated trailing sentences; actual overlap may be smaller or zero
 )
-chunks = sliding_chunker.chunk(text)
+chunks = sliding_chunker.chunk(text, preserve_boundaries=True)
 
 # Table-specific chunking
 table_chunker = TableChunker(
@@ -361,6 +360,18 @@ hierarchical_chunker = HierarchicalChunker(
 )
 chunks = hierarchical_chunker.chunk(text)
 ```
+
+#### SlidingWindowChunker overlap and stride
+
+With `preserve_boundaries=True` (the default), complete sentences are grouped up to `chunk_size`:
+
+- `overlap` is a maximum character budget for complete trailing sentences, so actual overlap may be smaller or zero. Only the longest contiguous suffix of complete sentences that fits the budget and leaves room for a new sentence is repeated.
+- Complete-sentence grouping takes precedence over an explicitly configured `stride`. Stride continues to control fixed character windows (`preserve_boundaries=False`) and the long-sentence fallback, which caps the step at `chunk_size`.
+- Sentences longer than `chunk_size` are split into character windows rather than adjusted to word boundaries.
+- `has_overlap` reports actual source-range overlap with the preceding emitted chunk, rather than simply being True for every chunk after the first.
+- `boundary_preserved` is True for sentence groups, including an unterminated final sentence unit, and False for long-sentence character fallback. Previously, it indicated whether the chunk ended before the end of the input text.
+
+With `preserve_boundaries=False`, windows start every `stride` characters, so a `stride` larger than `chunk_size` leaves text between windows uncovered. Keep `stride <= chunk_size` when every character must appear in some chunk.
 
 ## Using Methods
 

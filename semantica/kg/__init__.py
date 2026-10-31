@@ -134,6 +134,7 @@ from .path_finder import PathFinder
 from .kg_provenance import GraphBuilderWithProvenance, AlgorithmTrackerWithProvenance
 from .provenance_tracker import ProvenanceTracker
 from .registry import MethodRegistry, method_registry, AlgorithmRegistry, algorithm_registry
+from .schema_mapper import RelationalSchemaMapper
 from .seed_manager import SeedManager
 from .similarity_calculator import SimilarityCalculator
 from .temporal_query import (
@@ -148,6 +149,7 @@ from .temporal_query_rewriter import TemporalQueryRewriter, TemporalQueryResult
 
 __all__ = [
     # Core Classes
+    "RelationalSchemaMapper",
     "KnowledgeGraph",
     "HierarchicalCommunity",
     "CommunityHierarchy",

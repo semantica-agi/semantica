@@ -286,9 +286,9 @@ class TestSQLiteVecStoreUpdate:
         new_vectors = [np.random.rand(128).astype(np.float32) for _ in range(2)]
         new_metadata = [{"version": 2} for _ in range(2)]
 
-        success = store.update(ids, new_vectors, new_metadata)
+        updated = store.update(ids, new_vectors, new_metadata)
 
-        assert success is True
+        assert updated == ids
 
         results = store.get(ids)
         assert len(results) == 2
@@ -303,9 +303,9 @@ class TestSQLiteVecStoreUpdate:
         vectors = [np.random.rand(128).astype(np.float32)]
         ids = store.add(vectors, [{"tag": "original"}])
 
-        success = store.update(ids, metadata=[{"tag": "updated"}])
+        updated = store.update(ids, metadata=[{"tag": "updated"}])
 
-        assert success is True
+        assert updated == ids
 
         results = store.get(ids)
         assert results[0]["metadata"]["tag"] == "updated"
@@ -316,13 +316,60 @@ class TestSQLiteVecStoreUpdate:
         ids = store.add(vectors, [{"tag": "keep"}])
 
         new_vector = np.random.rand(128).astype(np.float32)
-        success = store.update(ids, vectors=[new_vector])
+        updated = store.update(ids, vectors=[new_vector])
 
-        assert success is True
+        assert updated == ids
 
         results = store.get(ids)
         assert np.allclose(results[0]["vector"], new_vector)
         assert results[0]["metadata"]["tag"] == "keep"
+
+    def test_update_empty_ids(self, store):
+        """An empty request matches nothing and does not write."""
+        assert store.update([]) == []
+
+    def test_update_missing_id_matches_nothing(self, store):
+        """A missing id is omitted and is not inserted."""
+        new_vector = np.random.rand(128).astype(np.float32)
+
+        assert store.update(["missing"], [new_vector], [{"tag": "x"}]) == []
+        assert store.get(["missing"]) == []
+
+    def test_update_mixed_existing_and_missing_ids(self, store):
+        """Only ids that match a row are returned and changed."""
+        vectors = [np.random.rand(128).astype(np.float32) for _ in range(2)]
+        ids = store.add(vectors, [{"tag": "a"}, {"tag": "b"}])
+        new_vectors = [np.random.rand(128).astype(np.float32) for _ in range(3)]
+        new_metadata = [{"tag": "a2"}, {"tag": "missing"}, {"tag": "b2"}]
+        requested = [ids[0], "missing-id", ids[1]]
+
+        updated = store.update(requested, new_vectors, new_metadata)
+
+        assert updated == [ids[0], ids[1]]
+        results = {row["id"]: row for row in store.get(ids + ["missing-id"])}
+        assert "missing-id" not in results
+        assert results[ids[0]]["metadata"]["tag"] == "a2"
+        assert np.allclose(results[ids[0]]["vector"], new_vectors[0])
+        assert results[ids[1]]["metadata"]["tag"] == "b2"
+        assert np.allclose(results[ids[1]]["vector"], new_vectors[2])
+
+    def test_update_duplicate_id_is_confirmed_once(self, store):
+        """A repeated id is written in order and reported once."""
+        vector = np.random.rand(128).astype(np.float32)
+        ids = store.add([vector], [{"tag": "a"}])
+        first = np.random.rand(128).astype(np.float32)
+        second = np.random.rand(128).astype(np.float32)
+
+        updated = store.update(
+            [ids[0], ids[0]],
+            [first, second],
+            [{"tag": "1"}, {"tag": "2"}],
+        )
+
+        assert updated == [ids[0]]
+        result = store.get(ids)[0]
+        assert result["metadata"]["tag"] == "2"
+        assert np.allclose(result["vector"], second)
 
 
 class TestSQLiteVecStoreDelete:

@@ -6,7 +6,7 @@ import asyncio
 import logging
 import time
 from enum import Enum
-from typing import List, Optional
+from typing import Any, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -198,6 +198,18 @@ class _PathAlgorithm(str, Enum):
     dijkstra = "dijkstra"
 
 
+def _path_weight(graph: Any, path_nodes: List[str]) -> float:
+    """Sum edge weights along a resolved path.
+
+    PathFinder returns a plain list of node ids, never a dict, so callers
+    cannot read a ``total_weight`` off the result — they have to add the
+    weights up from the graph they traversed (#1725).
+    """
+    total = 0.0
+    for index in range(len(path_nodes) - 1):
+        data = graph.get_edge_data(path_nodes[index], path_nodes[index + 1]) or {}
+        total += float(data.get("weight", 1.0))
+    return total
 
 
 async def _find_path_impl(
@@ -212,14 +224,16 @@ async def _find_path_impl(
     if path_finder is None:
         raise HTTPException(status_code=503, detail="PathFinder not available; KG extras may not be installed.")
 
-    graph_dict = await asyncio.to_thread(session.build_graph_dict)
+    # PathFinder cannot traverse the {"entities", "relationships"} dict that
+    # build_graph_dict returns; it needs a NetworkX view (#1725).
+    path_graph = await asyncio.to_thread(session.build_nx_graph)
     path_fn = (
         path_finder.dijkstra_shortest_path
         if algorithm == _PathAlgorithm.dijkstra
         else path_finder.bfs_shortest_path
     )
     try:
-        result = await asyncio.to_thread(path_fn, graph_dict, source, target, directed=directed)
+        result = await asyncio.to_thread(path_fn, path_graph, source, target, directed=directed)
     except Exception as exc:
         raise HTTPException(status_code=404, detail=f"No path found from '{source}' to '{target}': {exc}")
 
@@ -227,7 +241,16 @@ async def _find_path_impl(
     if not path_nodes:
         raise HTTPException(status_code=404, detail=f"No path found from '{source}' to '{target}'")
 
-    total_weight = result.get("total_weight", 0.0) if isinstance(result, dict) else 0.0
+    # PathFinder traverses an undirected view when directed=False, so hops may
+    # run against a stored edge's direction. Cost and enrich the path on that
+    # same view or reverse hops miss and silently fall back to weight 1.0.
+    traversal_graph = path_graph if directed else path_graph.to_undirected()
+
+    total_weight = (
+        result.get("total_weight", 0.0)
+        if isinstance(result, dict)
+        else _path_weight(traversal_graph, path_nodes)
+    )
     edge_ids = await asyncio.to_thread(session.resolve_path_edge_ids, path_nodes)
 
     hop_count = len(path_nodes) - 1 if path_nodes else 0
@@ -274,12 +297,15 @@ async def _find_path_impl(
                     default=None,
                 )
 
-        # Alternative paths — count simple paths within hop_count + 2
+        # Alternative paths — fetch up to hop_count + 2 shortest paths (Yen's
+        # k, a path count, not a hop-length bound) and discount the primary.
         if path_finder is not None and hop_count > 0:
             try:
+                # find_k_shortest_paths takes no `directed` argument; the
+                # undirected case is expressed by the view itself.
                 k_paths = await asyncio.to_thread(
                     path_finder.find_k_shortest_paths,
-                    graph_dict, source, target, hop_count + 2, directed=directed
+                    traversal_graph, source, target, hop_count + 2
                 )
                 alternative_path_count = max(0, len(k_paths) - 1)
             except Exception as exc:
@@ -442,6 +468,8 @@ async def distance_matrix(
     n = len(body.node_ids)
     matrix: List[List[Optional[float]]] = [[None] * n for _ in range(n)]
     unreachable: List[tuple] = []
+    # Built at most once, lazily: the semantic metric never needs it.
+    matrix_graph = None
 
     for i in range(n):
         matrix[i][i] = 0.0
@@ -472,20 +500,30 @@ async def distance_matrix(
                         if body.metric == "weighted"
                         else path_finder.bfs_shortest_path
                     )
-                    graph_dict = await asyncio.to_thread(session.build_graph_dict)
-                    result = await asyncio.to_thread(path_fn, graph_dict, src, tgt)
-                    path_nodes = result.get("path", []) if isinstance(result, dict) else (result or [])
-                    if path_nodes:
-                        val = (
-                            float(result.get("total_weight", len(path_nodes) - 1))
-                            if body.metric == "weighted"
-                            else float(len(path_nodes) - 1)
+                    if matrix_graph is None:
+                        matrix_graph = await asyncio.to_thread(session.build_nx_graph)
+
+                    # The graph is directed, so src->tgt says nothing about
+                    # tgt->src; search each direction instead of mirroring one
+                    # result into both cells (#1725).
+                    for row, col, a, b in ((i, j, src, tgt), (j, i, tgt, src)):
+                        result = await asyncio.to_thread(path_fn, matrix_graph, a, b)
+                        path_nodes = (
+                            result.get("path", [])
+                            if isinstance(result, dict)
+                            else (result or [])
                         )
-                        matrix[i][j] = val
-                        matrix[j][i] = val
-                    else:
-                        unreachable.append((src, tgt))
-                        unreachable.append((tgt, src))
+                        if not path_nodes:
+                            unreachable.append((a, b))
+                            continue
+                        if body.metric == "weighted":
+                            matrix[row][col] = (
+                                float(result.get("total_weight", len(path_nodes) - 1))
+                                if isinstance(result, dict)
+                                else _path_weight(matrix_graph, path_nodes)
+                            )
+                        else:
+                            matrix[row][col] = float(len(path_nodes) - 1)
             except Exception as exc:
                 logger.debug("distance_matrix pair (%s, %s) failed: %s", src, tgt, exc)
                 unreachable.append((src, tgt))

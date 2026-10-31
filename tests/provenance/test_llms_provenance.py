@@ -7,9 +7,20 @@ Tests that provenance tracking works correctly for all LLM providers.
 import pytest
 
 
+class _StubProvider:
+    """Stand-in for the provider a wrapper's target class constructs.
+
+    Keeps these tests offline: constructing ``HuggingFaceLLM`` would otherwise
+    load (and download) a real model.
+    """
+
+    def __init__(self, *args, **kwargs):
+        pass
+
+
 class TestGroqLLMProvenance:
     """Test Groq LLM with provenance."""
-    
+
     def test_without_provenance(self):
         """Test Groq LLM works without provenance."""
         try:
@@ -19,7 +30,7 @@ class TestGroqLLMProvenance:
             assert llm.provenance is False
         except ImportError:
             pytest.skip("GroqLLM not available")
-    
+
     def test_with_provenance_enabled(self):
         """Test Groq LLM tracks provenance."""
         try:
@@ -33,7 +44,7 @@ class TestGroqLLMProvenance:
 
 class TestOpenAILLMProvenance:
     """Test OpenAI LLM with provenance."""
-    
+
     def test_without_provenance(self):
         """Test OpenAI LLM works without provenance."""
         try:
@@ -42,7 +53,7 @@ class TestOpenAILLMProvenance:
             assert llm is not None
         except ImportError:
             pytest.skip("OpenAILLM not available")
-    
+
     def test_with_provenance_enabled(self):
         """Test OpenAI LLM tracks provenance."""
         try:
@@ -55,9 +66,14 @@ class TestOpenAILLMProvenance:
 
 class TestHuggingFaceLLMProvenance:
     """Test HuggingFace LLM with provenance."""
-    
-    def test_without_provenance(self):
+
+    def test_without_provenance(self, monkeypatch):
         """Test HuggingFace LLM works without provenance."""
+        # Stub the provider so the wrapper can be exercised without loading a
+        # model; without this the test downloads ``gpt2`` on every run.
+        monkeypatch.setattr(
+            "semantica.llms.huggingface.HuggingFaceLLMProvider", _StubProvider
+        )
         try:
             from semantica.llms.llms_provenance import HuggingFaceLLMWithProvenance
             llm = HuggingFaceLLMWithProvenance(provenance=False)
@@ -68,7 +84,7 @@ class TestHuggingFaceLLMProvenance:
 
 class TestLLMProvenanceEdgeCases:
     """Test edge cases for LLM provenance."""
-    
+
     def test_empty_prompt(self):
         """Test LLM with empty prompt."""
         try:
@@ -78,29 +94,27 @@ class TestLLMProvenanceEdgeCases:
             assert llm is not None
         except ImportError:
             pytest.skip("GroqLLM not available")
-    
+
     def test_very_long_prompt(self):
         """Test LLM with very long prompt."""
         try:
             from semantica.llms.llms_provenance import GroqLLMWithProvenance
             llm = GroqLLMWithProvenance(provenance=True)
-            long_prompt = "Explain " + "AI " * 1000
             # Should handle long prompts
             assert llm is not None
         except ImportError:
             pytest.skip("GroqLLM not available")
-    
+
     def test_special_characters_in_prompt(self):
         """Test LLM with special characters in prompt."""
         try:
             from semantica.llms.llms_provenance import GroqLLMWithProvenance
             llm = GroqLLMWithProvenance(provenance=True)
-            special_prompt = "Explain @#$%^&*() and 中文 émojis 🎉"
             # Should handle special characters
             assert llm is not None
         except ImportError:
             pytest.skip("GroqLLM not available")
-    
+
     def test_multiple_llm_calls(self):
         """Test multiple LLM calls with provenance."""
         try:
@@ -110,7 +124,7 @@ class TestLLMProvenanceEdgeCases:
             assert llm._prov_manager is not None
         except ImportError:
             pytest.skip("GroqLLM not available")
-    
+
     def test_concurrent_llm_calls(self):
         """Test concurrent LLM calls."""
         try:
@@ -120,7 +134,7 @@ class TestLLMProvenanceEdgeCases:
             assert llm is not None
         except ImportError:
             pytest.skip("GroqLLM not available")
-    
+
     def test_llm_with_custom_parameters(self):
         """Test LLM with custom generation parameters."""
         try:
@@ -130,7 +144,7 @@ class TestLLMProvenanceEdgeCases:
             assert llm._prov_manager is not None
         except ImportError:
             pytest.skip("GroqLLM not available")
-    
+
     def test_llm_response_without_usage(self):
         """Test LLM response without usage metadata."""
         try:
@@ -140,7 +154,7 @@ class TestLLMProvenanceEdgeCases:
             assert llm is not None
         except ImportError:
             pytest.skip("GroqLLM not available")
-    
+
     def test_llm_response_without_cost(self):
         """Test LLM response without cost information."""
         try:
@@ -150,7 +164,7 @@ class TestLLMProvenanceEdgeCases:
             assert llm is not None
         except ImportError:
             pytest.skip("GroqLLM not available")
-    
+
     def test_different_llm_providers(self):
         """Test different LLM providers with same provenance pattern."""
         try:
@@ -165,7 +179,7 @@ class TestLLMProvenanceEdgeCases:
             assert openai is not None
         except ImportError:
             pytest.skip("LLM providers not available")
-    
+
     def test_llm_latency_tracking(self):
         """Test that LLM latency is tracked correctly."""
         try:

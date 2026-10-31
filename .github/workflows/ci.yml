@@ -27,7 +27,7 @@ jobs:
     outputs:
       src: ${{ steps.filter.outputs.src }}
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # Fetch enough history to compute the merge base against the PR base.
           fetch-depth: 0
@@ -71,11 +71,11 @@ jobs:
       )
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: '3.11'
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '20'
           cache: 'npm'
@@ -146,6 +146,86 @@ jobs:
       - name: Install pinned Python dependencies
         run: |
           pip install -r requirements-ci.txt --require-hashes
+      # The steps around this one each cover a slice: the reasoning suite above,
+      # the two integration directories at the end of the job. Everything else
+      # under tests/ has no gate at all, so a regression there is only found by
+      # whoever happens to run the suite by hand. This step closes that gap by
+      # running the whole suite against the pinned tree.
+      #
+      # It sits right after requirements-ci.txt on purpose: that is the
+      # environment the baseline in full-suite-known-failures.txt was measured
+      # in. The open-ontologies extra is layered on later in the job and would
+      # change which modules import, so running the suite before it keeps the
+      # two consistent.
+      #
+      # .github/full-suite-known-failures.txt lists the tests that already fail
+      # on an unmodified checkout. tests/conftest.py marks those ids `xfail`, so
+      # they keep running and an entry that starts passing reports XPASS and
+      # fails the job — that is what forces its line out of the file. (The
+      # marker is strict here because `CI` is set; outside CI the hook makes it
+      # non-strict, since the list is measured against this pinned tree and not
+      # against a developer's.) The loop below deselects only the entries the
+      # hook must not touch: the `# windows-only` ones, and only on Windows. The
+      # file is the record of the gap: fixing a defect means deleting its line.
+      # It is kept LF-only (.gitattributes); the loop below trims whitespace
+      # around each id, including a stray CR.
+      - name: Run the full test suite
+        timeout-minutes: 20
+        run: |
+          # A node id that no longer collects is a no-op for --deselect rather
+          # than an error, so a stale line cannot break the job. It is inert for
+          # the hook too, which only marks ids pytest actually collects: it
+          # neither runs nor reports XPASS, and the file's own review is what
+          # catches it.
+          #
+          # A line is deselected here only when it carries the `# windows-only`
+          # marker and this is a Windows runner. Every other line reaches the
+          # hook, which marks it xfail strictly here in CI.
+          #
+          # `# windows-only` is deselected on Windows alone — a symlink that
+          # needs a privilege, for instance. On Linux the line is left out, so
+          # the test runs, which is the only place the symlink rejection in
+          # tests/semantic_extract/test_cache_backends.py gets exercised at all;
+          # deselecting it unconditionally would drop a security check on the
+          # platform where it works. This job runs on ubuntu-latest, so the
+          # Windows branch never fires in CI today; it is kept for a Windows
+          # runner, where that id does fail, rather than dropped as dead weight.
+          deselect=()
+          known=0
+          deselected=0
+          while IFS= read -r line; do
+            case "$line" in
+              ''|'#'*) continue ;;
+            esac
+            known=$((known + 1))
+            case "$line" in
+              *'# windows-only'*)
+                if [ "${RUNNER_OS:-}" != "Windows" ]; then continue; fi
+                ;;
+              *) continue ;;
+            esac
+            node="${line%%#*}"
+            node="${node#"${node%%[![:space:]]*}"}"
+            node="${node%"${node##*[![:space:]]}"}"
+            deselect+=(--deselect "$node")
+            deselected=$((deselected + 1))
+          done < .github/full-suite-known-failures.txt
+          echo "known failures on the list: ${known}; deselected in this step: ${deselected}"
+
+          # The google_adk and open_ontologies directories have their own steps
+          # at the end of this job, each with its own dependency installation.
+          # Skipping them here keeps those assumptions intact and avoids
+          # running them twice.
+          #
+          # Everything else under tests/ runs here, integration marker or not:
+          # the integration tests outside those two directories need nothing
+          # beyond the pinned tree this step is measured against — they are
+          # offline and service-free — so leaving them unnamed would be the one
+          # slice that still had no gate.
+          pytest -q tests \
+            --ignore tests/integrations/google_adk/ \
+            --ignore tests/integrations/open_ontologies/ \
+            "${deselect[@]}"
       - name: Verify requirements-ci.txt is up to date
         run: |
           pip install -r .github/requirements/uv-tool.txt --require-hashes

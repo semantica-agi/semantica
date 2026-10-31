@@ -365,8 +365,13 @@ def get_decision_statistics(
     outcome_counts = {}
     confidence_values = []
     
-    # Not all backends expose internal metadata dictionaries (e.g. FAISS).
-    if not hasattr(store, "metadata"):
+    # For persistent backends (faiss, qdrant, etc.) the facade now maintains a
+    # mirror in store.metadata, but that mirror only reflects vectors written
+    # through the facade in the current session. Iterating it would silently
+    # miss data stored externally or in a previous session. Return zeroed stats
+    # with an explicit warning instead, as this function did before the mirror
+    # was introduced.
+    if getattr(store, "backend", "inmemory") != "inmemory":
         return {
             "total_decisions": 0,
             "categories": {},

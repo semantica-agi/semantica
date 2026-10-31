@@ -2,17 +2,17 @@
 
 ## Supported Versions
 
-We actively support the following versions of Semantica with security updates:
+Security updates go to the latest release line. Older lines do not get fixes;
+upgrade to the latest release to receive them.
 
-| Version | Supported          |
-| ------- | ------------------ |
-| 0.2.3   | :white_check_mark: |
-| 0.2.2   | :white_check_mark: |
-| 0.2.1   | :white_check_mark: |
-| 0.2.0   | :white_check_mark: |
-| 0.1.1   | :white_check_mark: |
-| 0.1.0   | :white_check_mark: |
-| < 0.1.0 | :x:                |
+| Version | Python      | Supported          |
+| ------- | ----------- | ------------------ |
+| 0.8.x   | 3.11 – 3.13 | :white_check_mark: |
+| < 0.8   | 3.10 – 3.13 | :x:                |
+
+0.7.x is the last line that installs on Python 3.10, so Python 3.10 users
+receive no further fixes, including the Pillow 13 security fixes, which need
+Python 3.11. See the 0.8.0 entry in the CHANGELOG.
 
 ## Reporting a Vulnerability
 
@@ -229,6 +229,26 @@ We use automated tools to scan for vulnerabilities:
 - **Dependabot**: Automated dependency updates and security alerts
 - **GitHub Security Advisories**: Vulnerability tracking
 - **Manual Reviews**: Regular security audits
+
+### Accepted advisories
+
+Some dependency advisories cannot be fixed from inside this repository. Each
+one is recorded here with what it affects and when to revisit it, and its IDs
+are accepted in `osv-scanner.toml`.
+
+#### opentelemetry-api 1.43.0
+
+GHSA-xcq7-p3pf-p88h (CVE-2026-114603): `TraceState.from_header` parses an
+inbound W3C `tracestate` header in quadratic time. It is fixed in 1.45.1, but
+every google-adk release caps `opentelemetry-api<=1.44`, and semgrep (a
+security-scan tool) pins `~=1.37.0`.
+
+- **Exposure**: Semantica never imports opentelemetry, its google-adk
+  integration runs no HTTP server, and the semgrep CLI handles no inbound
+  requests, so no inbound `tracestate` header is parsed.
+- **Revisit**: when google-adk allows 1.45.1. Accepted until 2027-01-23 in
+  `osv-scanner.toml` and in `IGNORED_VULN_IDS` in
+  `.github/workflows/security-scan.yml`.
 
 ## Best Practices for Users
 

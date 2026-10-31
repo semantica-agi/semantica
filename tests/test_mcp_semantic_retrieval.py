@@ -311,6 +311,16 @@ class TestRetrieveContext(InmemoryBackendTestBase):
         result = handle_retrieve_context({"query": "k01", "top_k": 99})
         self.assertEqual(result["count"], 10)
 
+    def test_max_results_is_an_alias_for_top_k(self):
+        result = handle_retrieve_context({"query": "collateral", "max_results": 1})
+        self.assertEqual(result["count"], 1)
+
+    def test_top_k_wins_over_max_results(self):
+        result = handle_retrieve_context(
+            {"query": "collateral", "top_k": 1, "max_results": 3}
+        )
+        self.assertEqual(result["count"], 1)
+
     def test_project_filter_narrows_results(self):
         result = handle_retrieve_context({"query": "collateral", "project": "billing"})
         for r in result["results"]:

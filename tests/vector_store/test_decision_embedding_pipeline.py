@@ -174,6 +174,10 @@ class TestDecisionEmbeddingPipeline:
     
     def test_generate_structural_embedding_no_entities(self):
         """Test structural embedding without entities."""
+        # Constructing NodeEmbedder requires gensim (the optional
+        # graph-embeddings extra); see tests/test_issue_1513_slim_core.py
+        # for the contract that it raises without it.
+        pytest.importorskip("gensim")
         decision_no_entities = {
             "scenario": "Test decision",
             "category": "test"
@@ -226,7 +230,7 @@ class TestDecisionEmbeddingPipeline:
     
     def test_enrich_metadata(self):
         """Test metadata enrichment."""
-        enriched = self.pipeline._enrich_metadata(self.sample_decision)
+        enriched = self.pipeline._enrich_metadata(self.sample_decision, False)
         
         assert "pipeline_version" in enriched
         assert "embedding_generated_at" in enriched
@@ -236,7 +240,7 @@ class TestDecisionEmbeddingPipeline:
         
         assert enriched["semantic_weight"] == 0.7
         assert enriched["structural_weight"] == 0.3
-        assert enriched["has_structural_embedding"] == True
+        assert enriched["has_structural_embedding"] is False
     
     def test_find_similar_decisions(self):
         """Test finding similar decisions."""

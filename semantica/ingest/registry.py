@@ -17,6 +17,7 @@ Supported Registration Types:
         * "public_api": Public no-auth API ingestion methods
         * "parquet": Parquet file and dataset ingestion methods
         * "ingest": General ingestion methods
+        * "screen": Content scanners (text to structured findings)
 
 Algorithms Used:
     - Registry Pattern: Dictionary-based registration and lookup
@@ -68,6 +69,7 @@ class MethodRegistry:
         "xml": {},
         "salesforce": {},
         "ingest": {},
+        "screen": {},
     }
 
     @classmethod

@@ -87,7 +87,7 @@ Example Usage:
     >>> from semantica.vector_store.methods import store_vectors, search_vectors, hybrid_search
     >>> vector_ids = store_vectors(vectors, metadata=metadata_list, method="default")
     >>> results = search_vectors(query_vector, vectors, vector_ids, k=10, method="default")
-    >>> hybrid_results = hybrid_search(query_vector, vectors, metadata, vector_ids, filter=filter, method="default")
+    >>> hybrid_results = hybrid_search(query_vector, vectors, metadata, vector_ids, metadata_filter=filter, method="default")
 """
 
 from typing import Any, Dict, List, Optional, Union
@@ -95,7 +95,7 @@ from typing import Any, Dict, List, Optional, Union
 import numpy as np
 
 from .config import vector_store_config
-from .hybrid_search import HybridSearch, MetadataFilter, SearchRanker
+from .hybrid_search import HybridSearch, MetadataFilter, SearchRanker, pop_legacy_filter
 from .metadata_store import MetadataIndex, MetadataSchema, MetadataStore
 from .namespace_manager import Namespace, NamespaceManager
 from .registry import method_registry
@@ -331,6 +331,9 @@ def hybrid_search(
     Returns:
         List of search results
     """
+    # Resolve filter= here so the deprecation warning names the user's line
+    metadata_filter = pop_legacy_filter(options, metadata_filter, stacklevel=3)
+
     # Check registry for custom method
     custom_method = method_registry.get("hybrid_search", method)
     if custom_method:

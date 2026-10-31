@@ -81,7 +81,7 @@ from .agent_memory import AgentMemory
 from .context_retriever import ContextRetriever, RetrievedContext
 from .entity_linker import EntityLinker
 from .decision_models import Decision
-from .decision_recorder import DecisionRecorder
+from .decision_recorder import DecisionRecorder, evaluate_and_enrich_decision
 from .decision_query import DecisionQuery
 from .causal_analyzer import CausalChainAnalyzer
 from .policy_engine import PolicyEngine
@@ -135,6 +135,8 @@ class AgentContext:
         advanced_analytics: bool = True,
         kg_algorithms: bool = True,
         vector_store_features: bool = True,
+        evaluators: Optional[List[str]] = None,
+        eval_config: Optional[Dict[str, Any]] = None,
         **kwargs,
     ):
         """
@@ -153,6 +155,12 @@ class AgentContext:
             advanced_analytics: Enable advanced analytics (default: True)
             kg_algorithms: Enable KG algorithms integration (default: True)
             vector_store_features: Enable vector store features (default: True)
+            evaluators: Optional list of semantica.evals evaluator names run
+                automatically on every recorded decision (graph_store decision
+                backend only). Passed through to DecisionRecorder; see its
+                docstring. Omitting this leaves record_decision() unchanged.
+            eval_config: Optional semantica.evals config dict, keyed by
+                evaluator name, passed through to DecisionRecorder.
             **kwargs: Additional options passed to underlying components
 
         Raises:
@@ -171,7 +179,9 @@ class AgentContext:
         self.knowledge_graph = knowledge_graph
         self._checkpoints: Dict[str, Dict[str, Any]] = {}
         self._temporal_version_manager = kwargs.get("temporal_version_manager")
-        
+        self.evaluators = evaluators
+        self.eval_config = eval_config or {}
+
         # Store advanced feature flags
         self.config = {
             "decision_tracking": decision_tracking,
@@ -231,7 +241,11 @@ class AgentContext:
             if hasattr(knowledge_graph, "execute_query"):
                 self._decision_backend = "graph_store"
                 try:
-                    self._decision_recorder = DecisionRecorder(knowledge_graph)
+                    self._decision_recorder = DecisionRecorder(
+                        knowledge_graph,
+                        evaluators=self.evaluators,
+                        eval_config=self.eval_config,
+                    )
                     self._decision_query = DecisionQuery(
                         graph_store=knowledge_graph,
                         vector_store=vector_store if vector_store_features else None,
@@ -247,7 +261,11 @@ class AgentContext:
                     self.logger.warning(
                         f"Failed to initialize enhanced decision tracking ({type(e).__name__})"
                     )
-                    self._decision_recorder = DecisionRecorder(knowledge_graph)
+                    self._decision_recorder = DecisionRecorder(
+                        knowledge_graph,
+                        evaluators=self.evaluators,
+                        eval_config=self.eval_config,
+                    )
                     self._decision_query = DecisionQuery(knowledge_graph)
                     self._causal_analyzer = CausalChainAnalyzer(knowledge_graph)
                     self._policy_engine = PolicyEngine(knowledge_graph)
@@ -1738,7 +1756,28 @@ class AgentContext:
         if not hasattr(self.knowledge_graph, "record_decision"):
             raise RuntimeError("Decision tracking backend does not support decisions")
 
-        # Delegate to ContextGraph
+        # Delegate to ContextGraph. Run the same opt-in evaluator hook as the
+        # DecisionRecorder path before persisting, so eval_* metadata is
+        # available on both decision backends.
+        if self.evaluators:
+            evaluate_and_enrich_decision(
+                decision, self.evaluators, self.eval_config, self.logger
+            )
+        metadata = dict(decision.metadata or {})
+        # ContextGraph rejects metadata values whose str() exceeds 1000
+        # characters. An evaluator's diagnostic detail can cross that limit
+        # (for example a long outcome echoed into a mismatch reason), and the
+        # evaluator hook is explicitly non-blocking, so keep the compact score
+        # and pass/fail fields and omit the oversized diagnostic payload.
+        if "eval_details" in metadata and len(str(metadata["eval_details"])) > 1000:
+            self.logger.warning(
+                f"Decision evaluation details for {decision.decision_id} exceed "
+                "ContextGraph's metadata value limit; storing eval_score and "
+                "eval_passed without eval_details"
+            )
+            metadata.pop("eval_details", None)
+        if cross_system_context:
+            metadata["cross_system_context"] = cross_system_context
         decision_id = self.knowledge_graph.record_decision(
             category=category,
             scenario=scenario,
@@ -1749,9 +1788,10 @@ class AgentContext:
             decision_maker=decision_maker,
             valid_from=valid_from,
             valid_until=valid_until,
-            metadata={"cross_system_context": cross_system_context} if cross_system_context else None
+            decision_id=decision.decision_id,
+            metadata=metadata or None,
         )
-        
+
         return decision_id
 
     def find_precedents(
@@ -1785,6 +1825,21 @@ class AgentContext:
         if not self._decision_backend:
             raise RuntimeError("Decision tracking is not enabled")
 
+        def _safe_parse_timestamp(value: Any) -> datetime:
+            if isinstance(value, datetime):
+                return value
+            if not value:
+                return datetime.now()
+            if isinstance(value, (int, float)):
+                try:
+                    return datetime.fromtimestamp(value)
+                except (OverflowError, OSError, ValueError):
+                    return datetime.now()
+            try:
+                return datetime.fromisoformat(str(value))
+            except Exception:
+                return datetime.now()
+
         # Delegate to ContextGraph if available
         if self._decision_backend == "context_graph" and hasattr(self.knowledge_graph, "find_precedents_by_scenario"):
             try:
@@ -1811,7 +1866,7 @@ class AgentContext:
                         reasoning=decision_data["reasoning"],
                         outcome=decision_data["outcome"],
                         confidence=decision_data["confidence"],
-                        timestamp=datetime.fromtimestamp(decision_data["timestamp"]),
+                        timestamp=_safe_parse_timestamp(decision_data["timestamp"]),
                         decision_maker=decision_data.get("decision_maker"),
                         valid_from=decision_data.get("valid_from"),
                         valid_until=decision_data.get("valid_until"),
@@ -1837,16 +1892,6 @@ class AgentContext:
             return self._decision_query._find_precedents_basic(scenario, category, limit)
 
         results: List[Decision] = []
-
-        def _safe_parse_timestamp(value: Any) -> datetime:
-            if isinstance(value, datetime):
-                return value
-            if not value:
-                return datetime.now()
-            try:
-                return datetime.fromisoformat(str(value))
-            except Exception:
-                return datetime.now()
 
         if use_hybrid_search and hasattr(self.vector_store, "search_decisions"):
             filters = {"category": category} if category else None
@@ -2009,7 +2054,7 @@ class AgentContext:
         
         Args:
             decision_id: Decision ID to analyze
-            direction: "upstream" (causes) or "downstream" (effects)
+            direction: "upstream" (causes), "downstream" (effects) or "both"
             max_depth: Maximum traversal depth
             
         Returns:

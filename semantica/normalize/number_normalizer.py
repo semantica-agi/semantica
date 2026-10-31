@@ -30,6 +30,7 @@ Author: Semantica Contributors
 License: MIT
 """
 
+import math
 import re
 from typing import Any, Dict, List, Optional, Union
 
@@ -143,7 +144,7 @@ class NumberNormalizer:
             'b': 1_000_000_000,
             't': 1_000_000_000_000
         }
-        
+
         if cleaned and cleaned[-1].lower() in suffix_map:
             last_char = cleaned[-1].lower()
             try:
@@ -585,7 +586,34 @@ class CurrencyNormalizer:
             "PKR",
         ]
 
+        # Magnitude suffixes for shorthand amounts (e.g., "5M", "2.5B")
+        self.magnitude_suffixes = {"k": 1_000, "m": 1_000_000, "b": 1_000_000_000}
+
         self.logger.debug("Currency normalizer initialized")
+
+    def _parse_amount(self, amount_str: str) -> Optional[float]:
+        """
+        Parse a numeric string into a float, applying magnitude suffixes.
+
+        Args:
+            amount_str: Numeric string, optionally ending in a K/M/B or MM
+                magnitude suffix (e.g., "5", "2.5M", "100k", "5MM")
+
+        Returns:
+            float: Parsed amount, or None if the string isn't a valid number
+        """
+        amount_str = amount_str.strip()
+        multiplier = 1
+        if len(amount_str) >= 2 and amount_str[-2:].lower() == "mm":
+            multiplier = self.magnitude_suffixes["m"]
+            amount_str = amount_str[:-2]
+        elif amount_str and amount_str[-1].lower() in self.magnitude_suffixes:
+            multiplier = self.magnitude_suffixes[amount_str[-1].lower()]
+            amount_str = amount_str[:-1]
+        try:
+            return float(amount_str) * multiplier
+        except ValueError:
+            return None
 
     def normalize_currency(
         self, currency_input: str, default_currency: str = "USD", **options
@@ -597,7 +625,8 @@ class CurrencyNormalizer:
         code from symbols or text.
 
         Args:
-            currency_input: Currency string (e.g., "$100", "100 USD", "€50")
+            currency_input: Currency string (e.g., "$100", "100 USD", "€50",
+                "$5M", "2.5B USD")
             default_currency: Default currency code if not found (default: "USD")
             **options: Additional normalization options (unused)
 
@@ -618,10 +647,7 @@ class CurrencyNormalizer:
                 # Remove symbol and extract amount
                 amount_str = currency_input.replace(symbol, "").strip()
                 amount_str = amount_str.replace(",", "").replace(" ", "")
-                try:
-                    amount = float(amount_str)
-                except ValueError:
-                    pass
+                amount = self._parse_amount(amount_str)
                 break
 
         # Check for currency code
@@ -637,20 +663,32 @@ class CurrencyNormalizer:
                         currency_input[: match.start()] + currency_input[match.end() :]
                     ).strip()
                     amount_str = amount_str.replace(",", "").replace(" ", "")
-                    try:
-                        amount = float(amount_str)
-                    except ValueError:
-                        pass
+                    amount = self._parse_amount(amount_str)
                     break
 
         # Extract amount if not found
         if amount is None:
-            amount_str = re.sub(r"[^\d.,]", "", currency_input)
-            amount_str = amount_str.replace(",", "").replace(" ", "")
-            try:
-                amount = float(amount_str)
-            except ValueError:
-                amount = None
+            # Second alternative handles bare leading-decimal amounts (e.g. ".5")
+            # that don't start with a digit.
+            digits_match = re.search(r"\d[\d,]*\.?\d*|\.\d+", currency_input)
+            # A "." right after the match means a malformed number like "1.2.3".
+            trailing_char = (
+                currency_input[digits_match.end() : digits_match.end() + 1]
+                if digits_match
+                else ""
+            )
+            if digits_match and trailing_char != ".":
+                amount_str = digits_match.group().replace(",", "")
+                # Only a k/m/b or mm directly after the number counts as a magnitude
+                # suffix, so stray letters elsewhere (e.g. "ruby 100") aren't
+                # mistaken for one.
+                suffix_match = re.match(
+                    r"\s*([mM]{2}|[kKmMbB])(?![A-Za-z0-9])",
+                    currency_input[digits_match.end() :],
+                )
+                if suffix_match:
+                    amount_str += suffix_match.group(1)
+                amount = self._parse_amount(amount_str)
 
         # Default to specified currency if no currency found
         if not currency_code:
@@ -788,10 +826,17 @@ class ScientificNotationHandler:
             significant_digits: Number of significant digits to preserve
 
         Returns:
-            float: Normalized number with specified significant digits
+            float: Normalized number with specified significant digits.
+                Non-finite input (inf, -inf, nan) comes back unchanged, and a
+                result of zero is returned as 0.0 rather than -0.0.
         """
         if number == 0:
             return 0.0
+
+        # inf has no order of magnitude: abs(inf) stays inf in the loop below.
+        # nan keeps the behaviour it had before this guard.
+        if not math.isfinite(number):
+            return number
 
         # Calculate order of magnitude
         magnitude = abs(number)
@@ -806,4 +851,7 @@ class ScientificNotationHandler:
         # Round to significant digits
         rounded = round(magnitude, significant_digits - 1)
 
-        return rounded * (10**order)
+        result = math.copysign(rounded * (10**order), number)
+        # copysign turns a zero result into -0.0 for negative input, and that
+        # serialises as -0.0. The value is zero, so return the plain zero.
+        return 0.0 if result == 0 else result

@@ -65,7 +65,13 @@ class TestHandleLinkDecisions(unittest.TestCase):
         mock_graph.add_causal_relationship.assert_called_once_with("dec_a", "dec_b", "CAUSED")
         self.assertEqual(
             result,
-            {"source": "dec_a", "target": "dec_b", "relationship": "CAUSED", "linked": True},
+            {
+                "source": "dec_a",
+                "target": "dec_b",
+                "relationship": "CAUSED",
+                "linked": True,
+                "persisted": False,
+            },
         )
 
     @patch("semantica_mcp.mcp.tools.decisions.get_graph")

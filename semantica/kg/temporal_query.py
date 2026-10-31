@@ -198,8 +198,12 @@ class TemporalGraphQuery:
         for relationship in graph.get("relationships", []):
             if not self._relationship_active_at_time(relationship, query_time, time_axis=time_axis):
                 continue
-            source = self._entity_id({"id": relationship.get("source")})
-            target = self._entity_id({"id": relationship.get("target")})
+            source = self._entity_id(
+                {"id": relationship.get("source") or relationship.get("source_id")}
+            )
+            target = self._entity_id(
+                {"id": relationship.get("target") or relationship.get("target_id")}
+            )
             if source not in entity_index or target not in entity_index:
                 continue
             relationships.append(copy.deepcopy(relationship))

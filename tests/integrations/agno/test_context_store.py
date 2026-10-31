@@ -229,5 +229,74 @@ class TestAgnoContextStoreExtendedAPI(unittest.TestCase):
         self.store._context.record_decision.assert_called()
 
 
+class TestAgnoContextStoreUpsertNERAttributes(unittest.TestCase):
+    """upsert_memory() must read .text/.label from Entity, not .name/.type (#1737)."""
+
+    def setUp(self):
+        self.store = AgnoContextStore(decision_tracking=False)
+
+    def _make_row(self, text: str):
+        row = MagicMock()
+        row.memory = text
+        row.id = None
+        row.user_id = "u1"
+        row.last_updated = 0.0
+        row.topics = []
+        return row
+
+    def test_upsert_indexes_entity_text_not_repr(self):
+        """Entities added to the knowledge graph must use .text, not str(entity)."""
+        from semantica.semantic_extract.types import Entity
+
+        captured_node_ids: list = []
+        fake_kg = MagicMock()
+        fake_kg.add_node.side_effect = lambda node_id, node_type: captured_node_ids.append(node_id)
+
+        fake_context = MagicMock()
+        fake_context.store.return_value = None
+        fake_context.knowledge_graph = fake_kg
+
+        with patch(
+            "integrations.agno.context_store.NERExtractor"
+        ) as MockNER:
+            instance = MockNER.return_value
+            instance.extract_entities.return_value = [
+                Entity(text="Alice Smith", label="PERSON", start_char=0, end_char=11),
+                Entity(text="Acme Corp", label="ORG", start_char=20, end_char=29),
+            ]
+            self.store._context = fake_context
+            self.store.upsert_memory(self._make_row("Alice Smith works at Acme Corp."))
+
+        self.assertIn("Alice Smith", captured_node_ids)
+        self.assertIn("Acme Corp", captured_node_ids)
+        # Confirm no repr strings leaked through
+        for node_id in captured_node_ids:
+            self.assertNotIn("Entity(", node_id)
+
+    def test_upsert_indexes_entity_label_as_type(self):
+        """Node type must be the .label value (e.g. 'PERSON'), not an empty string."""
+        from semantica.semantic_extract.types import Entity
+
+        captured_types: list = []
+        fake_kg = MagicMock()
+        fake_kg.add_node.side_effect = lambda node_id, node_type: captured_types.append(node_type)
+
+        fake_context = MagicMock()
+        fake_context.store.return_value = None
+        fake_context.knowledge_graph = fake_kg
+
+        with patch(
+            "integrations.agno.context_store.NERExtractor"
+        ) as MockNER:
+            instance = MockNER.return_value
+            instance.extract_entities.return_value = [
+                Entity(text="Alice Smith", label="PERSON", start_char=0, end_char=11),
+            ]
+            self.store._context = fake_context
+            self.store.upsert_memory(self._make_row("Alice Smith is here."))
+
+        self.assertIn("PERSON", captured_types)
+
+
 if __name__ == "__main__":
     unittest.main()

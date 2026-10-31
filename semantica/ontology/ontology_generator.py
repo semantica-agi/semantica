@@ -828,6 +828,12 @@ class SHACLGenerator:
         "uri": "xsd:anyURI", "anyuri": "xsd:anyURI",
     }
 
+    #: An IRI begins with a scheme: ALPHA *( ALPHA / DIGIT / "+" / "-" / "." ) ":".
+    #: Matching the scheme grammar (rather than looking for ``://``) also catches
+    #: absolute IRIs whose scheme is not followed by slashes, such as ``urn:``
+    #: and ``doi:``, and covers qualified names like ``xsd:string``.
+    _IRI_SCHEME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9+.\-]*:")
+
     def __init__(
         self,
         base_uri: str = "https://semantica.dev/shapes/",
@@ -1237,6 +1243,25 @@ class SHACLGenerator:
             return f"<{resolved}>"
         return resolved
 
+    def _turtle_datatype(self, graph: SHACLGraph, datatype: str) -> str:
+        """
+        Turtle-facing datatype: angle brackets for IRIs, bare qname only if declared.
+
+        ``_resolve_xsd`` may hand back a declared prefix name (``xsd:string``) or
+        an absolute IRI, since #1788 leaves anything already qualified alone.
+        Interpolating the latter produced ``sh:datatype http://...#string ;``,
+        which RDFLib rejects as BadSyntax, and ``urn:`` / ``doi:`` came out as
+        undeclared prefixed names for the same reason. Turtle only allows a
+        prefix name when ``@prefix`` declared it, so anything else is bracketed.
+        """
+        value = datatype.strip()
+        prefix, separator, _ = value.partition(":")
+        if separator and prefix in graph.prefixes:
+            return value
+        if self._IRI_SCHEME_RE.match(value):
+            return f"<{value}>"
+        return value
+
     def _serialize_turtle(self, graph: SHACLGraph) -> str:
         lines = [self._prefix_decls(graph), ""]
         lines.append(f"<{graph.shapes_uri}> a owl:Ontology .")
@@ -1264,7 +1289,7 @@ class SHACLGenerator:
                 parts = ["    sh:property ["]
                 parts.append(f'        sh:path {self._uri(graph, ps.path, "property")} ;')
                 if ps.datatype:
-                    parts.append(f"        sh:datatype {ps.datatype} ;")
+                    parts.append(f"        sh:datatype {self._turtle_datatype(graph, ps.datatype)} ;")
                 if ps.class_:
                     parts.append(f'        sh:class {self._uri(graph, ps.class_, "class")} ;')
                 if ps.min_count is not None:
@@ -1394,6 +1419,14 @@ class SHACLGenerator:
     # ── Helper ────────────────────────────────────────────────────────────────
 
     def _resolve_xsd(self, range_str: str) -> str:
-        """Map ontology range strings to xsd:-prefixed datatypes."""
-        key = range_str.lower().strip()
-        return self._XSD_ALIASES.get(key, f"xsd:{range_str}")
+        """Map ontology range strings to xsd:-prefixed datatypes.
+
+        A range that is already an IRI is returned unchanged, so the prefix is
+        never doubled (#1788). That covers both qualified names (``xsd:string``)
+        and absolute IRIs, including schemes that carry no slashes such as
+        ``urn:example:datatype``. Only a bare name such as ``string`` is mapped
+        through the alias table.
+        """
+        if self._IRI_SCHEME_RE.match(range_str.strip()):
+            return range_str
+        return self._XSD_ALIASES.get(range_str.lower().strip(), f"xsd:{range_str}")

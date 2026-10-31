@@ -9,20 +9,13 @@ RUN npm ci
 COPY explorer/ ./
 RUN mkdir -p /app/semantica && npm run build
 
-# CVE-2026-14456 (OpenSSL QUIC-server DoS, flagged against this base image's
-# openssl/libssl3t64/openssl-provider-legacy): the Debian fix
-# (3.5.7-1~deb13u2) is only in trixie-proposed-updates as of this writing,
-# not yet promoted to trixie-security, so there's no package to pin here
-# today. Deliberately NOT running `apt-get upgrade` to chase it - that
-# breaks build reproducibility (terrascan AC_DOCKER_0052) and still
-# wouldn't reach a proposed-updates-only package. Once Debian ships the fix
-# and rebuilds this tag, the docker Dependabot ecosystem in
-# .github/dependabot.yml opens a PR bumping the digest pin above. Also: this
-# image only serves plain HTTP via uvicorn and never opens a QUIC listener,
-# so the bug isn't reachable here regardless.
+# OpenSSL (openssl, libssl3t64, openssl-provider-legacy) is patched in the
+# runtime stage's --only-upgrade layer below, not by bumping this digest:
+# Debian ships fixes to trixie-security well before the python:3.13-slim tag
+# is rebuilt on top of them.
 #
 # Pinned to 3.13, NOT 3.14. The image must stay inside the supported range in
-# pyproject.toml (`requires-python = ">=3.10,<3.14"`, Install Matrix 3.10-3.13)
+# pyproject.toml (`requires-python = ">=3.11,<3.14"`, Install Matrix 3.11-3.13)
 # and on the interpreter explorer-extra-py313.txt below was resolved for.
 # Dependabot bumped this to python:3.14-slim in #1290 (which broke the build:
 # no cp314 wheel for gensim, so pip compiled it and the slim image has no gcc)
@@ -41,15 +34,21 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app
 
 # Debian trixie-security already ships fixed builds for these base-image OS
-# packages (Trivy library/semantica alerts #6151-#6162, all CVE-2026-*):
-# perl-base (7 CVEs across perl core, Storable, Archive::Tar and IO::Compress
-# - all fixed by the same upstream perl source upload), libpcre2-8-0 (2 CVEs),
-# libsqlite3-0 (2 CVEs, FTS5), and gzip (1 CVE, LZH decompression).
+# packages (Trivy library/semantica alerts, all CVE-2026-*):
+# - #6151-#6162: perl-base (7 CVEs across perl core, Storable, Archive::Tar
+#   and IO::Compress - all fixed by the same upstream perl source upload),
+#   libpcre2-8-0 (2 CVEs), libsqlite3-0 (2 CVEs, FTS5), and gzip (1 CVE, LZH
+#   decompression).
+# - #6167-#6172: openssl, libssl3t64 and openssl-provider-legacy (one source
+#   package, fixed in 3.5.7-1~deb13u3) for CVE-2026-84782 (DTLS handshake
+#   retransmission out-of-bounds read) and CVE-2026-75804 (QUIC connection
+#   flow control not enforced). Neither is reachable here - uvicorn serves
+#   plain HTTP/TCP, no DTLS or QUIC - but patching clears the alerts.
 #
-# --only-upgrade scopes this to just the 4 named packages instead of a
-# blanket `apt-get upgrade` (terrascan AC_DOCKER_0052, see the OpenSSL note
-# above), but deliberately WITHOUT a `pkg=version` pin like the setuptools
-# pin below: unlike PyPI, Debian's live mirrors only ever serve the current
+# --only-upgrade scopes this to just the named packages instead of a
+# blanket `apt-get upgrade` (terrascan AC_DOCKER_0052 - that breaks build
+# reproducibility), but deliberately WITHOUT a `pkg=version` pin like the
+# setuptools pin below: unlike PyPI, Debian's live mirrors only ever serve the current
 # point release of a package, not every historical one. A pin to today's
 # fixed version (e.g. perl-base=5.40.1-6+deb13u1) would 404 the day Debian
 # ships deb13u2 and break every build that hits this layer - CI, Cloud
@@ -62,6 +61,9 @@ RUN apt-get update \
         libpcre2-8-0 \
         libsqlite3-0 \
         gzip \
+        openssl \
+        libssl3t64 \
+        openssl-provider-legacy \
     && rm -rf /var/lib/apt/lists/*
 
 RUN groupadd --system semantica \
@@ -82,8 +84,8 @@ COPY --from=frontend-builder /app/semantica/static ./semantica/static
 # missing hashes pip needs on this image's actual 3.13 interpreter and
 # --require-hashes fails outright rather than silently under-pinning).
 # Every fetched package is hash-verified (Scorecard Pinned-Dependencies)
-# and pinned to the same versions CI audited, e.g. msgpack==1.2.1 and
-# setuptools==84.0.0 (which also replaces the base image's vulnerable
+# and pinned to the same versions CI audited, e.g.
+# setuptools==84.2.1 (which also replaces the base image's vulnerable
 # 70.3.0, CVE-2025-47273 - nothing else in the tree pulls a newer copy).
 # --no-deps on the local package itself: it's our own source tree, not a
 # fetch, so there's nothing to hash-pin there - but `pip install .` still
@@ -93,9 +95,19 @@ COPY --from=frontend-builder /app/semantica/static ./semantica/static
 # build-system.requires; installing it first and passing
 # --no-build-isolation makes pip reuse those hash-verified copies instead
 # of fetching its own.
+#
+# pip itself is uninstalled once it's done: nothing in the running app
+# shells out to it, and it carries its own vendored urllib3 in
+# pip/_vendor that the hash-pinned urllib3==2.8.0 above can't replace.
+# pip 26.2.1 (the latest release, and what the base image ships) vendors
+# urllib3 2.7.0, which Trivy flags for CVE-2026-97689 (unbounded chunk-size
+# buffering) and CVE-2026-97687 (HTTPS proxy TLS settings override) -
+# alerts #6173/#6174. Removing pip clears both, and keeps the next vendored
+# CVE out of the image too, rather than waiting on a pip release.
 RUN pip install --no-cache-dir -r explorer-extra-py313.txt -r pep517-build.txt --require-hashes \
     && pip install --no-cache-dir --no-deps --no-build-isolation . \
     && rm -f explorer-extra-py313.txt pep517-build.txt \
+    && python -m pip uninstall --yes pip \
     && chown -R semantica:semantica /app
 
 USER semantica

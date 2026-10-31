@@ -26,7 +26,7 @@
 
 #### Built for High-Stakes, Regulated Domains
 
-[![GitHub Stars](https://img.shields.io/github/stars/semantica-agi/semantica?style=flat-square&color=FFD700&logo=github&logoColor=white&label=Stars)](https://github.com/semantica-agi/semantica) [![GitHub Forks](https://img.shields.io/github/forks/semantica-agi/semantica?style=flat-square&color=6E40C9&logo=github&logoColor=white&label=Forks)](https://github.com/semantica-agi/semantica/network/members) [![Contributors](https://img.shields.io/github/contributors/semantica-agi/semantica?style=flat-square&color=2EA043&logo=github&logoColor=white)](https://github.com/semantica-agi/semantica/graphs/contributors) [![PyPI](https://img.shields.io/pypi/v/semantica.svg?style=flat-square&color=0066CC&logo=pypi&logoColor=white)](https://pypi.org/project/semantica/) [![Total Downloads](https://static.pepy.tech/badge/semantica?style=flat-square)](https://pepy.tech/project/semantica) [![Python 3.10+](https://img.shields.io/badge/python-3.10+-3776AB?style=flat-square&logo=python&logoColor=white)](https://www.python.org/) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square)](https://opensource.org/licenses/MIT) [![CI](https://img.shields.io/github/actions/workflow/status/semantica-agi/semantica/ci.yml?style=flat-square&label=CI)](https://github.com/semantica-agi/semantica/actions) [![Install Matrix](https://img.shields.io/github/actions/workflow/status/semantica-agi/semantica/install-matrix.yml?style=flat-square&label=pip%20install)](https://github.com/semantica-agi/semantica/actions/workflows/install-matrix.yml) [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/semantica-agi/semantica/badge?style=flat-square)](https://scorecard.dev/viewer/?uri=github.com/semantica-agi/semantica) [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/semantica-agi/semantica)
+[![GitHub Stars](https://img.shields.io/github/stars/semantica-agi/semantica?style=flat-square&color=FFD700&logo=github&logoColor=white&label=Stars)](https://github.com/semantica-agi/semantica) [![GitHub Forks](https://img.shields.io/github/forks/semantica-agi/semantica?style=flat-square&color=6E40C9&logo=github&logoColor=white&label=Forks)](https://github.com/semantica-agi/semantica/network/members) [![Contributors](https://img.shields.io/github/contributors/semantica-agi/semantica?style=flat-square&color=2EA043&logo=github&logoColor=white)](https://github.com/semantica-agi/semantica/graphs/contributors) [![PyPI](https://img.shields.io/pypi/v/semantica.svg?style=flat-square&color=0066CC&logo=pypi&logoColor=white)](https://pypi.org/project/semantica/) [![Total Downloads](https://static.pepy.tech/badge/semantica?style=flat-square)](https://pepy.tech/project/semantica) [![Python 3.11+](https://img.shields.io/badge/python-3.11+-3776AB?style=flat-square&logo=python&logoColor=white)](https://www.python.org/) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=flat-square)](https://opensource.org/licenses/MIT) [![CI](https://img.shields.io/github/actions/workflow/status/semantica-agi/semantica/ci.yml?style=flat-square&label=CI)](https://github.com/semantica-agi/semantica/actions) [![Install Matrix](https://img.shields.io/github/actions/workflow/status/semantica-agi/semantica/install-matrix.yml?style=flat-square&label=pip%20install)](https://github.com/semantica-agi/semantica/actions/workflows/install-matrix.yml) [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/semantica-agi/semantica/badge?style=flat-square)](https://scorecard.dev/viewer/?uri=github.com/semantica-agi/semantica) [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/semantica-agi/semantica)
 
 [![Website](https://img.shields.io/badge/Website-getsemantica.ai-000000?style=for-the-badge\&logo=googlechrome\&logoColor=white)](https://getsemantica.ai/)
 [![Docs](https://img.shields.io/badge/Docs-docs.getsemantica.ai-0099FF?style=for-the-badge\&logo=readthedocs\&logoColor=white)](https://docs.getsemantica.ai/)
@@ -145,7 +145,15 @@ decision_id = graph.record_decision(
 chain     = graph.trace_decision_chain(decision_id)       # full causal ancestry
 similar   = graph.find_similar_decisions("cloud vendor", max_results=5)  # precedents
 impact    = graph.analyze_decision_impact(decision_id)    # downstream influence map
-compliant = graph.check_decision_rules({"category": "vendor_selection"})  # policy gate
+
+# Policy gate: checks the fields you pass against the default rules
+# (confidence >= 0.7, outcome in approved/rejected/flagged, decision_maker set)
+compliant = graph.check_decision_rules({
+    "category": "vendor_selection",
+    "outcome": "approved",
+    "confidence": 0.93,
+    "decision_maker": "platform-team",
+})  # {'compliant': True, 'violations': [], ...}
 ```
 
 **Verify your install in 5 seconds:**
@@ -242,7 +250,12 @@ graph.add_causal_relationship(uw_id,  rate_id, relationship_type="INFLUENCED")
 chain     = graph.trace_decision_chain(rate_id)
 similar   = graph.find_similar_decisions("personal loan approval, 31% DTI", max_results=5)
 impact    = graph.analyze_decision_impact(uw_id)
-compliant = graph.check_decision_rules({"category": "loan_underwriting", "confidence": 0.94})
+compliant = graph.check_decision_rules({
+    "category": "loan_underwriting",
+    "outcome": "approved",
+    "confidence": 0.94,
+    "decision_maker": "underwriting_agent",
+})
 insights  = graph.get_decision_insights()
 ```
 
@@ -361,6 +374,7 @@ Expand any module below for its runnable example.
 Ingest from files, web, databases, APIs, streams, email, Git repos, Parquet, Databricks, Snowflake, SAP, or MCP servers, all through a unified interface.
 
 ```python
+# WebIngestor needs the documents extra: pip install "semantica[documents]"
 from semantica.ingest import FileIngestor, WebIngestor, ParquetIngestor, DBIngestor
 
 # Ingest an entire directory of contracts (PDF, DOCX, HTML, TXT)
@@ -803,9 +817,9 @@ canonical = EntityNormalizer().normalize_entity("ACME Corp.")
 dt    = DateNormalizer().normalize_date("3 weeks ago")
 # → datetime(2026, 7, 1, tzinfo=UTC)
 
-# Unit conversion and currency normalization
-price = NumberNormalizer().normalize_number("$1.25M USD")
-# → NormalizedNumber(value=1_250_000, currency="USD")
+# Numbers with currency symbols and magnitude suffixes
+price = NumberNormalizer().normalize_number("$1.25M")
+# → 1250000.0
 
 # Deduplicate, validate, and impute missing values across a dataset
 clean = DataCleaner().clean_data(records, remove_duplicates=True, handle_missing=True)
@@ -900,7 +914,7 @@ facts_in_window = tq.query_time_range(
 )
 
 # Normalize natural language temporal expressions - returns a (start, end) range
-norm = TemporalNormalizer()
+norm = TemporalNormalizer(reference_date=datetime(2026, 1, 1))
 start, end = norm.normalize("last quarter")
 ```
 
@@ -929,7 +943,7 @@ jsonld_str = rdf.export_to_rdf(kg, format="json-ld")
 
 rdf.export(kg, "kg_audit.ttl",    format="turtle")
 rdf.export(kg, "kg_audit.jsonld", format="json-ld")
-rdf.export(kg, "kg_audit.nt",     format="n-triples")
+rdf.export(kg, "kg_audit.nt",     format="ntriples")
 
 # Columnar analytics - Snappy-compressed Parquet (writes kg_snapshot_entities.parquet
 # and kg_snapshot_relationships.parquet)
@@ -1055,12 +1069,12 @@ docs = FileIngestor().ingest_directory("./docs/", recursive=True)
 
 # 2. Entity-aware chunking - never splits an entity across a chunk boundary
 splitter = TextSplitter(method="entity_aware", chunk_size=1000)
-chunks   = [splitter.split(doc["text"]) for doc in docs]
+chunks   = [splitter.split(doc.text) for doc in docs]
 
 # 3. Extract entities and relations
 ner      = NamedEntityRecognizer(confidence_threshold=0.7)
 rel_ext  = RelationExtractor(confidence_threshold=0.6)
-entities = [ner.extract_entities(chunk) for chunk_group in chunks for chunk in chunk_group]
+entities = [ner.extract_entities(chunk.text) for chunk_group in chunks for chunk in chunk_group]
 
 # 4. Build KG
 kg = GraphBuilder(merge_entities=True, enable_temporal=True).build(docs)
@@ -1520,6 +1534,8 @@ pip install semantica             # lightweight core (22 essential dependencies)
 pip install "semantica[all]"      # full bundled behavior with all extras
 ```
 
+> **Python 3.11–3.13 required.** Python 3.10 support ended in 0.8.0: 3.10 is past end of life, and Pillow's security fixes now need 3.11. On 3.10, pip installs the last release that supports it (0.7.x), which gets no further updates. See the [CHANGELOG](CHANGELOG.md) for details.
+
 > **Note:** Heavy machine learning, NLP, visualization, and document dependencies live in optional extras to keep core installation lightweight and fast. If you want the previous bundled installation, install with `pip install "semantica[all]"`.
 
 ```bash
@@ -1528,6 +1544,7 @@ pip install "semantica[documents]"          # Document parsing (docx, openpyxl, 
 pip install "semantica[embeddings-local]"   # Local embeddings (sentence-transformers, fastembed, onnxruntime)
 pip install "semantica[models-huggingface]" # HuggingFace models (transformers, torch)
 pip install "semantica[nlp-spacy]"          # spaCy NLP pipelines (spacy)
+pip install "semantica[nlp-langdetect]"     # Language detection for LanguageDetector (langdetect)
 pip install "semantica[viz]"                # Visualization (matplotlib, seaborn, plotly, pyvis, graphviz)
 pip install "semantica[media]"              # Audio & computer vision (librosa, opencv-python)
 pip install "semantica[graph-embeddings]"   # Knowledge graph embeddings (gensim / Node2Vec)
@@ -1573,7 +1590,7 @@ Wiring `semantica` into your own CI is a two-minute job. On GitHub Actions, use 
     python-version: '3.11'
 ```
 
-Copy-paste starting templates for GitHub Actions, GitLab CI, and CircleCI live in [examples/ci/](examples/ci/). The published package itself is verified installable across Ubuntu/macOS/Windows and Python 3.10-3.13 every week by the [Install Matrix workflow](.github/workflows/install-matrix.yml).
+Copy-paste starting templates for GitHub Actions, GitLab CI, and CircleCI live in [examples/ci/](examples/ci/). The published package itself is verified installable across Ubuntu/macOS/Windows and Python 3.11-3.13 every week by the [Install Matrix workflow](.github/workflows/install-matrix.yml).
 
 Ready-made deployment configs for AWS, GCP, Azure, Fly.io, Railway, Render, Kubernetes, and Helm are in [deploy/](deploy/).
 

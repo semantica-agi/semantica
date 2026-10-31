@@ -1,0 +1,16 @@
+# Overrides for security-scan-tools.txt (passed via `uv pip compile --override`).
+#
+# semgrep (latest 1.178.0) still pins pyjwt~=2.13.0, which carries a stack of
+# PyJWT advisories fixed in 2.14.0/2.15.0. semgrep only imports jwt in its MCP
+# token verifier, which the CI scan never runs. Because this forces a version
+# outside semgrep's declared range, security-scan.yml installs the compiled
+# file with --no-deps (every transitive dep is already hash-pinned in it).
+# Drop this once semgrep relaxes its pin.
+pyjwt[crypto]>=2.15.1
+
+# semgrep (latest 1.181.0) pins mcp==1.29.0, which is affected by
+# GHSA-84m7-p3x7-pcfv (unbounded Streamable HTTP sessions), fixed in 1.30.0.
+# semgrep only imports mcp for `semgrep mcp`, which the CI scan never runs.
+# Capped below 2 so the override stays on the 1.x API semgrep was built for.
+# Drop this once semgrep moves its pin to 1.30.0 or later.
+mcp>=1.30.0,<2
