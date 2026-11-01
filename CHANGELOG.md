@@ -21,6 +21,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `semantica.kg.RelationalSchemaMapper` maps rows from a relational source (`DBIngestor`, `SnowflakeIngestor`, `DatabricksIngestor`, `PandasIngestor`, a DataFrame or plain row dicts) to the `{"entities", "relationships"}` shape `GraphBuilder` and `OntologyGenerator` consume: entity tables become entities keyed by primary key, foreign keys become typed relationships, junction tables become relationships only
   - Every entity and relationship is tagged with the `source` it came from so `ConflictDetector` can key credibility on it. New `tests/kg/test_schema_mapper.py`
 
+- **Snapshot-consistent grounded context assembly** (#1731, closes #1730) by @cxzg007
+  - `GroundedContextAssembler` builds RAG context from one captured truth-maintenance view: every candidate is validated against that view before ranking, the rendered text and citation footnotes fit `max_context_chars`, and nothing is returned if the source or the registry changed during assembly
+  - `TruthSnapshotProvider` captures immutable session or bitemporal read views, and `ContextArtifactIndex` registers summaries and citations with explicit fact and support dependencies and reports which ones were invalidated or became eligible again
+  - Opt-in: existing `ContextRetriever.retrieve` and `TruthMaintenanceContextFilter` behavior is unchanged. See `docs/reference/grounded_context.md`
+
 ### Changed
 
 - **Breaking: Python 3.10 is no longer supported. Semantica now requires Python 3.11–3.13** (closes #2067)
@@ -36,6 +41,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Failed structural embeddings were replaced with random vectors** (fixes #1741) by @ShryukGrandhi
   - `DecisionEmbeddingPipeline._generate_structural_embedding()` returned a random vector when Node2Vec or graph-feature enhancement raised, so `process_decision()` reported `has_structural_embedding=True` and mixed noise into the combined and stored embeddings. It now logs the failure and returns `None`, so the decision is processed with its semantic embedding only and `has_structural_embedding` is `False`
+
+- **`semantica store stats` and `semantica store flush --confirm` crashed on every call** (fixes #1943) by @pkupt
+  - `store stats` called `run_analytics()`, the graph analytics entry point, with `backend=`/`config=` and no `algorithm`, so it raised `TypeError`. It now reads the persisted ContextGraph for `--backend memory` and calls `GraphStore.get_stats()` for neo4j, falkordb, age and neptune, and `--format table` renders a real table
+  - `store flush` called `delete_vectors()` with a namespace instead of vector ids and raised `TypeError`. It now clears the target namespace's vectors on the configured vector backend (`--vector-store`, then `vector_store.backend`) and reports how many it removed. FAISS needs `index_path` (the index is loaded first and deletions are written back to it), `inmemory` is rejected because nothing persists between CLI runs, and a backend that cannot list its vectors fails instead of reporting zero
 
 - **`pyasn1` was pinned at 0.6.4, which the audit job now flags four times** (fixes #2182) by @sakshi04-ui
   - `CVE-2026-119194`, `CVE-2026-119195`, `CVE-2026-119196` and `CVE-2026-119197` all resolve to `pyasn1==0.6.4`, pulled in through `google-auth` → `pyasn1-modules`. They are the only findings in `requirements-ci.txt` outside the accepted `opentelemetry-api` advisory, and the scheduled scan on `main` has failed on them since 2026-10-31

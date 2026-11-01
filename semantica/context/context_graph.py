@@ -4602,21 +4602,48 @@ class ContextGraph:
         use_semantic_search: bool = True,
         include_superseded: bool = False,
         as_of: Optional[Union[str, int, float, datetime]] = None,
+        soft_floor: Optional[float] = None,
+        include_neighbors: int = 0,
         **filters
     ) -> List[Dict[str, Any]]:
         """
         Find similar decisions (precedents) using hybrid search.
-        
+
         Args:
             scenario: Scenario to find precedents for
             category: Filter by decision category
             limit: Maximum number of precedents
             similarity_threshold: Minimum similarity score
             use_semantic_search: Use vector embeddings for search
+            include_superseded: Include superseded decisions
+            as_of: Temporal filter (timestamp or date)
+            soft_floor: Switch to ranking semantics: instead of applying
+                ``similarity_threshold`` as a hard cutoff, keep every
+                candidate whose combined similarity is at or above this
+                (low) floor and let the sort + ``limit`` do the selection.
+                The lexical content score of an exact-scenario match is
+                bounded by ``|S| / |S union R|`` because ``scenario``,
+                ``reasoning`` and ``entities`` share one bag of words, so
+                any fixed high threshold systematically loses decisions
+                whose reasoning is long relative to the query (#1140).
+                Passing ``soft_floor=0.0`` ranks every candidate; a small
+                positive value (e.g. ``0.05``) only removes total noise.
+                Values outside ``[0, 1]`` are accepted and behave as the
+                extreme case (negative ranks everything, above 1 keeps
+                nothing).
+                When provided, this overrides ``similarity_threshold``.
+            include_neighbors: For each returned precedent, attach adjacent
+                decisions under a ``"neighbors"`` key — explicit causal
+                relationships first, then decisions sharing entities (most
+                shared first). A matched decision is most useful together
+                with its thread, not as an isolated point (#1140). Neighbors
+                are capped at this count per precedent and never duplicate
+                a matched precedent or a neighbor already attached.
             **filters: Additional filters
-            
+
         Returns:
-            List of similar decisions with similarity scores
+            List of similar decisions with similarity scores, sorted by
+            similarity (descending)
         """
         if not hasattr(self, '_decisions') or not self._decisions:
             return []
@@ -4664,8 +4691,11 @@ class ContextGraph:
             
             # Combined similarity
             combined_sim = 0.7 * content_sim + 0.3 * structural_sim
-            
-            if combined_sim >= similarity_threshold:
+
+            # soft_floor = ranking semantics (see docstring): the floor only
+            # cuts total noise, selection is done by sort + limit below.
+            cutoff = soft_floor if soft_floor is not None else similarity_threshold
+            if combined_sim >= cutoff:
                 precedents.append({
                     "decision": decision,
                     "similarity": combined_sim,
@@ -4675,7 +4705,16 @@ class ContextGraph:
         
         # Sort by similarity and limit
         precedents.sort(key=lambda x: x["similarity"], reverse=True)
-        return precedents[:limit]
+        precedents = precedents[:limit]
+
+        if include_neighbors > 0:
+            self._attach_decision_neighbors(
+                precedents,
+                include_neighbors,
+                include_superseded=include_superseded,
+                as_of=as_of_time,
+            )
+        return precedents
     
     def analyze_decision_influence(
         self,
@@ -5800,17 +5839,27 @@ class ContextGraph:
         scenario: str,
         category: Optional[str] = None,
         max_results: int = 10,
-        min_similarity: float = 0.3
+        min_similarity: float = 0.3,
+        soft_floor: Optional[float] = None,
+        include_neighbors: int = 0
     ) -> List[Dict[str, Any]]:
         """
         Easy way to find similar past decisions.
-        
+
         Args:
             scenario: What situation are you looking for
             category: Filter by decision type
             max_results: Maximum results to return
-            min_similarity: Minimum similarity score
-            
+            min_similarity: Minimum similarity score (hard cutoff; ignored
+                when ``soft_floor`` is provided)
+            soft_floor: Ranking semantics — keep every candidate scoring at
+                or above this (low) floor and return the top ``max_results``
+                by score instead of applying the hard ``min_similarity``
+                cutoff. See :meth:`find_precedents_by_scenario` (#1140).
+            include_neighbors: Attach adjacent decisions (causal first, then
+                shared entities) under a ``"neighbors"`` key per precedent.
+                See :meth:`find_precedents_by_scenario`.
+
         Returns:
             List of similar decisions with similarity scores
         """
@@ -5818,8 +5867,89 @@ class ContextGraph:
             scenario=scenario,
             category=category,
             limit=max_results,
-            similarity_threshold=min_similarity
+            similarity_threshold=min_similarity,
+            soft_floor=soft_floor,
+            include_neighbors=include_neighbors
         )
+
+    def _attach_decision_neighbors(
+        self,
+        precedents: List[Dict[str, Any]],
+        include_neighbors: int,
+        include_superseded: bool = False,
+        as_of: Optional[datetime] = None,
+    ) -> None:
+        """
+        Attach adjacent decisions to each matched precedent (#1140): explicit
+        causal relationships first, then decisions sharing entities (most
+        shared first). Neighbors are capped per precedent and never duplicate
+        a matched precedent or a neighbor already attached elsewhere. Neighbors
+        pass the same temporal/supersession filter as the primary results
+        (#1713 review).
+        """
+        used_ids: Set[str] = {p["decision"]["id"] for p in precedents}
+        for precedent in precedents:
+            decision_id = precedent["decision"]["id"]
+            neighbors: List[Dict[str, Any]] = []
+
+            # Explicit causal relationships are the strongest adjacency.
+            for edge_type, edges in self.edge_type_index.items():
+                if len(neighbors) >= include_neighbors:
+                    break
+                if edge_type.upper() not in _CAUSAL_TRAVERSAL_TYPES:
+                    continue
+                for edge in edges:
+                    if len(neighbors) >= include_neighbors:
+                        break
+                    if edge.source_id == decision_id and edge.target_id in self._decisions:
+                        other = edge.target_id
+                    elif edge.target_id == decision_id and edge.source_id in self._decisions:
+                        other = edge.source_id
+                    else:
+                        continue
+                    if other in used_ids:
+                        continue
+                    if not self._decision_matches_temporal_filters(
+                        self._decisions[other],
+                        include_superseded=include_superseded,
+                        as_of=as_of,
+                    ):
+                        continue
+                    used_ids.add(other)
+                    neighbors.append({
+                        "decision": self._decisions[other],
+                        "via": "causal",
+                        "relationship": edge_type,
+                    })
+
+            # Then decisions sharing entities, most shared first.
+            if len(neighbors) < include_neighbors:
+                entity_counts: Dict[str, List[str]] = {}
+                for entity in precedent["decision"].get("entities") or []:
+                    for other in self._entity_index.get(entity, set()):
+                        if other in used_ids or other not in self._decisions:
+                            continue
+                        if not self._decision_matches_temporal_filters(
+                            self._decisions[other],
+                            include_superseded=include_superseded,
+                            as_of=as_of,
+                        ):
+                            continue
+                        entity_counts.setdefault(other, []).append(entity)
+                for other, shared in sorted(
+                    entity_counts.items(), key=lambda kv: (-len(kv[1]), kv[0])
+                ):
+                    if len(neighbors) >= include_neighbors:
+                        break
+                    used_ids.add(other)
+                    neighbors.append({
+                        "decision": self._decisions[other],
+                        "via": "shared_entities",
+                        "shared_entities": shared,
+                    })
+
+            if neighbors:
+                precedent["neighbors"] = neighbors
     
     def analyze_decision_impact(
         self,
