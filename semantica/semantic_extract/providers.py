@@ -533,7 +533,6 @@ class BaseProvider:
                         "logit_bias",
                         "user",
                         "top_k",
-                        "stream",
                     )
 
                     if provider_name == "GroqProvider":
@@ -827,7 +826,6 @@ class OpenAIProvider(BaseProvider):
             "stop",
             "logit_bias",
             "user",
-            "stream",
         )
 
         response = self.client.chat.completions.create(**create_kwargs)
@@ -866,7 +864,6 @@ class OpenAIProvider(BaseProvider):
             "stop",
             "logit_bias",
             "user",
-            "stream",
         )
 
         response = self.client.chat.completions.create(**create_kwargs)
