@@ -238,11 +238,12 @@ class TestKGAlgorithmIntegration:
         # Process decision should handle error gracefully
         result = pipeline.process_decision(self.sample_decision)
 
-        # Should still return a result with fallback embedding
+        # Should still return a result with the semantic embedding
         assert result["vector_id"] == "decision_123"
         assert result["semantic_embedding"] is not None
-        # Structural embedding should be fallback (random) due to error
-        assert result["structural_embedding"] is not None
+        # A failed structural embedding is reported as missing, not random
+        assert result["structural_embedding"] is None
+        assert result["metadata"]["has_structural_embedding"] is False
 
 
 class TestKGAlgorithmSpecificFeatures:

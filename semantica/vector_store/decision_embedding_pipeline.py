@@ -480,7 +480,7 @@ class DecisionEmbeddingPipeline:
             
         except Exception as e:
             self.logger.warning(f"Failed to generate structural embedding: {e}")
-            return np.random.rand(self.node_embedding_dimension).astype(np.float32)
+            return None
     
     def _enhance_with_kg_algorithms(
         self,

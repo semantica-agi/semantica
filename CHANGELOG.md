@@ -39,6 +39,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Failed structural embeddings were replaced with random vectors** (fixes #1741) by @ShryukGrandhi
+  - `DecisionEmbeddingPipeline._generate_structural_embedding()` returned a random vector when Node2Vec or graph-feature enhancement raised, so `process_decision()` reported `has_structural_embedding=True` and mixed noise into the combined and stored embeddings. It now logs the failure and returns `None`, so the decision is processed with its semantic embedding only and `has_structural_embedding` is `False`
+
 - **OpenAI provider requests did not set `stream`** (#1950) by @dbyqs21
   - `OpenAIProvider.generate`, `OpenAIProvider.generate_structured` and the instructor path of `BaseProvider.generate_typed` now send `stream=False` explicitly instead of relying on the endpoint's default. A custom `base_url` gateway that streams when `stream` is omitted would hand the parsers a stream object with no `.choices`
   - A caller's `stream=True` is still ignored, as before: none of these methods can consume a streamed response. New `tests/semantic_extract/test_openai_stream_disabled.py`
