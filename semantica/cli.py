@@ -5831,6 +5831,9 @@ def store_stats(cli_ctx: CLIContext, backend: str, fmt: str, local_json: bool) -
 
 _MIGRATE_SUPPORTED_BACKENDS = {"faiss", "sqlite", "pgvector"}
 _MIGRATE_BATCH_SIZE = 500
+_PINECONE_DELETE_BATCH_SIZE = 1000
+_PINECONE_VERIFY_ATTEMPTS = 3
+_PINECONE_VERIFY_SLEEP_SECONDS = 0.1
 
 
 def _migrate_backend_config(vs_cfg: Dict[str, Any], backend: str) -> Dict[str, Any]:
@@ -5990,10 +5993,9 @@ def store_flush(cli_ctx: CLIContext, namespace: Optional[str], confirm: bool) ->
         default_ns = vs_cfg.get("default_namespace", "default")
         # The backend every other vector command builds (--vector-store, then
         # vector_store.backend), not a key the CLI never sets.
-        backend = (
-            _configured_vector_backend(cli_ctx) or _DEFAULT_VECTOR_BACKEND
-        ).lower()
-        if backend == "pinecone":
+        backend = _configured_vector_backend(cli_ctx) or _DEFAULT_VECTOR_BACKEND
+        is_pinecone = backend.lower() == "pinecone"
+        if is_pinecone:
             target = (
                 namespace
                 if namespace is not None
@@ -6021,7 +6023,7 @@ def store_flush(cli_ctx: CLIContext, namespace: Optional[str], confirm: bool) ->
         def _namespace_ids() -> List[str]:
             # Pinecone namespaces are native partitions; other backends use
             # the metadata namespace convention retained for compatibility.
-            if backend == "pinecone":
+            if is_pinecone:
                 return [
                     item["id"]
                     for item in store.iter_vectors(namespace=target)
@@ -6042,23 +6044,40 @@ def store_flush(cli_ctx: CLIContext, namespace: Optional[str], confirm: bool) ->
 
         removed = 0
         if vector_ids:
-            if backend == "pinecone":
-                store.delete_vectors(vector_ids, namespace=target)
+            if is_pinecone:
+                for start in range(0, len(vector_ids), _PINECONE_DELETE_BATCH_SIZE):
+                    store.delete_vectors(
+                        vector_ids[start:start + _PINECONE_DELETE_BATCH_SIZE],
+                        namespace=target,
+                    )
             else:
                 store.delete_vectors(vector_ids)
             # Report what is verifiably gone, not what was requested: backends
             # such as FAISS silently ignore ids they no longer hold, and
             # delete_vectors() reports success for the call as a whole (#1943).
-            still_there = set(_namespace_ids())
+            if is_pinecone:
+                still_there = set(vector_ids)
+                for attempt in range(_PINECONE_VERIFY_ATTEMPTS):
+                    still_there = set(_namespace_ids()).intersection(vector_ids)
+                    if not still_there or attempt == _PINECONE_VERIFY_ATTEMPTS - 1:
+                        break
+                    time.sleep(_PINECONE_VERIFY_SLEEP_SECONDS)
+            else:
+                still_there = set(_namespace_ids())
             removed = sum(1 for vector_id in vector_ids if vector_id not in still_there)
-            if removed == 0:
+            if removed == 0 and not is_pinecone:
                 raise click.ClickException(
                     f"None of the {len(vector_ids)} vectors in namespace "
                     f"'{target}' were removed; backend '{backend}' may not "
                     "support deletion for this store."
                 )
 
-        _ok(cli_ctx, f"Flushed namespace: {target} ({removed} vectors removed)")
+        message = f"Flushed namespace: {target} ({removed} vectors removed)"
+        if is_pinecone:
+            unconfirmed = len(vector_ids) - removed
+            if unconfirmed:
+                message += f"; {unconfirmed} vectors unconfirmed"
+        _ok(cli_ctx, message)
 
     _run_with_error_handling(_action)
 
