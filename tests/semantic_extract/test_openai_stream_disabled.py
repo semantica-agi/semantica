@@ -1,8 +1,9 @@
 """OpenAI requests are always sent non-streaming.
 
-Some OpenAI-compatible gateways stream when ``stream`` is omitted, and the
-response parsers read ``response.choices[0]`` off a complete response, so the
-provider sends ``stream=False`` explicitly and a caller cannot override it.
+The response parsers read ``response.choices[0]`` off a complete response, so
+the provider sends ``stream=False`` explicitly rather than relying on the
+endpoint's default (a custom gateway may stream when ``stream`` is omitted),
+and a caller cannot override it.
 """
 
 from unittest.mock import MagicMock, patch

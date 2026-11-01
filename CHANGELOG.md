@@ -39,6 +39,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **OpenAI provider requests did not set `stream`** (#1950) by @dbyqs21
+  - `OpenAIProvider.generate`, `OpenAIProvider.generate_structured` and the instructor path of `BaseProvider.generate_typed` now send `stream=False` explicitly instead of relying on the endpoint's default. A custom `base_url` gateway that streams when `stream` is omitted would hand the parsers a stream object with no `.choices`
+  - A caller's `stream=True` is still ignored, as before: none of these methods can consume a streamed response. New `tests/semantic_extract/test_openai_stream_disabled.py`
+
 - **`semantica store stats` and `semantica store flush --confirm` crashed on every call** (fixes #1943) by @pkupt
   - `store stats` called `run_analytics()`, the graph analytics entry point, with `backend=`/`config=` and no `algorithm`, so it raised `TypeError`. It now reads the persisted ContextGraph for `--backend memory` and calls `GraphStore.get_stats()` for neo4j, falkordb, age and neptune, and `--format table` renders a real table
   - `store flush` called `delete_vectors()` with a namespace instead of vector ids and raised `TypeError`. It now clears the target namespace's vectors on the configured vector backend (`--vector-store`, then `vector_store.backend`) and reports how many it removed. FAISS needs `index_path` (the index is loaded first and deletions are written back to it), `inmemory` is rejected because nothing persists between CLI runs, and a backend that cannot list its vectors fails instead of reporting zero
