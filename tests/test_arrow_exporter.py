@@ -398,6 +398,72 @@ class TestArrowExporter(unittest.TestCase):
         self.assertTrue(entities_path.exists())
         self.assertTrue(relationships_path.exists())
 
+    def test_export_preserves_endpoint_aliases(self):
+        exporter = ArrowExporter()
+        for source, target in (
+            ("source_id", "target_id"),
+            ("source", "target"),
+            ("start_node_id", "end_node_id"),
+            ("start_id", "end_id"),
+        ):
+            for collection in (None, "edges", "relationships"):
+                with self.subTest(source=source, collection=collection):
+                    record = {"id": "r1", source: "alice", target: "acme"}
+                    record["type"] = "WORKS_AT"
+                    original = dict(record)
+                    data = [record] if collection is None else {collection: [record]}
+                    paths = exporter.export(data, Path(self.test_dir) / "graph.arrow")
+                    with ipc.open_file(str(paths[0])) as reader:
+                        row = reader.read_all().to_pylist()[0]
+                    self.assertEqual(row.get("source_id"), "alice")
+                    self.assertEqual(row.get("target_id"), "acme")
+                    self.assertEqual(row["type"], "WORKS_AT")
+                    self.assertEqual(record, original)
+
+    def test_export_preserves_numeric_endpoint_aliases(self):
+        exporter = ArrowExporter()
+        for source, target in (
+            ("source_id", "target_id"),
+            ("source", "target"),
+            ("start_node_id", "end_node_id"),
+            ("start_id", "end_id"),
+        ):
+            with self.subTest(source=source):
+                record = {"id": 7, source: 0, target: 2, "type": "KNOWS"}
+                original = dict(record)
+                paths = exporter.export(
+                    {"edges": [record]}, Path(self.test_dir) / "numeric.arrow"
+                )
+                with ipc.open_file(str(paths[0])) as reader:
+                    row = reader.read_all().to_pylist()[0]
+                self.assertEqual(row["id"], "7")
+                self.assertEqual(row["source_id"], "0")
+                self.assertEqual(row["target_id"], "2")
+                self.assertEqual(row["type"], "KNOWS")
+                self.assertEqual(record, original)
+
+    def test_export_endpoint_detection_preserves_entity_offsets(self):
+        record = {"id": "e1", "text": "Alice", "type": "PERSON", "start": 0, "end": 5}
+        paths = ArrowExporter().export([record], Path(self.test_dir) / "entity.arrow")
+        with ipc.open_file(str(paths[0])) as reader:
+            table = reader.read_all()
+        self.assertNotIn("source_id", table.column_names)
+        self.assertEqual(table.to_pylist()[0]["start"], 0)
+        self.assertEqual(table.to_pylist()[0]["end"], 5)
+
+    def test_export_endpoint_detection_respects_custom_schema(self):
+        schema = pa.schema(
+            [("start_node_id", pa.string()), ("end_node_id", pa.string())]
+        )
+        records = [{"start_node_id": "alice", "end_node_id": "acme"}]
+        paths = ArrowExporter().export(
+            records, Path(self.test_dir) / "custom.arrow", schema=schema
+        )
+        with ipc.open_file(str(paths[0])) as reader:
+            table = reader.read_all()
+        self.assertEqual(table.schema, schema)
+        self.assertEqual(table.to_pylist(), records)
+
     def test_progress_tracking(self):
         """Test progress tracker integration."""
         exporter = ArrowExporter()

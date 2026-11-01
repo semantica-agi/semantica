@@ -31,11 +31,12 @@ from contextlib import contextmanager
 import copy
 import inspect
 import json
+import os
 import threading
 
 from .schemas import ProvenanceEntry, SourceReference, AgentRecord, ActivityRecord
 from .storage import ProvenanceStorage, InMemoryStorage, SQLiteStorage
-from .integrity import compute_checksum, verify_checksum
+from .integrity import CHECKSUM_VERSION, compute_checksum, verify_checksum
 from ..utils.helpers import to_utc_datetime, utc_now_iso
 from ..utils.logging import get_logger
 
@@ -59,6 +60,20 @@ def default_storage_path(path: Optional[str]):
     """
     with ProvenanceManager.default_storage_path(path):
         yield
+
+
+def storage_path_from_env() -> Optional[str]:
+    """
+    Return the provenance DB path named by the environment, if any.
+
+    ``SEMANTICA_PROVENANCE_DB`` wins over ``EXPLORER_PROVENANCE_DB``. The
+    Explorer and the ``semantica provenance`` CLI both resolve through here so
+    they open the same database (#1810). ProvenanceManager itself does not
+    read it: library callers keep their explicit or in-memory storage.
+    """
+    return os.environ.get(
+        "SEMANTICA_PROVENANCE_DB", os.environ.get("EXPLORER_PROVENANCE_DB")
+    )
 
 
 class ProvenanceManager:
@@ -168,6 +183,11 @@ class ProvenanceManager:
         entry.sequence_id = (head[0] + 1) if head else 1
         entry.previous_checksum = head[1] if head else None
 
+        # Stamp the encoding version alongside the checksum so verification can
+        # dispatch per row instead of taking a caller-facing allow-legacy flag
+        # (issue #2136): rows written before this change carry no version, and
+        # verify_checksum() accepts either encoding on such a row.
+        entry.checksum_version = CHECKSUM_VERSION
         entry.checksum = compute_checksum(entry)
 
         try:
@@ -1447,7 +1467,11 @@ class ProvenanceManager:
             "errors": errors,
         }
 
-    def verify_chain(self) -> Dict[str, Any]:
+    def verify_chain(
+        self,
+        expected_count: Optional[int] = None,
+        expected_head: Optional[str] = None,
+    ) -> Dict[str, Any]:
         """
         Verify the hash chain across all provenance entries (issue #825,
         Part A item 2).
@@ -1470,12 +1494,37 @@ class ProvenanceManager:
         see integrity.py), which alone would let a checksum-only check miss
         a gap that the sequence check still catches.
 
+        Args:
+            expected_count: Optional number of records the caller expects. A
+                truncated store cannot be detected from inside the chain: the
+                surviving rows are internally consistent, so ``valid`` stays
+                true. Comparing against a count the caller already knows (the
+                count the exporter wrote into its manifest) is what catches a
+                dropped tail.
+            expected_head: Optional checksum of the last expected record.
+
         Returns:
-            Dictionary with "valid", "total_entries", and "broken_links"
-            (list of {"entity_id", "sequence_id", "reason"} dicts).
+            Dictionary with "valid", "total_entries", "head", "broken_links"
+            (list of {"entity_id", "sequence_id", "reason"} dicts),
+            "count_matches", "head_matches" and "unsequenced_records".
+
+            ``expected_count`` counts only chained (sequenced) records. A record
+            stored without a ``sequence_id`` is outside the chain and is not
+            counted; only direct storage access produces one, because every
+            ``track_*`` call assigns a sequence. ``unsequenced_records`` reports
+            how many such rows exist if you need to notice them. The last two are ``True`` when
+            the corresponding expectation was not supplied, and ``valid`` is
+            ``False`` when either supplied expectation disagrees.
+
+        Note:
+            ``invalidate()`` appends a revision rather than editing a row, so
+            both the count and the head move after every mutation. Read them
+            after all writes, not before.
         """
+        stored = list(self.storage.retrieve_all())
+        unsequenced = [e for e in stored if e.sequence_id is None]
         entries = sorted(
-            (e for e in self.storage.retrieve_all() if e.sequence_id is not None),
+            (e for e in stored if e.sequence_id is not None),
             key=lambda e: e.sequence_id,
         )
 
@@ -1513,9 +1562,17 @@ class ProvenanceManager:
             expected_previous = entry.checksum
             expected_sequence = entry.sequence_id
 
+        actual_head = entries[-1].checksum if entries else None
+        count_matches = expected_count is None or expected_count == len(entries)
+        head_matches = expected_head is None or expected_head == actual_head
+
         return {
-            "valid": len(broken_links) == 0,
+            "valid": len(broken_links) == 0 and count_matches and head_matches,
             "total_entries": len(entries),
+            "head": actual_head,
+            "count_matches": count_matches,
+            "head_matches": head_matches,
+            "unsequenced_records": len(unsequenced),
             "broken_links": broken_links,
         }
 

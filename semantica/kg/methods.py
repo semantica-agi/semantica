@@ -803,7 +803,7 @@ def calculate_pagerank(
     max_iterations: int = 100,
     damping_factor: float = 0.85,
     **kwargs
-) -> Dict[str, float]:
+) -> Dict[str, Any]:
     """
     Calculate PageRank scores for nodes.
     
@@ -822,7 +822,9 @@ def calculate_pagerank(
         **kwargs: Additional parameters for PageRank calculation
         
     Returns:
-        Dictionary mapping node IDs to PageRank scores
+        Dictionary containing:
+            - centrality: Mapping of node IDs to PageRank scores
+            - rankings: List of ``(node_id, score)`` tuples sorted highest first
         
     Raises:
         ValueError: If graph is empty or parameters are invalid
@@ -830,11 +832,12 @@ def calculate_pagerank(
         
     Examples:
         >>> from semantica.kg.methods import calculate_pagerank
-        >>> scores = calculate_pagerank(
+        >>> result = calculate_pagerank(
         ...     graph,
         ...     node_labels=["Entity"],
         ...     max_iterations=30
         ... )
+        >>> result["rankings"][:3]
     """
     try:
         pass  # CentralityCalculator imported at module level

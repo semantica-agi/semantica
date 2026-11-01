@@ -272,8 +272,12 @@ def test_backend_mirroring_and_save(tmp_path):
     from semantica.vector_store import VectorStore
     import os
 
-    # We use sqlite since it doesn't require an external service
-    vs = VectorStore(backend="sqlite", config={"db_path": str(tmp_path / "test1.db")})
+    # We use sqlite since it doesn't require an external service.
+    # The stored vector is 2-d, so the backend table must be too.
+    vs = VectorStore(
+        backend="sqlite",
+        config={"db_path": str(tmp_path / "test1.db"), "dimension": 2},
+    )
     
     vecs = [np.array([0.1, 0.2], dtype=np.float32)]
     meta = [{"test": "true"}]
@@ -365,3 +369,153 @@ def test_update_vectors_leaves_mirror_when_backend_rejects(tmp_path):
         saved = json.load(f)
     assert saved["vectors"][ids[0]] == pytest.approx([0.1, 0.2])
     assert saved["metadata"][ids[0]] == {"label": "original"}
+
+
+def test_update_vectors_does_not_mirror_unconfirmed_ids(tmp_path):
+    """A zero-row backend update must not rewrite the facade mirror (#1909)."""
+    import os
+
+    class ReportingBackend:
+        def add(self, vectors, metadata, **options):
+            return [f"id{i}" for i in range(len(vectors))]
+
+        def update(self, ids, vectors, metadata=None, **options):
+            return []
+
+    vs = VectorStore(backend="inmemory", dimension=2)
+    vs._backend_store = ReportingBackend()
+
+    original = np.array([0.1, 0.2], dtype=np.float32)
+    ids = vs.store_vectors([original], metadata=[{"label": "original"}])
+    new_vec = np.array([0.9, 0.9], dtype=np.float32)
+
+    assert vs.update_vectors(ids, [new_vec], metadata=[{"label": "updated"}]) is True
+    assert np.array_equal(vs.vectors[ids[0]], original)
+    assert vs.metadata[ids[0]] == {"label": "original"}
+
+    vs.save(str(tmp_path))
+    with open(os.path.join(str(tmp_path), "store_data.json"), encoding="utf-8") as f:
+        saved = json.load(f)
+    assert saved["vectors"][ids[0]] == pytest.approx([0.1, 0.2])
+    assert saved["metadata"][ids[0]] == {"label": "original"}
+
+
+def test_update_vectors_mirrors_only_confirmed_ids(tmp_path):
+    """A mixed batch refreshes only the ids the backend confirmed."""
+    import os
+
+    class ReportingBackend:
+        def add(self, vectors, metadata, **options):
+            return [f"id{i}" for i in range(len(vectors))]
+
+        def update(self, ids, vectors, metadata=None, **options):
+            return [ids[0]]
+
+    vs = VectorStore(backend="inmemory", dimension=2)
+    vs._backend_store = ReportingBackend()
+
+    original_kept = np.array([0.3, 0.4], dtype=np.float32)
+    ids = vs.store_vectors(
+        [np.array([0.1, 0.2], dtype=np.float32), original_kept],
+        metadata=[{"label": "first"}, {"label": "second"}],
+    )
+    new_first = np.array([0.9, 0.9], dtype=np.float32)
+    new_second = np.array([0.8, 0.8], dtype=np.float32)
+
+    assert (
+        vs.update_vectors(
+            ids,
+            [new_first, new_second],
+            metadata=[{"label": "first-new"}, {"label": "second-new"}],
+        )
+        is True
+    )
+    assert np.array_equal(vs.vectors[ids[0]], new_first)
+    assert vs.metadata[ids[0]] == {"label": "first-new"}
+    assert np.array_equal(vs.vectors[ids[1]], original_kept)
+    assert vs.metadata[ids[1]] == {"label": "second"}
+
+    vs.save(str(tmp_path))
+    with open(os.path.join(str(tmp_path), "store_data.json"), encoding="utf-8") as f:
+        saved = json.load(f)
+    assert saved["vectors"][ids[0]] == pytest.approx([0.9, 0.9])
+    assert saved["metadata"][ids[0]] == {"label": "first-new"}
+    assert saved["vectors"][ids[1]] == pytest.approx([0.3, 0.4])
+    assert saved["metadata"][ids[1]] == {"label": "second"}
+
+
+def test_update_vectors_vector_only_respects_confirmed_ids():
+    """A vector-only update still leaves unconfirmed metadata alone."""
+
+    class ReportingBackend:
+        def add(self, vectors, metadata, **options):
+            return [f"id{i}" for i in range(len(vectors))]
+
+        def update(self, ids, vectors, metadata=None, **options):
+            return [ids[0]]
+
+    vs = VectorStore(backend="inmemory", dimension=2)
+    vs._backend_store = ReportingBackend()
+
+    original_kept = np.array([0.3, 0.4], dtype=np.float32)
+    ids = vs.store_vectors(
+        [np.array([0.1, 0.2], dtype=np.float32), original_kept],
+        metadata=[{"label": "first"}, {"label": "second"}],
+    )
+    new_first = np.array([0.9, 0.9], dtype=np.float32)
+
+    assert (
+        vs.update_vectors(
+            ids,
+            [new_first, np.array([0.8, 0.8], dtype=np.float32)],
+        )
+        is True
+    )
+    assert np.array_equal(vs.vectors[ids[0]], new_first)
+    assert vs.metadata[ids[0]] == {"label": "first"}
+    assert np.array_equal(vs.vectors[ids[1]], original_kept)
+    assert vs.metadata[ids[1]] == {"label": "second"}
+
+
+def test_sqlite_update_vectors_skips_row_deleted_in_the_backend(tmp_path):
+    """An id removed in SQLite stays unchanged in the mirror and in save()."""
+    pytest.importorskip("sqlite_vec")
+    import os
+
+    vs = VectorStore(
+        backend="sqlite",
+        config={"db_path": str(tmp_path / "vectors.db"), "dimension": 2},
+    )
+    original = np.array([0.1, 0.2], dtype=np.float32)
+    kept = np.array([0.3, 0.4], dtype=np.float32)
+    ids = vs.store_vectors(
+        [original, kept],
+        metadata=[{"label": "gone"}, {"label": "kept"}],
+    )
+    assert vs._backend_store.delete([ids[0]]) is True
+
+    new_gone = np.array([0.9, 0.9], dtype=np.float32)
+    new_kept = np.array([0.8, 0.8], dtype=np.float32)
+    assert (
+        vs.update_vectors(
+            ids,
+            [new_gone, new_kept],
+            metadata=[{"label": "new-gone"}, {"label": "new-kept"}],
+        )
+        is True
+    )
+
+    assert np.array_equal(vs.vectors[ids[0]], original)
+    assert vs.metadata[ids[0]] == {"label": "gone"}
+    assert np.array_equal(vs.vectors[ids[1]], new_kept)
+    assert vs.metadata[ids[1]] == {"label": "new-kept"}
+    assert [row["id"] for row in vs._backend_store.get(ids)] == [ids[1]]
+
+    save_dir = str(tmp_path / "saved")
+    vs.save(save_dir)
+    with open(os.path.join(save_dir, "store_data.json"), encoding="utf-8") as f:
+        saved = json.load(f)
+    assert saved["vectors"][ids[0]] == pytest.approx([0.1, 0.2])
+    assert saved["metadata"][ids[0]] == {"label": "gone"}
+    assert saved["vectors"][ids[1]] == pytest.approx([0.8, 0.8])
+    assert saved["metadata"][ids[1]] == {"label": "new-kept"}

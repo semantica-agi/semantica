@@ -280,6 +280,9 @@ def test_get_stats_uses_points_count_when_vectors_count_absent():
     VectorParams instance), points_count is the correct substitute.
     indexed_vectors_count must NOT be used: it counts only vectors
     in optimised segments and is 0 for freshly-inserted data."""
+    # Needs the optional vectorstore-qdrant extra; skip rather than fail on a
+    # core install.
+    pytest.importorskip("qdrant_client")
     from qdrant_client.models import VectorParams, Distance
     store = QdrantStore()
     store.client = MagicMock()
@@ -308,6 +311,9 @@ def test_get_stats_vectors_count_equals_points_count_when_vectors_count_absent()
     vector collection the fallback is points_count, so both keys are equal.
     indexed_vectors_count is intentionally absent from this mock to confirm
     it is not required by the fallback path."""
+    # Needs the optional vectorstore-qdrant extra; skip rather than fail on a
+    # core install.
+    pytest.importorskip("qdrant_client")
     from qdrant_client.models import VectorParams, Distance
     store = QdrantStore()
     store.client = MagicMock()
@@ -331,6 +337,9 @@ def test_get_stats_vectors_count_is_none_for_named_multi_vector_collection():
     """When vectors_count is absent and the collection uses named/multi vectors
     (config.params.vectors is a dict), the total cannot be inferred and
     vectors_count must be None rather than a misleading points_count value."""
+    # Needs the optional vectorstore-qdrant extra; skip rather than fail on a
+    # core install.
+    pytest.importorskip("qdrant_client")
     from qdrant_client.models import VectorParams, Distance
     store = QdrantStore()
     store.client = MagicMock()

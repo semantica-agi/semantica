@@ -13,6 +13,7 @@ from pydantic import BaseModel
 
 from ..utils.exceptions import ProcessingError
 from ..utils.logging import get_logger
+from ..semantic_extract.providers import ResponseText
 
 logger = get_logger("llms.litellm")
 
@@ -130,6 +131,21 @@ class LiteLLM:
         self.api_key = api_key
         self.config = kwargs
 
+    def _resolve_model(self, options: Dict[str, Any]) -> str:
+        """Pop a per-call ``model`` from ``options`` and return the model to use.
+
+        The per-call value is removed so ``completion()`` does not receive
+        ``model`` twice. It wins only when it is a string that names a model
+        (its ``strip()`` is not empty); anything else - absent, ``None``, empty,
+        whitespace-only or not a string - falls back to ``self.model``. This is
+        the rule ``_track_llm_call`` uses to record the model, so a provenance
+        entry names the model that was actually sent.
+        """
+        model = options.pop("model", None)
+        if isinstance(model, str) and model.strip():
+            return model
+        return self.model
+
     def is_available(self) -> bool:
         """Check if LiteLLM provider is available."""
         return LITELLM_AVAILABLE
@@ -156,28 +172,45 @@ class LiteLLM:
         try:
             # Merge config with kwargs
             options = {**self.config, **kwargs}
+            model = self._resolve_model(options)
             
             # Prepare messages
             messages = [{"role": "user", "content": prompt}]
             
             # Call LiteLLM completion
             response = completion(
-                model=self.model,
+                model=model,
                 messages=messages,
                 api_key=self.api_key,
                 **options
             )
             
+            # Metadata the provenance wrappers read back off the returned value.
+            # Only usage and cost are kept: the rest of _hidden_params can hold
+            # api_base and provider response headers.
+            hidden_params = getattr(response, '_hidden_params', None) or {}
+            usage = getattr(response, 'usage', None)
+            if usage is None and isinstance(response, dict):
+                usage = response.get('usage')
+            meta = {
+                "usage": usage,
+                "cost": hidden_params.get('response_cost'),
+            }
+
+            def _wrap(content):
+                # Tool-call, refusal and content-filter replies carry no text.
+                return None if content is None else ResponseText(content, **meta)
+
             # Extract text from response
             if hasattr(response, 'choices') and len(response.choices) > 0:
-                return response.choices[0].message.content
+                return _wrap(response.choices[0].message.content)
             elif isinstance(response, dict):
                 if 'choices' in response and len(response['choices']) > 0:
-                    return response['choices'][0]['message']['content']
+                    return _wrap(response['choices'][0]['message']['content'])
                 elif 'content' in response:
-                    return response['content']
+                    return _wrap(response['content'])
             elif isinstance(response, str):
-                return response
+                return _wrap(response)
             
             raise ProcessingError(f"Unexpected response format from LiteLLM: {type(response)}")
             
@@ -212,13 +245,14 @@ class LiteLLM:
             
             # Merge config with kwargs
             options = {**self.config, **kwargs}
+            model = self._resolve_model(options)
             
             # Prepare messages
             messages = [{"role": "user", "content": json_prompt}]
             
             # Call LiteLLM completion
             response = completion(
-                model=self.model,
+                model=model,
                 messages=messages,
                 api_key=self.api_key,
                 **options
@@ -284,6 +318,7 @@ class LiteLLM:
             )
 
         options = {**self.config, **kwargs}
+        model = self._resolve_model(options)
 
         # Preferred path: instructor drives the schema and retries natively.
         # Only an instructor setup failure falls through to the manual loop - a
@@ -302,7 +337,7 @@ class LiteLLM:
             if client is not None:
                 try:
                     return client.chat.completions.create(
-                        model=self.model,
+                        model=model,
                         messages=[{"role": "user", "content": prompt}],
                         api_key=self.api_key,
                         response_model=schema,

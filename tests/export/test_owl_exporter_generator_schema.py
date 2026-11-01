@@ -185,7 +185,9 @@ def test_a_class_without_any_identifier_is_skipped_not_emitted_as_empty():
 
 def test_a_name_with_a_space_still_mints_a_valid_iri():
     """The name fallback pasted free text onto a base, producing `<... ...>`."""
-    import pyoxigraph
+    # Needs the optional tripletstore-oxigraph extra; skip rather than fail on a
+    # core install.
+    pyoxigraph = pytest.importorskip("pyoxigraph")
 
     ontology = {
         "uri": "https://example.org/onto/",

@@ -48,7 +48,7 @@ python -m mcp [--debug]
 | `record_decision` | Record a decision with context, confidence, causal links |
 | `query_decisions` | Query decisions by natural language or structured filters |
 | `find_precedents` | Find past decisions similar to a scenario (hybrid similarity) |
-| `get_causal_chain` | Trace upstream/downstream causal chain from a decision |
+| `get_causal_chain` | Trace the upstream, downstream or both causal chains from a decision |
 | `analyze_decision_impact` | Analyse downstream influence of a decision |
 | `link_decisions` | Create a causal relationship (CAUSED, INFLUENCED, PRECEDENT_FOR) between two decisions |
 

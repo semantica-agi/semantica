@@ -109,6 +109,7 @@
               "integrations/databricks",
               "integrations/bigquery",
               "integrations/salesforce",
+              "integrations/dynamics365",
               "integrations/airflow",
               "integrations/tableau",
               "integrations/redshift",
@@ -204,6 +205,7 @@
             "group": "Context & Intelligence",
             "pages": [
               "reference/context",
+              "reference/grounded_context",
               "reference/kg",
               "reference/temporal",
               "reference/distance",

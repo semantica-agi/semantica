@@ -485,3 +485,73 @@ def test_chunked_adjacency_keeps_a_neighbour_from_another_chunk():
 
     assert sorted(chunked[0]) == [1]
     assert sorted(chunked[1]) == [0, 2]
+
+
+def test_detect_communities_method_casing_and_separator_variations(monkeypatch):
+    """Casing, dashes and condensed names route without falling back."""
+    called_methods = []
+
+    def mock_lp(self, graph, **kwargs):
+        called_methods.append("label_propagation")
+        return {"communities": []}
+
+    monkeypatch.setattr(
+        CommunityDetector, "detect_communities_label_propagation", mock_lp
+    )
+
+    detector = CommunityDetector()
+    graph = nx.path_graph(4)
+
+    # Test all variations mentioned in issue #1925
+    variations = [
+        "Label_Propagation",
+        "label-propagation",
+        "labelpropagation",
+        "LABEL_PROPAGATION",
+    ]
+    for variant in variations:
+        called_methods.clear()
+        detector.detect_communities(graph, method=variant)
+        assert called_methods == [
+            "label_propagation"
+        ], f"Failed for method variant: {variant}"
+
+
+def test_detect_communities_unrecognized_method_logs_warning_and_falls_back(caplog):
+    """An unrecognized method logs one warning and still runs Louvain."""
+    with caplog.at_level(logging.WARNING, logger="semantica.community_detector"):
+        result = CommunityDetector().detect_communities(
+            _graph_dict(), method="unknown_typo_method"
+        )
+
+    assert result["algorithm"] == "louvain"
+    assert result["communities"]
+
+    warnings = [
+        record
+        for record in caplog.records
+        if "Unrecognized community detection method 'unknown_typo_method'. "
+        "Falling back to active algorithm 'louvain'." in record.getMessage()
+    ]
+    assert len(warnings) == 1
+    assert warnings[0].name == "semantica.community_detector"
+    assert warnings[0].levelno == logging.WARNING
+
+
+def test_detect_communities_algorithm_casing_parity(monkeypatch):
+    """Verify that algorithm parameter handles casing variations consistently."""
+    called_methods = []
+
+    def mock_lp(self, graph, **kwargs):
+        called_methods.append("label_propagation")
+        return {"communities": []}
+
+    monkeypatch.setattr(
+        CommunityDetector, "detect_communities_label_propagation", mock_lp
+    )
+
+    detector = CommunityDetector()
+    graph = nx.path_graph(4)
+
+    detector.detect_communities(graph, algorithm="Label_Propagation")
+    assert called_methods == ["label_propagation"]

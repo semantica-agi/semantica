@@ -304,6 +304,33 @@ class QualityError(SemanticaError):
         self.metrics = details.get("metrics", {})
 
 
+class ProvenanceRecordingError(SemanticaError):
+    """
+    Exception raised when an operation completes but its provenance record
+    could not be written, so the result has no audit trail behind it.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        provenance_context: Optional[Dict[str, Any]] = None,
+        **details: Any,
+    ):
+        """
+        Initialize provenance recording error.
+
+        Args:
+            message: Provenance recording error message
+            provenance_context: Provenance context dictionary
+            **details: Additional details (e.g. entity_id)
+        """
+        super().__init__(
+            message, context=provenance_context, error_code="SEM007", **details
+        )
+        self.provenance_context = provenance_context or {}
+        self.entity_id = details.get("entity_id")
+
+
 def handle_exception(
     exception: Exception, context: Optional[Dict[str, Any]] = None, **options: Any
 ) -> Dict[str, Any]:

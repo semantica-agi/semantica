@@ -448,6 +448,10 @@ class TestKGConsumerCompatibility:
 
     def test_node_embedder_build_adjacency_normalizes_enriched_dicts(self):
         """NodeEmbedder._build_adjacency strips enriched dicts to node IDs (no crash, no None)."""
+        # Constructing NodeEmbedder requires gensim (the optional
+        # graph-embeddings extra); see tests/test_issue_1513_slim_core.py
+        # for the contract that it raises without it.
+        pytest.importorskip("gensim")
         from semantica.kg.node_embeddings import NodeEmbedder
 
         g = self._graph_with_nodes([("A", "Person"), ("B", "Person"), ("C", "Person")])

@@ -256,6 +256,7 @@ class TestComprehensiveIntegration:
         
         # Community detection
         communities = community_detector.detect_communities(graph_dict, method='label_propagation')
+        assert communities['algorithm'] == 'label_propagation'
         comm_id = tracker.track_community_detection(
             graph=network_graph,
             communities=communities['communities'],
@@ -453,6 +454,7 @@ class TestComprehensiveIntegration:
             # Community detection
             if graph.number_of_edges() > 0:
                 communities = community_detector.detect_communities(graph_dict, method='label_propagation')
+                assert communities['algorithm'] == 'label_propagation'
                 layer_results[f"{layer_name}_communities"] = communities
                 comm_id = tracker.track_community_detection(
                     graph=graph,

@@ -96,25 +96,14 @@ class VisualizationConfig:
                     if config_data and "visualization" in config_data:
                         self._config.update(config_data["visualization"])
             elif file_path.suffix == ".toml":
-                try:
-                    import tomli
+                # stdlib since 3.11, the supported floor, so the old tomli -> tomllib
+                # fallback is no longer needed.
+                import tomllib
 
-                    with open(file_path, "rb") as f:
-                        config_data = tomli.load(f)
-                        if config_data and "visualization" in config_data:
-                            self._config.update(config_data["visualization"])
-                except (ImportError, OSError):
-                    try:
-                        import tomllib
-
-                        with open(file_path, "rb") as f:
-                            config_data = tomllib.load(f)
-                            if config_data and "visualization" in config_data:
-                                self._config.update(config_data["visualization"])
-                    except (ImportError, OSError):
-                        self.logger.warning(
-                            "TOML parser not available. Install tomli or use Python 3.11+"
-                        )
+                with open(file_path, "rb") as f:
+                    config_data = tomllib.load(f)
+                    if config_data and "visualization" in config_data:
+                        self._config.update(config_data["visualization"])
         except Exception as e:
             self.logger.error(f"Failed to load config file: {e}")
 

@@ -1,7 +1,7 @@
 """Internal graph view helpers shared by KG analytics modules."""
 
 from dataclasses import dataclass
-from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Set, Tuple
 
 
 @dataclass
@@ -185,12 +185,14 @@ def _edge_type_of(edge: Any) -> Any:
 
 @dataclass
 class EdgeTypeIndex:
-    """The declared edge types of a plain graph dictionary, read once.
+    """The declared edge types of a graph's edge list, read once.
 
     ``typed`` records whether any edge record declares a type at all;
     ``by_pair`` maps each ``(source, target)`` to the types declared from
     ``source`` to ``target``; ``untyped`` holds every ``(source, target)``
-    joined by at least one edge that declares no type.
+    joined by at least one edge that declares no type. The index records the
+    edges as declared; :func:`edge_types_between` decides what an untyped edge
+    means for each kind of graph.
     """
 
     typed: bool
@@ -198,14 +200,18 @@ class EdgeTypeIndex:
     untyped: Set[Tuple[Any, Any]]
 
 
-def build_edge_type_index(graph: Dict[str, Any]) -> EdgeTypeIndex:
-    """Read a graph dictionary's edge records once for repeated type lookups.
+def _context_edges(graph: Any) -> Optional[Sequence[Any]]:
+    """Return a ``ContextGraph``-style edge list, or ``None`` for other graphs."""
+    edges = getattr(graph, "edges", None)
+    if isinstance(edges, (list, tuple)) and any(
+        hasattr(edge, "source_id") for edge in edges
+    ):
+        return edges
+    return None
 
-    A caller that classifies many links passes the result to
-    :func:`edge_types_between`, so the edge list is scanned once per graph
-    instead of once per link.
-    """
-    edges = _extract_edges(graph)
+
+def _index_edges(edges: Iterable[Any]) -> EdgeTypeIndex:
+    """Read edge records once into an :class:`EdgeTypeIndex`."""
     by_pair: Dict[Tuple[Any, Any], Set[Any]] = {}
     untyped: Set[Tuple[Any, Any]] = set()
     typed = False
@@ -228,6 +234,33 @@ def build_edge_type_index(graph: Dict[str, Any]) -> EdgeTypeIndex:
     return EdgeTypeIndex(typed=typed, by_pair=by_pair, untyped=untyped)
 
 
+def build_edge_type_index(graph: Any) -> Optional[EdgeTypeIndex]:
+    """Read a graph's edge records once for repeated type lookups.
+
+    A caller that classifies many links passes the result to
+    :func:`edge_types_between`, so the edge list is scanned once per graph
+    instead of once per link. A plain graph dictionary and a ``ContextGraph``
+    are indexed; any other graph is answered through ``get_edge_data()`` and
+    gets ``None``.
+    """
+    if isinstance(graph, dict):
+        return _index_edges(_extract_edges(graph))
+    context_edges = _context_edges(graph)
+    if context_edges is None:
+        return None
+    return _index_edges(context_edges)
+
+
+def _pair_types(
+    index: EdgeTypeIndex, source: Any, target: Any, directed: bool
+) -> Set[Any]:
+    """Union a pair's indexed types, reading both ways unless ``directed``."""
+    types: Set[Any] = set(index.by_pair.get((source, target), ()))
+    if not directed:
+        types |= index.by_pair.get((target, source), set())
+    return types
+
+
 def _dict_edge_types(
     graph: Dict[str, Any],
     source: Any,
@@ -243,18 +276,14 @@ def _dict_edge_types(
     edge, so typed records elsewhere in the graph do not change it.
     """
     if index is None:
-        index = build_edge_type_index(graph)
+        index = _index_edges(_extract_edges(graph))
     if not index.typed:
         return None
     if (source, target) in index.untyped or (
         not directed and (target, source) in index.untyped
     ):
         return None
-
-    types: Set[Any] = set(index.by_pair.get((source, target), ()))
-    if not directed:
-        types |= index.by_pair.get((target, source), set())
-    return types
+    return _pair_types(index, source, target, directed)
 
 
 def _node_id(value: Any) -> Any:
@@ -377,27 +406,18 @@ def edge_types_between(
     mapping for a multigraph.
 
     ``edge_types`` is an optional :func:`build_edge_type_index` result for a
-    plain graph dictionary. A caller classifying many links builds it once, so
-    the lookup does not rescan the edge list for every pair.
+    plain graph dictionary or a ``ContextGraph``. A caller classifying many
+    links builds it once, so the lookup does not rescan the edge list for every
+    pair.
     """
     if isinstance(graph, dict):
         return _dict_edge_types(graph, source, target, directed, edge_types)
 
-    edges = getattr(graph, "edges", None)
-    if isinstance(edges, (list, tuple)) and any(
-        hasattr(edge, "source_id") for edge in edges
-    ):
-        types: Set[Any] = set()
-        for edge in edges:
-            src = getattr(edge, "source_id", None)
-            dst = getattr(edge, "target_id", None)
-            forwards = src == source and dst == target
-            backwards = src == target and dst == source
-            if forwards or (backwards and not directed):
-                edge_type = getattr(edge, "edge_type", None)
-                if edge_type:
-                    types.add(edge_type)
-        return types
+    # Only a ContextGraph has an index here. It answers for the pair as a
+    # whole, so its untyped edges add nothing and such a pair gets an empty set.
+    index = edge_types if edge_types is not None else build_edge_type_index(graph)
+    if index is not None:
+        return _pair_types(index, source, target, directed)
 
     if hasattr(graph, "get_edge_data"):
         data = graph.get_edge_data(source, target)

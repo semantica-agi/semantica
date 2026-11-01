@@ -138,6 +138,11 @@ if TYPE_CHECKING:
         BigQueryData,
         BigQueryIngestor,
     )
+    from .dynamics365_ingestor import (
+        Dynamics365Connector,
+        Dynamics365Data,
+        Dynamics365Ingestor,
+    )
     from .powerbi_ingestor import (
         PowerBIConnector,
         PowerBIData,
@@ -275,6 +280,10 @@ _LAZY_EXPORTS: Dict[str, Tuple[str, str]] = {
     "TableauIngestor": (".tableau_ingestor", "TableauIngestor"),
     "TableauData": (".tableau_ingestor", "TableauData"),
     "TableauConnector": (".tableau_ingestor", "TableauConnector"),
+    # Dynamics 365 ingestion
+    "Dynamics365Ingestor": (".dynamics365_ingestor", "Dynamics365Ingestor"),
+    "Dynamics365Data": (".dynamics365_ingestor", "Dynamics365Data"),
+    "Dynamics365Connector": (".dynamics365_ingestor", "Dynamics365Connector"),
     # Redshift ingestion
     "RedshiftIngestor": (".redshift_ingestor", "RedshiftIngestor"),
     "RedshiftData": (".redshift_ingestor", "RedshiftData"),
@@ -346,6 +355,10 @@ _OPTIONAL_DEPENDENCY_MESSAGES = {
         "Tableau ingestion requires optional dependency 'tableauserverclient'. "
         "Install it with: pip install 'semantica[ingest-tableau]'"
     ),
+    ".dynamics365_ingestor": (
+        "Dynamics 365 ingestion requires optional dependency 'msal'. "
+        "Install it with: pip install 'semantica[ingest-dynamics365]'"
+    ),
     ".redshift_ingestor": (
         "Redshift ingestion requires optional dependency 'redshift-connector'. "
         "Install it with: pip install 'semantica[db-redshift]'"
@@ -404,6 +417,27 @@ def __getattr__(name: str) -> Any:
             if message:
                 raise ImportError(message)
 
+    if module_name == ".web_ingestor" and name in {
+        "WebIngestor",
+        "ContentExtractor",
+    }:
+        if getattr(module, "BeautifulSoup", None) is None:
+            message = _OPTIONAL_DEPENDENCY_MESSAGES.get(module_name)
+            if message:
+                raise ImportError(message)
+
+    if module_name == ".feed_ingestor" and name in {"FeedIngestor"}:
+        if getattr(module, "BeautifulSoup", None) is None:
+            message = _OPTIONAL_DEPENDENCY_MESSAGES.get(module_name)
+            if message:
+                raise ImportError(message)
+
+    if module_name == ".email_ingestor" and name in {"EmailIngestor"}:
+        if getattr(module, "BeautifulSoup", None) is None:
+            message = _OPTIONAL_DEPENDENCY_MESSAGES.get(module_name)
+            if message:
+                raise ImportError(message)
+
     if module_name == ".xml_ingestor" and name in {"XMLIngestor"}:
         if getattr(module, "etree", None) is None:
             message = _OPTIONAL_DEPENDENCY_MESSAGES.get(module_name)
@@ -436,6 +470,15 @@ def __getattr__(name: str) -> Any:
         "TableauConnector",
     }:
         if not getattr(module, "TABLEAU_AVAILABLE", True):
+            message = _OPTIONAL_DEPENDENCY_MESSAGES.get(module_name)
+            if message:
+                raise ImportError(message)
+
+    if module_name == ".dynamics365_ingestor" and name in {
+        "Dynamics365Ingestor",
+        "Dynamics365Connector",
+    }:
+        if not getattr(module, "DYNAMICS_AVAILABLE", True):
             message = _OPTIONAL_DEPENDENCY_MESSAGES.get(module_name)
             if message:
                 raise ImportError(message)
@@ -579,6 +622,10 @@ __all__ = [
     "TableauIngestor",
     "TableauData",
     "TableauConnector",
+    # Dynamics 365 ingestion
+    "Dynamics365Ingestor",
+    "Dynamics365Data",
+    "Dynamics365Connector",
     # Redshift ingestion
     "RedshiftIngestor",
     "RedshiftData",

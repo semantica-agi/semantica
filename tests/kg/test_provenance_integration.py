@@ -223,6 +223,10 @@ class TestProvenanceIntegration:
     
     def test_node_embeddings_with_provenance(self, sample_graph_data):
         """Test node embeddings with provenance tracking."""
+        # Constructing NodeEmbedder requires gensim (the optional
+        # graph-embeddings extra); see tests/test_issue_1513_slim_core.py
+        # for the contract that it raises without it.
+        pytest.importorskip("gensim")
         embedder = NodeEmbedder()
         embedder.enable_provenance = True
         
@@ -334,15 +338,12 @@ class TestProvenanceIntegration:
         
         # Test different community detection methods
         for method in ['label_propagation', 'louvain']:
-            try:
-                result = community_detector.detect_communities(graph_dict, method=method)
-                assert 'communities' in result
-                assert 'node_assignments' in result
-                assert isinstance(result['communities'], list)
-                assert isinstance(result['node_assignments'], dict)
-            except Exception as e:
-                # Some methods may fail on certain graphs
-                print(f"Warning: {method} community detection failed: {e}")
+            result = community_detector.detect_communities(graph_dict, method=method)
+            assert result['algorithm'] == method
+            assert 'communities' in result
+            assert 'node_assignments' in result
+            assert isinstance(result['communities'], list)
+            assert isinstance(result['node_assignments'], dict)
     
     def test_connectivity_analyzer_with_provenance(self, networkx_graph):
         """Test connectivity analyzer with provenance tracking."""
@@ -366,6 +367,10 @@ class TestProvenanceIntegration:
     
     def test_end_to_end_workflow(self, sample_graph_data, networkx_graph, sample_embeddings):
         """Test complete end-to-end workflow with provenance tracking."""
+        # Constructing NodeEmbedder requires gensim (the optional
+        # graph-embeddings extra); see tests/test_issue_1513_slim_core.py
+        # for the contract that it raises without it.
+        pytest.importorskip("gensim")
         # Initialize all components with provenance
         builder = GraphBuilderWithProvenance(provenance=True)
         tracker = AlgorithmTrackerWithProvenance(provenance=True)

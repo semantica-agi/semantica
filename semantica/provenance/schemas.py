@@ -164,6 +164,14 @@ class ProvenanceEntry:
     metadata: Dict[str, Any] = field(default_factory=dict)
     version: str = "1.0"
 
+    # Checksum encoding version (issue #2136). Rows written before the
+    # injective encoding existed have no value, and verification accepts
+    # either encoding on them (a v1 digest cannot match v2); new rows are
+    # stamped 2 and verified with the length-prefixed scheme only. Kept per row so an existing store keeps
+    # verifying after upgrade without a global allow-legacy flag, and no
+    # caller has to know which format it is looking at.
+    checksum_version: Optional[int] = None
+
     def to_dict(self) -> Dict[str, Any]:
         """
         Convert provenance entry to dictionary.
@@ -211,6 +219,7 @@ class ProvenanceEntry:
             "credibility": self.credibility,
             "metadata": self.metadata,
             "version": self.version,
+            "checksum_version": self.checksum_version,
         }
     
     @classmethod

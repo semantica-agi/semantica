@@ -44,9 +44,7 @@ License: MIT
 import os
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any
-
-from typing_extensions import Self
+from typing import Any, Self
 
 from ..utils.exceptions import ProcessingError, ValidationError
 from ..utils.logging import get_logger
