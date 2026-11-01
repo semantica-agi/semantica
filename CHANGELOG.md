@@ -39,6 +39,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`RepoIngestor.analyze_commits()` returned no commits whenever a filter was set** by @Melihunlu
+  - `max_commits`, `since`, `until` and `author` were built as bare `git log` flags (`-N`, `--since=...`) and passed positionally to `Repo.iter_commits`, which treats positional arguments as the revision and paths. `git rev-list` rejected them with its usage text (exit code 129), the error was only logged, and `ingest_repository(..., commit_filters={"max_commits": N})` silently returned an empty `commits` list. The filters are now passed as `iter_commits` keyword arguments (`max_count`, `since`, `until`, `author`). New `tests/ingest/test_repo_ingestor_commit_filters.py` runs the filters against a real throwaway repository
+
 - **`semantica store stats` and `semantica store flush --confirm` crashed on every call** (fixes #1943) by @pkupt
   - `store stats` called `run_analytics()`, the graph analytics entry point, with `backend=`/`config=` and no `algorithm`, so it raised `TypeError`. It now reads the persisted ContextGraph for `--backend memory` and calls `GraphStore.get_stats()` for neo4j, falkordb, age and neptune, and `--format table` renders a real table
   - `store flush` called `delete_vectors()` with a namespace instead of vector ids and raised `TypeError`. It now clears the target namespace's vectors on the configured vector backend (`--vector-store`, then `vector_store.backend`) and reports how many it removed. FAISS needs `index_path` (the index is loaded first and deletions are written back to it), `inmemory` is rejected because nothing persists between CLI runs, and a backend that cannot list its vectors fails instead of reporting zero

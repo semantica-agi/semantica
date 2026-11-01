@@ -966,19 +966,23 @@ class RepoIngestor:
 
         commits = []
 
-        # Build git log arguments
-        log_args = []
+        # Build ``git rev-list`` options. They must be passed as keyword
+        # arguments: ``Repo.iter_commits`` treats its positional arguments as
+        # the revision and paths, so a bare ``-N`` / ``--since=...`` string
+        # was handed to ``git rev-list`` as the revision (exit code 129, usage
+        # text on stderr) and every filtered call returned no commits.
+        log_kwargs: Dict[str, Any] = {}
         if filters.get("since"):
-            log_args.append(f'--since={filters["since"]}')
+            log_kwargs["since"] = filters["since"]
         if filters.get("until"):
-            log_args.append(f'--until={filters["until"]}')
+            log_kwargs["until"] = filters["until"]
         if filters.get("author"):
-            log_args.append(f'--author={filters["author"]}')
+            log_kwargs["author"] = filters["author"]
         if filters.get("max_commits"):
-            log_args.append(f'-{filters["max_commits"]}')
+            log_kwargs["max_count"] = int(filters["max_commits"])
 
         try:
-            for commit in repo.iter_commits(*log_args):
+            for commit in repo.iter_commits(**log_kwargs):
                 # Get files changed
                 files_changed = list(commit.stats.files.keys())
 
