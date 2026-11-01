@@ -3891,25 +3891,36 @@ class TestStore:
         assert "index_path" in _flatten(result.output)
 
     def test_flush_faiss_loads_the_index_on_disk(self, runner, monkeypatch, tmp_path):
-        loaded = []
-        store = _wire_inmemory_vector_store(monkeypatch, ["default"])
-        store._backend_store = types.SimpleNamespace(load_index=loaded.append)
+        # FAISS itself is an optional extra, so stand in for the store and
+        # check the index on disk is loaded before anything is enumerated.
+        events = []
+
+        class _FaissLike:
+            def __init__(self, **kwargs: Any) -> None:
+                self.ids = ["v1"]
+                self._backend_store = types.SimpleNamespace(
+                    load_index=lambda path: events.append(("load", path)))
+
+            def iter_vectors(self, batch_size: int = 500):
+                events.append(("iter",))
+                return iter([{"id": i, "metadata": {}} for i in self.ids])
+
+            def delete_vectors(self, ids: Any) -> bool:
+                self.ids = [i for i in self.ids if i not in ids]
+                return True
+
+        monkeypatch.setitem(
+            __import__("sys").modules,
+            "semantica.vector_store",
+            _fake_module(VectorStore=_FaissLike),
+        )
         cfg = tmp_path / "cfg.yaml"
         index = tmp_path / "vecs.faiss"
         cfg.write_text(f"vector_store:\n  backend: faiss\n  index_path: {index}\n")
-        # Only load_index is faked here; the deletion itself runs through
-        # the real in-memory path, so detach the stub before it is reached.
-        real_iter = store.iter_vectors
-
-        def _iter(*a: Any, **kw: Any) -> Any:
-            store._backend_store = None
-            return real_iter(*a, **kw)
-
-        monkeypatch.setattr(store, "iter_vectors", _iter)
         result = runner.invoke(
             cli_module.main, ["--config", str(cfg), "store", "flush", "--confirm"])
         _ok(result)
-        assert loaded == [str(index)]
+        assert events[0] == ("load", str(index))
         assert "1 vectors removed" in result.output
 
     def test_flush_rejects_the_inmemory_backend(self, runner, monkeypatch):
