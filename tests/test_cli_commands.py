@@ -101,16 +101,15 @@ def _json_output(result) -> Any:
     return json.loads(result.output.strip())
 
 
-def _wire_inmemory_vector_store(monkeypatch, namespaces):
+def _wire_inmemory_vector_store(monkeypatch, namespaces, built=None):
     """Point the CLI at a real in-memory VectorStore, one vector per namespace.
 
     store flush reads what the backend actually holds, so its tests drive the
-    real VectorStore API instead of stubbing delete_vectors() and
-    manage_namespace() — stubbing those is what hid the fact that the real
-    dispatcher passed vector_id both positionally and as a keyword (#1943).
-    Only the constructor call is redirected, because the CLI's config object
-    cannot be injected through CliRunner. Returns the store so a test can
-    inspect what survived.
+    real VectorStore API instead of stubbing delete_vectors() — a
+    ``lambda **kw`` stub is what hid the original TypeError (#1943). Only the
+    constructor call is redirected; its kwargs are appended to ``built`` so a
+    test can assert which backend and config the CLI asked for. Returns the
+    store so a test can inspect what survived.
     """
     import sys as _sys
 
@@ -139,10 +138,15 @@ def _wire_inmemory_vector_store(monkeypatch, namespaces):
             [np.zeros(4) for _ in namespaces],
             metadata=[{"namespace": name} for name in namespaces],
         )
+    def _construct(**kwargs: Any) -> Any:
+        if built is not None:
+            built.append(kwargs)
+        return store
+
     monkeypatch.setitem(
         _sys.modules,
         "semantica.vector_store",
-        _fake_module(VectorStore=lambda **kwargs: store),
+        _fake_module(VectorStore=_construct),
     )
     return store
 
@@ -3840,22 +3844,80 @@ class TestStore:
     def test_flush_removes_only_the_named_namespace(self, runner, monkeypatch):
         # The old implementation read a namespace registry that ordinary
         # storage never populates, so it reported zero removals against real
-        # data (#1943). This drives the real VectorStore API; the previous
-        # fake also hid that manage_namespace() passed vector_id twice.
-        store = _wire_inmemory_vector_store(monkeypatch, ["default", "production"])
-        result = runner.invoke(cli_module.main, ["store", "flush", "--confirm"])
+        # data (#1943). This drives the real VectorStore API.
+        built: list = []
+        store = _wire_inmemory_vector_store(
+            monkeypatch, ["default", "production"], built)
+        result = runner.invoke(
+            cli_module.main, ["--vector-store", "sqlite", "store", "flush", "--confirm"])
         _ok(result)
         assert "1 vectors removed" in result.output
         remaining = [item["metadata"]["namespace"] for item in store.iter_vectors()]
         assert remaining == ["production"]
+        assert built[0]["backend"] == "sqlite"
 
     def test_flush_reports_zero_for_an_empty_namespace(self, runner, monkeypatch):
         store = _wire_inmemory_vector_store(monkeypatch, ["default"])
         result = runner.invoke(
-            cli_module.main, ["store", "flush", "--namespace", "nope", "--confirm"])
+            cli_module.main,
+            ["--vector-store", "sqlite", "store", "flush", "--namespace", "nope", "--confirm"])
         _ok(result)
         assert "nope" in result.output and "0 vectors" in result.output
         assert len(list(store.iter_vectors())) == 1
+
+    def test_flush_uses_the_configured_vector_backend(
+        self, runner, monkeypatch, tmp_path
+    ):
+        # vector_store.backend is what every other vector command builds; the
+        # flush must not silently fall back to an empty faiss store instead.
+        cfg = tmp_path / "cfg.yaml"
+        cfg.write_text("vector_store:\n  backend: pgvector\n  table: vecs\n")
+        built: list = []
+        _wire_inmemory_vector_store(monkeypatch, ["default"], built)
+        result = runner.invoke(
+            cli_module.main, ["--config", str(cfg), "store", "flush", "--confirm"])
+        _ok(result)
+        assert "1 vectors removed" in result.output
+        assert built[0]["backend"] == "pgvector"
+        assert built[0]["config"] == {"table": "vecs"}
+
+    def test_flush_faiss_requires_index_path(self, runner, monkeypatch):
+        # A fresh FAISSStore starts empty, so without an index on disk the
+        # flush would report success while deleting nothing.
+        _wire_inmemory_vector_store(monkeypatch, ["default"])
+        result = runner.invoke(
+            cli_module.main, ["--vector-store", "faiss", "store", "flush", "--confirm"])
+        assert result.exit_code != 0
+        assert "index_path" in _flatten(result.output)
+
+    def test_flush_faiss_loads_the_index_on_disk(self, runner, monkeypatch, tmp_path):
+        loaded = []
+        store = _wire_inmemory_vector_store(monkeypatch, ["default"])
+        store._backend_store = types.SimpleNamespace(load_index=loaded.append)
+        cfg = tmp_path / "cfg.yaml"
+        index = tmp_path / "vecs.faiss"
+        cfg.write_text(f"vector_store:\n  backend: faiss\n  index_path: {index}\n")
+        # Only load_index is faked here; the deletion itself runs through
+        # the real in-memory path, so detach the stub before it is reached.
+        real_iter = store.iter_vectors
+
+        def _iter(*a: Any, **kw: Any) -> Any:
+            store._backend_store = None
+            return real_iter(*a, **kw)
+
+        monkeypatch.setattr(store, "iter_vectors", _iter)
+        result = runner.invoke(
+            cli_module.main, ["--config", str(cfg), "store", "flush", "--confirm"])
+        _ok(result)
+        assert loaded == [str(index)]
+        assert "1 vectors removed" in result.output
+
+    def test_flush_rejects_the_inmemory_backend(self, runner, monkeypatch):
+        _wire_inmemory_vector_store(monkeypatch, ["default"])
+        result = runner.invoke(
+            cli_module.main, ["--vector-store", "inmemory", "store", "flush", "--confirm"])
+        assert result.exit_code != 0
+        assert "does not persist" in _flatten(result.output)
 
     def test_flush_fails_loudly_when_backend_cannot_enumerate(
         self, runner, monkeypatch
@@ -3874,13 +3936,31 @@ class TestStore:
             "semantica.vector_store",
             _fake_module(VectorStore=_NoEnumeration),
         )
-        result = runner.invoke(cli_module.main, ["store", "flush", "--confirm"])
+        result = runner.invoke(
+            cli_module.main, ["--vector-store", "sqlite", "store", "flush", "--confirm"])
         assert result.exit_code != 0
         assert "cannot enumerate" in _flatten(result.output)
 
     def test_stats_requires_backend(self, runner):
         result = runner.invoke(cli_module.main, ["store", "stats"])
         assert result.exit_code != 0
+
+    def test_stats_memory_backend_reads_the_context_graph(
+        self, runner, graph_cfg, tmp_path
+    ):
+        # memory is the default graph backend and the one #1943 reported;
+        # it is served by the persisted ContextGraph, not GraphStore.
+        from semantica.context import ContextGraph
+
+        graph = ContextGraph()
+        graph.add_node("n1", "Entity")
+        graph.add_node("n2", "Entity")
+        graph.save_to_file(tmp_path / "graph.json")
+        result = runner.invoke(
+            cli_module.main,
+            ["--config", graph_cfg, "store", "stats", "--backend", "memory", "--json"])
+        _ok(result)
+        assert _json_output(result)["node_count"] == 2
 
     def test_stats_dispatches_through_graph_store(self, runner, monkeypatch):
         # store stats used to call run_analytics(backend=..., config=...),

@@ -426,13 +426,10 @@ def manage_namespace(namespace_name: str, operation: str, **options) -> Any:
     elif operation == "delete":
         return manager.delete_namespace(namespace_name, **options)
     elif operation == "add_vector":
-        # pop(), not get(): the remaining options are forwarded as keywords, so
-        # leaving vector_id in them passes it twice (positional + keyword) and
-        # raises TypeError before the call ever runs (#1943).
-        vector_id = options.pop("vector_id", None)
+        vector_id = options.get("vector_id")
         return manager.add_vector_to_namespace(vector_id, namespace_name, **options)
     elif operation == "remove_vector":
-        vector_id = options.pop("vector_id", None)
+        vector_id = options.get("vector_id")
         return manager.remove_vector_from_namespace(
             vector_id, namespace_name, **options
         )
