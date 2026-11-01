@@ -1614,8 +1614,12 @@ def _memory_decision_records(
     ]
 
 
-def _get_graph_store(cli_ctx: CLIContext) -> Any:
-    """Return a GraphStore instance wired from the current CLIContext config."""
+def _get_graph_store(cli_ctx: CLIContext, backend: Optional[str] = None) -> Any:
+    """Return a GraphStore instance wired from the current CLIContext config.
+
+    ``backend`` overrides the configured/store backend for callers that take
+    their own ``--backend`` option.
+    """
     from .graph_store import GraphStore
     cfg = cli_ctx.config.to_dict()
     graph_db = dict(cfg.get("graph_db", {}))
@@ -1624,8 +1628,8 @@ def _get_graph_store(cli_ctx: CLIContext) -> Any:
     # so an override left the configured backend in the kwargs and GraphStore
     # received it twice.
     configured = graph_db.pop("backend", None)
-    backend = cli_ctx.store_backend or configured or _DEFAULT_GRAPH_BACKEND
-    if backend == MEMORY_GRAPH_BACKEND:
+    resolved = backend or cli_ctx.store_backend or configured or _DEFAULT_GRAPH_BACKEND
+    if resolved == MEMORY_GRAPH_BACKEND:
         # Reached only if a new caller forgets to route memory through
         # ContextGraph; GraphStore would raise "Unknown backend: memory".
         raise click.ClickException(
@@ -1633,7 +1637,7 @@ def _get_graph_store(cli_ctx: CLIContext) -> Any:
             "this command has not been wired for it yet. Use --store neo4j "
             "(or falkordb/age/neptune) for a real graph database."
         )
-    return GraphStore(backend=backend, **graph_db)
+    return GraphStore(backend=resolved, **graph_db)
 
 
 def _load_policy_rules(path: str) -> Dict[str, Any]:
@@ -5802,15 +5806,25 @@ def store_stats(cli_ctx: CLIContext, backend: str, fmt: str, local_json: bool) -
     cli_ctx = _require_ctx(cli_ctx)
 
     def _action() -> None:
-        try:
-            from .graph_store import run_analytics
-            stats = run_analytics(backend=backend, config=cli_ctx.config.to_dict())
-        except ImportError as exc:
-            raise click.ClickException(f"Graph store module not available: {exc}") from exc
+        # run_analytics() is the graph analytics entry point and takes an
+        # algorithm name, not a backend, so passing backend=/config= raised a
+        # TypeError on every call (#1943). memory is served by ContextGraph,
+        # like every other graph command; the rest go through GraphStore.
+        if backend == MEMORY_GRAPH_BACKEND:
+            stats = _load_context_graph(cli_ctx).stats()
+        else:
+            stats = _get_graph_store(cli_ctx, backend=backend).get_stats()
         if _is_json(cli_ctx, local_json) or fmt == "json":
             _jecho(stats if isinstance(stats, dict) else {"stats": str(stats)})
         else:
-            console.print(stats)
+            table = Table(title="[bold]Backend Statistics[/bold]",
+                          box=_TABLE_BOX, show_edge=False, padding=(0, 1))
+            table.add_column("Metric", style=_KEY, no_wrap=True)
+            table.add_column("Value", style=_VAL)
+            items = stats.items() if isinstance(stats, dict) else []
+            for k, v in items:
+                table.add_row(str(k), str(v))
+            console.print(table)
 
     _run_with_error_handling(_action)
 
@@ -5837,12 +5851,12 @@ def _migrate_backend_config(vs_cfg: Dict[str, Any], backend: str) -> Dict[str, A
 
 def _require_faiss_index_path(cfg: Dict[str, Any], role: str) -> str:
     """FAISS has no server to hold state between commands: a fresh FAISSStore
-    starts empty and nothing outside the process persists it, so migration
-    needs an explicit on-disk index to read from or write to."""
+    starts empty and nothing outside the process persists it, so migrate and
+    flush need an explicit on-disk index to read from or write to."""
     index_path = cfg.get("index_path")
     if not index_path:
         raise click.ClickException(
-            f"faiss as migration {role} requires 'index_path' in the vector_store "
+            f"faiss as {role} requires 'index_path' in the vector_store "
             f"config (vector_store.faiss.index_path or vector_store.index_path "
             f"when faiss is the configured backend)."
         )
@@ -5896,10 +5910,10 @@ def store_migrate(cli_ctx: CLIContext, from_backend: str, to_backend: str,
 
         source_index_path = None
         if from_backend == "faiss":
-            source_index_path = _require_faiss_index_path(source_cfg, "source")
+            source_index_path = _require_faiss_index_path(source_cfg, "migration source")
         dest_index_path = None
         if to_backend == "faiss":
-            dest_index_path = _require_faiss_index_path(dest_cfg, "destination")
+            dest_index_path = _require_faiss_index_path(dest_cfg, "migration destination")
 
         source = VectorStore(backend=from_backend, config=source_cfg)
         if source_index_path:
@@ -5963,12 +5977,69 @@ def store_flush(cli_ctx: CLIContext, namespace: Optional[str], confirm: bool) ->
     def _action() -> None:
         if not confirm:
             raise click.UsageError("--confirm is required to flush a namespace.")
+        # A namespace is a metadata convention (store migrate writes
+        # metadata["namespace"]), not a registry that ordinary storage keeps in
+        # sync, so a flush has to enumerate what the configured backend
+        # actually holds instead of reading namespace membership that
+        # store_vectors() never records (#1943). The backend may also be unable
+        # to enumerate at all, and an unsupported capability is not an empty
+        # namespace, so that path fails loudly rather than reporting zero.
+        from .vector_store import VectorStore
+
+        vs_cfg = cli_ctx.config.to_dict().get("vector_store", {}) or {}
+        default_ns = vs_cfg.get("default_namespace", "default")
+        target = namespace or default_ns
+        # The backend every other vector command builds (--vector-store, then
+        # vector_store.backend), not a key the CLI never sets.
+        backend = _configured_vector_backend(cli_ctx) or _DEFAULT_VECTOR_BACKEND
+        if backend == "inmemory":
+            raise click.ClickException(
+                "The 'inmemory' vector backend does not persist between CLI "
+                "invocations, so there is nothing to flush."
+            )
+        backend_cfg = _migrate_backend_config(vs_cfg, backend)
+        # A fresh FAISSStore starts empty, so flushing it would report success
+        # without touching the index on disk. Load it first; FAISSStore then
+        # writes deletions back to that path itself.
+        index_path = (
+            _require_faiss_index_path(backend_cfg, "the flush target")
+            if backend == "faiss" else None
+        )
+        store = VectorStore(backend=backend, config=backend_cfg)
+        if index_path:
+            store._backend_store.load_index(index_path)
+
+        def _namespace_ids() -> List[str]:
+            return [
+                item["id"]
+                for item in store.iter_vectors()
+                if (item.get("metadata") or {}).get("namespace", default_ns) == target
+            ]
+
         try:
-            from .vector_store import delete_vectors
-            delete_vectors(namespace=namespace, config=cli_ctx.config.to_dict())
-        except ImportError as exc:
-            raise click.ClickException(f"Store module not available: {exc}") from exc
-        _ok(cli_ctx, f"Flushed namespace: {namespace or 'default'}")
+            vector_ids = _namespace_ids()
+        except NotImplementedError as exc:
+            raise click.ClickException(
+                f"Backend '{backend}' cannot enumerate its stored vectors, so "
+                f"namespace '{target}' cannot be flushed selectively. {exc}"
+            ) from exc
+
+        removed = 0
+        if vector_ids:
+            store.delete_vectors(vector_ids)
+            # Report what is verifiably gone, not what was requested: backends
+            # such as FAISS silently ignore ids they no longer hold, and
+            # delete_vectors() reports success for the call as a whole (#1943).
+            still_there = set(_namespace_ids())
+            removed = sum(1 for vector_id in vector_ids if vector_id not in still_there)
+            if removed == 0:
+                raise click.ClickException(
+                    f"None of the {len(vector_ids)} vectors in namespace "
+                    f"'{target}' were removed; backend '{backend}' may not "
+                    "support deletion for this store."
+                )
+
+        _ok(cli_ctx, f"Flushed namespace: {target} ({removed} vectors removed)")
 
     _run_with_error_handling(_action)
 
