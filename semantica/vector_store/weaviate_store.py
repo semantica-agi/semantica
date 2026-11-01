@@ -45,14 +45,19 @@ from ..utils.progress_tracker import get_progress_tracker
 # Optional Weaviate import
 try:
     import weaviate
-    from weaviate.classes.query import MetadataQuery, QueryReturn
+
+    # ``QueryReturn`` used to be imported here next to ``MetadataQuery`` even
+    # though nothing in this module ever used it. weaviate-client 4.16 dropped
+    # the name, and the resulting ImportError marked the whole optional
+    # dependency as missing: every WeaviateStore method then raised
+    # "Weaviate not available" on an installation where weaviate-client works.
+    from weaviate.classes.query import MetadataQuery
 
     WEAVIATE_AVAILABLE = True
 except (ImportError, OSError):
     WEAVIATE_AVAILABLE = False
     weaviate = None
     MetadataQuery = None
-    QueryReturn = None
 
 
 class WeaviateClient:

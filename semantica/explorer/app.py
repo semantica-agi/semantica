@@ -6,7 +6,7 @@ import asyncio
 import os
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Sequence
 
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -16,6 +16,7 @@ from fastapi.staticfiles import StaticFiles
 from .. import __version__
 from ..context.agent_memory import AgentMemory
 from ..context.context_graph import ContextGraph
+from ..provenance.manager import storage_path_from_env
 from .dependencies import anonymous_access_allowed, get_expected_api_key, require_auth
 from .markdown_resources import MarkdownResourceRegistry
 from .runtime import explorer_capabilities, install_mutation_bridge
@@ -39,7 +40,10 @@ def _read_explorer_settings() -> dict:
     elif "EXPLORER_CORS_ORIGINS" in os.environ:
         raw_origins = os.environ["EXPLORER_CORS_ORIGINS"]
     else:
-        raw_origins = "http://localhost:5173,http://127.0.0.1:5173"
+        raw_origins = (
+            "http://localhost:5173,http://127.0.0.1:5173,"
+            "http://localhost:8000,http://127.0.0.1:8000"
+        )
     return {
         "allowed_origins": [
             origin.strip() for origin in raw_origins.split(",") if origin.strip()
@@ -49,10 +53,7 @@ def _read_explorer_settings() -> dict:
         # ContextGraph and does not open a network connection to FalkorDB.
         "falkordb_host": os.environ.get("FALKORDB_HOST", "localhost"),
         "falkordb_port": _read_int_env("FALKORDB_PORT", 6379),
-        "provenance_storage_path": os.environ.get(
-            "SEMANTICA_PROVENANCE_DB",
-            os.environ.get("EXPLORER_PROVENANCE_DB"),
-        ),
+        "provenance_storage_path": storage_path_from_env(),
     }
 
 
@@ -60,6 +61,7 @@ def create_app(
     session: Optional[GraphSession] = None,
     provenance_storage_path: Optional[str] = None,
     agent_memory: Optional[AgentMemory] = None,
+    allowed_origins: Optional[Sequence[str]] = None,
 ) -> FastAPI:
     """Create an Explorer application over live graph and memory objects.
 
@@ -69,11 +71,18 @@ def create_app(
         provenance_storage_path: Optional per-app provenance database path.
         agent_memory: Existing AgentMemory instance to expose in the Memories
             workspace. The workspace is unavailable when omitted.
+        allowed_origins: Optional custom sequence of allowed CORS/WebSocket
+            origins. When omitted, origins are read from ALLOWED_ORIGINS (or
+            EXPLORER_CORS_ORIGINS) or default to standard localhost origins.
 
     Returns:
         Configured FastAPI application.
     """
     settings = _read_explorer_settings()
+    if allowed_origins is not None:
+        settings["allowed_origins"] = [
+            origin.strip() for origin in allowed_origins if origin.strip()
+        ]
     prov_path = provenance_storage_path or settings.get("provenance_storage_path")
     if session is None:
         active_session = GraphSession(

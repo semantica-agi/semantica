@@ -1,3 +1,5 @@
+import os
+import time
 import unittest
 from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
@@ -7,6 +9,7 @@ from semantica.normalize.date_normalizer import (
     RelativeDateProcessor,
     TimeZoneNormalizer,
 )
+from semantica.utils.exceptions import ValidationError
 
 
 class TestDateNormalizer(unittest.TestCase):
@@ -63,6 +66,56 @@ class TestTimeZoneNormalizer(unittest.TestCase):
         # Check offset instead of object identity
         self.assertEqual(
             normalized.tzinfo.utcoffset(normalized), timezone.utc.utcoffset(None)
+        )
+
+    def test_convert_to_utc_source_timezone_winter(self):
+        dt = datetime(2026, 3, 1, 7, 30)
+        self.assertEqual(
+            self.tz_normalizer.convert_to_utc(dt, "America/New_York"),
+            datetime(2026, 3, 1, 12, 30, tzinfo=timezone.utc),
+        )
+
+    def test_convert_to_utc_source_timezone_summer(self):
+        dt = datetime(2026, 7, 1, 7, 30)
+        self.assertEqual(
+            self.tz_normalizer.convert_to_utc(dt, "America/New_York"),
+            datetime(2026, 7, 1, 11, 30, tzinfo=timezone.utc),
+        )
+
+    def test_convert_to_utc_aware_ignores_source_timezone(self):
+        dt = datetime(2026, 3, 1, 7, 30, tzinfo=timezone(timedelta(hours=2)))
+        for source_timezone in ("America/New_York", "Nope/Zone"):
+            with self.subTest(source_timezone=source_timezone):
+                self.assertEqual(
+                    self.tz_normalizer.convert_to_utc(dt, source_timezone),
+                    datetime(2026, 3, 1, 5, 30, tzinfo=timezone.utc),
+                )
+
+    @unittest.skipUnless(hasattr(time, "tzset"), "time.tzset is not available")
+    def test_convert_to_utc_unknown_timezone(self):
+        # A non-UTC host zone, so a naive result read as local time would show up
+        self.addCleanup(time.tzset)
+        with patch.dict(os.environ, {"TZ": "Asia/Kolkata"}):
+            time.tzset()
+            with self.assertRaisesRegex(ValidationError, "Nope/Zone"):
+                self.tz_normalizer.convert_to_utc(
+                    datetime(2026, 3, 1, 7, 30), "Nope/Zone"
+                )
+
+    def test_convert_to_utc_invalid_timezone(self):
+        for source_timezone in ("../etc", 123):
+            with self.subTest(source_timezone=source_timezone):
+                with self.assertRaises(ValidationError) as error:
+                    self.tz_normalizer.convert_to_utc(
+                        datetime(2026, 3, 1, 7, 30), source_timezone
+                    )
+                self.assertIn(repr(source_timezone), str(error.exception))
+
+    def test_convert_to_utc_without_source_timezone(self):
+        dt = datetime(2026, 3, 1, 7, 30)
+        self.assertEqual(
+            self.tz_normalizer.convert_to_utc(dt),
+            datetime(2026, 3, 1, 7, 30, tzinfo=timezone.utc),
         )
 
 

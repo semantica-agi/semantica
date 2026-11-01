@@ -101,7 +101,7 @@ import logging
 logging.getLogger("typesafe_sdk").setLevel(logging.INFO)
 ```
 
-Install the optional dependency on Python 3.10 or newer:
+Install the optional dependency (Python 3.11 or newer, like Semantica itself):
 
 ```bash
 pip install "semantica[llm-typesafe]"

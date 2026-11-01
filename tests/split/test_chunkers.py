@@ -96,6 +96,55 @@ class TestSlidingWindowChunker:
                 == chunk_size - overlap
             )
 
+    @pytest.mark.parametrize(
+        "config, expected_spans, expected_overlap",
+        [
+            pytest.param(
+                {"overlap": 0},
+                [(0, 8), (8, 16), (16, 20)],
+                [False, False, False],
+                id="zero-overlap",
+            ),
+            pytest.param(
+                {"overlap": 3},
+                [(0, 8), (5, 13), (10, 18), (15, 20)],
+                [False, True, True, True],
+                id="default-overlap",
+            ),
+            pytest.param(
+                {"overlap": 3, "stride": 8},
+                [(0, 8), (8, 16), (16, 20)],
+                [False, False, False],
+                id="custom-stride-touching-windows",
+            ),
+            pytest.param(
+                {"overlap": 3, "stride": 12},
+                [(0, 8), (12, 20)],
+                [False, False],
+                id="custom-stride-with-gaps",
+            ),
+            pytest.param(
+                {"overlap": 0, "stride": 5},
+                [(0, 8), (5, 13), (10, 18), (15, 20)],
+                [False, True, True, True],
+                id="custom-stride-overrides-zero-overlap",
+            ),
+        ],
+    )
+    def test_fixed_size_metadata_reports_actual_overlap(
+        self, config, expected_spans, expected_overlap
+    ):
+        text = "abcdefghijklmnopqrst"
+        chunker = SlidingWindowChunker(chunk_size=8, **config)
+
+        chunks = chunker.chunk(text, preserve_boundaries=False)
+
+        assert [(chunk.start_index, chunk.end_index) for chunk in chunks] == expected_spans
+        assert [chunk.text for chunk in chunks] == [
+            text[start:end] for start, end in expected_spans
+        ]
+        assert [chunk.metadata["has_overlap"] for chunk in chunks] == expected_overlap
+
     def test_chunk_with_overlap_helper(self):
         text = "word " * 40
         chunker = SlidingWindowChunker(chunk_size=50, overlap=0)
@@ -118,7 +167,9 @@ class TestSlidingWindowChunker:
 
         chunks = chunker.chunk_with_overlap("abcdefghij", overlap_size=4)
 
-        assert [chunk.start_index for chunk in chunks] == list(range(10))
+        # The window [5, 10) covers the end; no overlap-only tails remain.
+        assert [chunk.start_index for chunk in chunks] == list(range(6))
+        assert chunks[-1].end_index == 10
 
     def test_chunk_with_overlap_restores_custom_stride(self):
         chunker = SlidingWindowChunker(chunk_size=10, overlap=2, stride=3)
@@ -158,6 +209,36 @@ class TestSlidingWindowChunker:
             assert isinstance(chunk, Chunk)
             assert chunk.text
             assert chunk.metadata.get("chunk_index") is not None
+
+    @pytest.mark.parametrize(
+        "preserve_boundaries", [False, True], ids=["fixed-size", "sentence-boundaries"]
+    )
+    @pytest.mark.parametrize(
+        "separator", [" ", ""], ids=["with-space", "without-space"]
+    )
+    def test_sentence_boundaries_do_not_drop_content(
+        self, preserve_boundaries, separator
+    ):
+        """Regression #1800: shortening a window must not skip the following text."""
+        text = f"First phrase.{separator}LOST suffix goes here."
+        chunker = SlidingWindowChunker(chunk_size=20, overlap=2)
+
+        chunks = chunker.chunk(text, preserve_boundaries=preserve_boundaries)
+
+        covered_positions = set()
+        for chunk in chunks:
+            assert 0 <= chunk.start_index < chunk.end_index <= len(text)
+            source_slice = text[chunk.start_index : chunk.end_index]
+            assert chunk.text.strip() == source_slice.strip()
+            covered_positions.update(range(chunk.start_index, chunk.end_index))
+
+        # Boundary-aware chunks strip outer whitespace; check substantive content.
+        missing = [
+            (index, char)
+            for index, char in enumerate(text)
+            if not char.isspace() and index not in covered_positions
+        ]
+        assert not missing, f"Uncovered non-whitespace characters: {missing!r}"
 
 
 # ---------------------------------------------------------------------------

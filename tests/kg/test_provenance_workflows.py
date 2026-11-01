@@ -501,6 +501,7 @@ class TestProvenanceWorkflows:
                 if method == 'label_propagation':
                     raise
                 continue
+            assert result['algorithm'] == method
 
             comm_id = tracker.track_community_detection(
                 graph=workflow_graph,
@@ -621,6 +622,7 @@ class TestProvenanceWorkflows:
         # Phase 6: Community Detection
         print("Phase 6: Community Detection")
         communities = community_detector.detect_communities(graph_dict, method='label_propagation')
+        assert communities['algorithm'] == 'label_propagation'
         comm_id = tracker.track_community_detection(
             graph=workflow_graph,
             communities=communities['communities'],

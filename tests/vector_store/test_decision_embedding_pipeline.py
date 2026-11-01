@@ -174,6 +174,10 @@ class TestDecisionEmbeddingPipeline:
     
     def test_generate_structural_embedding_no_entities(self):
         """Test structural embedding without entities."""
+        # Constructing NodeEmbedder requires gensim (the optional
+        # graph-embeddings extra); see tests/test_issue_1513_slim_core.py
+        # for the contract that it raises without it.
+        pytest.importorskip("gensim")
         decision_no_entities = {
             "scenario": "Test decision",
             "category": "test"

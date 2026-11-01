@@ -62,6 +62,7 @@ class MediaParser:
         self.logger = get_logger("media_parser")
         self.config = config or {}
         self.config.update(kwargs)
+        self.progress_tracker = get_progress_tracker()
 
         # Initialize parsers
         self.image_parser = ImageParser(**self.config.get("image", {}))

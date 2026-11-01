@@ -147,25 +147,16 @@ class TestLLMsModule:
             pytest.skip(f"llms module not available: {e}")
     
     def test_groq_llm_ready(self):
-        """Test GroqLLM is ready for provenance tracking."""
-        try:
-            from semantica.llms import GroqLLM
-            
-            # Should be able to import
-            assert GroqLLM is not None
-            
-        except ImportError:
-            pytest.skip("GroqLLM not available")
-    
+        """Test Groq is ready for provenance tracking."""
+        from semantica.llms import Groq
+
+        assert Groq is not None
+
     def test_openai_llm_ready(self):
         """Test OpenAI LLM is ready for provenance tracking."""
-        try:
-            from semantica.llms import OpenAILLM
-            
-            assert OpenAILLM is not None
-            
-        except ImportError:
-            pytest.skip("OpenAILLM not available")
+        from semantica.llms import OpenAI
+
+        assert OpenAI is not None
 
 
 class TestContextModule:

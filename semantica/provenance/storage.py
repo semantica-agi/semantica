@@ -562,6 +562,7 @@ class SQLiteStorage(ProvenanceStorage):
         ("revision_type", "TEXT"),
         ("supersedes", "TEXT"),
         ("bundle_id", "TEXT"),
+        ("checksum_version", "INTEGER"),
     ]
 
     def _migrate_schema(self, conn: sqlite3.Connection) -> None:
@@ -623,7 +624,8 @@ class SQLiteStorage(ProvenanceStorage):
                     valid_until TEXT,
                     revision_type TEXT,
                     supersedes TEXT,
-                    bundle_id TEXT
+                    bundle_id TEXT,
+                    checksum_version INTEGER
                 )
             """)
 
@@ -694,7 +696,7 @@ class SQLiteStorage(ProvenanceStorage):
             INSERT OR REPLACE INTO provenance VALUES (
                 ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
                 ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-                ?, ?, ?, ?, ?, ?, ?, ?, ?
+                ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
             )
         """, (
             entry.entity_id,
@@ -736,6 +738,7 @@ class SQLiteStorage(ProvenanceStorage):
             entry.revision_type,
             entry.supersedes,
             entry.bundle_id,
+            entry.checksum_version,
         ))
     
     def retrieve(self, entity_id: str) -> Optional[ProvenanceEntry]:
@@ -1036,4 +1039,10 @@ class SQLiteStorage(ProvenanceStorage):
             revision_type=row[36],
             supersedes=row[37],
             bundle_id=row[38],
+            # Every caller of this method uses SELECT *, so the trailing
+            # columns are always present. Guarding the length keeps a future
+            # subset query from silently shifting the version onto the wrong
+            # field, and a NULL column reads as "no version recorded", which
+            # is what a row written before the migration looks like.
+            checksum_version=row[39] if len(row) > 39 else None,
         )

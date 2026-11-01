@@ -478,9 +478,11 @@ class CommunityDetector:
             graph: Input graph for community detection
             algorithm: Community detection algorithm to use. Supported values
                       are "louvain", "leiden", "overlapping" and
-                      "label_propagation".
-            method: Alias for ``algorithm``. A value that is not supported is
-                      ignored, which leaves ``algorithm`` in effect.
+                      "label_propagation". Names are case-insensitive and
+                      tolerate "-", "_" and spaces as separators.
+            method: Alias for ``algorithm``, matched the same way. A value
+                      that is not recognized logs a warning and falls back
+                      to the ``algorithm`` argument.
             **options: Additional detection options (passed to algorithm-specific method)
 
         Returns:
@@ -498,6 +500,9 @@ class CommunityDetector:
             "label_propagation": self.detect_communities_label_propagation,
         }
 
+        # Canonical lookup for casing/separators (e.g. 'labelpropagation')
+        canonical_map = {k.replace("_", ""): k for k in handlers}
+
         # The names are looked up in a dict, so a non-string would either be
         # ignored or fail as "unhashable type"; name the real problem instead.
         if method is not None and not isinstance(method, str):
@@ -511,13 +516,36 @@ class CommunityDetector:
 
         # 'method' is an alias for 'algorithm'
         if method is not None:
-            algorithm = method if method in handlers else algorithm
+            clean_m = method.strip().lower().replace("-", "_").replace(" ", "")
+            if clean_m in handlers:
+                algorithm = clean_m
+            elif clean_m.replace("_", "") in canonical_map:
+                algorithm = canonical_map[clean_m.replace("_", "")]
+            else:
+                self.logger.warning(
+                    f"Unrecognized community detection method '{method}'. "
+                    f"Falling back to active algorithm '{algorithm}'."
+                )
 
-        self.logger.info(f"Detecting communities using {algorithm} algorithm")
+        # Normalize algorithm parameter for casing/separator tolerance
+        clean_algo = (
+            algorithm.strip().lower().replace("-", "_").replace(" ", "")
+            if isinstance(algorithm, str)
+            else algorithm
+        )
+        if clean_algo in handlers:
+            handler = handlers[clean_algo]
+        elif (
+            isinstance(clean_algo, str) and clean_algo.replace("_", "") in canonical_map
+        ):
+            handler = handlers[canonical_map[clean_algo.replace("_", "")]]
+        else:
+            handler = handlers.get(algorithm)
 
-        handler = handlers.get(algorithm)
         if handler is None:
             raise ValueError(f"Unsupported algorithm: {algorithm}")
+
+        self.logger.info(f"Detecting communities using {algorithm} algorithm")
 
         return handler(graph, **options)
 
@@ -693,6 +721,13 @@ class CommunityDetector:
             ValueError: If graph is empty or parameters are invalid
             RuntimeError: If community detection fails
         """
+        if (
+            isinstance(chunk_size, bool)
+            or not isinstance(chunk_size, int)
+            or chunk_size < 1
+        ):
+            raise ValueError("chunk_size must be an integer at least 1")
+
         try:
             self.logger.info("Detecting communities using Label Propagation algorithm")
 
@@ -917,12 +952,11 @@ class CommunityDetector:
             if hasattr(graph, "neighbors") or hasattr(graph, "get_neighbors")
             else build_adjacency(graph)
         )
-        # Its edge types are read once too, so the filter below costs O(E)
-        # rather than one edge-list scan per neighbour.
+        # The edge types of a graph dictionary or a ContextGraph are read once
+        # too, so the filter below costs O(E) rather than one edge-list scan
+        # per neighbour.
         edge_types = (
-            build_edge_type_index(graph)
-            if relationship_types is not None and isinstance(graph, dict)
-            else None
+            build_edge_type_index(graph) if relationship_types is not None else None
         )
 
         for node in rows:

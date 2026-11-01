@@ -161,10 +161,11 @@ results = store.search(
 ### Update and Delete
 
 ```python
-# Update vectors and metadata
+# Update vectors and metadata.
+# Returns the ids the UPDATE matched. Missing ids are omitted.
 new_vectors = [np.random.rand(768).astype(np.float32)]
 new_metadata = [{"updated": True}]
-store.update(["vec_0"], new_vectors, new_metadata)
+updated_ids = store.update(["vec_0"], new_vectors, new_metadata)
 
 # Update metadata only
 store.update(["vec_0"], metadata=[{"tag": "updated"}])

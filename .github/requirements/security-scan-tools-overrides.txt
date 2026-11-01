@@ -7,3 +7,10 @@
 # file with --no-deps (every transitive dep is already hash-pinned in it).
 # Drop this once semgrep relaxes its pin.
 pyjwt[crypto]>=2.15.1
+
+# semgrep (latest 1.181.0) pins mcp==1.29.0, which is affected by
+# GHSA-84m7-p3x7-pcfv (unbounded Streamable HTTP sessions), fixed in 1.30.0.
+# semgrep only imports mcp for `semgrep mcp`, which the CI scan never runs.
+# Capped below 2 so the override stays on the 1.x API semgrep was built for.
+# Drop this once semgrep moves its pin to 1.30.0 or later.
+mcp>=1.30.0,<2

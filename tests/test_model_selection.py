@@ -2,6 +2,7 @@
 import sys
 import os
 import unittest
+import pytest
 import numpy as np
 
 # Add project root to path
@@ -11,6 +12,13 @@ from semantica.embeddings import TextEmbedder, EmbeddingGenerator
 
 class TestModelSelection(unittest.TestCase):
     def test_dynamic_switching(self):
+        # Needs the optional embeddings-local extra; skip rather than fail on a
+        # core install. Both packages: the test switches to fastembed and
+        # asserts the switch took, and set_model() falls back silently instead
+        # of raising, so the surrounding `except ImportError` would not catch a
+        # missing fastembed.
+        pytest.importorskip("sentence_transformers")
+        pytest.importorskip("fastembed")
         print("\nTesting Dynamic Model Switching...")
         embedder = TextEmbedder(method="sentence_transformers")
         info = embedder.get_model_info()
@@ -31,6 +39,13 @@ class TestModelSelection(unittest.TestCase):
             print("FastEmbed not available for switching test")
 
     def test_generator_switching(self):
+        # Needs the optional embeddings-local extra; skip rather than fail on a
+        # core install. Both packages: the test switches to fastembed and
+        # asserts the switch took, and set_model() falls back silently instead
+        # of raising, so the surrounding `except ImportError` would not catch a
+        # missing fastembed.
+        pytest.importorskip("sentence_transformers")
+        pytest.importorskip("fastembed")
         print("\nTesting EmbeddingGenerator Switching...")
         # Initialize with explicit method to ensure consistent starting state for test
         generator = EmbeddingGenerator(text={"method": "sentence_transformers"})

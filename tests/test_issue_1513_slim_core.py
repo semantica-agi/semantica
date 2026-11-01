@@ -1,3 +1,4 @@
+import tomllib
 from pathlib import Path
 from unittest.mock import patch
 import pytest
@@ -10,21 +11,9 @@ from semantica.utils.exceptions import ProcessingError
 
 
 def _load_toml(file_path: Path) -> dict:
-    """Load and parse a TOML file across Python 3.8-3.14+ without mode mismatches."""
-    content = file_path.read_text(encoding="utf-8")
-    try:
-        import tomllib  # Python 3.11+ standard library
-
-        return tomllib.loads(content)
-    except ImportError:
-        try:
-            import tomli  # Fast PEP 680 compatible parser for Python < 3.11
-
-            return tomli.loads(content)
-        except ImportError:
-            import toml  # Fallback toml parser
-
-            return toml.loads(content)
+    """Load and parse a TOML file with the stdlib parser (3.11+ is the floor)."""
+    with open(file_path, "rb") as f:
+        return tomllib.load(f)
 
 
 def test_core_dependencies_count():

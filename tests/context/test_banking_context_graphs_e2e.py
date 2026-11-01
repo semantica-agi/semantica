@@ -210,6 +210,10 @@ class TestBankingDecisionSystem:
     
     def test_enhanced_components_integration(self, mock_vector_store, mock_knowledge_graph):
         """Test integration of enhanced components with KG algorithms."""
+        # Constructing NodeEmbedder requires gensim (the optional
+        # graph-embeddings extra); see tests/test_issue_1513_slim_core.py
+        # for the contract that it raises without it.
+        pytest.importorskip("gensim")
         print("\n=== Testing Enhanced Components Integration ===")
         
         # Test enhanced DecisionQuery

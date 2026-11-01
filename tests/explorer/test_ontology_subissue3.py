@@ -577,6 +577,9 @@ def test_shacl_validate_rejects_empty_turtle(client):
 
 
 def test_shacl_validate_detects_missing_required_property(client):
+    # Needs the optional shacl extra; skip rather than fail on a
+    # core install.
+    pytest.importorskip("pyshacl")
     graph = client.app.state.session.graph
     onto_uri = "http://example.org/onto-a"
     person_a = "http://example.org/onto-a#Person"
@@ -624,6 +627,9 @@ onto:PersonNameShape a sh:NodeShape ;
 
 
 def test_shacl_validate_surfaces_warning_severity_results(client):
+    # Needs the optional shacl extra; skip rather than fail on a
+    # core install.
+    pytest.importorskip("pyshacl")
     graph = client.app.state.session.graph
     onto_uri = "http://example.org/onto-a"
     person_a = "http://example.org/onto-a#Person"

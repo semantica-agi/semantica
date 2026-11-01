@@ -554,6 +554,7 @@ class TestRealWorldScenarios:
         
         # 2. Detect communities (social circles)
         communities = community_detector.detect_communities(graph_dict, method='label_propagation')
+        assert communities['algorithm'] == 'label_propagation'
         
         # Track community detection
         comm_id = tracker.track_community_detection(

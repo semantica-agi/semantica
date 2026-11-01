@@ -22,7 +22,7 @@ Entity Normalization:
 
 Date/Time Normalization:
     - Date Parsing: dateutil.parser.parse() with fallback to datetime.fromisoformat(), ISO format parsing, multiple format support
-    - Timezone Normalization: UTC conversion using datetime.astimezone(), timezone-aware datetime handling, ZoneInfo integration (Python 3.9+), DST transition handling
+    - Timezone Normalization: UTC conversion using datetime.astimezone(), timezone-aware datetime handling, ZoneInfo integration, DST transition handling
     - Relative Date Processing: Natural language parsing ("yesterday", "3 days ago", "2 weeks from now"), timedelta calculation, relativedelta for complex expressions, reference date-based calculation
     - Temporal Expression Parsing: Complex temporal expressions, date range parsing ("from X to Y"), pattern matching, relative/absolute date detection
 
