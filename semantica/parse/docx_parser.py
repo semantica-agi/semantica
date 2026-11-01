@@ -62,7 +62,11 @@ from ..utils.progress_tracker import get_progress_tracker
 _W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
 _TXBX_CONTENT = _W + "txbxContent"
 _W_P = _W + "p"
+_W_R = _W + "r"
 _W_T = _W + "t"
+_W_TAB = _W + "tab"
+_W_BR = _W + "br"
+_W_CR = _W + "cr"
 _MC_FALLBACK = "{http://schemas.openxmlformats.org/markup-compatibility/2006}Fallback"
 
 
@@ -74,17 +78,27 @@ def _textbox_text(paragraph: Paragraph) -> str:
             # The VML copy of a text box already covered by `mc:Choice`.
             continue
         for inner in container.iter(_W_P):
-            text = "".join(node.text or "" for node in inner.iter(_W_T))
-            if text.strip():
-                blocks.append(text.strip())
+            parts: List[str] = []
+            for run in inner.iter(_W_R):
+                for node in run:
+                    if node.tag == _W_T:
+                        parts.append(node.text or "")
+                    elif node.tag == _W_TAB:
+                        parts.append("\t")
+                    elif node.tag in (_W_BR, _W_CR):
+                        parts.append("\n")
+            text = "".join(parts).strip(" ")
+            if text:
+                blocks.append(text)
     return "\n".join(blocks)
 
 
 def _paragraph_text(paragraph: Paragraph) -> str:
     """``Paragraph.text`` plus the text of any text boxes it anchors."""
-    return "\n".join(
-        part for part in (paragraph.text, _textbox_text(paragraph)) if part
-    )
+    textbox = _textbox_text(paragraph)
+    if textbox:
+        return "\n".join(part for part in (paragraph.text.lstrip(), textbox) if part)
+    return paragraph.text.strip()
 
 
 @dataclass
@@ -177,7 +191,7 @@ class DOCXParser:
                 # Extract paragraphs
                 paragraphs = []
                 for para in doc.paragraphs:
-                    text = _paragraph_text(para).strip()
+                    text = _paragraph_text(para)
                     if text:
                         paragraphs.append(text)
 
@@ -275,9 +289,24 @@ class DOCXParser:
         for row in table.rows:
             row_data = []
             for cell in row.cells:
+                parts = [(p.text, _textbox_text(p)) for p in cell.paragraphs]
+                # Normalize only the cell's outer whitespace, stopping at text
+                # box content so its leading/trailing separators survive.
+                while parts:
+                    text, textbox = parts[0]
+                    parts[0] = (text.lstrip(), textbox)
+                    if any(parts[0]):
+                        break
+                    parts.pop(0)
+                while parts and not parts[-1][1]:
+                    text, textbox = parts[-1]
+                    parts[-1] = (text.rstrip(), textbox)
+                    if parts[-1][0]:
+                        break
+                    parts.pop()
                 cell_text = "\n".join(
-                    _paragraph_text(p) for p in cell.paragraphs
-                ).strip()
+                    "\n".join(part for part in paragraph if part) for paragraph in parts
+                )
                 row_data.append(cell_text)
             table_data["rows"].append(row_data)
 
@@ -291,7 +320,7 @@ class DOCXParser:
         current_section = None
 
         for para in doc.paragraphs:
-            text = _paragraph_text(para).strip()
+            text = _paragraph_text(para)
             # Check if paragraph is a heading
             if para.style.name.startswith("Heading"):
                 # Get heading level
