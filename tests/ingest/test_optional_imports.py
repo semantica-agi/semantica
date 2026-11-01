@@ -599,11 +599,10 @@ def test_email_link_extraction_does_not_silently_degrade(monkeypatch) -> None:
     scan that misses relative URLs and href-only links, leaving the caller with
     quietly worse results and no install hint.
 
-    Tested in-process rather than through _run_python_with_blocked_modules:
-    importing `semantica.ingest.email_ingestor` directly raises
-    `AttributeError: module 'email' has no attribute 'message'` on main as well,
-    independently of beautifulsoup4, so the subprocess form cannot reach the
-    class. Patching the guarded name reproduces the same branch.
+    Tested in-process because patching the guarded name is the cheapest way to
+    reach this branch; the subprocess form would work too now that
+    `semantica.ingest.email_ingestor` imports cleanly (see
+    test_email_ingestor_imports_without_a_preimported_email_submodule).
     """
     pytest.importorskip("bs4")
     from semantica.ingest import email_ingestor
@@ -614,3 +613,33 @@ def test_email_link_extraction_does_not_silently_degrade(monkeypatch) -> None:
 
     with pytest.raises(ProcessingError, match="beautifulsoup4"):
         parser.extract_links("<html><body><a href='/a'>x</a></body></html>")
+
+
+def test_email_ingestor_imports_without_a_preimported_email_submodule() -> None:
+    """`import email` does not bind the `email.message` submodule.
+
+    email_ingestor annotates four methods with `email.message.Message`, and
+    those annotations are evaluated when their enclosing class body runs, so
+    the module needs `email.message` imported explicitly. Nothing else it
+    imports (imaplib, poplib, email.header, tempfile) pulls that submodule in.
+
+    This has to run in a subprocess. pytest imports importlib.metadata for
+    plugin discovery, which imports email.message, so sys.modules is already
+    primed before any in-process test runs and the attribute resolves whether
+    or not the module imports it itself.
+    """
+    result = _run_python_with_blocked_modules(
+        """
+import sys
+
+assert "email.message" not in sys.modules, "email.message was pre-imported"
+
+from semantica.ingest import EmailIngestor
+
+print(EmailIngestor.__name__)
+""",
+        (),
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "EmailIngestor" in result.stdout

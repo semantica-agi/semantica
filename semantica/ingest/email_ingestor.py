@@ -30,6 +30,7 @@ License: MIT
 """
 
 import email
+import email.message
 import imaplib
 import poplib
 import tempfile
