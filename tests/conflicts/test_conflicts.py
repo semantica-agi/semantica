@@ -269,6 +269,29 @@ class TestConflictsModule(unittest.TestCase):
         self.assertEqual(result.resolution_strategy, "credibility_weighted")
         self.assertGreater(result.confidence, 0.0)
 
+    def test_conflict_resolver_credibility_weighted_falls_back_without_data(self):
+        """When no credibility data is set, credibility strategy falls back to first-seen and warns."""
+        resolver = ConflictResolver()
+        # No set_source_credibility calls — all sources use the default 0.5
+        from semantica.conflicts.conflict_detector import ConflictType
+        conflict = Conflict(
+            conflict_id="c_no_cred",
+            conflict_type=ConflictType.VALUE_CONFLICT,
+            conflicting_values=["A", "B"],
+            sources=[
+                {"document": "doc1", "confidence": 0.9},
+                {"document": "doc2", "confidence": 0.8},
+            ],
+        )
+        result = resolver.resolve_conflict(conflict, strategy="credibility_weighted")
+        self.assertTrue(result.resolved)
+        self.assertEqual(result.resolved_value, "A")  # first-seen
+        self.assertIn("first-seen", result.resolution_notes.lower())
+        self.assertTrue(result.metadata.get("credibility_fallback"))
+        # strategy field is overwritten by resolve_conflict after the method returns
+        self.assertEqual(result.resolution_strategy, "credibility_weighted")
+
+
     def test_conflict_resolver_first_seen(self):
         """Test first-seen resolution strategy (#865)."""
         resolver = ConflictResolver()
