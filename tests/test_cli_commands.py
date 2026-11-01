@@ -3865,6 +3865,101 @@ class TestStore:
         assert "nope" in result.output and "0 vectors" in result.output
         assert len(list(store.iter_vectors())) == 1
 
+    def test_flush_uses_pinecone_native_namespace(self, runner, monkeypatch):
+        class _PineconeFlushStore:
+            def __init__(self, backend, config=None):
+                assert backend == "pinecone"
+                self.items = {
+                    "default-id": ("", {"tag": "default"}),
+                    "production-id": ("production", {"tag": "production"}),
+                    "other-id": ("other", {"tag": "other"}),
+                }
+                self.iter_calls = []
+                self.delete_calls = []
+
+            def iter_vectors(self, batch_size=500, namespace=None):
+                self.iter_calls.append(namespace)
+                for vector_id, (item_namespace, metadata) in self.items.items():
+                    if item_namespace == namespace:
+                        yield {"id": vector_id, "metadata": metadata, "vector": [1.0]}
+
+            def delete_vectors(self, vector_ids, namespace=None):
+                self.delete_calls.append((vector_ids, namespace))
+                for vector_id in vector_ids:
+                    if self.items[vector_id][0] != namespace:
+                        raise AssertionError("deletion escaped the requested namespace")
+                    del self.items[vector_id]
+                return True
+
+        stores = []
+
+        def _store_factory(*args, **kwargs):
+            store = _PineconeFlushStore(*args, **kwargs)
+            stores.append(store)
+            return store
+
+        monkeypatch.setitem(
+            __import__("sys").modules,
+            "semantica.vector_store",
+            _fake_module(VectorStore=_store_factory),
+        )
+        result = runner.invoke(
+            cli_module.main,
+            [
+                "--vector-store",
+                "pinecone",
+                "store",
+                "flush",
+                "--namespace",
+                "production",
+                "--confirm",
+            ],
+        )
+        _ok(result)
+        assert "1 vectors removed" in result.output
+        assert stores[0].iter_calls == ["production", "production"]
+        assert stores[0].delete_calls == [(["production-id"], "production")]
+        assert set(stores[0].items) == {"default-id", "other-id"}
+
+    def test_flush_pinecone_defaults_to_native_default_namespace(
+        self, runner, monkeypatch
+    ):
+        class _PineconeFlushStore:
+            def __init__(self, backend, config=None):
+                self.items = {"default-id": ""}
+                self.iter_calls = []
+
+            def iter_vectors(self, batch_size=500, namespace=None):
+                self.iter_calls.append(namespace)
+                for vector_id, item_namespace in self.items.items():
+                    if item_namespace == namespace:
+                        yield {"id": vector_id, "metadata": {}, "vector": [1.0]}
+
+            def delete_vectors(self, vector_ids, namespace=None):
+                for vector_id in vector_ids:
+                    del self.items[vector_id]
+                return True
+
+        stores = []
+
+        def _store_factory(*args, **kwargs):
+            store = _PineconeFlushStore(*args, **kwargs)
+            stores.append(store)
+            return store
+
+        monkeypatch.setitem(
+            __import__("sys").modules,
+            "semantica.vector_store",
+            _fake_module(VectorStore=_store_factory),
+        )
+        result = runner.invoke(
+            cli_module.main,
+            ["--vector-store", "pinecone", "store", "flush", "--confirm"],
+        )
+        _ok(result)
+        assert "1 vectors removed" in result.output
+        assert stores[0].iter_calls == ["", ""]
+
     def test_flush_uses_the_configured_vector_backend(
         self, runner, monkeypatch, tmp_path
     ):

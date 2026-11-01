@@ -5988,10 +5988,19 @@ def store_flush(cli_ctx: CLIContext, namespace: Optional[str], confirm: bool) ->
 
         vs_cfg = cli_ctx.config.to_dict().get("vector_store", {}) or {}
         default_ns = vs_cfg.get("default_namespace", "default")
-        target = namespace or default_ns
         # The backend every other vector command builds (--vector-store, then
         # vector_store.backend), not a key the CLI never sets.
-        backend = _configured_vector_backend(cli_ctx) or _DEFAULT_VECTOR_BACKEND
+        backend = (
+            _configured_vector_backend(cli_ctx) or _DEFAULT_VECTOR_BACKEND
+        ).lower()
+        if backend == "pinecone":
+            target = (
+                namespace
+                if namespace is not None
+                else vs_cfg.get("default_namespace", "")
+            )
+        else:
+            target = namespace or default_ns
         if backend == "inmemory":
             raise click.ClickException(
                 "The 'inmemory' vector backend does not persist between CLI "
@@ -6010,6 +6019,13 @@ def store_flush(cli_ctx: CLIContext, namespace: Optional[str], confirm: bool) ->
             store._backend_store.load_index(index_path)
 
         def _namespace_ids() -> List[str]:
+            # Pinecone namespaces are native partitions; other backends use
+            # the metadata namespace convention retained for compatibility.
+            if backend == "pinecone":
+                return [
+                    item["id"]
+                    for item in store.iter_vectors(namespace=target)
+                ]
             return [
                 item["id"]
                 for item in store.iter_vectors()
@@ -6026,7 +6042,10 @@ def store_flush(cli_ctx: CLIContext, namespace: Optional[str], confirm: bool) ->
 
         removed = 0
         if vector_ids:
-            store.delete_vectors(vector_ids)
+            if backend == "pinecone":
+                store.delete_vectors(vector_ids, namespace=target)
+            else:
+                store.delete_vectors(vector_ids)
             # Report what is verifiably gone, not what was requested: backends
             # such as FAISS silently ignore ids they no longer hold, and
             # delete_vectors() reports success for the call as a whole (#1943).
