@@ -944,6 +944,26 @@ class RepoIngestor:
             )
             raise
 
+    @staticmethod
+    def _coerce_max_commits(value: Any) -> int:
+        """Return *value* as a positive ``int`` for ``git rev-list --max-count``.
+
+        Raises ``ValueError`` for anything that is not a whole number >= 1
+        (floats such as ``2.5``, ``"abc"``, negatives) so the caller's error
+        handler can log a clear message instead of a cryptic git failure.
+        """
+        if isinstance(value, bool) or not isinstance(value, (int, str)):
+            raise ValueError(f"max_commits must be a positive integer, got {value!r}")
+        try:
+            max_count = int(value)
+        except ValueError:
+            raise ValueError(
+                f"max_commits must be a positive integer, got {value!r}"
+            ) from None
+        if max_count < 1:
+            raise ValueError(f"max_commits must be a positive integer, got {value!r}")
+        return max_count
+
     def analyze_commits(self, repo_path: Path, **filters) -> List[CommitInfo]:
         """
         Analyze commit history and patterns.
@@ -978,10 +998,15 @@ class RepoIngestor:
             log_kwargs["until"] = filters["until"]
         if filters.get("author"):
             log_kwargs["author"] = filters["author"]
-        if filters.get("max_commits"):
-            log_kwargs["max_count"] = int(filters["max_commits"])
 
         try:
+            # Validated inside the guarded block so a malformed limit follows
+            # the same logged error path as any other history failure instead
+            # of escaping through ingest_repository().
+            if filters.get("max_commits"):
+                log_kwargs["max_count"] = self._coerce_max_commits(
+                    filters["max_commits"]
+                )
             for commit in repo.iter_commits(**log_kwargs):
                 # Get files changed
                 files_changed = list(commit.stats.files.keys())

@@ -15,6 +15,7 @@ GitPython (``semantica[ingest-git]``) or the ``git`` binary is unavailable.
 from __future__ import annotations
 
 import shutil
+from pathlib import Path
 
 import pytest
 
@@ -102,3 +103,38 @@ def test_ingest_repository_forwards_commit_filters(history_repo):
         ingestor.cleanup()
 
     assert [c["message"] for c in result["commits"]] == ["third", "second"]
+
+
+def test_max_commits_accepts_numeric_strings(history_repo):
+    commits = RepoIngestor().analyze_commits(history_repo, max_commits="2")
+
+    assert [c.message for c in commits] == ["third", "second"]
+
+
+@pytest.mark.parametrize("bad_limit", ["abc", 2.5, -1, True, [5]])
+def test_invalid_max_commits_is_logged_not_raised(history_repo, bad_limit, caplog):
+    """A malformed limit must follow the method's logged error path, not abort."""
+    with caplog.at_level("ERROR", logger="semantica.repo_ingestor"):
+        commits = RepoIngestor().analyze_commits(history_repo, max_commits=bad_limit)
+
+    assert commits == []
+    assert any(
+        "max_commits must be a positive integer" in record.getMessage()
+        for record in caplog.records
+    ), caplog.text
+
+
+def test_ingest_repository_survives_invalid_max_commits(history_repo):
+    ingestor = RepoIngestor()
+    try:
+        result = ingestor.ingest_repository(
+            str(history_repo),
+            include_history=True,
+            commit_filters={"max_commits": "abc"},
+        )
+    finally:
+        ingestor.cleanup()
+
+    assert result["commits"] == []
+    names = {Path(f["path"]).name for f in result["code_files"]}
+    assert {"first.txt", "second.txt", "third.txt"} <= names
