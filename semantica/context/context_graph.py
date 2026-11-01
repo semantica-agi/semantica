@@ -4438,6 +4438,8 @@ class ContextGraph:
         valid_from: Optional[Union[str, int, float, datetime]] = None,
         valid_until: Optional[Union[str, int, float, datetime]] = None,
         decision_id: Optional[str] = None,
+        evaluators: Optional[List[Any]] = None,
+        eval_config: Optional[Dict[str, Any]] = None,
         **kwargs
     ) -> str:
         """
@@ -4457,6 +4459,8 @@ class ContextGraph:
             decision_id: Optional pre-generated decision ID. When omitted, a
                 UUID is generated. A caller-supplied ID must not already
                 exist in this graph.
+            evaluators: Optional list of evaluators
+            eval_config: Optional evaluator configuration dictionary
             **kwargs: Additional decision data
             
         Returns:
@@ -4552,6 +4556,47 @@ class ContextGraph:
         decision_maker = decision_maker.strip() if decision_maker else None
         normalized_valid_from = _normalize_temporal_input(valid_from)
         normalized_valid_until = _normalize_temporal_input(valid_until)
+
+        # Execute evaluators if configured and not already fully evaluated
+        active_evaluators = evaluators if evaluators is not None else self.config.get("evaluators")
+        active_eval_config = eval_config if eval_config is not None else self.config.get("eval_config")
+        has_full_eval = (
+            metadata is not None
+            and "eval_score" in metadata
+            and "eval_passed" in metadata
+            and "eval_details" in metadata
+        )
+        if active_evaluators and not has_full_eval:
+            from .decision_models import Decision
+            from .decision_recorder import execute_decision_evaluators
+            
+            d_meta = dict(metadata or {})
+            d_obj = Decision(
+                decision_id=decision_id,
+                category=category,
+                scenario=scenario,
+                reasoning=reasoning,
+                outcome=outcome,
+                confidence=confidence,
+                timestamp=datetime.fromtimestamp(timestamp),
+                decision_maker=decision_maker or "ai_agent",
+                valid_from=normalized_valid_from,
+                valid_until=normalized_valid_until,
+                metadata=d_meta,
+            )
+            eval_results = execute_decision_evaluators(
+                d_obj, active_evaluators, active_eval_config, logger=self.logger
+            )
+            if eval_results:
+                if "eval_details" in eval_results and len(str(eval_results["eval_details"])) > 1000:
+                    self.logger.warning(
+                        f"Decision evaluation details for {decision_id} exceed "
+                        "ContextGraph's metadata value limit; storing eval_score and "
+                        "eval_passed without eval_details"
+                    )
+                    eval_results = dict(eval_results)
+                    eval_results.pop("eval_details", None)
+                metadata = {**(metadata or {}), **eval_results}
         
         # Create decision record
         decision = {
