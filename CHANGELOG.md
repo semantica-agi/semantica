@@ -39,6 +39,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`semantica.ingest.email_ingestor` could not be imported on a fresh interpreter** (fixes #2190) by @dex0shubham
+  - `import email` binds only the package, and `email.message` becomes an attribute only once the submodule is imported itself. `email_ingestor.py` annotates four methods with `email.message.Message`, and those annotations are evaluated when the enclosing class body runs, so importing the module raised `AttributeError: module 'email' has no attribute 'message'` unless something else had already loaded the submodule. The file now imports `email.message` explicitly
+  - The regression test in `tests/ingest/test_optional_imports.py` imports the module in a subprocess, because pytest pulls in `email.message` during plugin discovery and would hide the defect in-process
+
 - **OpenAI provider requests did not set `stream`** (#1950) by @dbyqs21
   - `OpenAIProvider.generate`, `OpenAIProvider.generate_structured` and the instructor path of `BaseProvider.generate_typed` now send `stream=False` explicitly instead of relying on the endpoint's default. A custom `base_url` gateway that streams when `stream` is omitted would hand the parsers a stream object with no `.choices`
   - A caller's `stream=True` is still ignored, as before: none of these methods can consume a streamed response. New `tests/semantic_extract/test_openai_stream_disabled.py`
