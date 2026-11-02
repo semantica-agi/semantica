@@ -627,6 +627,10 @@ def test_email_ingestor_imports_without_a_preimported_email_submodule() -> None:
     plugin discovery, which imports email.message, so sys.modules is already
     primed before any in-process test runs and the attribute resolves whether
     or not the module imports it itself.
+
+    The submodule is imported directly rather than through the public
+    `EmailIngestor` name: `__getattr__` raises `ImportError` for that name when
+    beautifulsoup4 is missing, and this test has to pass on a core install.
     """
     result = _run_python_with_blocked_modules(
         """
@@ -634,9 +638,9 @@ import sys
 
 assert "email.message" not in sys.modules, "email.message was pre-imported"
 
-from semantica.ingest import EmailIngestor
+import semantica.ingest.email_ingestor as email_ingestor
 
-print(EmailIngestor.__name__)
+print(email_ingestor.EmailIngestor.__name__)
 """,
         (),
     )

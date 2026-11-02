@@ -4342,19 +4342,30 @@ def temporal_allen(
     _run_with_error_handling(_action)
 
 
-def _provenance_manager(cli_ctx: CLIContext) -> Any:
+def _provenance_manager(cli_ctx: CLIContext, *, create: bool = False) -> Any:
     """Open the provenance store the CLI's commands share.
 
     A configured ``provenance.storage_path`` wins; otherwise the CLI opens the
     database the Explorer uses (``SEMANTICA_PROVENANCE_DB`` /
     ``EXPLORER_PROVENANCE_DB``). Before this every command read a fresh
     in-memory store and reported nothing (#1810).
+
+    Opening a path that does not exist creates an empty SQLite database there,
+    so a mistyped path read back as an empty, valid store (#2166). Unless
+    ``create`` is set, as for ``invalidate``, which writes, the path must
+    already be a file.
     """
     from .provenance import ProvenanceManager, storage_path_from_env
 
-    storage_path = None
-    if not cli_ctx.config.get("provenance.storage_path"):
-        storage_path = storage_path_from_env()
+    configured = cli_ctx.config.get("provenance.storage_path")
+    storage_path = None if configured else storage_path_from_env()
+    path = configured or storage_path
+    if path and not create and not Path(path).is_file():
+        raise click.ClickException(
+            f"Provenance database '{path}' does not exist. Check "
+            "provenance.storage_path, SEMANTICA_PROVENANCE_DB or "
+            "EXPLORER_PROVENANCE_DB."
+        )
     return ProvenanceManager(storage_path=storage_path, config=cli_ctx.config.to_dict())
 
 
@@ -4522,7 +4533,7 @@ def provenance_invalidate(cli_ctx: CLIContext, entity_id: str, agent_id: str,
             _dry(cli_ctx, "invalidate provenance entity", entity_id=entity_id, by=agent_id, reason=reason)
             return
         try:
-            pm = _provenance_manager(cli_ctx)
+            pm = _provenance_manager(cli_ctx, create=True)
             result = pm.invalidate(entity_id, agent_id=agent_id, reason=reason)
         except ImportError as exc:
             raise click.ClickException(f"Provenance module not available: {exc}") from exc
@@ -5831,6 +5842,9 @@ def store_stats(cli_ctx: CLIContext, backend: str, fmt: str, local_json: bool) -
 
 _MIGRATE_SUPPORTED_BACKENDS = {"faiss", "sqlite", "pgvector"}
 _MIGRATE_BATCH_SIZE = 500
+_PINECONE_DELETE_BATCH_SIZE = 1000
+_PINECONE_VERIFY_ATTEMPTS = 3
+_PINECONE_VERIFY_SLEEP_SECONDS = 0.1
 
 
 def _migrate_backend_config(vs_cfg: Dict[str, Any], backend: str) -> Dict[str, Any]:
@@ -5988,10 +6002,18 @@ def store_flush(cli_ctx: CLIContext, namespace: Optional[str], confirm: bool) ->
 
         vs_cfg = cli_ctx.config.to_dict().get("vector_store", {}) or {}
         default_ns = vs_cfg.get("default_namespace", "default")
-        target = namespace or default_ns
         # The backend every other vector command builds (--vector-store, then
         # vector_store.backend), not a key the CLI never sets.
         backend = _configured_vector_backend(cli_ctx) or _DEFAULT_VECTOR_BACKEND
+        is_pinecone = backend.lower() == "pinecone"
+        if is_pinecone:
+            target = (
+                namespace
+                if namespace is not None
+                else vs_cfg.get("default_namespace", "")
+            )
+        else:
+            target = namespace or default_ns
         if backend == "inmemory":
             raise click.ClickException(
                 "The 'inmemory' vector backend does not persist between CLI "
@@ -6010,6 +6032,13 @@ def store_flush(cli_ctx: CLIContext, namespace: Optional[str], confirm: bool) ->
             store._backend_store.load_index(index_path)
 
         def _namespace_ids() -> List[str]:
+            # Pinecone namespaces are native partitions; other backends use
+            # the metadata namespace convention retained for compatibility.
+            if is_pinecone:
+                return [
+                    item["id"]
+                    for item in store.iter_vectors(namespace=target)
+                ]
             return [
                 item["id"]
                 for item in store.iter_vectors()
@@ -6026,20 +6055,40 @@ def store_flush(cli_ctx: CLIContext, namespace: Optional[str], confirm: bool) ->
 
         removed = 0
         if vector_ids:
-            store.delete_vectors(vector_ids)
+            if is_pinecone:
+                for start in range(0, len(vector_ids), _PINECONE_DELETE_BATCH_SIZE):
+                    store.delete_vectors(
+                        vector_ids[start:start + _PINECONE_DELETE_BATCH_SIZE],
+                        namespace=target,
+                    )
+            else:
+                store.delete_vectors(vector_ids)
             # Report what is verifiably gone, not what was requested: backends
             # such as FAISS silently ignore ids they no longer hold, and
             # delete_vectors() reports success for the call as a whole (#1943).
-            still_there = set(_namespace_ids())
+            if is_pinecone:
+                still_there = set(vector_ids)
+                for attempt in range(_PINECONE_VERIFY_ATTEMPTS):
+                    still_there = set(_namespace_ids()).intersection(vector_ids)
+                    if not still_there or attempt == _PINECONE_VERIFY_ATTEMPTS - 1:
+                        break
+                    time.sleep(_PINECONE_VERIFY_SLEEP_SECONDS)
+            else:
+                still_there = set(_namespace_ids())
             removed = sum(1 for vector_id in vector_ids if vector_id not in still_there)
-            if removed == 0:
+            if removed == 0 and not is_pinecone:
                 raise click.ClickException(
                     f"None of the {len(vector_ids)} vectors in namespace "
                     f"'{target}' were removed; backend '{backend}' may not "
                     "support deletion for this store."
                 )
 
-        _ok(cli_ctx, f"Flushed namespace: {target} ({removed} vectors removed)")
+        message = f"Flushed namespace: {target} ({removed} vectors removed)"
+        if is_pinecone:
+            unconfirmed = len(vector_ids) - removed
+            if unconfirmed:
+                message += f"; {unconfirmed} vectors unconfirmed"
+        _ok(cli_ctx, message)
 
     _run_with_error_handling(_action)
 
