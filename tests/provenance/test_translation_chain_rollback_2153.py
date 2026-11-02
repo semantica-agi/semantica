@@ -1,5 +1,6 @@
 """Translation chain provenance rollback (#2153)."""
 
+from contextlib import contextmanager
 from typing import Optional
 
 import pytest
@@ -180,3 +181,86 @@ def test_a_manager_with_an_explicit_signature_runs_a_chain():
 
     assert len(chain.layers) == 4
     assert chain.layers[-1]["value"] == 3 * 2.0 * 2.0
+
+
+class _TransactionOnlyStorage(ProvenanceStorage):
+    """Overrides ``transaction()`` but still writes straight to the store."""
+
+    def __init__(self):
+        self._entries = {}
+
+    def store(self, entry):
+        if entry.entity_id.endswith("_transformed_A2"):
+            raise IOError("disk full")
+        self._entries[entry.entity_id] = entry
+
+    def retrieve(self, entity_id):
+        return self._entries.get(entity_id)
+
+    def retrieve_all(self, entity_type: Optional[str] = None):
+        if entity_type:
+            return [e for e in self._entries.values() if e.entity_type == entity_type]
+        return list(self._entries.values())
+
+    def trace_lineage(self, entity_id: str, max_depth: Optional[int] = None):
+        entry = self.retrieve(entity_id)
+        return [entry] if entry else []
+
+    def clear(self):
+        count = len(self._entries)
+        self._entries.clear()
+        return count
+
+    @contextmanager
+    def transaction(self):
+        yield object()
+
+
+def test_a_backend_that_only_overrides_transaction_is_not_treated_as_atomic():
+    """The chain must report what it left behind when writes are not staged."""
+    storage = _TransactionOnlyStorage()
+    manager = ProvenanceManager(storage=storage)
+
+    with pytest.raises(ProvenanceRecordingError) as info:
+        create_translation_chain(_input(), [_axiom("A1"), _axiom("A2")], manager)
+
+    assert info.value.recorded_entities == ["e1_transformed_A1"]
+    assert storage.retrieve("e1_transformed_A1") is not None
+
+
+def test_a_chain_without_a_manager_reports_no_failures():
+    chain = create_translation_chain(
+        _input(), [_axiom("A1"), _axiom("A2")], None, require_provenance=False
+    )
+
+    assert len(chain.layers) == 4
+    assert "provenance_failures" not in chain.metadata
+    assert [
+        layer["provenance_recorded"]
+        for layer in chain.layers
+        if layer["type"] == "bridge_axiom"
+    ] == [False, False]
+
+
+class _BrokenTransactionStorage(_TransactionOnlyStorage):
+    """A backend whose transaction cannot even be opened."""
+
+    def store(self, entry):
+        self._entries[entry.entity_id] = entry
+
+    def _store_with_conn(self, conn, entry):
+        self.store(entry)
+
+    @contextmanager
+    def transaction(self):
+        raise IOError("database is locked")
+        yield  # pragma: no cover
+
+
+def test_a_transaction_that_cannot_start_is_reported_as_a_provenance_error():
+    manager = ProvenanceManager(storage=_BrokenTransactionStorage())
+
+    with pytest.raises(ProvenanceRecordingError) as info:
+        create_translation_chain(_input(), [_axiom("A1")], manager)
+
+    assert isinstance(info.value.__cause__, IOError)

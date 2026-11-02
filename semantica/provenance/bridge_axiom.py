@@ -365,13 +365,22 @@ class TranslationChain:
 
 
 def _storage_rolls_back(storage: Any) -> bool:
-    """True when a backend overrides the base transaction() with a real one.
+    """True when a backend can undo writes made inside a chain.
 
-    The base class yields None and the store cannot undo anything, so a chain
-    that "shared" that transaction would still leave half-written steps behind
-    while believing it rolled back.
+    Two things have to hold. The backend must override the base
+    ``transaction()``, which yields None and cannot undo anything, and it must
+    stage writes through ``_store_with_conn``. A backend that overrides only
+    ``transaction()`` still writes straight to the store, so treating it as
+    atomic would hide steps that were already persisted when a later one fails.
+
+    The in-memory backend flushes its staging buffer one entry at a time on
+    commit. A failure during that flush is not undone, but a failure while a
+    step runs is, because the buffer is dropped before anything is flushed.
     """
-    return type(storage).transaction is not ProvenanceStorage.transaction
+    return (
+        type(storage).transaction is not ProvenanceStorage.transaction
+        and type(storage)._store_with_conn is not ProvenanceStorage._store_with_conn
+    )
 
 
 def _apply_translation_chain(
@@ -423,7 +432,10 @@ def _apply_translation_chain(
 
             if result["provenance_recorded"]:
                 recorded.append(result["output_entity"])
-            else:
+            elif prov_manager is not None:
+                # Without a manager nothing was attempted, so it is not a
+                # failed write; apply() reports provenance_recorded=False for
+                # the layer either way.
                 failures.append({
                     "axiom_id": axiom.axiom_id,
                     "output_entity": result["output_entity"],
@@ -494,10 +506,21 @@ def create_translation_chain(
         and _storage_rolls_back(prov_manager.storage)
     )
     if atomic:
-        with prov_manager._get_or_create_transaction() as conn:
-            return _apply_translation_chain(
-                input_data, bridge_axioms, prov_manager, require_provenance, conn
-            )
+        try:
+            with prov_manager._get_or_create_transaction() as conn:
+                return _apply_translation_chain(
+                    input_data, bridge_axioms, prov_manager, require_provenance, conn
+                )
+        except ProvenanceRecordingError:
+            raise
+        except Exception as exc:
+            # Opening or committing the shared transaction can fail on its own
+            # (a busy database, a full disk). Report it the same way a failed
+            # step write is reported instead of leaking a backend exception.
+            raise ProvenanceRecordingError(
+                "Could not run the translation chain provenance transaction: "
+                f"{type(exc).__name__}",
+            ) from exc
     return _apply_translation_chain(
         input_data, bridge_axioms, prov_manager, require_provenance, None
     )
