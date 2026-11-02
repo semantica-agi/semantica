@@ -21,6 +21,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `semantica.kg.RelationalSchemaMapper` maps rows from a relational source (`DBIngestor`, `SnowflakeIngestor`, `DatabricksIngestor`, `PandasIngestor`, a DataFrame or plain row dicts) to the `{"entities", "relationships"}` shape `GraphBuilder` and `OntologyGenerator` consume: entity tables become entities keyed by primary key, foreign keys become typed relationships, junction tables become relationships only
   - Every entity and relationship is tagged with the `source` it came from so `ConflictDetector` can key credibility on it. New `tests/kg/test_schema_mapper.py`
 
+- **Snapshot-consistent grounded context assembly** (#1731, closes #1730) by @cxzg007
+  - `GroundedContextAssembler` builds RAG context from one captured truth-maintenance view: every candidate is validated against that view before ranking, the rendered text and citation footnotes fit `max_context_chars`, and nothing is returned if the source or the registry changed during assembly
+  - `TruthSnapshotProvider` captures immutable session or bitemporal read views, and `ContextArtifactIndex` registers summaries and citations with explicit fact and support dependencies and reports which ones were invalidated or became eligible again
+  - Opt-in: existing `ContextRetriever.retrieve` and `TruthMaintenanceContextFilter` behavior is unchanged. See `docs/reference/grounded_context.md`
+
 ### Changed
 
 - **Breaking: Python 3.10 is no longer supported. Semantica now requires Python 3.11–3.13** (closes #2067)
@@ -33,6 +38,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Security**: closes the 13 Pillow Dependabot alerts (including #392 and #425) and the 3 Python 3.10 filelock alerts. The 28 Pillow and 3 filelock acceptances are removed from `osv-scanner.toml` and `SECURITY.md`
 
 ### Fixed
+
+- **OpenAI provider requests did not set `stream`** (#1950) by @dbyqs21
+  - `OpenAIProvider.generate`, `OpenAIProvider.generate_structured` and the instructor path of `BaseProvider.generate_typed` now send `stream=False` explicitly instead of relying on the endpoint's default. A custom `base_url` gateway that streams when `stream` is omitted would hand the parsers a stream object with no `.choices`
+  - A caller's `stream=True` is still ignored, as before: none of these methods can consume a streamed response. New `tests/semantic_extract/test_openai_stream_disabled.py`
+
+- **`semantica store stats` and `semantica store flush --confirm` crashed on every call** (fixes #1943) by @pkupt
+  - `store stats` called `run_analytics()`, the graph analytics entry point, with `backend=`/`config=` and no `algorithm`, so it raised `TypeError`. It now reads the persisted ContextGraph for `--backend memory` and calls `GraphStore.get_stats()` for neo4j, falkordb, age and neptune, and `--format table` renders a real table
+  - `store flush` called `delete_vectors()` with a namespace instead of vector ids and raised `TypeError`. It now clears the target namespace's vectors on the configured vector backend (`--vector-store`, then `vector_store.backend`) and reports how many it removed. FAISS needs `index_path` (the index is loaded first and deletions are written back to it), `inmemory` is rejected because nothing persists between CLI runs, and a backend that cannot list its vectors fails instead of reporting zero
 
 - **`pyasn1` was pinned at 0.6.4, which the audit job now flags four times** (fixes #2182) by @sakshi04-ui
   - `CVE-2026-119194`, `CVE-2026-119195`, `CVE-2026-119196` and `CVE-2026-119197` all resolve to `pyasn1==0.6.4`, pulled in through `google-auth` → `pyasn1-modules`. They are the only findings in `requirements-ci.txt` outside the accepted `opentelemetry-api` advisory, and the scheduled scan on `main` has failed on them since 2026-10-31
