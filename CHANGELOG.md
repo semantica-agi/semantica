@@ -21,6 +21,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `semantica.kg.RelationalSchemaMapper` maps rows from a relational source (`DBIngestor`, `SnowflakeIngestor`, `DatabricksIngestor`, `PandasIngestor`, a DataFrame or plain row dicts) to the `{"entities", "relationships"}` shape `GraphBuilder` and `OntologyGenerator` consume: entity tables become entities keyed by primary key, foreign keys become typed relationships, junction tables become relationships only
   - Every entity and relationship is tagged with the `source` it came from so `ConflictDetector` can key credibility on it. New `tests/kg/test_schema_mapper.py`
 
+- **Snapshot-consistent grounded context assembly** (#1731, closes #1730) by @cxzg007
+  - `GroundedContextAssembler` builds RAG context from one captured truth-maintenance view: every candidate is validated against that view before ranking, the rendered text and citation footnotes fit `max_context_chars`, and nothing is returned if the source or the registry changed during assembly
+  - `TruthSnapshotProvider` captures immutable session or bitemporal read views, and `ContextArtifactIndex` registers summaries and citations with explicit fact and support dependencies and reports which ones were invalidated or became eligible again
+  - Opt-in: existing `ContextRetriever.retrieve` and `TruthMaintenanceContextFilter` behavior is unchanged. See `docs/reference/grounded_context.md`
+
 ### Changed
 
 - **Breaking: Python 3.10 is no longer supported. Semantica now requires Python 3.11–3.13** (closes #2067)
@@ -39,6 +44,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Backends without transaction support keep writing step by step; the `ProvenanceRecordingError` now carries `recorded_entities` listing what is actually in the store, so a caller can clean up or resume
   - `create_translation_chain()` accepts `require_provenance` (default `True`, unchanged behavior) to run a chain best-effort. Each layer reports `provenance_recorded`/`provenance_error` and failed steps are collected in `chain.metadata["provenance_failures"]`. New tests in `tests/provenance/test_translation_chain_rollback_2153.py`
 
+- **`semantica.ingest.email_ingestor` could not be imported on a fresh interpreter** (fixes #2190) by @dex0shubham
+  - `import email` binds only the package, and `email.message` becomes an attribute only once the submodule is imported itself. `email_ingestor.py` annotates four methods with `email.message.Message`, and those annotations are evaluated when the enclosing class body runs, so importing the module raised `AttributeError: module 'email' has no attribute 'message'` unless something else had already loaded the submodule. The file now imports `email.message` explicitly
+  - The regression test in `tests/ingest/test_optional_imports.py` imports the module in a subprocess, because pytest pulls in `email.message` during plugin discovery and would hide the defect in-process
+
+- **OpenAI provider requests did not set `stream`** (#1950) by @dbyqs21
+  - `OpenAIProvider.generate`, `OpenAIProvider.generate_structured` and the instructor path of `BaseProvider.generate_typed` now send `stream=False` explicitly instead of relying on the endpoint's default. A custom `base_url` gateway that streams when `stream` is omitted would hand the parsers a stream object with no `.choices`
+  - A caller's `stream=True` is still ignored, as before: none of these methods can consume a streamed response. New `tests/semantic_extract/test_openai_stream_disabled.py`
+
+- **`semantica store stats` and `semantica store flush --confirm` crashed on every call** (fixes #1943) by @pkupt
+  - `store stats` called `run_analytics()`, the graph analytics entry point, with `backend=`/`config=` and no `algorithm`, so it raised `TypeError`. It now reads the persisted ContextGraph for `--backend memory` and calls `GraphStore.get_stats()` for neo4j, falkordb, age and neptune, and `--format table` renders a real table
+  - `store flush` called `delete_vectors()` with a namespace instead of vector ids and raised `TypeError`. It now clears the target namespace's vectors on the configured vector backend (`--vector-store`, then `vector_store.backend`) and reports how many it removed. FAISS needs `index_path` (the index is loaded first and deletions are written back to it), `inmemory` is rejected because nothing persists between CLI runs, and a backend that cannot list its vectors fails instead of reporting zero
+  - Pinecone flush now targets its native namespace for enumeration, deletion,
+    and verification; other backends retain metadata-based namespace filtering
+
 - **`pyasn1` was pinned at 0.6.4, which the audit job now flags four times** (fixes #2182) by @sakshi04-ui
   - `CVE-2026-119194`, `CVE-2026-119195`, `CVE-2026-119196` and `CVE-2026-119197` all resolve to `pyasn1==0.6.4`, pulled in through `google-auth` → `pyasn1-modules`. They are the only findings in `requirements-ci.txt` outside the accepted `opentelemetry-api` advisory, and the scheduled scan on `main` has failed on them since 2026-10-31
   - `requirements-ci.txt` and `uv.lock` now carry `pyasn1==0.6.5`, the latest release and the first with fixes for all four. Nothing else moves: both files were re-resolved with only `pyasn1` upgraded, and the CI freshness gates (`uv pip compile` against `requirements-ci.txt` and `open-ontologies-extra.txt`, `uv lock --check`) pass unchanged
@@ -46,6 +65,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`joserfc` was pinned at 1.7.5, which the audit job now flags** by @Sameer6305
   - `CVE-2026-119284` (`GHSA-9pg5-8c7x-5hfx`): the compact JWS size guard allocated attacker-controlled segments before rejecting them. It is the only finding in `requirements-ci.txt`, so `security-scan` failed every pull request opened after the advisory landed
   - `requirements-ci.txt` and `uv.lock` now carry `joserfc==1.7.7`; 1.7.6 is the first fixed release. Nothing else moves: both files were re-resolved with only `joserfc` upgraded
+
+- **`--json` output started with log records, so it did not parse as JSON** (fixes #2150) by @Rahul-cs50
+  - `setup_logging` attached its console handler to `sys.stdout`, so the records a command logs while it starts up (a `ContextGraph` logs on construction) came out ahead of the payload, and `semantica doctor --json | jq` or `json.loads` on `decision list --json` failed with `Extra data` / `Expecting value`. The console handler, and the one `get_logger(..., format=...)` adds, now write to `sys.stderr`, Python's default for `StreamHandler` and what the MCP server already does. Code that read Semantica's console log records from stdout finds them on stderr. New `tests/cli/test_json_stdout_logging.py` runs `decision list --json` in a subprocess and parses its stdout; `tests/test_cli_commands.py` replaces `setup_logging` with a no-op, so it could not catch this
+
+- **`semantica provenance` read commands created an empty database at a mistyped path and reported it as valid** (fixes #2166) by @Rahul-cs50
+  - When `provenance.storage_path`, `SEMANTICA_PROVENANCE_DB` or `EXPLORER_PROVENANCE_DB` named a file that did not exist, `SQLiteStorage` created an empty database there, so `audit` printed `[]`, `verify-chain` reported a valid chain of 0 entries, and both exited 0: a typo looked the same as "no provenance recorded". `audit`, `verify-chain`, `check`, `lineage`, `descendants` and `export` now exit with `Provenance database '<path>' does not exist`, naming the settings to check, and leave no file behind, as `semantica ontology version` already does for its store. `invalidate` writes, so it still creates the database. Tests in `TestProvenanceCliStorageEnv` cover each read command, a configured path, and `invalidate`
 
 - **Parquet and Arrow relationship export lost graph-backend endpoint names** (refs #2018) by @george07-t
   - `ParquetExporter.export_relationships()` and `ArrowExporter.export_relationships()` read only `source`/`source_id` and `target`/`target_id`, so a record shaped by a graph backend (`start_node_id`/`end_node_id` from Neo4j, FalkorDB and Neptune, `start_id`/`end_id` from raw AGE edges) made Parquet raise `ValidationError` and wrote Arrow rows with empty `source_id` and `target_id`. Both now run the records through `canonical_endpoints` first, so the shared list, order and empty-value rule apply; Parquet keeps its `from_id`/`from`/`to_id`/`to` fallbacks, and an integer id of `0` is now kept as a real id in both, as the shared helper treats it (it used to be dropped by their `or` chains)
