@@ -259,4 +259,5 @@ were not durably stored, cannot be recovered. A malformed JSON document raises
 - [Temporal Truth Maintenance](/reference/temporal_truth_maintenance) — an opt-in graph adapter for independent valid/known-time slices, expiration and late corrections.
 - [Reasoning](/reference/reasoning) — the rule engines this session builds on, including the `Rule` representation.
 - [Context](/reference/context#support-aware-retrieval-truth_filter) — `TruthMaintenanceContextFilter` consumes immutable snapshots to filter retrieved context by active support.
+- [Grounded Context Assembly](/reference/grounded_context) — registered summaries and citations withdrawn when their evidence is withdrawn, with bitemporal historical reads.
 - [Ontology](/reference/ontology) — ontology axioms and SHACL constraints.
