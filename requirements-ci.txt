@@ -3821,9 +3821,9 @@ mypy-extensions==1.1.0 \
     #   black
     #   isort
     #   mypy
-narwhals==2.25.0 \
-    --hash=sha256:1f0f403e8c7e4463cde9bfe78b12fdd809e3ae3dda6d9b2f802934fb9c7a6a8f \
-    --hash=sha256:62c036c810662bf7820b7737077176313bc59350eeeefb808510f388c743e4b2
+narwhals==2.28.0 \
+    --hash=sha256:1f69d6385ec30e2fa6e1fdeb37c562ecabd0f713f6f3e3b58a668c5c9df9567f \
+    --hash=sha256:2d9860c80d6610820826e94c6e42ce4b1d92d89cdd479586e652a8d211dab345
     # via
     #   formulaic
     #   plotly
