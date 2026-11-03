@@ -39,6 +39,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Failed structural embeddings were replaced with random vectors** (fixes #1741) by @ShryukGrandhi
+  - `DecisionEmbeddingPipeline._generate_structural_embedding()` returned a random vector when Node2Vec or graph-feature enhancement raised, so `process_decision()` reported `has_structural_embedding=True` and mixed noise into the combined and stored embeddings. It now logs the failure and returns `None`, so the decision is processed with its semantic embedding only and `has_structural_embedding` is `False`
+
 - **`semantica.ingest.email_ingestor` could not be imported on a fresh interpreter** (fixes #2190) by @dex0shubham
   - `import email` binds only the package, and `email.message` becomes an attribute only once the submodule is imported itself. `email_ingestor.py` annotates four methods with `email.message.Message`, and those annotations are evaluated when the enclosing class body runs, so importing the module raised `AttributeError: module 'email' has no attribute 'message'` unless something else had already loaded the submodule. The file now imports `email.message` explicitly
   - The regression test in `tests/ingest/test_optional_imports.py` imports the module in a subprocess, because pytest pulls in `email.message` during plugin discovery and would hide the defect in-process
