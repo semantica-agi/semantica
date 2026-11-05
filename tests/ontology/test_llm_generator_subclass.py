@@ -7,6 +7,7 @@ import rdflib
 from rdflib import RDFS, URIRef
 
 from semantica.ontology.llm_generator import LLMOntologyGenerator
+from semantica.ontology import owl_generator
 from semantica.ontology.owl_generator import OWLGenerator
 
 BASE = "https://example.org/t/"
@@ -35,8 +36,12 @@ def test_parent_aliases_normalised_to_subclassof(key):
     assert by_name["Rig"]["subClassOf"] is None
 
 
-def test_hierarchy_survives_owl_export():
+@pytest.mark.parametrize("use_rdflib", [True, False], ids=["rdflib", "basic-string"])
+def test_hierarchy_survives_owl_export(monkeypatch, use_rdflib):
+    # HAS_RDFLIB selects _generate_with_rdflib vs the _generate_basic string fallback
+    monkeypatch.setattr(owl_generator, "HAS_RDFLIB", use_rdflib)
     onto = _generate([{"name": "Rig"}, {"name": "JackUpRig", "parent": "Rig"}])
     ttl = OWLGenerator().generate_owl(onto, format="turtle")
+    assert isinstance(ttl, str)
     g = rdflib.Graph().parse(data=ttl, format="turtle")
     assert (URIRef(BASE + "JackUpRig"), RDFS.subClassOf, URIRef(BASE + "Rig")) in g
