@@ -101,6 +101,56 @@ def _json_output(result) -> Any:
     return json.loads(result.output.strip())
 
 
+def _wire_inmemory_vector_store(monkeypatch, namespaces, built=None):
+    """Point the CLI at a real in-memory VectorStore, one vector per namespace.
+
+    store flush reads what the backend actually holds, so its tests drive the
+    real VectorStore API instead of stubbing delete_vectors() — a
+    ``lambda **kw`` stub is what hid the original TypeError (#1943). Only the
+    constructor call is redirected; its kwargs are appended to ``built`` so a
+    test can assert which backend and config the CLI asked for. Returns the
+    store so a test can inspect what survived.
+    """
+    import sys as _sys
+
+    import numpy as np
+
+    from semantica.vector_store import VectorStore as _RealVectorStore
+    from semantica.vector_store import vector_store as _vs_mod
+
+    class _StubEmbedder:
+        """Offline stand-in: a real EmbeddingGenerator probes HuggingFace."""
+
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            pass
+
+        def get_embedding_dimension(self) -> int:
+            return 4
+
+        def embed(self, text: str) -> Any:
+            return np.zeros(4)
+
+    monkeypatch.setattr(_vs_mod, "EmbeddingGenerator", _StubEmbedder)
+
+    store = _RealVectorStore(backend="inmemory", config={"dimension": 4})
+    if namespaces:
+        store.store_vectors(
+            [np.zeros(4) for _ in namespaces],
+            metadata=[{"namespace": name} for name in namespaces],
+        )
+    def _construct(**kwargs: Any) -> Any:
+        if built is not None:
+            built.append(kwargs)
+        return store
+
+    monkeypatch.setitem(
+        _sys.modules,
+        "semantica.vector_store",
+        _fake_module(VectorStore=_construct),
+    )
+    return store
+
+
 def _flatten(output: str) -> str:
     """Undo Rich panel wrapping for substring assertions on error text.
 
@@ -225,6 +275,40 @@ class TestGlobalFlags:
 # ─── kg subcommands ───────────────────────────────────────────────────────────
 
 
+# Graph handed to the kg wrappers by these tests. The old versions replaced
+# `semantica.kg` wholesale with MagicMocks whose method signatures did not
+# match the real classes, so every defect in #1941 passed the suite: the
+# assertions were made against the fake, never against the code. Patching
+# only _kg_graph() lets the real GraphAnalyzer / PathFinder / EntityResolver /
+# LinkPredictor / GraphValidator run against a known graph instead.
+FIXTURE_KG = {
+    "entities": [
+        {"id": "Alice", "type": "person", "text": "Alice"},
+        {"id": "Bob", "type": "person", "text": "Bob"},
+        {"id": "Acme", "type": "org", "text": "Acme"},
+    ],
+    "relationships": [
+        {"id": "r1", "source": "Alice", "target": "Bob",
+         "type": "knows", "weight": 1.0},
+        {"id": "r2", "source": "Bob", "target": "Acme",
+         "type": "works_at", "weight": 1.0},
+    ],
+}
+
+
+def _fixture_graph(monkeypatch) -> None:
+    """Point the kg CLI at FIXTURE_KG, leaving the real KG classes in place.
+
+    Normalization runs too: the memory backend path applies it before handing
+    the graph to GraphValidator, which requires an entity ``name``.
+    """
+    monkeypatch.setattr(
+        cli_module,
+        "_kg_graph",
+        lambda cli_ctx: cli_module._normalize_kg_dict(FIXTURE_KG),
+    )
+
+
 class TestKgSubcommands:
     @pytest.mark.parametrize("sub", ["query", "stats", "analyze", "find-path",
                                       "resolve", "predict", "validate"])
@@ -248,74 +332,202 @@ class TestKgSubcommands:
         # Either exits 0 (fallback) or non-0 (clean error) — never traceback
         assert "Traceback" not in result.output
 
-    def test_kg_stats_json_with_mock(self, runner, monkeypatch):
-        fake_kg = _fake_module(
-            GraphAnalyzer=lambda **kw: MagicMock(
-                compute_metrics=lambda: {"nodes": 10, "edges": 25, "density": 0.5}
-            ),
-        )
-        monkeypatch.setitem(__import__("sys").modules, "semantica.kg", fake_kg)
+    def test_kg_stats_json_with_fixture_graph(self, runner, monkeypatch):
+        _fixture_graph(monkeypatch)
         result = runner.invoke(cli_module.main, ["kg", "stats", "--json"])
-        _ok(result)
         data = _json_output(result)
-        assert isinstance(data, dict)
-        assert "nodes" in data
+        assert data["num_nodes"] == len(FIXTURE_KG["entities"])
+        assert data["num_edges"] == len(FIXTURE_KG["relationships"])
 
-    def test_kg_analyze_json_with_mock(self, runner, monkeypatch):
-        fake_kg = _fake_module(
-            GraphAnalyzer=lambda **kw: MagicMock(
-                analyze=lambda mode: {"mode": mode, "communities": 3}
-            ),
-        )
-        monkeypatch.setitem(__import__("sys").modules, "semantica.kg", fake_kg)
-        result = runner.invoke(cli_module.main, ["kg", "analyze", "--mode", "community", "--json"])
-        _ok(result)
+    def test_kg_analyze_community_runs_only_community(self, runner, monkeypatch):
+        _fixture_graph(monkeypatch)
+        result = runner.invoke(cli_module.main, ["kg", "analyze",
+                                      "--mode", "community", "--json"])
         data = _json_output(result)
         assert isinstance(data, dict)
+        # `mode` used to be swallowed by GraphAnalyzer's **options, so
+        # --mode community ran the whole analysis; only the community
+        # detector reports an assignment map (#1941).
+        assert "node_assignments" in data
+        assert set(data["node_assignments"]) == {
+            e["id"] for e in FIXTURE_KG["entities"]
+        }
+
+    def test_kg_analyze_centrality_runs_only_centrality(self, runner, monkeypatch):
+        _fixture_graph(monkeypatch)
+        result = runner.invoke(cli_module.main, ["kg", "analyze",
+                                      "--mode", "centrality", "--json"])
+        data = _json_output(result)
+        assert isinstance(data, dict)
+        assert "node_assignments" not in data
 
     def test_kg_find_path_requires_from_and_to(self, runner):
         result = runner.invoke(cli_module.main, ["kg", "find-path"])
         assert result.exit_code != 0
 
-    def test_kg_find_path_json_with_mock(self, runner, monkeypatch):
-        fake_kg = _fake_module(
-            PathFinder=lambda **kw: MagicMock(
-                find_path=lambda f, t, path_type: {"from": f, "to": t, "path": [f, t]}
-            ),
-        )
-        monkeypatch.setitem(__import__("sys").modules, "semantica.kg", fake_kg)
+    def test_kg_find_path_json_traverses_fixture_graph(self, runner, monkeypatch):
+        _fixture_graph(monkeypatch)
         result = runner.invoke(cli_module.main, ["kg", "find-path",
-                                      "--from", "Alice", "--to", "Acme", "--json"])
-        _ok(result)
+                                      "--from", "Alice", "--to", "Acme",
+                                      "--json"])
         data = _json_output(result)
-        assert "from" in data
+        # PathFinder duck-types against neighbors()/get_edge_data(); handed
+        # the {"entities", "relationships"} dict it cannot traverse and
+        # reports "Source node Alice not found" on a graph that contains
+        # Alice (#1725). The CLI must pass the NetworkX projection.
+        assert data["path"] == ["Alice", "Bob", "Acme"]
 
-    def test_kg_resolve_exits_0_with_mock(self, runner, monkeypatch):
-        fake_kg = _fake_module(
-            EntityResolver=lambda **kw: MagicMock(resolve=lambda: {"resolved": 5}),
-        )
-        monkeypatch.setitem(__import__("sys").modules, "semantica.kg", fake_kg)
-        result = runner.invoke(cli_module.main, ["kg", "resolve"])
-        assert result.exit_code == 0
+    def test_kg_find_path_unknown_node_errors_cleanly(self, runner, monkeypatch):
+        _fixture_graph(monkeypatch)
+        result = runner.invoke(cli_module.main, ["kg", "find-path",
+                                      "--from", "nobody", "--to", "Acme",
+                                      "--json"])
+        assert result.exit_code != 0
+        assert "Traceback" not in result.output
 
-    def test_kg_predict_exits_0_with_mock(self, runner, monkeypatch):
-        fake_kg = _fake_module(
-            LinkPredictor=lambda **kw: MagicMock(predict=lambda: {"predictions": []}),
-        )
-        monkeypatch.setitem(__import__("sys").modules, "semantica.kg", fake_kg)
-        result = runner.invoke(cli_module.main, ["kg", "predict"])
-        assert result.exit_code == 0
+    def test_kg_find_path_unsupported_type_errors_cleanly(self, runner, monkeypatch):
+        _fixture_graph(monkeypatch)
+        result = runner.invoke(cli_module.main, ["kg", "find-path",
+                                      "--from", "Alice", "--to", "Acme",
+                                      "--type", "causal", "--json"])
+        assert result.exit_code != 0
+        assert "Traceback" not in result.output
 
-    def test_kg_validate_exits_0_with_mock(self, runner, monkeypatch):
-        fake_kg = _fake_module(
-            GraphValidator=lambda **kw: MagicMock(
-                validate=lambda: {"valid": True},
-                integrity_check=lambda: {"valid": True},
-            ),
+    def test_kg_find_path_accepts_entity_name_when_id_differs(self, runner, monkeypatch):
+        # --from/--to are documented as names; the projection is keyed by ID.
+        graph = {
+            "entities": [
+                {"id": "n1", "name": "Alice", "type": "person"},
+                {"id": "n2", "name": "Bob", "type": "person"},
+            ],
+            "relationships": [
+                {"id": "r1", "source": "n1", "target": "n2", "type": "knows"},
+            ],
+        }
+        monkeypatch.setattr(
+            cli_module, "_kg_graph",
+            lambda cli_ctx: cli_module._normalize_kg_dict(graph),
         )
-        monkeypatch.setitem(__import__("sys").modules, "semantica.kg", fake_kg)
-        result = runner.invoke(cli_module.main, ["kg", "validate"])
-        assert result.exit_code == 0
+        result = runner.invoke(cli_module.main, ["kg", "find-path",
+                                      "--from", "Alice", "--to", "Bob", "--json"])
+        _ok(result)
+        body = json.dumps(_json_output(result))
+        assert "n1" in body and "n2" in body
+
+    def test_graph_store_context_by_id_keeps_same_name_nodes_apart(self, monkeypatch):
+        # Using the display name as the ID merges same-name store nodes.
+        class _GS:
+            def get_nodes(self, limit=None):
+                return [
+                    {"id": "n1", "properties": {"name": "Alice"}, "labels": ["Person"]},
+                    {"id": "n2", "properties": {"name": "Alice"}, "labels": ["Person"]},
+                ]
+
+            def get_relationships(self, limit=None):
+                return []
+
+        monkeypatch.setattr(cli_module, "_get_graph_store", lambda ctx, **kw: _GS())
+        by_name = cli_module._graph_store_as_context(None)
+        by_id = cli_module._graph_store_as_context(None, by_id=True)
+        assert [e["id"] for e in by_name["entities"]] == ["Alice", "Alice"]
+        assert [e["id"] for e in by_id["entities"]] == ["n1", "n2"]
+        assert [e["name"] for e in by_id["entities"]] == ["Alice", "Alice"]
+
+    def test_kg_resolve_reports_merged_entities_read_only(self, runner, monkeypatch):
+        _fixture_graph(monkeypatch)
+        result = runner.invoke(cli_module.main, ["kg", "resolve", "--json"])
+        data = _json_output(result)
+        assert data["input"] == len(FIXTURE_KG["entities"])
+        assert data["input"] == data["resolved"] + data["merged"]
+        assert len(data["entities"]) == data["resolved"]
+        # Nothing is written back, so the text output must not imply it was.
+        text = runner.invoke(cli_module.main, ["kg", "resolve"]).output
+        assert "read-only" in _flatten(text)
+
+    def test_kg_predict_json_predicts_over_fixture_graph(self, runner, monkeypatch):
+        _fixture_graph(monkeypatch)
+        result = runner.invoke(cli_module.main, ["kg", "predict", "--json"])
+        data = _json_output(result)
+        assert data["count"] == len(data["predictions"])
+        # LinkPredictor enumerates candidate nodes through get_all_nodes(),
+        # which the dict and ContextGraph shapes do not provide: on the old
+        # code this was 0 predictions on a populated graph (#1941).
+        assert data["count"] > 0
+        assert {"source", "target", "score"} <= set(data["predictions"][0])
+
+    def test_kg_predict_reports_each_unlinked_pair_once(self, runner, monkeypatch):
+        # The scores are symmetric, so scoring ordered pairs would list every
+        # prediction twice and suggest reversing edges that already exist.
+        graph = {
+            "entities": [{"id": n, "name": n, "type": "t"} for n in "ABCD"],
+            "relationships": [
+                {"id": f"r{i}", "source": s, "target": t, "type": "e"}
+                for i, (s, t) in enumerate(
+                    [("C", "A"), ("C", "B"), ("A", "D"), ("B", "D")]
+                )
+            ],
+        }
+        monkeypatch.setattr(
+            cli_module, "_kg_graph",
+            lambda cli_ctx: cli_module._normalize_kg_dict(graph),
+        )
+        result = runner.invoke(cli_module.main, ["kg", "predict", "--json"])
+        pairs = [
+            frozenset((p["source"], p["target"]))
+            for p in _json_output(result)["predictions"]
+        ]
+        assert sorted(pairs, key=sorted) == [frozenset("AB"), frozenset("CD")]
+
+    def test_kg_validate_json_validates_fixture_graph(self, runner, monkeypatch):
+        _fixture_graph(monkeypatch)
+        result = runner.invoke(cli_module.main, ["kg", "validate", "--json"])
+        data = _json_output(result)
+        assert data["is_valid"] is True
+        assert data["stats"]["total_entities"] == len(FIXTURE_KG["entities"])
+        assert data["stats"]["total_relationships"] == len(
+            FIXTURE_KG["relationships"]
+        )
+
+
+class TestNormalizeKgDict:
+    """The memory backend's to_kg_dict() is not the shape the kg classes read.
+
+    It emits source_id/target_id and carries the node name under `text`;
+    GraphValidator and GraphAnalyzer read source/target and `name`, so
+    un-normalized input reads as 0 relationships and nameless entities
+    (#1941).
+    """
+
+    def test_adds_source_and_target_without_dropping_source_id(self):
+        out = cli_module._normalize_kg_dict({
+            "entities": [],
+            "relationships": [
+                {"source_id": "a", "target_id": "b", "type": "knows"},
+            ],
+        })
+        rel = out["relationships"][0]
+        assert rel["source"] == "a"
+        assert rel["target"] == "b"
+        assert rel["source_id"] == "a"
+
+    def test_derives_name_from_text_and_id(self):
+        out = cli_module._normalize_kg_dict({
+            "entities": [
+                {"id": "e1", "text": "Alice"},
+                {"id": "e2", "properties": {"name": "Bob"}},
+                {"id": "e3"},
+            ],
+            "relationships": [],
+        })
+        by_id = {e["id"]: e for e in out["entities"]}
+        assert by_id["e1"]["name"] == "Alice"
+        assert by_id["e2"]["name"] == "Bob"
+        assert by_id["e3"]["name"] == "e3"
+
+    def test_is_idempotent_on_an_already_normalized_graph(self):
+        out = cli_module._normalize_kg_dict(FIXTURE_KG)
+        assert out["relationships"] == FIXTURE_KG["relationships"]
+        assert cli_module._normalize_kg_dict(out) == out
 
 
 # ─── ingest ───────────────────────────────────────────────────────────────────
@@ -492,15 +704,11 @@ class TestIngest:
         assert "output" not in captured["kwargs"]
 
     def test_import_error_is_clean(self, runner, monkeypatch):
-        monkeypatch.setattr(cli_module, "__import__", _import_side_effect, raising=False)
-        original_import = __import__
-        with patch("builtins.__import__", side_effect=lambda n, *a, **k: (
-            (_ for _ in ()).throw(ImportError(n))
-            if n.startswith("semantica.ingest") else original_import(n, *a, **k)
-        )):
-            result = runner.invoke(cli_module.main, ["ingest", "data.pdf"])
+        monkeypatch.setitem(sys.modules, "semantica.ingest", None)
+        result = runner.invoke(cli_module.main, ["ingest", "data.pdf"])
         assert result.exit_code != 0
         assert "Traceback" not in result.output
+        assert "semantica.ingest" in result.output
 
     def test_type_choice_validation(self, runner):
         result = runner.invoke(cli_module.main, ["ingest", "x.pdf", "--type", "invalid_type"])
@@ -2273,14 +2481,16 @@ class TestTemporal:
                                       "--interval1", "int1", "--interval2", "int2"])
         assert result.exit_code != 0 or result.exit_code == 0  # depends on import
 
-    def test_history_import_error_is_clean(self, runner):
-        with patch("builtins.__import__", side_effect=lambda n, *a, **k: (
-            (_ for _ in ()).throw(ImportError(n))
-            if n.startswith(("semantica.kg", "kg.")) else _real_import(n, *a, **k)
-        )):
-            result = runner.invoke(cli_module.main, ["temporal", "history", "entity_alice"])
+    def test_history_import_error_is_clean(self, runner, monkeypatch):
+        # Earlier tests may already have imported the submodule, and a cached
+        # submodule resolves without consulting its parent package.
+        monkeypatch.setitem(sys.modules, "semantica.kg", None)
+        monkeypatch.setitem(sys.modules, "semantica.kg.temporal_reasoning", None)
+        result = runner.invoke(cli_module.main, ["temporal", "history",
+                                      "entity_alice"])
         assert result.exit_code != 0
         assert "Traceback" not in result.output
+        assert "semantica.kg" in result.output
 
 
 # ─── provenance ───────────────────────────────────────────────────────────────
@@ -2513,14 +2723,12 @@ class TestValidate:
         assert entity["age"] == 30
         assert entity["id"] == "e1"
 
-    def test_integrity_exits_0_with_import_error(self, runner):
-        with patch("builtins.__import__", side_effect=lambda n, *a, **k: (
-            (_ for _ in ()).throw(ImportError(n))
-            if n.startswith("semantica.kg") else _real_import(n, *a, **k)
-        )):
-            result = runner.invoke(cli_module.main, ["validate", "integrity"])
+    def test_integrity_exits_0_with_import_error(self, runner, monkeypatch):
+        monkeypatch.setitem(sys.modules, "semantica.kg", None)
+        result = runner.invoke(cli_module.main, ["validate", "integrity"])
         assert result.exit_code != 0
         assert "Traceback" not in result.output
+        assert "semantica.kg" in result.output
 
 
 # ─── ontology ─────────────────────────────────────────────────────────────────
@@ -2874,17 +3082,14 @@ class TestExport:
         result = runner.invoke(cli_module.main, ["export", "--format", "magic"])
         assert result.exit_code != 0
 
-    def test_import_error_is_clean(self, runner):
-        original_import = __import__
-        with patch("builtins.__import__", side_effect=lambda n, *a, **k: (
-            (_ for _ in ()).throw(ImportError(n))
-            if "semantica.export" in n else original_import(n, *a, **k)
-        )):
-            result = runner.invoke(
-                cli_module.main, ["--store", "neo4j", "export", "--format", "json"]
-            )
+    def test_import_error_is_clean(self, runner, monkeypatch):
+        monkeypatch.setitem(sys.modules, "semantica.export", None)
+        result = runner.invoke(
+            cli_module.main, ["--store", "neo4j", "export", "--format", "json"]
+        )
         assert result.exit_code != 0
         assert "Traceback" not in result.output
+        assert "semantica.export" in result.output
 
 
 class TestExportMultiFileFormats:
@@ -3636,15 +3841,424 @@ class TestStore:
         assert result.exit_code != 0
         assert "confirm" in result.output.lower() or result.exit_code == 2
 
-    def test_flush_with_confirm(self, runner, monkeypatch):
-        fake_vs = _fake_module(delete_vectors=lambda **kw: None)
-        monkeypatch.setitem(__import__("sys").modules, "semantica.vector_store", fake_vs)
-        result = runner.invoke(cli_module.main, ["store", "flush", "--confirm"])
+    def test_flush_removes_only_the_named_namespace(self, runner, monkeypatch):
+        # The old implementation read a namespace registry that ordinary
+        # storage never populates, so it reported zero removals against real
+        # data (#1943). This drives the real VectorStore API.
+        built: list = []
+        store = _wire_inmemory_vector_store(
+            monkeypatch, ["default", "production"], built)
+        result = runner.invoke(
+            cli_module.main, ["--vector-store", "sqlite", "store", "flush", "--confirm"])
         _ok(result)
+        assert "1 vectors removed" in result.output
+        remaining = [item["metadata"]["namespace"] for item in store.iter_vectors()]
+        assert remaining == ["production"]
+        assert built[0]["backend"] == "sqlite"
+
+    def test_flush_reports_zero_for_an_empty_namespace(self, runner, monkeypatch):
+        store = _wire_inmemory_vector_store(monkeypatch, ["default"])
+        result = runner.invoke(
+            cli_module.main,
+            ["--vector-store", "sqlite", "store", "flush", "--namespace", "nope", "--confirm"])
+        _ok(result)
+        assert "nope" in result.output and "0 vectors" in result.output
+        assert len(list(store.iter_vectors())) == 1
+
+    def test_flush_uses_pinecone_native_namespace(self, runner, monkeypatch):
+        class _PineconeFlushStore:
+            def __init__(self, backend, config=None):
+                assert backend == "pinecone"
+                self.items = {
+                    "default-id": ("", {"tag": "default"}),
+                    "production-id": ("production", {"tag": "production"}),
+                    "other-id": ("other", {"tag": "other"}),
+                }
+                self.iter_calls = []
+                self.delete_calls = []
+
+            def iter_vectors(self, batch_size=500, namespace=None):
+                self.iter_calls.append(namespace)
+                for vector_id, (item_namespace, metadata) in self.items.items():
+                    if item_namespace == namespace:
+                        yield {"id": vector_id, "metadata": metadata, "vector": [1.0]}
+
+            def delete_vectors(self, vector_ids, namespace=None):
+                self.delete_calls.append((vector_ids, namespace))
+                for vector_id in vector_ids:
+                    if self.items[vector_id][0] != namespace:
+                        raise AssertionError("deletion escaped the requested namespace")
+                    del self.items[vector_id]
+                return True
+
+        stores = []
+
+        def _store_factory(*args, **kwargs):
+            store = _PineconeFlushStore(*args, **kwargs)
+            stores.append(store)
+            return store
+
+        monkeypatch.setitem(
+            __import__("sys").modules,
+            "semantica.vector_store",
+            _fake_module(VectorStore=_store_factory),
+        )
+        result = runner.invoke(
+            cli_module.main,
+            [
+                "--vector-store",
+                "pinecone",
+                "store",
+                "flush",
+                "--namespace",
+                "production",
+                "--confirm",
+            ],
+        )
+        _ok(result)
+        assert "1 vectors removed" in result.output
+        assert stores[0].iter_calls == ["production", "production"]
+        assert stores[0].delete_calls == [(["production-id"], "production")]
+        assert set(stores[0].items) == {"default-id", "other-id"}
+
+    def test_flush_preserves_case_varied_pinecone_config(self, runner, monkeypatch):
+        built = []
+
+        class _PineconeFlushStore:
+            def __init__(self, backend, config=None):
+                built.append((backend, config))
+
+            def iter_vectors(self, batch_size=500, namespace=None):
+                yield {"id": "production-id", "metadata": {}, "vector": [1.0]}
+
+            def delete_vectors(self, vector_ids, namespace=None):
+                return True
+
+        monkeypatch.setitem(
+            __import__("sys").modules,
+            "semantica.vector_store",
+            _fake_module(VectorStore=_PineconeFlushStore),
+        )
+        monkeypatch.setattr(
+            cli_module.Config,
+            "to_dict",
+            lambda self: {
+                "vector_store": {
+                    "backend": "Pinecone",
+                    "api_key": "secret",
+                    "index_name": "vectors",
+                }
+            },
+        )
+
+        result = runner.invoke(
+            cli_module.main,
+            ["store", "flush", "--namespace", "production", "--confirm"],
+        )
+
+        _ok(result)
+        assert built == [
+            (
+                "Pinecone",
+                {"api_key": "secret", "index_name": "vectors"},
+            )
+        ]
+
+    def test_flush_batches_pinecone_deletes(self, runner, monkeypatch):
+        delete_calls = []
+        vector_ids = [f"vector-{index}" for index in range(1001)]
+
+        class _PineconeFlushStore:
+            def __init__(self, backend, config=None):
+                pass
+
+            def iter_vectors(self, batch_size=500, namespace=None):
+                for vector_id in vector_ids:
+                    yield {"id": vector_id, "metadata": {}, "vector": [1.0]}
+
+            def delete_vectors(self, ids, namespace=None):
+                delete_calls.append((ids, namespace))
+                return True
+
+        monkeypatch.setitem(
+            __import__("sys").modules,
+            "semantica.vector_store",
+            _fake_module(VectorStore=_PineconeFlushStore),
+        )
+        result = runner.invoke(
+            cli_module.main,
+            [
+                "--vector-store",
+                "pinecone",
+                "store",
+                "flush",
+                "--namespace",
+                "production",
+                "--confirm",
+            ],
+        )
+
+        _ok(result)
+        assert [len(ids) for ids, namespace in delete_calls] == [1000, 1]
+        assert all(namespace == "production" for ids, namespace in delete_calls)
+
+    def test_flush_retries_pinecone_verification(self, runner, monkeypatch):
+        scans = iter(
+            [
+                [{"id": "production-id", "metadata": {}, "vector": [1.0]}],
+                [{"id": "production-id", "metadata": {}, "vector": [1.0]}],
+                [],
+            ]
+        )
+        sleeps = []
+
+        class _PineconeFlushStore:
+            def __init__(self, backend, config=None):
+                pass
+
+            def iter_vectors(self, batch_size=500, namespace=None):
+                yield from next(scans)
+
+            def delete_vectors(self, ids, namespace=None):
+                return True
+
+        monkeypatch.setitem(
+            __import__("sys").modules,
+            "semantica.vector_store",
+            _fake_module(VectorStore=_PineconeFlushStore),
+        )
+        monkeypatch.setattr(cli_module.time, "sleep", sleeps.append)
+
+        result = runner.invoke(
+            cli_module.main,
+            [
+                "--vector-store",
+                "pinecone",
+                "store",
+                "flush",
+                "--namespace",
+                "production",
+                "--confirm",
+            ],
+        )
+
+        _ok(result)
+        assert "1 vectors removed" in result.output
+        assert sleeps == [cli_module._PINECONE_VERIFY_SLEEP_SECONDS]
+
+    def test_flush_reports_unconfirmed_pinecone_deletes(
+        self, runner, monkeypatch
+    ):
+        sleeps = []
+
+        class _PineconeFlushStore:
+            def __init__(self, backend, config=None):
+                pass
+
+            def iter_vectors(self, batch_size=500, namespace=None):
+                yield {"id": "production-id", "metadata": {}, "vector": [1.0]}
+
+            def delete_vectors(self, ids, namespace=None):
+                return True
+
+        monkeypatch.setitem(
+            __import__("sys").modules,
+            "semantica.vector_store",
+            _fake_module(VectorStore=_PineconeFlushStore),
+        )
+        monkeypatch.setattr(cli_module.time, "sleep", sleeps.append)
+
+        result = runner.invoke(
+            cli_module.main,
+            [
+                "--vector-store",
+                "pinecone",
+                "store",
+                "flush",
+                "--namespace",
+                "production",
+                "--confirm",
+            ],
+        )
+
+        _ok(result)
+        assert "0 vectors removed" in result.output
+        assert "1 vectors unconfirmed" in result.output
+        assert sleeps == [
+            cli_module._PINECONE_VERIFY_SLEEP_SECONDS,
+            cli_module._PINECONE_VERIFY_SLEEP_SECONDS,
+        ]
+
+    def test_flush_pinecone_defaults_to_native_default_namespace(
+        self, runner, monkeypatch
+    ):
+        class _PineconeFlushStore:
+            def __init__(self, backend, config=None):
+                self.items = {"default-id": ""}
+                self.iter_calls = []
+
+            def iter_vectors(self, batch_size=500, namespace=None):
+                self.iter_calls.append(namespace)
+                for vector_id, item_namespace in self.items.items():
+                    if item_namespace == namespace:
+                        yield {"id": vector_id, "metadata": {}, "vector": [1.0]}
+
+            def delete_vectors(self, vector_ids, namespace=None):
+                for vector_id in vector_ids:
+                    del self.items[vector_id]
+                return True
+
+        stores = []
+
+        def _store_factory(*args, **kwargs):
+            store = _PineconeFlushStore(*args, **kwargs)
+            stores.append(store)
+            return store
+
+        monkeypatch.setitem(
+            __import__("sys").modules,
+            "semantica.vector_store",
+            _fake_module(VectorStore=_store_factory),
+        )
+        result = runner.invoke(
+            cli_module.main,
+            ["--vector-store", "pinecone", "store", "flush", "--confirm"],
+        )
+        _ok(result)
+        assert "1 vectors removed" in result.output
+        assert stores[0].iter_calls == ["", ""]
+
+    def test_flush_uses_the_configured_vector_backend(
+        self, runner, monkeypatch, tmp_path
+    ):
+        # vector_store.backend is what every other vector command builds; the
+        # flush must not silently fall back to an empty faiss store instead.
+        cfg = tmp_path / "cfg.yaml"
+        cfg.write_text("vector_store:\n  backend: pgvector\n  table: vecs\n")
+        built: list = []
+        _wire_inmemory_vector_store(monkeypatch, ["default"], built)
+        result = runner.invoke(
+            cli_module.main, ["--config", str(cfg), "store", "flush", "--confirm"])
+        _ok(result)
+        assert "1 vectors removed" in result.output
+        assert built[0]["backend"] == "pgvector"
+        assert built[0]["config"] == {"table": "vecs"}
+
+    def test_flush_faiss_requires_index_path(self, runner, monkeypatch):
+        # A fresh FAISSStore starts empty, so without an index on disk the
+        # flush would report success while deleting nothing.
+        _wire_inmemory_vector_store(monkeypatch, ["default"])
+        result = runner.invoke(
+            cli_module.main, ["--vector-store", "faiss", "store", "flush", "--confirm"])
+        assert result.exit_code != 0
+        assert "index_path" in _flatten(result.output)
+
+    def test_flush_faiss_loads_the_index_on_disk(self, runner, monkeypatch, tmp_path):
+        # FAISS itself is an optional extra, so stand in for the store and
+        # check the index on disk is loaded before anything is enumerated.
+        events = []
+
+        class _FaissLike:
+            def __init__(self, **kwargs: Any) -> None:
+                self.ids = ["v1"]
+                self._backend_store = types.SimpleNamespace(
+                    load_index=lambda path: events.append(("load", path)))
+
+            def iter_vectors(self, batch_size: int = 500):
+                events.append(("iter",))
+                return iter([{"id": i, "metadata": {}} for i in self.ids])
+
+            def delete_vectors(self, ids: Any) -> bool:
+                self.ids = [i for i in self.ids if i not in ids]
+                return True
+
+        monkeypatch.setitem(
+            __import__("sys").modules,
+            "semantica.vector_store",
+            _fake_module(VectorStore=_FaissLike),
+        )
+        cfg = tmp_path / "cfg.yaml"
+        index = tmp_path / "vecs.faiss"
+        cfg.write_text(f"vector_store:\n  backend: faiss\n  index_path: {index}\n")
+        result = runner.invoke(
+            cli_module.main, ["--config", str(cfg), "store", "flush", "--confirm"])
+        _ok(result)
+        assert events[0] == ("load", str(index))
+        assert "1 vectors removed" in result.output
+
+    def test_flush_rejects_the_inmemory_backend(self, runner, monkeypatch):
+        _wire_inmemory_vector_store(monkeypatch, ["default"])
+        result = runner.invoke(
+            cli_module.main, ["--vector-store", "inmemory", "store", "flush", "--confirm"])
+        assert result.exit_code != 0
+        assert "does not persist" in _flatten(result.output)
+
+    def test_flush_fails_loudly_when_backend_cannot_enumerate(
+        self, runner, monkeypatch
+    ):
+        # An unsupported capability is not the same as an empty namespace, so
+        # the command must not report a successful zero-vector flush.
+        class _NoEnumeration:
+            def __init__(self, **kwargs: Any) -> None:
+                pass
+
+            def iter_vectors(self, batch_size: int = 500):
+                raise NotImplementedError("no scan_vectors() on this backend")
+
+        monkeypatch.setitem(
+            __import__("sys").modules,
+            "semantica.vector_store",
+            _fake_module(VectorStore=_NoEnumeration),
+        )
+        result = runner.invoke(
+            cli_module.main, ["--vector-store", "sqlite", "store", "flush", "--confirm"])
+        assert result.exit_code != 0
+        assert "cannot enumerate" in _flatten(result.output)
 
     def test_stats_requires_backend(self, runner):
         result = runner.invoke(cli_module.main, ["store", "stats"])
         assert result.exit_code != 0
+
+    def test_stats_memory_backend_reads_the_context_graph(
+        self, runner, graph_cfg, tmp_path
+    ):
+        # memory is the default graph backend and the one #1943 reported;
+        # it is served by the persisted ContextGraph, not GraphStore.
+        from semantica.context import ContextGraph
+
+        graph = ContextGraph()
+        graph.add_node("n1", "Entity")
+        graph.add_node("n2", "Entity")
+        graph.save_to_file(tmp_path / "graph.json")
+        result = runner.invoke(
+            cli_module.main,
+            ["--config", graph_cfg, "store", "stats", "--backend", "memory", "--json"])
+        _ok(result)
+        assert _json_output(result)["node_count"] == 2
+
+    def test_stats_dispatches_through_graph_store(self, runner, monkeypatch):
+        # store stats used to call run_analytics(backend=..., config=...),
+        # the graph analytics entry point, whose first parameter is an
+        # algorithm name — a TypeError on every invocation (#1943).
+        calls = {}
+
+        class _FakeGraphStore:
+            def __init__(self, backend: Any = None, **cfg: Any) -> None:
+                calls["backend"] = backend
+                calls["cfg"] = cfg
+
+            def get_stats(self) -> Any:
+                calls["stats"] = True
+                return {"node_count": 3, "edge_count": 2}
+
+        import semantica.graph_store as gs_mod
+        monkeypatch.setattr(gs_mod, "GraphStore", _FakeGraphStore)
+        result = runner.invoke(
+            cli_module.main, ["store", "stats", "--backend", "neo4j", "--json"])
+        _ok(result)
+        assert _json_output(result) == {"node_count": 3, "edge_count": 2}
+        assert calls["backend"] == "neo4j"
+        assert calls.get("stats") is True
 
 
 # ─── backup ───────────────────────────────────────────────────────────────────
@@ -5855,6 +6469,57 @@ class TestProvenanceCliStorageEnv:
         entries = json.loads(result.output.strip())
         assert [e["entity_id"] for e in entries] == ["ent1", "ent2"]
         assert not (tmp_path / "other.db").exists()
+
+    # #2166: opening a missing path creates an empty SQLite file, so a typo in
+    # the path read back as an empty, valid store and the command exited 0.
+    _READ_COMMANDS = [
+        ["audit", "--format", "json", "--json"],
+        ["verify-chain", "--json"],
+        ["check", "--json"],
+        ["lineage", "ent1", "--json"],
+        ["descendants", "ent1", "--json"],
+        ["export", "--format", "jsonld"],
+    ]
+
+    @pytest.mark.parametrize("args", _READ_COMMANDS, ids=lambda args: args[0])
+    def test_read_commands_refuse_a_missing_env_db_without_creating_it(
+        self, runner, monkeypatch, tmp_path, args
+    ):
+        missing = tmp_path / "typo.db"
+        monkeypatch.setenv("SEMANTICA_PROVENANCE_DB", str(missing))
+
+        result = runner.invoke(cli_module.main, ["provenance", *args])
+
+        assert result.exit_code != 0, result.output
+        assert "does not exist" in _flatten(result.output)
+        assert not missing.exists()
+
+    def test_read_command_refuses_a_missing_configured_db(
+        self, runner, monkeypatch, tmp_path
+    ):
+        missing = tmp_path / "configured.db"
+        monkeypatch.setenv("SEMANTICA_PROVENANCE__STORAGE_PATH", str(missing))
+
+        result = runner.invoke(
+            cli_module.main, ["provenance", "verify-chain", "--json"]
+        )
+
+        assert result.exit_code != 0, result.output
+        assert "does not exist" in _flatten(result.output)
+        assert not missing.exists()
+
+    def test_invalidate_may_still_create_the_db(self, runner, monkeypatch, tmp_path):
+        db = tmp_path / "new.db"
+        monkeypatch.setenv("SEMANTICA_PROVENANCE_DB", str(db))
+
+        result = runner.invoke(
+            cli_module.main, ["provenance", "invalidate", "ent1", "--by", "tester"]
+        )
+
+        # Nothing is tracked yet, so the entity is not found, but the command
+        # got as far as opening (and creating) the database it writes to.
+        assert "does not exist" not in _flatten(result.output)
+        assert db.exists()
 
 
 class _FakeUrlopenResponse:
