@@ -57,6 +57,7 @@ class GraphSession:
         self._connectivity: Any = None
         self._path_finder: Any = None
         self._node_embedder: Any = None
+        self._node_embedder_unavailable = False
         self._similarity: Any = None
         self._link_predictor: Any = None
         self._validator: Any = None
@@ -162,8 +163,16 @@ class GraphSession:
     @property
     def node_embedder(self) -> Any:
         with self._lock:
-            if self._node_embedder is None and _KG_AVAILABLE:
-                self._node_embedder = NodeEmbedder()
+            if (
+                self._node_embedder is None
+                and not self._node_embedder_unavailable
+                and _KG_AVAILABLE
+            ):
+                try:
+                    self._node_embedder = NodeEmbedder()
+                except ImportError as e:
+                    self._node_embedder_unavailable = True
+                    logger.warning(f"Node2Vec embeddings disabled: {e}")
             return self._node_embedder
 
     @property
