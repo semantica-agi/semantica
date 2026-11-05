@@ -39,11 +39,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **`opentelemetry-api` GHSA-xcq7-p3pf-p88h is now fixed instead of accepted** by @Sameer6305
-  - The advisory (CVE-2026-114603, quadratic W3C `tracestate` parsing, fixed in 1.45.1) was accepted until 2027-01-23 because google-adk caps `opentelemetry-api<=1.44` (still true in 2.13.0) and semgrep pins `~=1.37.0` (still true in 1.183.0). Both caps are now overridden, following the existing `oauthlib`, `pyjwt` and `mcp` overrides
-  - `uv.lock` and `requirements-ci.txt` carry `opentelemetry-api`/`-sdk` 1.45.2 and `-semantic-conventions`/`-instrumentation` 0.66b2 through a `[tool.uv] override-dependencies` entry. google-adk stays at 2.7.0; `tests/integrations/google_adk` passes, and a full ADK `Runner` turn with a tool call records its spans on 1.45.2
-  - `.github/requirements/security-scan-tools.txt` moves semgrep's whole OpenTelemetry family from 1.37.0 to 1.45.2 through `security-scan-tools-overrides.txt`, dropping `importlib-metadata`/`zipp`, which only otel-api 1.37 needed. `semgrep --config=auto` and `p/python` return the same findings on `semantica/` before and after
-  - The acceptance is removed from `security-scan.yml`, `osv-scanner.toml` and `SECURITY.md`, so the scan fails closed on it again
+- **semgrep's `opentelemetry-api` pin no longer carries GHSA-xcq7-p3pf-p88h** by @Sameer6305
+  - The advisory (CVE-2026-114603, quadratic W3C `tracestate` parsing, fixed in 1.45.1) affected `.github/requirements/security-scan-tools.txt` at 1.37.0 because semgrep pins `~=1.37.0` (still true in 1.183.0). `security-scan-tools-overrides.txt` now moves semgrep's whole OpenTelemetry family to 1.45.2, following the existing `pyjwt` and `mcp` overrides; `importlib-metadata`/`zipp` drop out, as only otel-api 1.37 needed them. `semgrep --config=auto` and `p/python` return the same findings on `semantica/` before and after, and `--trace` still exports
+  - `uv.lock` and `requirements-ci.txt` stay at 1.43.0 and the acceptance stays in place for them: google-adk caps `opentelemetry-api<=1.44` (2.13.0), and overriding that makes pip's resolver reject `requirements-ci.txt` in `ci.yml`, `release.yml` and `security-scan.yml`
 
 - **Failed structural embeddings were replaced with random vectors** (fixes #1741) by @ShryukGrandhi
   - `DecisionEmbeddingPipeline._generate_structural_embedding()` returned a random vector when Node2Vec or graph-feature enhancement raised, so `process_decision()` reported `has_structural_embedding=True` and mixed noise into the combined and stored embeddings. It now logs the failure and returns `None`, so the decision is processed with its semantic embedding only and `has_structural_embedding` is `False`

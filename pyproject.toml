@@ -350,13 +350,6 @@ include = ["semantica*", "integrations*", "semantica_mcp*"]
 # which is unchanged in 4.0.0. Drop this once the connector lifts its cap.
 override-dependencies = [
   "oauthlib>=4.0.0",
-  # google-adk (latest 2.13.0) caps opentelemetry-api/sdk<=1.44, but
-  # GHSA-xcq7-p3pf-p88h (O(N^2) W3C tracestate parsing) is only fixed in
-  # 1.45.1. ADK uses the stable trace API only (spans, attributes); a full
-  # Runner turn with tool calls on 1.45.2 records the same spans. Drop this
-  # once google-adk allows 1.45.1.
-  "opentelemetry-api>=1.45.1,<2.0.0",
-  "opentelemetry-sdk>=1.45.1,<2.0.0",
 ]
 
 [tool.black]
