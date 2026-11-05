@@ -324,3 +324,71 @@ def test_wrapped_runs_in_a_text_box_are_extracted(tmp_path):
     result = _parse(document, tmp_path)
 
     assert _body_lines(result)[-1] == "PLAIN INSERTED CONTROL"
+
+
+@pytest.mark.parametrize("textbox", [_vml_textbox, _alternate_content_textbox])
+@pytest.mark.parametrize(
+    ("replacement", "expected"),
+    [
+        ("<w:tab/><w:t>EDGE</w:t><w:br/>", "\tEDGE\n"),
+        ("<w:tab/>", "\t"),
+        ("<w:cr/>", "\n"),
+        ("<w:t>   </w:t>", ""),
+    ],
+)
+@pytest.mark.parametrize("in_table", [False, True])
+def test_text_box_preserves_edge_separators(
+    tmp_path, textbox, replacement, expected, in_table
+):
+    document = docx.Document()
+    document.add_heading("Heading One", level=1)
+    anchor = document.paragraphs[-1]
+    if in_table:
+        anchor = document.add_table(rows=1, cols=1).cell(0, 0).paragraphs[0]
+    xml = textbox("EDGE").replace("<w:t>EDGE</w:t>", replacement)
+    _insert_after(anchor, xml)
+
+    result = _parse(document, tmp_path)
+
+    if in_table:
+        assert result["tables"][0]["rows"][0][0] == expected
+    else:
+        assert result["paragraphs"] == ["Heading One"] + (
+            [expected] if expected else []
+        )
+        assert result["full_text"] == "Heading One" + (
+            "\n\n" + expected if expected else ""
+        )
+        assert result["sections"][0]["content"] == (
+            expected + "\n\n" if expected else ""
+        )
+
+
+@pytest.mark.parametrize("textbox", [_vml_textbox, _alternate_content_textbox])
+@pytest.mark.parametrize("box_text", ["", "   ", "BOX"])
+def test_text_box_preserves_surrounding_cell_whitespace(tmp_path, textbox, box_text):
+    document = docx.Document()
+    cell = document.add_table(rows=1, cols=1).cell(0, 0)
+    cell.paragraphs[0].text = "  FIRST  "
+    _insert_after(cell.paragraphs[0], textbox(box_text))
+    cell.add_paragraph("  LAST  ")
+
+    result = _parse(document, tmp_path)
+
+    assert result["tables"][0]["rows"][0][0] == (
+        "FIRST  \n" + box_text.strip() + "\n  LAST"
+    )
+
+
+@pytest.mark.parametrize("textbox", [_vml_textbox, _alternate_content_textbox])
+def test_text_box_preserves_anchor_paragraph_normalization(tmp_path, textbox):
+    document = docx.Document()
+    document.add_heading("Heading One", level=1)
+    paragraph = document.add_paragraph("  HOST  ")
+    paragraph._p.append(oxml.parse_xml(textbox("BOX"))[0])
+
+    result = _parse(document, tmp_path)
+
+    assert result["paragraphs"][-1] == "HOST\nBOX"
+    assert result["full_text"] == "Heading One\n\nHOST\nBOX"
+    assert result["sections"][0]["content"] == "HOST\nBOX\n\n"
