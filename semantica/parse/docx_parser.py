@@ -135,7 +135,7 @@ def _box_paragraphs(box):
             yield paragraph
 
 
-def _paragraph_lines(p, wrappers=_BODY_RUN_WRAPPERS) -> List[str]:
+def _paragraph_lines(p, wrappers=_BODY_RUN_WRAPPERS, strip_chars=None) -> List[str]:
     """The text of the ``w:p`` element ``p``, one line per block, in order.
 
     Run text stays on one line until a text box interrupts it; each paragraph
@@ -146,7 +146,7 @@ def _paragraph_lines(p, wrappers=_BODY_RUN_WRAPPERS) -> List[str]:
     pending: List[str] = []
 
     def flush() -> None:
-        text = "".join(pending).strip()
+        text = "".join(pending).strip(strip_chars)
         if text:
             lines.append(text)
         pending.clear()
@@ -155,7 +155,8 @@ def _paragraph_lines(p, wrappers=_BODY_RUN_WRAPPERS) -> List[str]:
         for box in _text_boxes(element):
             flush()
             for inner in _box_paragraphs(box):
-                lines.extend(_paragraph_lines(inner, _BOX_RUN_WRAPPERS))
+                # Box tabs and breaks are content, including at block edges.
+                lines.extend(_paragraph_lines(inner, _BOX_RUN_WRAPPERS, " "))
 
     def read_runs(element) -> None:
         for child in element:
@@ -176,10 +177,10 @@ def _paragraph_lines(p, wrappers=_BODY_RUN_WRAPPERS) -> List[str]:
     return lines
 
 
-def _paragraph_text(paragraph: Paragraph) -> str:
+def _paragraph_text(paragraph: Paragraph, *, strip: bool = False) -> str:
     """``Paragraph.text`` with the text of its text boxes where they sit."""
     if next(_text_boxes(paragraph._p), None) is None:
-        return paragraph.text
+        return paragraph.text.strip() if strip else paragraph.text
     return "\n".join(_paragraph_lines(paragraph._p))
 
 
@@ -273,7 +274,7 @@ class DOCXParser:
                 # Extract paragraphs
                 paragraphs = []
                 for para in doc.paragraphs:
-                    text = _paragraph_text(para).strip()
+                    text = _paragraph_text(para, strip=True)
                     if text:
                         paragraphs.append(text)
 
@@ -371,9 +372,27 @@ class DOCXParser:
         for row in table.rows:
             row_data = []
             for cell in row.cells:
-                cell_text = "\n".join(
-                    _paragraph_text(p) for p in cell.paragraphs
-                ).strip()
+                parts = [
+                    (_paragraph_text(p), next(_text_boxes(p._p), None) is not None)
+                    for p in cell.paragraphs
+                ]
+                # Trim the cell's outer body whitespace, not box separators.
+                start, end = 0, len(parts)
+                while start < end:
+                    text, has_box = parts[start]
+                    text = text if has_box else text.lstrip()
+                    if text:
+                        parts[start] = (text, has_box)
+                        break
+                    start += 1
+                while end > start:
+                    text, has_box = parts[end - 1]
+                    text = text if has_box else text.rstrip()
+                    if text:
+                        parts[end - 1] = (text, has_box)
+                        break
+                    end -= 1
+                cell_text = "\n".join(text for text, _ in parts[start:end])
                 row_data.append(cell_text)
             table_data["rows"].append(row_data)
 
@@ -387,7 +406,7 @@ class DOCXParser:
         current_section = None
 
         for para in doc.paragraphs:
-            text = _paragraph_text(para).strip()
+            text = _paragraph_text(para, strip=True)
             # Check if paragraph is a heading
             if para.style.name.startswith("Heading"):
                 # Get heading level
