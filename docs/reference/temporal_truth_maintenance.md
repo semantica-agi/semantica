@@ -203,3 +203,7 @@ The adapter does not persist its archive, write conclusions back to the graph,
 schedule expiration, modify RETE, support recursive rules, or update RAG prompts
 and vector records. Consistency is relative to supplied evidence and fixed rules;
 losing support means “not currently derivable,” not “false.”
+
+## Links
+
+- [Grounded Context Assembly](/reference/grounded_context) — assemble RAG context consistent with a temporal truth snapshot, including bitemporal historical reads.
