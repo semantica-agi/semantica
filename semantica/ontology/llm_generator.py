@@ -87,13 +87,19 @@ class LLMOntologyGenerator:
         normalized_classes: List[Dict[str, Any]] = []
         for cls in classes:
             cname = cls.get("name") or cls.get("Name") or "Class"
+            parent = (
+                cls.get("parent") or cls.get("Parent")
+                or cls.get("subClassOf") or cls.get("subclassOf")
+            )
             normalized_classes.append(
                 {
                     "name": cname,
                     "uri": ensure_uri(cname, cls.get("uri") or cls.get("IRI")),
                     "label": cls.get("label") or cls.get("Label"),
                     "comment": cls.get("comment") or cls.get("Description"),
-                    "parent": cls.get("parent") or cls.get("Parent"),
+                    "parent": parent,
+                    # OWLGenerator and the rest of the ontology module read "subClassOf"
+                    "subClassOf": parent,
                 }
             )
 
