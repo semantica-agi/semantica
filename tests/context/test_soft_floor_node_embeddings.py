@@ -154,8 +154,8 @@ class TestNodeEmbeddingsPersistence:
     readable and survive save_to_file/load_from_file."""
 
     def test_store_embeddings_public_path_reads_back(self):
-        pytest.importorskip("gensim")
         """Vectors stored through store_embeddings() read back."""
+        pytest.importorskip("gensim")
         graph = ContextGraph()
         node_a = graph.record_decision(
             category="architecture",
@@ -186,9 +186,9 @@ class TestNodeEmbeddingsPersistence:
         ) == [0.9, 0.1, 0.0]
 
     def test_public_path_survives_round_trip(self, tmp_path):
-        pytest.importorskip("gensim")
         """store_embeddings() + save_to_file() + load_from_file(): the
         embeddings are still readable, including through find_similar_nodes."""
+        pytest.importorskip("gensim")
         source = ContextGraph()
         node_a = source.record_decision(
             category="architecture",
