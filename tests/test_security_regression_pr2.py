@@ -271,6 +271,7 @@ class TestVuln3ImportNodeIdSanitization:
 @pytest.fixture
 def _real_client(monkeypatch):
     pytest.importorskip("starlette")
+    pytest.importorskip("fastapi")
     # These tests exercise route logic, not the API-key auth layer (see
     # tests/explorer/conftest.py, which does the same for that directory).
     monkeypatch.setenv("SEMANTICA_ALLOW_ANONYMOUS", "true")
@@ -382,6 +383,7 @@ class TestVuln2CapEnforcedBeforeExpensiveWork:
         """Exercise the real route: with the cap patched low, an oversized
         graph must 413 instead of scoring the full candidate pool."""
         pytest.importorskip("starlette")
+        pytest.importorskip("fastapi")
         monkeypatch.setenv("SEMANTICA_ALLOW_ANONYMOUS", "true")
         monkeypatch.delenv("SEMANTICA_API_KEY", raising=False)
         from starlette.testclient import TestClient
