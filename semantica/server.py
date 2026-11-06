@@ -194,6 +194,8 @@ async def build_kb(request: BuildRequest):
             np.generic: lambda x: x.item(),
         },
     )
+    
+    
 if EXPLORER_AVAILABLE:
     try:
         from .explorer.routes import (
