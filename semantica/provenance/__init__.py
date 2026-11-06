@@ -49,7 +49,7 @@ from .schemas import (
     Invalidation,
 )
 from .storage import ProvenanceStorage, InMemoryStorage, SQLiteStorage
-from .manager import ProvenanceManager, default_storage_path
+from .manager import ProvenanceManager, default_storage_path, storage_path_from_env
 from .integrity import compute_checksum, verify_checksum
 
 __all__ = [
@@ -68,6 +68,7 @@ __all__ = [
     # Manager
     "ProvenanceManager",
     "default_storage_path",
+    "storage_path_from_env",
     
     # Utilities
     "compute_checksum",

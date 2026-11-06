@@ -21,6 +21,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `semantica.kg.RelationalSchemaMapper` maps rows from a relational source (`DBIngestor`, `SnowflakeIngestor`, `DatabricksIngestor`, `PandasIngestor`, a DataFrame or plain row dicts) to the `{"entities", "relationships"}` shape `GraphBuilder` and `OntologyGenerator` consume: entity tables become entities keyed by primary key, foreign keys become typed relationships, junction tables become relationships only
   - Every entity and relationship is tagged with the `source` it came from so `ConflictDetector` can key credibility on it. New `tests/kg/test_schema_mapper.py`
 
+- **Snapshot-consistent grounded context assembly** (#1731, closes #1730) by @cxzg007
+  - `GroundedContextAssembler` builds RAG context from one captured truth-maintenance view: every candidate is validated against that view before ranking, the rendered text and citation footnotes fit `max_context_chars`, and nothing is returned if the source or the registry changed during assembly
+  - `TruthSnapshotProvider` captures immutable session or bitemporal read views, and `ContextArtifactIndex` registers summaries and citations with explicit fact and support dependencies and reports which ones were invalidated or became eligible again
+  - Opt-in: existing `ContextRetriever.retrieve` and `TruthMaintenanceContextFilter` behavior is unchanged. See `docs/reference/grounded_context.md`
+
 ### Changed
 
 - **Breaking: Python 3.10 is no longer supported. Semantica now requires Python 3.11–3.13** (closes #2067)
@@ -36,6 +41,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `ConflictsConfig`, `DeduplicationConfig`, `EmbeddingsConfig`, `ExportConfig`, `IngestConfig`, `KGConfig`, `NormalizeConfig`, `OntologyConfig`, `ParseConfig` and `SplitConfig` loaded `.toml` with the third-party `toml` package (TOML 0.5) from a text file, then unwrapped their own section. `semantic_extract.config.Config` merged the whole document. All eleven now use stdlib `tomllib` (TOML 1.0) from a binary file, matching `graph_store`, `triplet_store`, `vector_store` and `visualization`. Section handling is unchanged. A file that uses TOML 1.0 syntax now loads; a file that depended on a `toml` 0.5 quirk can be rejected. `toml` stays a core dependency.
 
 ### Fixed
+
+- **semgrep's `opentelemetry-api` pin no longer carries GHSA-xcq7-p3pf-p88h** by @Sameer6305
+  - The advisory (CVE-2026-114603, quadratic W3C `tracestate` parsing, fixed in 1.45.1) affected `.github/requirements/security-scan-tools.txt` at 1.37.0 because semgrep pins `~=1.37.0` (still true in 1.183.0). `security-scan-tools-overrides.txt` now moves semgrep's whole OpenTelemetry family to 1.45.2, following the existing `pyjwt` and `mcp` overrides; `importlib-metadata`/`zipp` drop out, as only otel-api 1.37 needed them. `semgrep --config=auto` and `p/python` return the same findings on `semantica/` before and after, and `--trace` still exports
+  - `uv.lock` and `requirements-ci.txt` stay at 1.43.0 and the acceptance stays in place for them: google-adk caps `opentelemetry-api<=1.44` (2.13.0), and overriding that makes pip's resolver reject `requirements-ci.txt` in `ci.yml`, `release.yml` and `security-scan.yml`
+
+- **Failed structural embeddings were replaced with random vectors** (fixes #1741) by @ShryukGrandhi
+  - `DecisionEmbeddingPipeline._generate_structural_embedding()` returned a random vector when Node2Vec or graph-feature enhancement raised, so `process_decision()` reported `has_structural_embedding=True` and mixed noise into the combined and stored embeddings. It now logs the failure and returns `None`, so the decision is processed with its semantic embedding only and `has_structural_embedding` is `False`
+
+- **`semantica.ingest.email_ingestor` could not be imported on a fresh interpreter** (fixes #2190) by @dex0shubham
+  - `import email` binds only the package, and `email.message` becomes an attribute only once the submodule is imported itself. `email_ingestor.py` annotates four methods with `email.message.Message`, and those annotations are evaluated when the enclosing class body runs, so importing the module raised `AttributeError: module 'email' has no attribute 'message'` unless something else had already loaded the submodule. The file now imports `email.message` explicitly
+  - The regression test in `tests/ingest/test_optional_imports.py` imports the module in a subprocess, because pytest pulls in `email.message` during plugin discovery and would hide the defect in-process
+
+- **OpenAI provider requests did not set `stream`** (#1950) by @dbyqs21
+  - `OpenAIProvider.generate`, `OpenAIProvider.generate_structured` and the instructor path of `BaseProvider.generate_typed` now send `stream=False` explicitly instead of relying on the endpoint's default. A custom `base_url` gateway that streams when `stream` is omitted would hand the parsers a stream object with no `.choices`
+  - A caller's `stream=True` is still ignored, as before: none of these methods can consume a streamed response. New `tests/semantic_extract/test_openai_stream_disabled.py`
+
+- **`semantica store stats` and `semantica store flush --confirm` crashed on every call** (fixes #1943) by @pkupt
+  - `store stats` called `run_analytics()`, the graph analytics entry point, with `backend=`/`config=` and no `algorithm`, so it raised `TypeError`. It now reads the persisted ContextGraph for `--backend memory` and calls `GraphStore.get_stats()` for neo4j, falkordb, age and neptune, and `--format table` renders a real table
+  - `store flush` called `delete_vectors()` with a namespace instead of vector ids and raised `TypeError`. It now clears the target namespace's vectors on the configured vector backend (`--vector-store`, then `vector_store.backend`) and reports how many it removed. FAISS needs `index_path` (the index is loaded first and deletions are written back to it), `inmemory` is rejected because nothing persists between CLI runs, and a backend that cannot list its vectors fails instead of reporting zero
+  - Pinecone flush now targets its native namespace for enumeration, deletion,
+    and verification; other backends retain metadata-based namespace filtering
+
+- **`pyasn1` was pinned at 0.6.4, which the audit job now flags four times** (fixes #2182) by @sakshi04-ui
+  - `CVE-2026-119194`, `CVE-2026-119195`, `CVE-2026-119196` and `CVE-2026-119197` all resolve to `pyasn1==0.6.4`, pulled in through `google-auth` → `pyasn1-modules`. They are the only findings in `requirements-ci.txt` outside the accepted `opentelemetry-api` advisory, and the scheduled scan on `main` has failed on them since 2026-10-31
+  - `requirements-ci.txt` and `uv.lock` now carry `pyasn1==0.6.5`, the latest release and the first with fixes for all four. Nothing else moves: both files were re-resolved with only `pyasn1` upgraded, and the CI freshness gates (`uv pip compile` against `requirements-ci.txt` and `open-ontologies-extra.txt`, `uv lock --check`) pass unchanged
+
+- **`joserfc` was pinned at 1.7.5, which the audit job now flags** by @Sameer6305
+  - `CVE-2026-119284` (`GHSA-9pg5-8c7x-5hfx`): the compact JWS size guard allocated attacker-controlled segments before rejecting them. It is the only finding in `requirements-ci.txt`, so `security-scan` failed every pull request opened after the advisory landed
+  - `requirements-ci.txt` and `uv.lock` now carry `joserfc==1.7.7`; 1.7.6 is the first fixed release. Nothing else moves: both files were re-resolved with only `joserfc` upgraded
+
+- **`--json` output started with log records, so it did not parse as JSON** (fixes #2150) by @Rahul-cs50
+  - `setup_logging` attached its console handler to `sys.stdout`, so the records a command logs while it starts up (a `ContextGraph` logs on construction) came out ahead of the payload, and `semantica doctor --json | jq` or `json.loads` on `decision list --json` failed with `Extra data` / `Expecting value`. The console handler, and the one `get_logger(..., format=...)` adds, now write to `sys.stderr`, Python's default for `StreamHandler` and what the MCP server already does. Code that read Semantica's console log records from stdout finds them on stderr. New `tests/cli/test_json_stdout_logging.py` runs `decision list --json` in a subprocess and parses its stdout; `tests/test_cli_commands.py` replaces `setup_logging` with a no-op, so it could not catch this
+
+- **`semantica provenance` read commands created an empty database at a mistyped path and reported it as valid** (fixes #2166) by @Rahul-cs50
+  - When `provenance.storage_path`, `SEMANTICA_PROVENANCE_DB` or `EXPLORER_PROVENANCE_DB` named a file that did not exist, `SQLiteStorage` created an empty database there, so `audit` printed `[]`, `verify-chain` reported a valid chain of 0 entries, and both exited 0: a typo looked the same as "no provenance recorded". `audit`, `verify-chain`, `check`, `lineage`, `descendants` and `export` now exit with `Provenance database '<path>' does not exist`, naming the settings to check, and leave no file behind, as `semantica ontology version` already does for its store. `invalidate` writes, so it still creates the database. Tests in `TestProvenanceCliStorageEnv` cover each read command, a configured path, and `invalidate`
+
+- **Parquet and Arrow relationship export lost graph-backend endpoint names** (refs #2018) by @george07-t
+  - `ParquetExporter.export_relationships()` and `ArrowExporter.export_relationships()` read only `source`/`source_id` and `target`/`target_id`, so a record shaped by a graph backend (`start_node_id`/`end_node_id` from Neo4j, FalkorDB and Neptune, `start_id`/`end_id` from raw AGE edges) made Parquet raise `ValidationError` and wrote Arrow rows with empty `source_id` and `target_id`. Both now run the records through `canonical_endpoints` first, so the shared list, order and empty-value rule apply; Parquet keeps its `from_id`/`from`/`to_id`/`to` fallbacks, and an integer id of `0` is now kept as a real id in both, as the shared helper treats it (it used to be dropped by their `or` chains)
+  - New tests in `tests/export/test_columnar_exporters_endpoint_names.py` read the written files back for every accepted spelling, an empty canonical value, precedence, an id of `0`, untouched input and mixed batches
+
+- **`DomainOntologies` advertised legal, research and cybersecurity templates that did not exist** (fixes #1819) by @pkupt
+  - `get_domain_template("legal")`, `("research")` and `("cybersecurity")` returned a bare `None`, which surfaced in caller code as `AttributeError: 'NoneType' object has no attribute 'get'`. The three templates are now registered, in the same small hand-written style as `healthcare` and `finance`.
+  - `get_domain_template` still returns `None` for an unregistered domain, but now logs a warning listing the available domains so the miss is visible. New `tests/ontology/test_domain_ontologies.py`
 
 - **`tornado` was pinned at 6.5.10, which the audit job now flags three times** (fixes #2135) by @pkupt
   - `CVE-2026-115927`, `CVE-2026-116577` and `CVE-2026-116578` all resolve to `tornado==6.5.10`, and they are the only findings left in `requirements-ci.txt`. Because `security-scan` is a required check, they failed every pull request's run, and the scheduled scan on `main` failed for the same three
@@ -76,6 +124,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - The ContextGraph path now builds a time-eligible causal adjacency once per call, using the same `_CAUSAL_TRAVERSAL_TYPES` union as `get_causal_chain`, so a wide temporal graph is no longer O(V*E). The `recorded_at` cutoff, depth limit, result order and `causal_distance` metadata are unchanged.
   - Edges recorded with the analyzer vocabulary (`causes`, `influences`, `leads_to`, `supports`) are now visible, matching `ContextGraph.get_causal_chain()`. This affects the in-memory graph path; the Cypher path keeps its existing canonical-only filter.
 
+- **Cypher causal traversals ignored alias edge types on external graph stores** (fixes #2151) by @Tong-bit-art
+  - `CausalChainAnalyzer.get_causal_chain()` and `trace_at_time()` built their Cypher relationship pattern from a hardcoded canonical-only list, so edges written with `causes` / `influences` / `leads_to` / `supports` were invisible on Neo4j, FalkorDB, AGE and Neptune even though the in-memory path traversed them. Both paths now use a shared `_causal_rel_pattern` built from `_CAUSAL_TRAVERSAL_TYPES`, including the lowercase spellings `add_edge()` can store. New `tests/context/test_causal_analyzer_cypher_vocabulary.py` pins the generated queries for both methods and directions.
+
+- **Decision causality traces included retracted or not-yet-valid facts** (fixes #2174) by @Tong-bit-art
+  - `trace_decision_causality()` / `trace_decision_chain()` built their explicit-edge and shared-entity indexes from retained records without checking validity windows, so a retracted cause or future-valid edge still appeared in a current audit trace. Both entry points now skip inactive edges and decision nodes by default; `include_inactive=True` preserves access to retained history, while `state_at()` / `trace_at_time()` remain the historical views. New `tests/context/test_trace_decision_active_view.py`.
+
+- **`ContextGraph.get_causal_chain()` included retracted or not-yet-valid facts in the current chain** (fixes #2162) by @Tong-bit-art
+  - Retraction closes a validity window but keeps the record for history; `get_causal_chain()` walked those retained edges and nodes as if still active, so a current audit chain could include an explicitly retracted cause. It now skips inactive edges and decision nodes by default; `include_inactive=True` preserves access to the retained records, while `state_at()` / `trace_at_time()` remain the historical views. New `tests/context/test_causal_chain_active_view.py`.
+
 - **`semantica pipeline validate` reported a partly malformed file valid, and `--json` had no structured result** (fixes #2026) by @ALDRIN121
   - `PipelineBuilder.build_pipeline()` keeps a step only when both `name` and `type` are truthy, so a half-written step was dropped before the validator saw it and the file was reported valid. `_load_pipeline_file()` now checks every entry while the index is still known and rejects the file, naming the offending one (`steps[1] ('broken') is missing a non-empty 'type'`). A step that is not a mapping used to reach `dict()` inside `deserialize_pipeline()` and surface as `dictionary update sequence element #0 has length 1; 2 is required`; it is now reported as `steps[0] is not a mapping (got str)`. `pipeline run` loads through the same helper, so it no longer executes a pipeline that is silently missing a step
   - `validate --json` now always emits `{valid, errors, warnings, pipeline}` on stdout — including when the loader or the builder inside it rejects the file, which previously fell through to the generic `{"error": ...}` envelope on stderr. When the builder raises, its `Pipeline validation failed: [...]` message is split back into one string per error instead of one repr
@@ -108,6 +165,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `POST /api/graph/distance-matrix` mirrored one `src`→`tgt` result into both matrix cells, reporting the reverse direction as reachable on a directed graph. Each direction is now searched independently, so the matrix may be asymmetric and `unreachable_pairs` lists the specific ordered pairs that have no path
   - Undirected traversal (`directed=false`) can walk a stored edge backwards; `total_weight` costed those hops against the directed view and fell back to the default `1.0`, and `resolve_path_edge_ids` scanned only outgoing adjacency so the hop contributed no id. Both now resolve reverse hops, and the reported edge is the lowest-weight parallel edge — the one the path is costed against
   - `POST /api/graph/distance-matrix` rebuilt the whole graph once per node pair; it is now built once per request
+
+- **`semantica provenance` commands ignored the persisted provenance DB** (fixes #1810) by @pkupt
+  - Every subcommand built `ProvenanceManager(config=...)` with no storage path, so `audit`, `verify-chain`, `check`, `lineage`, `descendants` and `export` read a fresh in-memory store and reported nothing, and `invalidate` failed with "no provenance entry found". `SEMANTICA_PROVENANCE_DB` was read only by the Explorer.
+  - The CLI now resolves its store as: configured `provenance.storage_path`, then `SEMANTICA_PROVENANCE_DB`, then `EXPLORER_PROVENANCE_DB`, then in-memory. The env lookup lives in one place, `semantica.provenance.storage_path_from_env()`, which the Explorer also uses, so the two agree on one database.
+  - `ProvenanceManager()` itself still ignores the env vars, so library callers and the module-level trackers keep their explicit or in-memory storage.
 
 ### Security
 
