@@ -173,11 +173,12 @@ class TestDecisionEmbeddingPipeline:
         assert len(embedding) > 0
     
     def test_generate_structural_embedding_no_entities(self):
-        """Test structural embedding without entities."""
-        # Constructing NodeEmbedder requires gensim (the optional
-        # graph-embeddings extra); see tests/test_issue_1513_slim_core.py
-        # for the contract that it raises without it.
-        pytest.importorskip("gensim")
+        """Test structural embedding without entities falls back to category."""
+        mock_node_embedder = Mock()
+        mock_node_embedder.compute_embeddings.return_value = {
+            "test": [0.1, 0.2, 0.3]
+        }
+        self.pipeline.node_embedder = mock_node_embedder
         decision_no_entities = {
             "scenario": "Test decision",
             "category": "test"
@@ -186,7 +187,21 @@ class TestDecisionEmbeddingPipeline:
         embedding = self.pipeline._generate_structural_embedding(decision_no_entities)
         
         assert isinstance(embedding, np.ndarray)
-        assert len(embedding) == self.pipeline.node_embedding_dimension
+        np.testing.assert_allclose(embedding, [0.1, 0.2, 0.3])
+    
+    def test_generate_structural_embedding_failure_returns_none(self):
+        """A failed structural embedding must not become a random vector (#1741)."""
+        mock_node_embedder = Mock()
+        mock_node_embedder.compute_embeddings.side_effect = RuntimeError("boom")
+        self.pipeline.node_embedder = mock_node_embedder
+        
+        assert self.pipeline._generate_structural_embedding(self.sample_decision) is None
+        
+        result = self.pipeline.process_decision(
+            self.sample_decision, store_embeddings=False
+        )
+        assert result["structural_embedding"] is None
+        assert result["metadata"]["has_structural_embedding"] is False
     
     def test_generate_structural_embedding_no_graph_store(self):
         """Test structural embedding without graph store."""

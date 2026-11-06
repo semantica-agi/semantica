@@ -31,6 +31,7 @@ from contextlib import contextmanager
 import copy
 import inspect
 import json
+import os
 import threading
 
 from .schemas import ProvenanceEntry, SourceReference, AgentRecord, ActivityRecord
@@ -59,6 +60,20 @@ def default_storage_path(path: Optional[str]):
     """
     with ProvenanceManager.default_storage_path(path):
         yield
+
+
+def storage_path_from_env() -> Optional[str]:
+    """
+    Return the provenance DB path named by the environment, if any.
+
+    ``SEMANTICA_PROVENANCE_DB`` wins over ``EXPLORER_PROVENANCE_DB``. The
+    Explorer and the ``semantica provenance`` CLI both resolve through here so
+    they open the same database (#1810). ProvenanceManager itself does not
+    read it: library callers keep their explicit or in-memory storage.
+    """
+    return os.environ.get(
+        "SEMANTICA_PROVENANCE_DB", os.environ.get("EXPLORER_PROVENANCE_DB")
+    )
 
 
 class ProvenanceManager:
