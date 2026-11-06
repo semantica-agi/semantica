@@ -1,15 +1,18 @@
 #!/usr/bin/env python3
 """Regression tests for the ``Example Usage`` blocks in ``semantica/parse``.
 
-Six module docstrings documented methods that do not exist, so every one of
-these examples raised ``AttributeError`` on its third line::
+Nine module docstrings documented methods that do not exist, so copying any
+of these examples raised ``AttributeError`` on its first parser call::
 
-    StructuredDataParser.parse_json/parse_csv/_xml -> parse_data
-    WebParser.parse_html                                -> parse_web_content
-    CodeParser.parse_file                               -> parse_code
-    EmailParser.parse/parse_headers                     -> parse_email/.headers
-    JSONParser.extract_paths                            -> extract_values
-    MediaParser.parse/get_media_info                    -> parse_media
+    StructuredDataParser.parse_json/_csv/_xml -> parse_data
+    WebParser.parse_html                      -> parse_web_content
+    CodeParser.parse_file                     -> parse_code
+    EmailParser.parse/parse_headers           -> parse_email/.headers
+    JSONParser.extract_paths                  -> extract_values
+    MediaParser.parse/get_media_info          -> parse_media
+    PDFParser.extract_pages/extract_metadata  -> parse()["pages"]/["metadata"]
+    DOCXParser.extract_sections/_metadata     -> parse()["sections"]/[...]
+    ExcelParser.parse_sheet                   -> extract_sheet
 
 The sweep below reads the docstrings themselves, so it fails if a documented
 call names an attribute the class does not have -- the shape of the original
