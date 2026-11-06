@@ -39,6 +39,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`semantica decision query --filter tag:` matched the category, not a tag** (fixes #2025) by @pkupt
+  - `decision record --tags` stores the tag list and makes its first tag the decision's `category`, and `--filter` compared the value after the prefix against that category. Two decisions whose first tag agrees cannot be told apart by the filter, and their remaining tags are not reachable through it: `tag:vendor`, a tag the recorded decision carries, matched nothing, while `tag:finance` matched every decision that merely shares the first tag
+  - `category:` is the prefix now, naming the field that is compared, and `tag:` stays as an alias so existing invocations keep working. A value without a prefix is still passed through unchanged, and an empty value is still rejected before anything is read
+  - The `--filter` help text and the `query` docstring advertised a tag filter — and an `entity` filter, which this command has never had — so both promised more than the command did. They name the category now. Matching the rest of a decision's tags needs the tag field tracked in #2021: the memory backend keeps the list as node properties and the graph backend in the recorder's cross-system context, and neither reaches `decision query` today
+  - New cases in `tests/test_cli_commands.py::TestDecision` pin both prefixes, the match against the category, and the help wording
+
 - **semgrep's `opentelemetry-api` pin no longer carries GHSA-xcq7-p3pf-p88h** by @Sameer6305
   - The advisory (CVE-2026-114603, quadratic W3C `tracestate` parsing, fixed in 1.45.1) affected `.github/requirements/security-scan-tools.txt` at 1.37.0 because semgrep pins `~=1.37.0` (still true in 1.183.0). `security-scan-tools-overrides.txt` now moves semgrep's whole OpenTelemetry family to 1.45.2, following the existing `pyjwt` and `mcp` overrides; `importlib-metadata`/`zipp` drop out, as only otel-api 1.37 needed them. `semgrep --config=auto` and `p/python` return the same findings on `semantica/` before and after, and `--trace` still exports
   - `uv.lock` and `requirements-ci.txt` stay at 1.43.0 and the acceptance stays in place for them: google-adk caps `opentelemetry-api<=1.44` (2.13.0), and overriding that makes pip's resolver reject `requirements-ci.txt` in `ci.yml`, `release.yml` and `security-scan.yml`
