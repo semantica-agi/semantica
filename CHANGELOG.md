@@ -39,6 +39,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **semgrep's `opentelemetry-api` pin no longer carries GHSA-xcq7-p3pf-p88h** by @Sameer6305
+  - The advisory (CVE-2026-114603, quadratic W3C `tracestate` parsing, fixed in 1.45.1) affected `.github/requirements/security-scan-tools.txt` at 1.37.0 because semgrep pins `~=1.37.0` (still true in 1.183.0). `security-scan-tools-overrides.txt` now moves semgrep's whole OpenTelemetry family to 1.45.2, following the existing `pyjwt` and `mcp` overrides; `importlib-metadata`/`zipp` drop out, as only otel-api 1.37 needed them. `semgrep --config=auto` and `p/python` return the same findings on `semantica/` before and after, and `--trace` still exports
+  - `uv.lock` and `requirements-ci.txt` stay at 1.43.0 and the acceptance stays in place for them: google-adk caps `opentelemetry-api<=1.44` (2.13.0), and overriding that makes pip's resolver reject `requirements-ci.txt` in `ci.yml`, `release.yml` and `security-scan.yml`
+
+- **Failed structural embeddings were replaced with random vectors** (fixes #1741) by @ShryukGrandhi
+  - `DecisionEmbeddingPipeline._generate_structural_embedding()` returned a random vector when Node2Vec or graph-feature enhancement raised, so `process_decision()` reported `has_structural_embedding=True` and mixed noise into the combined and stored embeddings. It now logs the failure and returns `None`, so the decision is processed with its semantic embedding only and `has_structural_embedding` is `False`
+
 - **`create_translation_chain()` left earlier steps recorded when a later provenance write failed** (#2153, follow-up to #2137 / #2139) by @pkupt
   - The chain now writes its provenance through a single transaction on backends that can roll back (SQLite, in-memory), so a failing step no longer leaves the `<input>_transformed_<axiom>` entities created by the steps before it. `BridgeAxiom.apply()` takes an internal `_conn` and passes it to `track_entity()`
   - Backends without transaction support keep writing step by step; the `ProvenanceRecordingError` now carries `recorded_entities` listing what is actually in the store, so a caller can clean up or resume
