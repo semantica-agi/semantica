@@ -53,38 +53,135 @@ from ..utils.progress_tracker import get_progress_tracker
 
 # Text boxes.
 #
-# `Paragraph.text` concatenates only the `w:t` children of each direct `w:r`.
+# `Paragraph.text` concatenates only the text of the paragraph's own runs.
 # Text box content sits one level deeper -- `w:txbxContent` holds its own
 # `w:p`/`w:r`/`w:t` tree -- so a callout written in a text box is invisible to
-# that API and gets dropped without a warning. Word also stores the same text
-# box twice, as DrawingML under `mc:Choice` and as VML under `mc:Fallback`, so
-# walking every `w:t` under the paragraph would report the text twice.
+# that API and gets dropped without a warning. A box can hold further boxes, and
+# Word stores each box twice, as DrawingML under `mc:Choice` and as VML under
+# `mc:Fallback`, so walking every `w:t` under the paragraph would report the
+# text twice or more. The reader below walks a paragraph once, in document
+# order, reads only one branch of each `mc:AlternateContent`, and reads a box's
+# own paragraphs the same way, so nested boxes come out once, where they sit.
 _W = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
+_MC = "{http://schemas.openxmlformats.org/markup-compatibility/2006}"
 _TXBX_CONTENT = _W + "txbxContent"
 _W_P = _W + "p"
-_W_T = _W + "t"
-_MC_FALLBACK = "{http://schemas.openxmlformats.org/markup-compatibility/2006}Fallback"
-
-
-def _textbox_text(paragraph: Paragraph) -> str:
-    """Text held in the text boxes anchored to ``paragraph``."""
-    blocks: List[str] = []
-    for container in paragraph._p.iter(_TXBX_CONTENT):
-        if any(parent.tag == _MC_FALLBACK for parent in container.iterancestors()):
-            # The VML copy of a text box already covered by `mc:Choice`.
-            continue
-        for inner in container.iter(_W_P):
-            text = "".join(node.text or "" for node in inner.iter(_W_T))
-            if text.strip():
-                blocks.append(text.strip())
-    return "\n".join(blocks)
-
-
-def _paragraph_text(paragraph: Paragraph) -> str:
-    """``Paragraph.text`` plus the text of any text boxes it anchors."""
-    return "\n".join(
-        part for part in (paragraph.text, _textbox_text(paragraph)) if part
+_W_R = _W + "r"
+_W_HYPERLINK = _W + "hyperlink"
+_MC_ALTERNATE_CONTENT = _MC + "AlternateContent"
+_MC_CHOICE = _MC + "Choice"
+_MC_FALLBACK = _MC + "Fallback"
+# The run children python-docx turns into text for `Run.text`; `str()` of each
+# gives that text.
+_RUN_TEXT_TAGS = frozenset(
+    _W + tag for tag in ("br", "cr", "noBreakHyphen", "ptab", "t", "tab")
+)
+# Elements whose runs are read as paragraph text. `Paragraph.text` reads
+# through hyperlinks only, and body paragraphs keep that. Box paragraphs never
+# went through `Paragraph.text`: they were read from every `w:t` in them, so
+# they also read through insertions, content controls, fields and the like
+# (but not `w:del`, whose text is `w:delText`).
+_BODY_RUN_WRAPPERS = frozenset({_W_HYPERLINK})
+_BOX_RUN_WRAPPERS = frozenset(
+    _W + tag
+    for tag in (
+        "bdo",
+        "customXml",
+        "dir",
+        "fldSimple",
+        "hyperlink",
+        "ins",
+        "moveTo",
+        "sdt",
+        "sdtContent",
+        "smartTag",
     )
+)
+
+
+def _text_boxes(element):
+    """The text boxes under ``element``, outermost first, in document order.
+
+    Boxes nested in a box are left to that box's own paragraphs, and only the
+    chosen branch of each ``mc:AlternateContent`` is searched.
+    """
+    if element.tag == _TXBX_CONTENT:
+        yield element
+        return
+    if element.tag == _MC_ALTERNATE_CONTENT:
+        branch = _chosen_branch(element)
+        if branch is not None:
+            yield from _text_boxes(branch)
+        return
+    for child in element:
+        yield from _text_boxes(child)
+
+
+def _chosen_branch(alternate_content):
+    """The first ``mc:Choice`` holding a text box, else the ``mc:Fallback``."""
+    fallback = None
+    for branch in alternate_content:
+        if branch.tag == _MC_CHOICE and next(_text_boxes(branch), None) is not None:
+            return branch
+        if branch.tag == _MC_FALLBACK:
+            fallback = branch
+    return fallback
+
+
+def _box_paragraphs(box):
+    """The paragraphs of ``box`` itself, not those of boxes nested in it."""
+    for paragraph in box.iter(_W_P):
+        if next(paragraph.iterancestors(_TXBX_CONTENT), None) is box:
+            yield paragraph
+
+
+def _paragraph_lines(p, wrappers=_BODY_RUN_WRAPPERS, strip_chars=None) -> List[str]:
+    """The text of the ``w:p`` element ``p``, one line per block, in order.
+
+    Run text stays on one line until a text box interrupts it; each paragraph
+    of the box then gets its own line(s), and the run text after the box starts
+    a new line. Runs are read inside ``p`` and inside the ``wrappers`` in it.
+    """
+    lines: List[str] = []
+    pending: List[str] = []
+
+    def flush() -> None:
+        text = "".join(pending).strip(strip_chars)
+        if text:
+            lines.append(text)
+        pending.clear()
+
+    def read_boxes(element) -> None:
+        for box in _text_boxes(element):
+            flush()
+            for inner in _box_paragraphs(box):
+                # Box tabs and breaks are content, including at block edges.
+                lines.extend(_paragraph_lines(inner, _BOX_RUN_WRAPPERS, " "))
+
+    def read_runs(element) -> None:
+        for child in element:
+            if child.tag == _W_R:
+                for item in child:
+                    if item.tag in _RUN_TEXT_TAGS:
+                        pending.append(str(item))
+                    else:
+                        read_boxes(item)
+            elif child.tag in wrappers:
+                read_runs(child)
+            else:
+                # Not read as text, but a box can still sit inside.
+                read_boxes(child)
+
+    read_runs(p)
+    flush()
+    return lines
+
+
+def _paragraph_text(paragraph: Paragraph, *, strip: bool = False) -> str:
+    """``Paragraph.text`` with the text of its text boxes where they sit."""
+    if next(_text_boxes(paragraph._p), None) is None:
+        return paragraph.text.strip() if strip else paragraph.text
+    return "\n".join(_paragraph_lines(paragraph._p))
 
 
 @dataclass
@@ -177,7 +274,7 @@ class DOCXParser:
                 # Extract paragraphs
                 paragraphs = []
                 for para in doc.paragraphs:
-                    text = _paragraph_text(para).strip()
+                    text = _paragraph_text(para, strip=True)
                     if text:
                         paragraphs.append(text)
 
@@ -275,9 +372,27 @@ class DOCXParser:
         for row in table.rows:
             row_data = []
             for cell in row.cells:
-                cell_text = "\n".join(
-                    _paragraph_text(p) for p in cell.paragraphs
-                ).strip()
+                parts = [
+                    (_paragraph_text(p), next(_text_boxes(p._p), None) is not None)
+                    for p in cell.paragraphs
+                ]
+                # Trim the cell's outer body whitespace, not box separators.
+                start, end = 0, len(parts)
+                while start < end:
+                    text, has_box = parts[start]
+                    text = text if has_box else text.lstrip()
+                    if text:
+                        parts[start] = (text, has_box)
+                        break
+                    start += 1
+                while end > start:
+                    text, has_box = parts[end - 1]
+                    text = text if has_box else text.rstrip()
+                    if text:
+                        parts[end - 1] = (text, has_box)
+                        break
+                    end -= 1
+                cell_text = "\n".join(text for text, _ in parts[start:end])
                 row_data.append(cell_text)
             table_data["rows"].append(row_data)
 
@@ -291,7 +406,7 @@ class DOCXParser:
         current_section = None
 
         for para in doc.paragraphs:
-            text = _paragraph_text(para).strip()
+            text = _paragraph_text(para, strip=True)
             # Check if paragraph is a heading
             if para.style.name.startswith("Heading"):
                 # Get heading level
@@ -354,7 +469,7 @@ class DOCXParser:
 
         for para in doc.paragraphs:
             para_formatting = {
-                "text": para.text,
+                "text": _paragraph_text(para),
                 "style": para.style.name,
                 "alignment": str(para.alignment) if para.alignment else None,
                 "runs": [],

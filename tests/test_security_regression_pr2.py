@@ -143,6 +143,7 @@ class TestVuln2LinkPredictionDos:
 
     def test_cap_constant_defined(self):
         """_LINK_PREDICTION_MAX_NODES must be defined and <= 50_000."""
+        pytest.importorskip("fastapi")
         from semantica.explorer.routes.enrich import _LINK_PREDICTION_MAX_NODES
         assert isinstance(_LINK_PREDICTION_MAX_NODES, int)
         assert _LINK_PREDICTION_MAX_NODES <= 50_000, (
@@ -151,6 +152,7 @@ class TestVuln2LinkPredictionDos:
 
     def test_semaphore_defined(self):
         """_link_prediction_semaphore must exist."""
+        pytest.importorskip("fastapi")
         import asyncio
         from semantica.explorer.routes.enrich import _link_prediction_semaphore
         assert isinstance(_link_prediction_semaphore, asyncio.Semaphore)
