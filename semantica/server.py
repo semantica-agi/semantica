@@ -8,10 +8,13 @@ using FastAPI and uvicorn.
 import asyncio
 import logging
 import os
+import numpy as np
 import uvicorn
 from contextlib import asynccontextmanager
 from pathlib import Path
 from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi.concurrency import run_in_threadpool
+from fastapi.encoders import jsonable_encoder
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -20,6 +23,7 @@ from typing import List, Optional, Dict, Any
 
 from . import __version__
 from .core.orchestrator import Semantica
+from .utils.exceptions import ProcessingError
 from .utils.logging import setup_logging
 
 try:
@@ -168,16 +172,28 @@ async def health():
     """Health check endpoint."""
     return {"status": "healthy"}
 
+
 @app.post("/build")
 async def build_kb(request: BuildRequest):
-    """Initiate knowledge base construction."""
+    """Build a knowledge base from the given sources and return the result."""
+    options = dict(request.config or {})
+    options.pop("sources", None)
     try:
-        # result = framework.build_knowledge_base(sources=request.sources, config=request.config)
-        return {"status": "accepted", "message": "Knowledge base construction initiated"}
+        # build_knowledge_base is blocking, so keep it off the event loop.
+        result = await run_in_threadpool(
+            framework.build_knowledge_base, sources=request.sources, **options
+        )
+    except ProcessingError as e:
+        raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
-
+    return jsonable_encoder(
+        result,
+        custom_encoder={
+            np.ndarray: lambda a: a.tolist(),
+            np.generic: lambda x: x.item(),
+        },
+    )
 if EXPLORER_AVAILABLE:
     try:
         from .explorer.routes import (
