@@ -6690,7 +6690,11 @@ class TestInitLLMProvider:
     the wizard has to say so rather than implying it was saved (#2224).
     """
 
-    SECRET = "sk-not-a-real-key-0000"
+    # Deliberately not shaped like a provider key. A literal carrying a
+    # real key's prefix trips secret scanning -- GitGuardian failed this PR
+    # for exactly that -- and the test only needs a distinctive string to
+    # search the written file for.
+    SECRET = "PLACEHOLDER-value-for-assertions-only"
 
     def _init(
         self, runner, monkeypatch, tmp_path, provider="openai", key=None
