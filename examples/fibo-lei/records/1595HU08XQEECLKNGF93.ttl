@@ -1,0 +1,35 @@
+# GLEIF LEI record 1595HU08XQEECLKNGF93, converted to FIBO terms for the Semantica fibo-lei example.
+# Source: https://api.gleif.org/api/v1/lei-records/1595HU08XQEECLKNGF93
+# GLEIF registration.lastUpdateDate: 2026-07-09T11:57:59Z (fetched 2026-10-22). Data: CC0 1.0.
+# Fields used: lei, entity.legalName.name, entity.jurisdiction, registration.status.
+
+@prefix cmns-col: <https://www.omg.org/spec/Commons/Collections/> .
+@prefix cmns-dsg: <https://www.omg.org/spec/Commons/Designators/> .
+@prefix cmns-id: <https://www.omg.org/spec/Commons/Identifiers/> .
+@prefix cmns-org: <https://www.omg.org/spec/Commons/Organizations/> .
+@prefix cmns-rga: <https://www.omg.org/spec/Commons/RegulatoryAgencies/> .
+@prefix ex: <https://example.org/fibo-lei/> .
+@prefix fibo-be-le-lei: <https://spec.edmcouncil.org/fibo/ontology/BE/LegalEntities/LEIEntities/> .
+@prefix fibo-fbc-fct-breg: <https://spec.edmcouncil.org/fibo/ontology/FBC/FunctionalEntities/BusinessRegistries/> .
+@prefix fibo-fnd-rel-rel: <https://spec.edmcouncil.org/fibo/ontology/FND/Relations/Relations/> .
+
+# The legal entity (entity.legalName, entity.jurisdiction)
+ex:entity-1595HU08XQEECLKNGF93 a fibo-be-le-lei:LEIRegisteredEntity, cmns-org:LegalEntity ;
+    fibo-fnd-rel-rel:hasLegalName "C & V Works ApS" ;
+    cmns-rga:isOrganizedIn ex:jurisdiction-DK ;
+    cmns-id:isIdentifiedBy ex:lei-1595HU08XQEECLKNGF93 .
+
+# The LEI itself (lei)
+ex:lei-1595HU08XQEECLKNGF93 a fibo-be-le-lei:LegalEntityIdentifier ;
+    fibo-fnd-rel-rel:hasTag "1595HU08XQEECLKNGF93" ;
+    cmns-id:identifies ex:entity-1595HU08XQEECLKNGF93 ;
+    cmns-dsg:isDefinedIn fibo-be-le-lei:ISO17442-CodeSet .
+
+# The registry entry that carries the status (registration.status = LAPSED)
+ex:registry-entry-1595HU08XQEECLKNGF93 a fibo-fbc-fct-breg:LegalEntityIdentifierRegistryEntry ;
+    cmns-col:comprises ex:lei-1595HU08XQEECLKNGF93 ;
+    fibo-fbc-fct-breg:hasRegistrationStatus fibo-fbc-fct-breg:LapsedStatus .
+
+# The jurisdiction, as its ISO 3166 code
+ex:jurisdiction-DK a cmns-rga:Jurisdiction ;
+    fibo-fnd-rel-rel:hasTag "DK" .

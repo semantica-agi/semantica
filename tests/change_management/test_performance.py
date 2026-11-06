@@ -5,6 +5,7 @@ This module provides comprehensive performance testing for all change management
 components including storage backends, version managers, and diff algorithms.
 """
 
+import gc
 import time
 import tempfile
 import os
@@ -41,10 +42,22 @@ class PerformanceTestSuite:
         self.process = psutil.Process()
     
     def measure_time(self, func, *args, **kwargs) -> Tuple[Any, float]:
-        """Measure execution time of a function."""
-        start_time = time.perf_counter()
-        result = func(*args, **kwargs)
-        end_time = time.perf_counter()
+        """Measure execution time of a function.
+
+        Garbage collection is paused for the timed call, as ``timeit`` does.
+        Late in the full suite the heap holds millions of objects, and a full
+        collection that happens to start inside the call added ~0.8s to one
+        snapshot and failed its 500ms bound on CI (#2167).
+        """
+        gc_was_enabled = gc.isenabled()
+        gc.disable()
+        try:
+            start_time = time.perf_counter()
+            result = func(*args, **kwargs)
+            end_time = time.perf_counter()
+        finally:
+            if gc_was_enabled:
+                gc.enable()
         return result, end_time - start_time
     
     def measure_memory(self, func, *args, **kwargs) -> Tuple[Any, float]:
@@ -107,6 +120,32 @@ class PerformanceTestSuite:
                 "axioms": axioms
             }
         }
+
+
+class TestMeasureTime:
+    """measure_time keeps a garbage collection pause out of the timing (#2167)."""
+
+    def test_gc_is_paused_during_the_call_and_restored_after(self):
+        suite = PerformanceTestSuite()
+        enabled, _ = suite.measure_time(gc.isenabled)
+        assert enabled is False
+        assert gc.isenabled()
+
+    def test_gc_is_restored_when_the_call_raises(self):
+        def boom():
+            raise RuntimeError("boom")
+
+        with pytest.raises(RuntimeError):
+            PerformanceTestSuite().measure_time(boom)
+        assert gc.isenabled()
+
+    def test_gc_stays_disabled_if_it_was_disabled_before(self):
+        gc.disable()
+        try:
+            PerformanceTestSuite().measure_time(lambda: None)
+            assert not gc.isenabled()
+        finally:
+            gc.enable()
 
 
 class TestStoragePerformance:

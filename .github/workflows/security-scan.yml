@@ -237,10 +237,12 @@ jobs:
           # - opentelemetry-api 1.43.0, GHSA-xcq7-p3pf-p88h / CVE-2026-114603:
           #   TraceState.from_header parses an inbound W3C tracestate header in
           #   O(N^2) time. Fixed in 1.45.1, but every google-adk release
-          #   (latest 2.12.0) caps opentelemetry-api<=1.43, so no fix is
-          #   installable. Semantica never imports opentelemetry and its
-          #   google-adk integration runs no HTTP server, so nothing here
-          #   extracts trace context from inbound headers. Re-evaluate when
+          #   (latest 2.13.0) caps opentelemetry-api<=1.44, so no fix is
+          #   installable: a [tool.uv] override would make pip's resolver
+          #   reject requirements-ci.txt (see #2209). Semantica never
+          #   imports opentelemetry and its google-adk integration runs no
+          #   HTTP server, so nothing here extracts trace context from
+          #   inbound headers. Re-evaluate when
           #   google-adk allows 1.45.1; the acceptance expires on 2027-01-23,
           #   the same date as the ignoreUntil in osv-scanner.toml.
           IGNORED_VULN_IDS=""
