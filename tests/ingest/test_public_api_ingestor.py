@@ -12,7 +12,23 @@ from semantica.ingest import (
     ingest_public_api,
     list_available_methods,
 )
+from semantica.ingest.public_api_ingestor import (
+    _SAFE_XML_PARSER,
+    lxml_etree,
+    safe_xml_etree,
+)
 from semantica.utils.exceptions import ProcessingError, ValidationError
+
+# _parse_xml needs defusedxml, or lxml with its hardened parser. Mirror that
+# condition instead of probing the two packages, so the guard cannot drift
+# from the branch it guards.
+_XML_BACKEND_AVAILABLE = safe_xml_etree is not None or (
+    lxml_etree is not None and _SAFE_XML_PARSER is not None
+)
+_NO_XML_BACKEND = pytest.mark.skipif(
+    not _XML_BACKEND_AVAILABLE,
+    reason="XML parsing needs defusedxml or lxml",
+)
 
 
 def _mock_response(
@@ -125,6 +141,7 @@ def test_public_api_ingestor_parses_csv_records() -> None:
     assert result.metadata["response_format"] == "csv"
 
 
+@_NO_XML_BACKEND
 def test_public_api_ingestor_parses_xml_records_with_record_path() -> None:
     xml_text = "<items><item id='1'>Ada</item><item id='2'>Grace</item></items>"
 
@@ -147,6 +164,7 @@ def test_public_api_ingestor_parses_xml_records_with_record_path() -> None:
     assert result.data[0]["text"] == "Ada"
 
 
+@_NO_XML_BACKEND
 def test_public_api_ingestor_rejects_malicious_xml_entities() -> None:
     xml_text = """<?xml version="1.0"?>
 <!DOCTYPE items [
