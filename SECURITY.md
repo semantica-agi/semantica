@@ -240,12 +240,14 @@ are accepted in `osv-scanner.toml`.
 
 GHSA-xcq7-p3pf-p88h (CVE-2026-114603): `TraceState.from_header` parses an
 inbound W3C `tracestate` header in quadratic time. It is fixed in 1.45.1, but
-every google-adk release caps `opentelemetry-api<=1.44`, and semgrep (a
-security-scan tool) pins `~=1.37.0`.
+every google-adk release caps `opentelemetry-api<=1.44`. Overriding that cap
+in `[tool.uv]` makes pip's resolver reject `requirements-ci.txt`, so the fix
+waits on google-adk. The semgrep security-scan tool's own `~=1.37.0` pin is
+already overridden in `.github/requirements/security-scan-tools-overrides.txt`.
 
-- **Exposure**: Semantica never imports opentelemetry, its google-adk
-  integration runs no HTTP server, and the semgrep CLI handles no inbound
-  requests, so no inbound `tracestate` header is parsed.
+- **Exposure**: Semantica never imports opentelemetry and its google-adk
+  integration runs no HTTP server, so no inbound `tracestate` header is
+  parsed.
 - **Revisit**: when google-adk allows 1.45.1. Accepted until 2027-01-23 in
   `osv-scanner.toml` and in `IGNORED_VULN_IDS` in
   `.github/workflows/security-scan.yml`.

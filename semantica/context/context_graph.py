@@ -4006,7 +4006,8 @@ class ContextGraph:
         self,
         decision_id: str,
         direction: str = "upstream",
-        max_depth: int = 10
+        max_depth: int = 10,
+        include_inactive: bool = False,
     ) -> List["Decision"]:
         """
         Get causal chain from graph.
@@ -4017,6 +4018,10 @@ class ContextGraph:
                 chain followed by the downstream one, each decision listed
                 once and tagged with metadata["causal_direction"])
             max_depth: Maximum traversal depth, per direction
+            include_inactive: Include retracted or not-yet-valid edges and
+                decision nodes. Defaults to False so the current causal chain
+                reflects the active graph; use ``state_at()`` or ``trace_at_time()``
+                for historical views.
 
         Returns:
             List of decisions in causal chain
@@ -4026,7 +4031,9 @@ class ContextGraph:
         if direction == "both":
             chain, seen = [], set()
             for side in ("upstream", "downstream"):
-                for d in self.get_causal_chain(decision_id, side, max_depth):
+                for d in self.get_causal_chain(
+                    decision_id, side, max_depth, include_inactive=include_inactive
+                ):
                     if d.decision_id not in seen:
                         seen.add(d.decision_id)
                         d.metadata["causal_direction"] = side
@@ -4035,6 +4042,14 @@ class ContextGraph:
 
         if direction not in ["upstream", "downstream"]:
             raise ValueError("Direction must be 'upstream', 'downstream' or 'both'")
+
+        now = datetime.utcnow()
+        if (
+            not include_inactive
+            and decision_id in self.nodes
+            and not self.nodes[decision_id].is_active(now)
+        ):
+            return []
 
         # Build the causal adjacency once.  The traversal below used to loop
         # over ``self.edges`` for every decision it dequeued, which is O(V*E)
@@ -4047,6 +4062,8 @@ class ContextGraph:
                 not isinstance(edge_type, str)
                 or edge_type.upper() not in _CAUSAL_TRAVERSAL_TYPES
             ):
+                continue
+            if not include_inactive and not edge.is_active(now):
                 continue
             if direction == "upstream":
                 causal_neighbors[edge.target_id].append(edge.source_id)
@@ -4071,6 +4088,8 @@ class ContextGraph:
                 # Get decision node
                 if current_id in self.nodes:
                     node = self.nodes[current_id]
+                    if not include_inactive and not node.is_active(now):
+                        continue
                     if (hasattr(node, 'node_type') and isinstance(node.node_type, str) and
                         node.node_type.lower() == "decision"):
                         decision_data = node.properties
@@ -4868,7 +4887,8 @@ class ContextGraph:
         self,
         decision_id: str,
         max_depth: int = 5,
-        max_chains: Optional[int] = 10000
+        max_chains: Optional[int] = 10000,
+        include_inactive: bool = False,
     ) -> List[Dict[str, Any]]:
         """
         Trace causal chain for a decision.
@@ -4881,12 +4901,26 @@ class ContextGraph:
                 paths, so the traversal stops once this many chains have been
                 collected and appends a ``{"truncated": True, ...}`` marker so
                 callers can tell the trace is incomplete. Pass None for no limit.
+            include_inactive: Include retracted or not-yet-valid causal edges
+                and decision nodes. Defaults to False so the current audit
+                trace reflects the active graph.
 
         Returns:
             Causal chain as list of decision relationships
         """
         if not hasattr(self, '_decisions') or decision_id not in self._decisions:
             raise ValueError(f"Decision {decision_id} not found")
+
+        now = datetime.utcnow()
+
+        def _active(decision):
+            if include_inactive:
+                return True
+            node = self.nodes.get(decision)
+            return node is None or node.is_active(now)
+
+        if not _active(decision_id):
+            return []
 
         try:
             # Use graph traversal to find causal relationships
@@ -4906,7 +4940,9 @@ class ContextGraph:
                 if edge_type.upper() not in _CAUSAL_TRAVERSAL_TYPES:
                     continue
                 for edge in edges:
-                    if edge.source_id in self._decisions:
+                    if not include_inactive and not edge.is_active(now):
+                        continue
+                    if edge.source_id in self._decisions and _active(edge.source_id):
                         incoming_causal_edges[edge.target_id].append(edge)
 
             def record_chain(cause_path):
@@ -4926,6 +4962,8 @@ class ContextGraph:
                 # branching graphs silently lose valid chains. max_depth bounds the
                 # traversal.
                 if truncated or depth >= max_depth or current_id in path_ids:
+                    return
+                if not _active(current_id):
                     return
 
                 path_ids = path_ids | {current_id}
@@ -4970,7 +5008,11 @@ class ContextGraph:
                 potential_causes = {}
                 for entity in current_decision["entities"]:
                     for other_decision_id in self._entity_index.get(entity, set()):
-                        if other_decision_id != current_id and other_decision_id not in explicit_cause_ids:
+                        if (
+                            other_decision_id != current_id
+                            and other_decision_id not in explicit_cause_ids
+                            and _active(other_decision_id)
+                        ):
                             other_decision = self._decisions[other_decision_id]
                             if self._decision_sort_ts(other_decision["timestamp"]) < self._decision_sort_ts(current_decision["timestamp"]):
                                 potential_causes[other_decision_id] = None
@@ -5985,7 +6027,8 @@ class ContextGraph:
         self,
         decision_id: str,
         max_steps: int = 5,
-        max_chains: Optional[int] = 10000
+        max_chains: Optional[int] = 10000,
+        include_inactive: bool = False,
     ) -> List[Dict[str, Any]]:
         """
         Easy way to trace how decisions are connected.
@@ -5995,6 +6038,8 @@ class ContextGraph:
             max_steps: Maximum steps to trace
             max_chains: Maximum number of chains to return; see
                 trace_decision_causality(). Pass None for no limit.
+            include_inactive: Include retracted or not-yet-valid causal facts;
+                see trace_decision_causality().
 
         Returns:
             Decision chain connections
@@ -6002,7 +6047,8 @@ class ContextGraph:
         return self.trace_decision_causality(
             decision_id=decision_id,
             max_depth=max_steps,
-            max_chains=max_chains
+            max_chains=max_chains,
+            include_inactive=include_inactive,
         )
     
     def check_decision_rules(

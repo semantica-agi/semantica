@@ -325,8 +325,8 @@ class JenaStore:
             if object:
                 query_parts.append(f"?o = <{sparql_escaping.validate_uri(object)}>")
 
-            where_clause = " ".join(query_parts) if query_parts else ""
-            query = f"SELECT ?s ?p ?o WHERE {{ ?s ?p ?o {where_clause} }}"
+            where_clause = f" FILTER({' && '.join(query_parts)})" if query_parts else ""
+            query = f"SELECT ?s ?p ?o WHERE {{ ?s ?p ?o .{where_clause} }}"
 
             results = self.graph.query(query)
 
