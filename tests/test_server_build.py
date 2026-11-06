@@ -6,9 +6,9 @@ import pytest
 pytest.importorskip("fastapi")
 pytest.importorskip("uvicorn")
 
-from fastapi.testclient import TestClient
+from fastapi.testclient import TestClient  # noqa: E402
 
-from semantica import server
+from semantica import server  # noqa: E402
 
 client = TestClient(server.app)
 
