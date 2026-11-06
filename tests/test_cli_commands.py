@@ -6678,3 +6678,88 @@ class TestSubcommandSmoke:
             if result.exit_code != 0:
                 failures.append((path, result.exit_code, result.output[-200:]))
         assert failures == []
+
+
+class TestInitLLMProvider:
+    """`semantica init`'s LLM answers have to survive the config loader.
+
+    The wizard used to write the section as ``llm``, but ``Config`` reads
+    ``llm_provider`` and ``Config.to_dict()`` emits only its known sections,
+    so the provider the user picked was dropped on load and never reached a
+    component. The API key is not persisted at all -- that is deliberate, but
+    the wizard has to say so rather than implying it was saved (#2224).
+    """
+
+    SECRET = "sk-not-a-real-key-0000"
+
+    def _init(
+        self, runner, monkeypatch, tmp_path, provider="openai", key=None
+    ):
+        home = tmp_path / "home"
+        home.mkdir()
+        monkeypatch.setattr(
+            cli_module.Path, "home", staticmethod(lambda: home)
+        )
+        typed = self.SECRET if key is None else key
+        result = runner.invoke(
+            cli_module.main,
+            ["init"],
+            input=f"memory\nfaiss\n{provider}\n{typed}\n",
+        )
+        _ok(result)
+        return result, home / ".semantica" / "config.yaml"
+
+    def test_provider_survives_the_config_loader(
+        self, runner, monkeypatch, tmp_path
+    ):
+        """The written section is the one Config reads, so it round-trips.
+
+        This is the actual defect: under the old ``llm`` key the loader
+        produced ``llm_provider: {}`` no matter what the user answered.
+        """
+        _, config_file = self._init(runner, monkeypatch, tmp_path)
+
+        assert "llm_provider:" in config_file.read_text()
+
+        resolved = cli_module._build_runtime_config(
+            config_path=str(config_file), log_level=None
+        ).to_dict()
+        assert resolved["llm_provider"]["provider"] == "openai"
+        assert resolved["llm_provider"]["api_key_env"] == "OPENAI_API_KEY"
+
+    def test_the_key_is_never_written_to_the_config_file(
+        self, runner, monkeypatch, tmp_path
+    ):
+        """Only the variable's name is stored, never its value."""
+        _, config_file = self._init(runner, monkeypatch, tmp_path)
+        written = config_file.read_text()
+        assert self.SECRET not in written
+        assert "OPENAI_API_KEY" in written
+
+    def test_init_says_the_key_is_not_saved(
+        self, runner, monkeypatch, tmp_path
+    ):
+        """The wizard points at doctor, so it must not imply persistence."""
+        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        result, _ = self._init(runner, monkeypatch, tmp_path)
+        assert "OPENAI_API_KEY is not saved" in result.output
+        assert "export OPENAI_API_KEY" in result.output
+
+    def test_no_hint_when_the_variable_already_holds_that_key(
+        self, runner, monkeypatch, tmp_path
+    ):
+        """Accepting the value already exported is not worth warning about."""
+        monkeypatch.setenv("OPENAI_API_KEY", self.SECRET)
+        result, _ = self._init(runner, monkeypatch, tmp_path)
+        assert "is not saved" not in result.output
+
+    def test_provider_none_writes_no_llm_section(
+        self, runner, monkeypatch, tmp_path
+    ):
+        """Declining a provider must not invent one."""
+        result, config_file = self._init(
+            runner, monkeypatch, tmp_path, provider="none", key=""
+        )
+        written = config_file.read_text()
+        assert "llm_provider" not in written
+        assert "is not saved" not in result.output

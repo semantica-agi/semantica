@@ -1223,14 +1223,27 @@ def init_cmd(cli_ctx: CLIContext, force: bool) -> None:
             "vector_store": {"backend": vector_backend},
         }
 
+        unexported_key_var: Optional[str] = None
         if llm_provider != "none":
             env_var = f"{llm_provider.upper()}_API_KEY"
             existing = os.environ.get(env_var, "")
             prompt_str = f"  {env_var}" + (f" [{existing[:8]}…]" if existing else "")
             key = click.prompt(prompt_str, default=existing, hide_input=True, show_default=False)
             if key:
-                cfg["llm"] = {"provider": llm_provider, "api_key_env": env_var}
-                os.environ[env_var] = key
+                # The section name has to be the one Config reads. Config
+                # exposes "llm_provider" and to_dict() emits only its known
+                # sections, so anything written under another name is dropped
+                # on load and never reaches a component (#2224).
+                cfg["llm_provider"] = {
+                    "provider": llm_provider,
+                    "api_key_env": env_var,
+                }
+                # The key itself is deliberately not written to the config
+                # file. Assigning it to os.environ here would only affect
+                # this process, which is about to exit, so tell the user what
+                # to do instead of implying it was saved.
+                if key != existing:
+                    unexported_key_var = env_var
 
         config_dir.mkdir(parents=True, exist_ok=True)
         with config_file.open("w", encoding="utf-8") as fh:
@@ -1238,6 +1251,12 @@ def init_cmd(cli_ctx: CLIContext, force: bool) -> None:
 
         console.print()
         _ok(cli_ctx, f"Config written to {config_file}")
+        if unexported_key_var:
+            _warn(
+                cli_ctx,
+                f"{unexported_key_var} is not saved to the config file. "
+                f"Export it in your shell: export {unexported_key_var}=…",
+            )
         _info(cli_ctx, "Run 'semantica doctor' to verify your setup.")
 
     _run_with_error_handling(_action)
