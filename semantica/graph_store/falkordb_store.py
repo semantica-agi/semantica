@@ -505,16 +505,18 @@ class FalkorDBStore:
 
             # Build SET clause
             set_parts = []
-            for key in properties.keys():
+            params = {"node_id": node_id}
+            for index, (key, value) in enumerate(properties.items()):
                 safe_key = sanitize_identifier(key, "property key")
-                set_parts.append(f"n.{safe_key} = ${safe_key}")
+                param = f"prop_{index}"
+                set_parts.append(f"n.{safe_key} = ${param}")
+                params[param] = value
 
             if merge:
                 query = f"MATCH (n) WHERE id(n) = $node_id SET {', '.join(set_parts)} RETURN id(n) as id, n, labels(n) as labels"
             else:
                 query = f"MATCH (n) WHERE id(n) = $node_id SET n = $props RETURN id(n) as id, n, labels(n) as labels"
 
-            params = {"node_id": node_id, **properties}
             if not merge:
                 params["props"] = properties
 
@@ -598,11 +600,15 @@ class FalkorDBStore:
             safe_rel_type = sanitize_identifier(rel_type, "relationship type")
 
             # Build property string
+            params = {"start_id": start_node_id, "end_id": end_node_id}
             if properties:
-                props_str = ", ".join(
-                    f"{sanitize_identifier(k, 'property key')}: ${k}" for k in properties.keys()
-                )
-                props_str = f" {{{props_str}}}"
+                prop_parts = []
+                for index, (key, value) in enumerate(properties.items()):
+                    safe_key = sanitize_identifier(key, "property key")
+                    param = f"prop_{index}"
+                    prop_parts.append(f"{safe_key}: ${param}")
+                    params[param] = value
+                props_str = " {" + ", ".join(prop_parts) + "}"
             else:
                 props_str = ""
 
@@ -613,7 +619,6 @@ class FalkorDBStore:
                 RETURN id(r) as id, type(r) as type
             """
 
-            params = {"start_id": start_node_id, "end_id": end_node_id, **properties}
             result = graph.query(query, params)
 
             rel_data = {
