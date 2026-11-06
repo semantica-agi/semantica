@@ -88,6 +88,7 @@ class Neo4jCSVExporter:
         "subject",
         "start",
         "start_id",
+        "start_node_id",
     )
     _TARGET_KEYS = (
         "target",
@@ -97,6 +98,7 @@ class Neo4jCSVExporter:
         "object",
         "end",
         "end_id",
+        "end_node_id",
     )
     _REL_TYPE_KEYS = (
         "type",

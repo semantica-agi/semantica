@@ -30,6 +30,7 @@ from ..utils.exceptions import ProcessingError, ValidationError
 from ..utils.helpers import ensure_directory
 from ..utils.logging import get_logger
 from ..utils.progress_tracker import get_progress_tracker
+from .endpoint_names import SOURCE_ENDPOINT_NAMES, TARGET_ENDPOINT_NAMES, first_set_id
 
 
 class GraphExporter:
@@ -246,7 +247,7 @@ class GraphExporter:
         entities = kg.get("entities", [])
         for entity in entities:
             node = {
-                "id": entity.get("id") or entity.get("entity_id"),
+                "id": first_set_id(entity, ("id", "entity_id")),
                 "label": (
                     entity.get("text")
                     or entity.get("label")
@@ -269,8 +270,8 @@ class GraphExporter:
         relationships = kg.get("relationships", [])
         for rel in relationships:
             edge = {
-                "source": rel.get("source_id") or rel.get("source"),
-                "target": rel.get("target_id") or rel.get("target"),
+                "source": first_set_id(rel, SOURCE_ENDPOINT_NAMES),
+                "target": first_set_id(rel, TARGET_ENDPOINT_NAMES),
                 "type": rel.get("type") or rel.get("relationship_type", "related_to"),
             }
 
