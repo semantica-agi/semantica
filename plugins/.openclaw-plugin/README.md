@@ -57,6 +57,6 @@ See [`integrations/openclaw/README.md`](../../integrations/openclaw/README.md) f
 
 ## Requirements
 
-- Python 3.10+
+- Python 3.11+
 - `pip install semantica`
 - OpenClaw — [openclaw.ai](https://openclaw.ai)

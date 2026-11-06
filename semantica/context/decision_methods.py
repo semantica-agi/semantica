@@ -134,7 +134,7 @@ def get_causal_chain(
     Args:
         graph_store: Graph database instance
         decision_id: Decision ID to analyze
-        direction: "upstream" or "downstream"
+        direction: "upstream", "downstream" or "both"
         max_depth: Maximum traversal depth
         
     Returns:

@@ -202,6 +202,7 @@ def test_validate_feed() -> None:
 
 def test_discover_feeds_empty() -> None:
     """Test discovery finding nothing."""
+    pytest.importorskip("bs4")  # HTML parsing needs the optional documents extra
 
     ingestor = FeedIngestor()
     html = "<html><body>No feeds here</body></html>"
@@ -228,6 +229,7 @@ def test_discover_feeds_empty() -> None:
 
 def test_discover_feeds_found() -> None:
     """Test discovering feeds in HTML content."""
+    pytest.importorskip("bs4")  # HTML parsing needs the optional documents extra
     ingestor = FeedIngestor()
     html = """
     <html>

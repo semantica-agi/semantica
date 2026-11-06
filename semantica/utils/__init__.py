@@ -61,6 +61,7 @@ from .constants import (
 from .exceptions import (
     ConfigurationError,
     ProcessingError,
+    ProvenanceRecordingError,
     QualityError,
     SemanticaError,
     TemporalValidationError,
@@ -167,6 +168,7 @@ __all__ = [
     "ProcessingError",
     "ConfigurationError",
     "QualityError",
+    "ProvenanceRecordingError",
     "handle_exception",
     "format_exception",
     # Validators

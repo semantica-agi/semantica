@@ -895,10 +895,7 @@ class GlobalGraphRetriever:
                 )
                 for f in future_to_report:
                     f.cancel()
-                try:
-                    executor.shutdown(wait=False, cancel_futures=True)
-                except TypeError:
-                    executor.shutdown(wait=False)
+                executor.shutdown(wait=False, cancel_futures=True)
 
                 for future, rep in future_to_report.items():
                     if future not in completed_futures:
@@ -918,10 +915,7 @@ class GlobalGraphRetriever:
                                 )
                             )
         finally:
-            try:
-                executor.shutdown(wait=False, cancel_futures=True)
-            except TypeError:
-                executor.shutdown(wait=False)
+            executor.shutdown(wait=False, cancel_futures=True)
 
         return all_points
 

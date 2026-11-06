@@ -38,8 +38,8 @@ jobs:
       security-events: write  # for github/codeql-action/upload-sarif below
 
     steps:
-    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-    - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+    - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
       with:
         dotnet-version: |
           5.0.x
@@ -59,11 +59,11 @@ jobs:
         # avoiding the guardian.cmd/checkov exit-code bug in the MSDO wrapper.
         tools: eslint,templateanalyzer,terrascan
     - name: Upload results to Security tab
-      uses: github/codeql-action/upload-sarif@24c54180a607b1449ed407dd24f251e4e9147c8d # v4
+      uses: github/codeql-action/upload-sarif@24c54180a607b1449ed407dd24f251e4e9147c8d # v4.38.3
       with:
         sarif_file: ${{ steps.msdo.outputs.sarifFile }}
 
-    - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+    - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
       with:
         python-version: "3.12"
 
@@ -100,7 +100,7 @@ jobs:
       run: python .github/scripts/filter_checkov_skipped.py reports/results_json.json reports/results_sarif.sarif reports/checkov.sarif
 
     - name: Upload Checkov results to Security tab
-      uses: github/codeql-action/upload-sarif@24c54180a607b1449ed407dd24f251e4e9147c8d # v4
+      uses: github/codeql-action/upload-sarif@24c54180a607b1449ed407dd24f251e4e9147c8d # v4.38.3
       if: always()
       with:
         sarif_file: reports/checkov.sarif

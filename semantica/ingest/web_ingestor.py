@@ -41,14 +41,35 @@ from urllib.parse import urljoin, urlparse
 from urllib.robotparser import RobotFileParser
 
 import requests
-from bs4 import BeautifulSoup
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
 from ..utils.exceptions import ProcessingError, ValidationError
 from ..utils.logging import get_logger
 from ..utils.progress_tracker import get_progress_tracker
+
 from .ssrf import parse_bool, request_with_ssrf_guard, validate_url_for_request
+
+# beautifulsoup4 ships in the optional `documents` extra, so guard it the way
+# the sibling ingestors guard theirs (`git` in repo_ingestor, `lxml` in
+# xml_ingestor). The public `from semantica.ingest import WebIngestor` path
+# already turns a missing bs4 into an actionable ImportError; importing this
+# module directly raised a bare ModuleNotFoundError, which aborted collection
+# for every test module that imports it.
+try:
+    from bs4 import BeautifulSoup
+except (ImportError, OSError):
+    BeautifulSoup = None
+
+
+def _parse_html(html_content: str) -> Any:
+    """Parse HTML, or fail with the install hint if beautifulsoup4 is absent."""
+    if BeautifulSoup is None:
+        raise ProcessingError(
+            "HTML parsing requires 'beautifulsoup4'. "
+            "Install it with: pip install 'semantica[documents]'"
+        )
+    return BeautifulSoup(html_content, "html.parser")
 
 
 @dataclass
@@ -210,7 +231,7 @@ class ContentExtractor:
         Returns:
             str: Cleaned text content extracted from HTML
         """
-        soup = BeautifulSoup(html_content, "html.parser")
+        soup = _parse_html(html_content)
 
         # Remove script and style elements (not useful for text extraction)
         for element in soup(["script", "style"]):
@@ -253,7 +274,7 @@ class ContentExtractor:
         """
         metadata = {"url": url} if url else {}
 
-        soup = BeautifulSoup(html_content, "html.parser")
+        soup = _parse_html(html_content)
 
         # Extract page title
         title_tag = soup.find("title")
@@ -298,7 +319,7 @@ class ContentExtractor:
         """
         links = []
 
-        soup = BeautifulSoup(html_content, "html.parser")
+        soup = _parse_html(html_content)
 
         # Extract all anchor tags with href attributes
         for link_tag in soup.find_all("a", href=True):
