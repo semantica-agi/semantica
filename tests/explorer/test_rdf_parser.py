@@ -341,18 +341,21 @@ class TestEmptyAndErrors:
 
 class TestRdfXmlFormat:
     def test_parses_rdf_xml(self):
+        pytest.importorskip("defusedxml")
         nodes, edges = parse_skos_file(MINIMAL_RDF_XML, rdf_format="xml")
         uris = {n["id"] for n in nodes}
         assert "http://example.org/SchemeX" in uris
         assert "http://example.org/ConceptY" in uris
 
     def test_rdf_xml_scheme_type(self):
+        pytest.importorskip("defusedxml")
         nodes, _ = parse_skos_file(MINIMAL_RDF_XML, rdf_format="xml")
         scheme = _node(nodes, "http://example.org/SchemeX")
         assert scheme["type"] == "skos:ConceptScheme"
         assert scheme["properties"]["content"] == "Scheme X"
 
     def test_rdf_xml_in_scheme_edge(self):
+        pytest.importorskip("defusedxml")
         _, edges = parse_skos_file(MINIMAL_RDF_XML, rdf_format="xml")
         in_scheme = _edges_of_type(edges, "skos:inScheme")
         assert any(
