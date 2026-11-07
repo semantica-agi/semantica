@@ -437,6 +437,34 @@ class ConflictResolver:
         value_weights: Dict[Any, float] = {}
         key_to_value: Dict[Any, Any] = {}
 
+        # Detect whether any non-default credibility data exists for the sources
+        # involved. When every source falls back to the default 0.5 score, the
+        # weighting is not actually credibility-based.
+        has_real_credibility = False
+        for source in conflict.sources:
+            document = source.get("document", "unknown")
+            # get_source_credibility returns 0.5 when the document is not in the
+            # tracker's source_credibility map.
+            if document in getattr(self.source_tracker, "source_credibility", {}):
+                has_real_credibility = True
+                break
+
+        if not has_real_credibility:
+            self.logger.warning(
+                "No source credibility data available for conflict %s; "
+                "falling back to first-seen strategy instead of claiming "
+                "credibility-weighted voting.",
+                conflict.conflict_id,
+            )
+            fallback = self._resolve_by_first_seen(conflict)
+            fallback.resolution_notes = (
+                "Fell back to first-seen strategy because no credibility "
+                "data was available for the sources. "
+                + (fallback.resolution_notes or "")
+            ).strip()
+            fallback.metadata["credibility_fallback"] = True
+            return fallback
+
         for i, value in enumerate(conflict.conflicting_values):
             source = conflict.sources[i] if i < len(conflict.sources) else {}
             document = source.get("document", "unknown")
