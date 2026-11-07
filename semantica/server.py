@@ -8,6 +8,7 @@ using FastAPI and uvicorn.
 import asyncio
 import logging
 import os
+import threading
 import numpy as np
 import uvicorn
 from contextlib import asynccontextmanager
@@ -149,6 +150,14 @@ async def _global_error_handler(request: Request, exc: Exception):
 
 
 framework = Semantica()
+# The framework and its progress tracker are shared, so run one build at a time.
+_build_lock = threading.Lock()
+
+
+def _run_build(sources: List[str], options: Dict[str, Any]) -> Dict[str, Any]:
+    with _build_lock:
+        return framework.build_knowledge_base(sources=sources, **options)
+
 
 class BuildRequest(BaseModel):
     sources: List[str]
@@ -172,7 +181,6 @@ async def health():
     """Health check endpoint."""
     return {"status": "healthy"}
 
-
 @app.post("/build")
 async def build_kb(request: BuildRequest):
     """Build a knowledge base from the given sources and return the result."""
@@ -180,9 +188,7 @@ async def build_kb(request: BuildRequest):
     options.pop("sources", None)
     try:
         # build_knowledge_base is blocking, so keep it off the event loop.
-        result = await run_in_threadpool(
-            framework.build_knowledge_base, sources=request.sources, **options
-        )
+        result = await run_in_threadpool(_run_build, request.sources, options)
     except ProcessingError as e:
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
@@ -194,8 +200,8 @@ async def build_kb(request: BuildRequest):
             np.generic: lambda x: x.item(),
         },
     )
-    
-    
+
+
 if EXPLORER_AVAILABLE:
     try:
         from .explorer.routes import (
