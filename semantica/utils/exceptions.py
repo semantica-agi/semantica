@@ -43,7 +43,7 @@ from __future__ import annotations
 
 import sys
 import traceback
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 
 class SemanticaError(Exception):
@@ -314,6 +314,7 @@ class ProvenanceRecordingError(SemanticaError):
         self,
         message: str,
         provenance_context: Optional[Dict[str, Any]] = None,
+        recorded_entities: Optional[List[str]] = None,
         **details: Any,
     ):
         """
@@ -322,12 +323,15 @@ class ProvenanceRecordingError(SemanticaError):
         Args:
             message: Provenance recording error message
             provenance_context: Provenance context dictionary
+            recorded_entities: Entities written before the failure, when the
+                store could not roll them back (#2153)
             **details: Additional details (e.g. entity_id)
         """
         super().__init__(
             message, context=provenance_context, error_code="SEM007", **details
         )
         self.provenance_context = provenance_context or {}
+        self.recorded_entities = recorded_entities
         self.entity_id = details.get("entity_id")
 
 
