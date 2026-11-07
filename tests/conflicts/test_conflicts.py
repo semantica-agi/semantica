@@ -681,3 +681,194 @@ class TestConflictsModule(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def _two_source_detector(source_tracker):
+    return ConflictDetector(source_tracker=source_tracker)
+
+
+def test_float_noise_is_not_a_conflict():
+    """640.0 and 640.000000000001 are the same measurement."""
+    tracker = SourceTracker()
+    tracker.register_source("a.csv", "database", 0.9)
+    tracker.register_source("b.csv", "aggregate", 0.6)
+    detector = _two_source_detector(tracker)
+
+    rows = [
+        {"id": "d1", "completed": 640.0, "source": "a.csv"},
+        {"id": "d1", "completed": 640.000000000001, "source": "b.csv"},
+    ]
+
+    assert detector.detect_value_conflicts(rows, "completed") == []
+
+
+def test_a_real_difference_is_still_a_conflict():
+    tracker = SourceTracker()
+    tracker.register_source("a.csv", "database", 0.9)
+    tracker.register_source("b.csv", "aggregate", 0.6)
+    detector = _two_source_detector(tracker)
+
+    rows = [
+        {"id": "d1", "completed": 640.0, "source": "a.csv"},
+        {"id": "d1", "completed": 641.0, "source": "b.csv"},
+    ]
+
+    assert len(detector.detect_value_conflicts(rows, "completed")) == 1
+
+
+def test_zero_tolerance_keeps_the_exact_comparison():
+    tracker = SourceTracker()
+    tracker.register_source("a.csv", "database", 0.9)
+    tracker.register_source("b.csv", "aggregate", 0.6)
+    detector = ConflictDetector(source_tracker=tracker, numeric_tolerance=0)
+
+    rows = [
+        {"id": "d1", "completed": 640.0, "source": "a.csv"},
+        {"id": "d1", "completed": 640.000000000001, "source": "b.csv"},
+    ]
+
+    assert len(detector.detect_value_conflicts(rows, "completed")) == 1
+
+
+def test_strings_are_still_compared_exactly():
+    tracker = SourceTracker()
+    tracker.register_source("a.csv", "database", 0.9)
+    tracker.register_source("b.csv", "aggregate", 0.6)
+    detector = _two_source_detector(tracker)
+
+    rows = [
+        {"id": "d1", "status": "completed", "source": "a.csv"},
+        {"id": "d1", "status": "complete", "source": "b.csv"},
+    ]
+
+    assert len(detector.detect_value_conflicts(rows, "status")) == 1
+
+
+def _detector(**kwargs):
+    tracker = SourceTracker()
+    tracker.register_source("a.csv", "database", 0.9)
+    tracker.register_source("b.csv", "aggregate", 0.6)
+    return ConflictDetector(source_tracker=tracker, **kwargs)
+
+
+def _pair(left, right):
+    return [
+        {"id": "d1", "completed": left, "source": "a.csv"},
+        {"id": "d1", "completed": right, "source": "b.csv"},
+    ]
+
+
+def test_a_difference_just_under_the_tolerance_is_equal():
+    # 9e-10 is below 1e-9, where rounding-based comparison would split the pair.
+    assert _detector().detect_value_conflicts(_pair(0.1, 0.1000000009), "completed") == []
+
+
+def test_a_difference_exactly_at_the_tolerance_is_equal():
+    assert _detector().detect_value_conflicts(_pair(0.1, 0.100000001), "completed") == []
+
+
+def test_a_difference_just_over_the_tolerance_is_a_conflict():
+    assert len(_detector().detect_value_conflicts(_pair(0.1, 0.100000002), "completed")) == 1
+
+
+def test_grouping_is_complete_linkage_not_transitive():
+    """0 and 1.6e-9 are more than one tolerance apart, so they stay two groups.
+
+    A naive chain of pairwise comparisons would merge all three.
+    """
+    rows = [
+        {"id": "d1", "completed": 0.0, "source": "a.csv"},
+        {"id": "d1", "completed": 0.8e-9, "source": "b.csv"},
+        {"id": "d1", "completed": 1.6e-9, "source": "c.csv"},
+    ]
+
+    assert len(_detector().detect_value_conflicts(rows, "completed")) == 1
+
+
+def test_a_number_and_its_string_form_are_the_same_value():
+    """CSV sources read every value as a string, so the two spellings must agree."""
+    assert _detector().detect_value_conflicts(_pair(640, "640"), "completed") == []
+    assert _detector().detect_value_conflicts(_pair(640.0, "640.0"), "completed") == []
+
+
+def test_a_string_that_spells_the_number_differently_is_a_conflict():
+    # Strings are still compared exactly: "640.000" is not what 640.0 spells.
+    assert len(_detector().detect_value_conflicts(_pair(640.0, "640.000"), "completed")) == 1
+
+
+def test_zero_tolerance_still_matches_a_number_and_its_string_form():
+    assert _detector(numeric_tolerance=0).detect_value_conflicts(_pair(640, "640"), "completed") == []
+
+
+def test_a_large_integer_and_its_string_form_are_the_same_value():
+    huge = 2**53 + 1
+
+    assert _detector().detect_value_conflicts(_pair(huge, str(huge)), "completed") == []
+
+
+def test_two_infinities_are_the_same_value():
+    assert _detector().detect_value_conflicts(_pair(float("inf"), float("inf")), "completed") == []
+    assert _detector().detect_value_conflicts(_pair(float("-inf"), float("-inf")), "completed") == []
+
+
+def test_opposite_infinities_are_a_conflict():
+    assert len(_detector().detect_value_conflicts(_pair(float("-inf"), float("inf")), "completed")) == 1
+
+
+def test_an_infinity_never_matches_a_finite_value():
+    assert len(_detector().detect_value_conflicts(_pair(float("inf"), 640.0), "completed")) == 1
+    assert len(_detector().detect_value_conflicts(_pair(float("-inf"), 640.0), "completed")) == 1
+
+
+def test_int_and_float_of_the_same_value_are_equal():
+    """Declared behaviour change: 640 and 640.0 used to conflict, and no longer do."""
+    assert _detector().detect_value_conflicts(_pair(640, 640.0), "completed") == []
+
+
+def test_none_tolerance_means_exact_numbers():
+    assert len(
+        _detector(numeric_tolerance=None).detect_value_conflicts(
+            _pair(640.0, 640.000000000001), "completed"
+        )
+    ) == 1
+
+
+def test_large_integers_keep_their_difference():
+    # Above 2**53 these are distinct integers that float() cannot separate.
+    left, right = 2**53, 2**53 + 1
+
+    assert len(_detector().detect_value_conflicts(_pair(left, right), "completed")) == 1
+
+
+def test_integers_outside_the_float_range_do_not_raise():
+    huge = 10**309
+
+    assert _detector().detect_value_conflicts(_pair(huge, huge), "completed") == []
+    assert len(_detector().detect_value_conflicts(_pair(huge, huge + 1), "completed")) == 1
+
+
+def test_two_nans_are_the_same_missing_value():
+    rows = [
+        {"id": "d1", "completed": float("nan"), "source": "a.csv"},
+        {"id": "d1", "completed": float("nan"), "source": "b.csv"},
+    ]
+
+    assert _detector().detect_value_conflicts(rows, "completed") == []
+
+
+def test_nan_never_matches_a_finite_value():
+    rows = [
+        {"id": "d1", "completed": float("nan"), "source": "a.csv"},
+        {"id": "d1", "completed": 640.0, "source": "b.csv"},
+    ]
+
+    assert len(_detector().detect_value_conflicts(rows, "completed")) == 1
+
+
+def test_nan_in_either_order_is_a_conflict():
+    for left, right in ((float("nan"), 640.0), (640.0, float("nan"))):
+        rows = [
+            {"id": "d1", "completed": left, "source": "a.csv"},
+            {"id": "d1", "completed": right, "source": "b.csv"},
+        ]
+        assert len(_detector().detect_value_conflicts(rows, "completed")) == 1
