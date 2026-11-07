@@ -21,9 +21,9 @@ Main Classes:
 Example Usage:
     >>> from semantica.parse import WebParser
     >>> parser = WebParser()
-    >>> content = parser.parse_html("https://example.com")
-    >>> text = parser.extract_text("https://example.com")
-    >>> links = parser.extract_links("https://example.com")
+    >>> content = parser.parse_web_content("page.html")
+    >>> text = parser.extract_text("page.html")
+    >>> links = parser.extract_links("page.html", base_url="https://x.test")
 
 Author: Semantica Contributors
 License: MIT
