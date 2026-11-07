@@ -22,10 +22,6 @@ def remote_store(request, monkeypatch):
         f"<{EX}bob> <{EX}knows> <{EX}carol> . "
         f"<{EX}alice> <{EX}likes> <{EX}carol> }}"
     )
-    # RDFLib requests this graph via default-graph-uri; isolate query syntax.
-    server.update(
-        "INSERT { GRAPH <urn:x-rdflib:default> { ?s ?p ?o } } WHERE { ?s ?p ?o }"
-    )
     queries = []
 
     def select(query, **options):
@@ -37,16 +33,33 @@ def remote_store(request, monkeypatch):
     def post(url, **kwargs):
         response = requests.Response()
         try:
-            response._content = select(kwargs["data"]["query"])
-            response.status_code = 200
+            data = kwargs["data"]
+            if isinstance(data, str):
+                server.load(input=data, format=ox.RdfFormat.N_TRIPLES)
+                response.status_code = 204
+            elif "update" in data:
+                server.update(data["update"])
+                response.status_code = 204
+            else:
+                response._content = select(data["query"])
+                response.status_code = 200
         except SyntaxError as exc:
             response._content = str(exc).encode()
             response.status_code = 400
         return response
 
     def urlopen(req):
+        if req.data is not None:
+            server.update(req.data.decode())
+            return BytesIO()
         params = parse_qs(urlsplit(req.full_url).query)
-        graph = ox.NamedNode(params["default-graph-uri"][0])
+        graph_uri = params["default-graph-uri"][0]
+        # RDFLib uses this identifier for its default graph.
+        graph = (
+            ox.DefaultGraph()
+            if graph_uri == "urn:x-rdflib:default"
+            else ox.NamedNode(graph_uri)
+        )
         try:
             response = BytesIO(select(params["query"][0], default_graph=graph))
         except SyntaxError as exc:
@@ -66,7 +79,7 @@ def remote_store(request, monkeypatch):
         enable_caching=False,
         enable_optimization=False,
     )
-    return store, queries
+    return store, queries, server
 
 
 @pytest.mark.parametrize(
@@ -81,7 +94,7 @@ def remote_store(request, monkeypatch):
     ],
 )
 def test_get_triplets_filters_are_valid_sparql(remote_store, criteria, count):
-    store, queries = remote_store
+    store, queries, _ = remote_store
 
     actual = store.get_triplets(**criteria)
 
@@ -89,3 +102,85 @@ def test_get_triplets_filters_are_valid_sparql(remote_store, criteria, count):
     for key, value in criteria.items():
         assert all(getattr(triplet, key) == value for triplet in actual)
     assert queries
+
+
+def test_get_triplets_preserves_literal_terms(remote_store):
+    store, _, server = remote_store
+    backend = store.backend_type
+    xsd = "http://www.w3.org/2001/XMLSchema#"
+    samples = [
+        ('"42"^^<%sinteger>' % xsd, "42", {"datatype": xsd + "integer"}),
+        ('"true"^^<%sboolean>' % xsd, "true", {"datatype": xsd + "boolean"}),
+        ('"2026-11-07"^^<%sdate>' % xsd, "2026-11-07", {"datatype": xsd + "date"}),
+        ('"plain"', "plain", {}),
+        ('"string"^^<%sstring>' % xsd, "string", {}),
+        ('"café"@fr', "café", {"language": "fr"}),
+        ('"colour"@en-GB', "colour", {"language": "en-gb"}),
+        (
+            '"say \\"hello\\"\\nnext"^^<%stext>' % EX,
+            'say "hello"\nnext',
+            {"datatype": EX + "text"},
+        ),
+        ("<%sbob>" % EX, EX + "bob", {}),
+    ]
+    server.clear()
+    data = " . ".join(
+        f"<{EX}alice> <{EX}p{i}> {term}" for i, (term, _, _) in enumerate(samples)
+    )
+    server.update(f"INSERT DATA {{ {data} }}")
+    expected = {(q.subject, q.predicate, q.object) for q in server}
+
+    actual = store.get_triplets()
+
+    assert len(actual) == len(samples)
+    by_predicate = {triplet.predicate: triplet for triplet in actual}
+    for i, (_, value, metadata) in enumerate(samples):
+        triplet = by_predicate[EX + f"p{i}"]
+        assert triplet.object == value
+        assert triplet.metadata == {"source": backend, **metadata}
+
+    copy = TripletStore(backend="oxigraph", enable_caching=False)
+    for triplet in actual:
+        assert copy.add_triplet(triplet)["success"]
+        assert store.add_triplet(triplet)["success"]
+    assert {(q.subject, q.predicate, q.object) for q in server} == expected
+    assert {
+        (q.subject, q.predicate, q.object) for q in copy._store_backend.store
+    } == expected
+    for triplet in actual:
+        assert store.delete_triplet(triplet)["success"]
+    assert len(server) == 0
+
+
+def test_get_triplets_blank_nodes_keep_source_metadata(remote_store):
+    store, _, server = remote_store
+    server.clear()
+    data = f"<{EX}alice> <{EX}knows> _:friend"
+    server.update(f"INSERT DATA {{ {data} }}")
+
+    actual = store.get_triplets()
+
+    assert len(actual) == 1
+    assert actual[0].object == next(iter(server)).object.value
+    assert actual[0].metadata == {"source": store.backend_type}
+
+
+@pytest.mark.parametrize("remote_store", ["blazegraph", "rdf4j", "anzo"], indirect=True)
+def test_get_triplets_language_takes_precedence(remote_store, monkeypatch):
+    store, _, _ = remote_store
+    binding = {
+        "o": {
+            "type": "literal",
+            "value": "colour",
+            "xml:lang": "en-GB",
+            "datatype": "http://www.w3.org/1999/02/22-rdf-syntax-ns#langString",
+        }
+    }
+    monkeypatch.setattr(
+        store._store_backend, "execute_sparql", lambda *a, **kw: {"bindings": [binding]}
+    )
+
+    assert store.get_triplets()[0].metadata == {
+        "source": store.backend_type,
+        "language": "en-GB",
+    }

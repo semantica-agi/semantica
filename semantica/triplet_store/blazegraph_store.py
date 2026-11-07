@@ -490,12 +490,21 @@ class BlazegraphStore:
         # Convert bindings to triplets
         triplets = []
         for binding in result["bindings"]:
+            metadata = {"source": "blazegraph"}
+            obj = binding.get("o", {})
+            if obj.get("type") in {"literal", "typed-literal"}:
+                if obj.get("xml:lang"):
+                    metadata["language"] = obj["xml:lang"]
+                elif obj.get("datatype") and obj["datatype"] != (
+                    "http://www.w3.org/2001/XMLSchema#string"
+                ):
+                    metadata["datatype"] = obj["datatype"]
             triplets.append(
                 Triplet(
                     subject=binding.get("s", {}).get("value", ""),
                     predicate=binding.get("p", {}).get("value", ""),
                     object=binding.get("o", {}).get("value", ""),
-                    metadata={"source": "blazegraph"},
+                    metadata=metadata,
                 )
             )
 
