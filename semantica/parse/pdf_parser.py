@@ -20,9 +20,10 @@ Main Classes:
 Example Usage:
     >>> from semantica.parse import PDFParser
     >>> parser = PDFParser()
-    >>> text = parser.parse("document.pdf")
-    >>> pages = parser.extract_pages("document.pdf")
-    >>> metadata = parser.extract_metadata("document.pdf")
+    >>> parsed = parser.parse("document.pdf")
+    >>> pages = parsed["pages"]
+    >>> metadata = parsed["metadata"]
+    >>> text = parser.extract_text("document.pdf")
 
 Author: Semantica Contributors
 License: MIT

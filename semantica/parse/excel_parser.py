@@ -21,7 +21,7 @@ Example Usage:
     >>> from semantica.parse import ExcelParser
     >>> parser = ExcelParser()
     >>> data = parser.parse("spreadsheet.xlsx")
-    >>> sheet = parser.parse_sheet("spreadsheet.xlsx", "Sheet1")
+    >>> sheet = parser.extract_sheet("spreadsheet.xlsx", "Sheet1")
     >>> sheets = data.sheets
 
 Author: Semantica Contributors
