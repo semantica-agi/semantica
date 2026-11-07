@@ -88,3 +88,24 @@ def test_graph_and_arango_exporters_keep_id_zero_on_both_ends(tmp_path):
     assert [vertex["_key"] for vertex in docs["vertices"]] == ["0", "1"]
     [edge] = docs["edges"]
     assert (edge["_from"], edge["_to"]) == ("vertices/0", "vertices/1")
+
+    GraphExporter().export_knowledge_graph(kg, tmp_path / "g.graphml", format="graphml")
+    root = ElementTree.parse(tmp_path / "g.graphml").getroot()
+    ns = "{http://graphml.graphdrawing.org/xmlns}"
+    assert [node.get("id") for node in root.iter(ns + "node")] == ["0", "1"]
+    [element] = root.iter(ns + "edge")
+    assert (element.get("source"), element.get("target")) == ("0", "1")
+
+    GraphExporter().export_knowledge_graph(kg, tmp_path / "g.dot", format="dot")
+    assert '"0" -> "1"' in (tmp_path / "g.dot").read_text(encoding="utf-8")
+
+
+def test_neo4j_csv_exporter_skips_empty_endpoint_names(tmp_path):
+    kg = _graph("start_node_id", "end_node_id")
+    kg["relationships"][0].update({"source": "", "target_id": ""})
+
+    Neo4jCSVExporter().export(kg, tmp_path)
+
+    with open(tmp_path / "relationships.csv", encoding="utf-8", newline="") as handle:
+        _, *rows = list(csv.reader(handle))
+    assert [row[:3] for row in rows] == [["alice", "acme", "WORKS_AT"]]
