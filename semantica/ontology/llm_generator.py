@@ -1,3 +1,4 @@
+from copy import deepcopy
 from typing import Any, Dict, List, Optional
 
 from ..utils.exceptions import ProcessingError, ValidationError
@@ -112,6 +113,11 @@ class LLMOntologyGenerator:
                     "label": prop.get("label") or prop.get("Label"),
                     "comment": prop.get("comment") or prop.get("Description"),
                     "uri": ensure_uri(pname, prop.get("uri") or prop.get("IRI")),
+                    **{
+                        key: deepcopy(prop[key])
+                        for key in ("required", "cardinality", "enum")
+                        if key in prop
+                    },
                 }
             )
 
@@ -123,6 +129,11 @@ class LLMOntologyGenerator:
             "properties": normalized_properties,
             "metadata": {"source": "llm", "provider": self.provider_name},
         }
+        # Keep provider diagnostics distinct from an empty completed ontology.
+        # Preserve only explicit values; normalization does not decide adequacy.
+        for key in ("status", "clarification_questions", "assumptions"):
+            if key in result:
+                ontology[key] = deepcopy(result[key])
 
         if not ontology["uri"]:
             ontology["uri"] = meta.get("base_uri") or "https://example.org/ontology/"

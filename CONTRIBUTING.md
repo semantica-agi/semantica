@@ -197,7 +197,8 @@ pip install -e . --group dev
 pre-commit install
 ```
 
-Semantica supports Python **3.10–3.13** (`requires-python = ">=3.10,<3.14"`).
+Semantica supports Python **3.11–3.13** (`requires-python = ">=3.11,<3.14"`). Python 3.10
+support ended in 0.8.0; see the CHANGELOG.
 CI runs on 3.11 and the Install Matrix covers the whole range.
 
 #### Reproducible environment with uv (recommended)
@@ -206,10 +207,10 @@ The repository commits a `uv.lock`, so `uv` can build the exact same
 environment for every contributor:
 
 ```bash
-pip install uv==0.12.1        # same version CI uses
+pip install uv==0.13.4        # same version CI uses (.github/requirements/uv-tool.txt)
 uv sync                       # creates .venv from uv.lock, including the `dev` group
 uv sync --extra explorer      # add whichever extras you are working on
-uv sync --python 3.11         # match CI's interpreter (any of 3.10-3.13 works)
+uv sync --python 3.11         # match CI's interpreter (any of 3.11-3.13 works)
 uv run pytest tests/
 ```
 
@@ -266,7 +267,7 @@ version: a minimal bump tends to land just inside the range of the next
 advisory. Regenerate with `--upgrade-package <name>` so other pins stay put.
 
 Build-system pins: `[build-system].requires` is pinned to exact versions
-(`setuptools==84.0.0`, `wheel==0.48.0`) and release builds run
+(`setuptools==84.2.1`, `wheel==0.48.0`) and release builds run
 `python -m build --no-isolation` against the lockfile — no unpinned
 build-time isolation anywhere.
 

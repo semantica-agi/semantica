@@ -1,0 +1,31 @@
+{
+  "@context": "https://ref.gs1.org/standards/epcis/2.0.0/epcis-context.jsonld",
+  "type": "EPCISDocument",
+  "schemaVersion": "2.0",
+  "creationDate": "2026-10-21T09:00:00.000+02:00",
+  "epcisBody": {
+    "eventList": [
+      {
+        "eventID": "urn:uuid:5f0f4a3e-0001-4a3e-9b1a-0000000000a1",
+        "type": "ObjectEvent",
+        "eventTime": "2026-09-02T08:12:00.000+02:00",
+        "eventTimeZoneOffset": "+02:00",
+        "epcList": ["urn:epc:id:sgtin:0614141.107346.2026"],
+        "action": "ADD",
+        "bizStep": "cbv:BizStep-commissioning",
+        "bizLocation": {"id": "urn:epc:id:sgln:0614141.00001.0"}
+      },
+      {
+        "eventID": "urn:uuid:5f0f4a3e-0003-4a3e-9b1a-0000000000a3",
+        "type": "ObjectEvent",
+        "eventTime": "2026-09-03T06:05:00.000+02:00",
+        "eventTimeZoneOffset": "+02:00",
+        "epcList": ["urn:epc:id:sgtin:0614141.107346.2026"],
+        "action": "OBSERVE",
+        "bizStep": "cbv:BizStep-shipping",
+        "bizLocation": {"id": "urn:epc:id:sgln:0614141.00002.0"},
+        "parentEventID": "urn:uuid:5f0f4a3e-0002-4a3e-9b1a-0000000000a2"
+      }
+    ]
+  }
+}

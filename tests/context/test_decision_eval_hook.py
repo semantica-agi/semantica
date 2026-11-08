@@ -12,6 +12,7 @@ from unittest.mock import Mock
 import pytest
 
 from semantica.context.agent_context import AgentContext
+from semantica.context.context_graph import ContextGraph
 from semantica.context.decision_models import Decision
 from semantica.context.decision_recorder import DecisionRecorder
 from semantica.evals.types import CaseResult, EvalMetric, EvalSummary
@@ -277,3 +278,161 @@ class TestAgentContextEvalHookWiring:
 
         assert context._decision_recorder.evaluators is None
         assert context._decision_recorder.eval_config == {}
+
+
+class TestAgentContextContextGraphEvalHook:
+    """Evaluators must run on the ContextGraph backend too.
+
+    ``AgentContext`` documents ``evaluators``/``eval_config`` as applying to
+    the graph_store decision backend in 0.8.0, leaving the ContextGraph
+    backend as a known follow-up.  The constructor accepts the options either
+    way, so the ContextGraph path must not silently ignore them.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _stub_node_embedder(self, monkeypatch):
+        monkeypatch.setattr(
+            "semantica.vector_store.decision_embedding_pipeline.NodeEmbedder", Mock()
+        )
+        monkeypatch.setattr("semantica.context.decision_query.NodeEmbedder", Mock())
+
+    @pytest.fixture
+    def vector_store(self):
+        store = Mock()
+        store.add = Mock()
+        store.search = Mock(return_value=[])
+        return store
+
+    def _record(self, vector_store, cross_system_context=None, **context_kwargs):
+        graph = ContextGraph()
+        context = AgentContext(
+            vector_store=vector_store,
+            knowledge_graph=graph,
+            decision_tracking=True,
+            **context_kwargs,
+        )
+        decision_id = context.record_decision(
+            category="loan",
+            scenario="mortgage application",
+            reasoning="strong credit history",
+            outcome="approved",
+            confidence=0.95,
+            decision_maker="loan_officer",
+            cross_system_context=cross_system_context,
+        )
+        return graph, decision_id
+
+    def test_evaluators_run_for_context_graph_backend(self, vector_store):
+        graph, decision_id = self._record(
+            vector_store,
+            evaluators=["decision_scores"],
+            eval_config={"decision_scores": {"expected_outcome": "approved"}},
+        )
+
+        props = graph.nodes[decision_id].properties
+        assert props["eval_score"] == pytest.approx(5 / 6)
+        assert props["eval_passed"] is False  # no provenance in this path
+        assert props["eval_details"]["decision_scores"]["meta"]["provenance"] is False
+
+    def test_no_evaluators_leaves_context_graph_decision_unchanged(self, vector_store):
+        graph, decision_id = self._record(vector_store)
+
+        props = graph.nodes[decision_id].properties
+        assert "eval_score" not in props
+        assert "eval_passed" not in props
+        assert "eval_details" not in props
+
+    def test_cross_system_context_and_eval_metadata_are_merged(self, vector_store):
+        graph, decision_id = self._record(
+            vector_store,
+            cross_system_context={"ticket": "T-1"},
+            evaluators=["decision_scores"],
+        )
+
+        props = graph.nodes[decision_id].properties
+        assert props["cross_system_context"] == {"ticket": "T-1"}
+        assert props["eval_passed"] is False
+        assert "eval_details" in props
+
+    def test_evaluator_failure_does_not_block_context_graph_recording(
+        self, vector_store, monkeypatch, caplog
+    ):
+        monkeypatch.setattr(
+            "semantica.evals.evaluate",
+            Mock(side_effect=RuntimeError("boom")),
+        )
+
+        with caplog.at_level(logging.WARNING):
+            graph, decision_id = self._record(
+                vector_store, evaluators=["decision_scores"]
+            )
+
+        assert decision_id in graph.nodes
+        props = graph.nodes[decision_id].properties
+        assert "eval_score" not in props
+        assert "eval_passed" not in props
+        assert any(
+            "Decision evaluation failed" in record.message for record in caplog.records
+        )
+
+    def test_evaluator_sees_the_persisted_decision_id(self, vector_store, monkeypatch):
+        seen = {}
+
+        def fake_evaluate(cases, evaluators, config):
+            seen["decision_id"] = cases[0]["actual"].decision_id
+            return EvalSummary(
+                total=1,
+                passed=1,
+                failed=0,
+                errors=0,
+                pass_rate=1.0,
+                cases=[
+                    CaseResult(
+                        case_id=seen["decision_id"],
+                        status="pass",
+                        metrics={"decision_scores": EvalMetric(1.0, True, {})},
+                        details={},
+                    )
+                ],
+            )
+
+        monkeypatch.setattr("semantica.evals.evaluate", fake_evaluate)
+
+        graph, decision_id = self._record(vector_store, evaluators=["decision_scores"])
+
+        assert seen["decision_id"] == decision_id
+        assert decision_id in graph.nodes
+
+    def test_long_eval_details_are_omitted_without_blocking_recording(
+        self, vector_store, caplog
+    ):
+        # ContextGraph caps metadata values at 1,000 characters; the evaluator
+        # echoes a valid but long outcome into its mismatch reason.
+        long_outcome = "approved" + "x" * 990
+
+        graph = ContextGraph()
+        context = AgentContext(
+            vector_store=vector_store,
+            knowledge_graph=graph,
+            decision_tracking=True,
+            evaluators=["decision_scores"],
+            eval_config={"decision_scores": {"expected_outcome": "approved"}},
+        )
+        with caplog.at_level(logging.WARNING):
+            decision_id = context.record_decision(
+                category="loan",
+                scenario="mortgage application",
+                reasoning="strong credit history",
+                outcome=long_outcome,
+                confidence=0.95,
+                decision_maker="loan_officer",
+            )
+
+        assert decision_id in graph.nodes
+        props = graph.nodes[decision_id].properties
+        assert props["eval_score"] < 1.0
+        assert props["eval_passed"] is False
+        assert "eval_details" not in props
+        assert any(
+            "metadata value limit" in record.message for record in caplog.records
+        )

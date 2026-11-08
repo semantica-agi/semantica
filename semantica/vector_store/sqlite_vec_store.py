@@ -387,7 +387,12 @@ class SQLiteVecStore:
 
         where_clause = ""
         if filter_conditions:
-            where_clause = " AND " + " AND ".join(filter_conditions)
+            # vec0 filters auxiliary columns after selecting the k neighbors.
+            # Restrict candidate IDs first so k counts matching vectors.
+            where_clause = (
+                f" AND id IN (SELECT id FROM {self.table_name} "
+                f"WHERE {' AND '.join(filter_conditions)})"
+            )
 
         search_sql = f"""
             SELECT id, distance, metadata

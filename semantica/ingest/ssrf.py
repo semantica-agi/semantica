@@ -138,11 +138,7 @@ def parse_bool(value: Any, default: bool = False) -> bool:
 
 def _shutdown_executor(executor: concurrent.futures.ThreadPoolExecutor) -> None:
     """Shut down *executor* without waiting for in-flight DNS lookups."""
-    try:
-        executor.shutdown(wait=False, cancel_futures=True)
-    except TypeError:
-        # cancel_futures was added in Python 3.9.
-        executor.shutdown(wait=False)
+    executor.shutdown(wait=False, cancel_futures=True)
 
 
 def _get_dns_executor() -> concurrent.futures.ThreadPoolExecutor:

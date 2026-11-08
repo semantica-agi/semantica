@@ -241,15 +241,14 @@ Every `ProvenanceEntry` carries a SHA-256 checksum computed at write time. If an
 Integrity verification is critical for regulatory compliance and forensic analysis. Run integrity checks as part of any compliance audit:
 
 ```python
-from semantica.provenance.integrity import compute_checksum
+from semantica.provenance.integrity import verify_checksum
 
 raw_entries = prov.trace_lineage("cve-2024-3400")
 
 print("Integrity check:")
 for e in raw_entries:
     stored   = e.checksum
-    computed = compute_checksum(e)
-    status   = "OK" if stored == computed else "TAMPERED"
+    status   = "OK" if verify_checksum(e) else "TAMPERED"
     print(f"  [{status}] {e.entity_id[:50]}  {(stored or '')[:16]}...")
 ```
 
@@ -333,7 +332,7 @@ This summary is the starting point for a compliance attestation: you can state t
 
 **Overusing provenance in low-value scenarios.** Recording provenance for every intermediate calculation or temporary variable creates storage overhead without compliance benefit. Focus provenance tracking on entities, relationships, and properties that have legal, regulatory, or business significance.
 
-**Failing to validate integrity checksums.** Cryptographic integrity verification only works if you actually check it. Include regular `compute_checksum()` validation in audit workflows and incident response procedures.
+**Failing to validate integrity checksums.** Cryptographic integrity verification only works if you actually check it. Include regular `verify_checksum()` validation in audit workflows and incident response procedures.
 
 **Mixing provenance granularities.** Tracking some entities at the document level and others at the sentence level creates inconsistent audit trails. Establish consistent granularity standards for each data type and processing workflow.
 
@@ -424,7 +423,7 @@ The version chain created by repeated `track_entity()` calls on the same `entity
 ```python
 from semantica.provenance import ProvenanceManager
 from semantica.provenance.schemas import SourceReference
-from semantica.provenance.integrity import compute_checksum
+from semantica.provenance.integrity import verify_checksum
 
 prov = ProvenanceManager(storage_path="soc_provenance.db")
 
@@ -466,7 +465,7 @@ print(f"Update count    : {lineage['entity_count']} records")
 # Integrity check before relying on the record for a patch decision
 entries = prov.trace_lineage("cve-2023-44487")
 for e in entries:
-    ok = compute_checksum(e) == e.checksum
+    ok = verify_checksum(e)
     print(f"  [{('OK' if ok else 'TAMPERED')}] {e.timestamp[:19]}  source={e.source_document}")
 ```
 
@@ -481,7 +480,7 @@ A clinical evidence graph tracks efficacy data from source publications through 
 ```python
 from semantica.provenance import ProvenanceManager
 from semantica.provenance.schemas import SourceReference
-from semantica.provenance.integrity import compute_checksum
+from semantica.provenance.integrity import verify_checksum
 
 prov = ProvenanceManager(storage_path="clinical_provenance.db")
 
@@ -534,7 +533,7 @@ for entry in lineage["lineage_chain"]:
 # Integrity verification (21 CFR Part 11 requirement)
 entries = prov.trace_lineage("VE_primary_BNT162b2_C4591001")
 for e in entries:
-    status = "OK" if compute_checksum(e) == e.checksum else "TAMPERED"
+    status = "OK" if verify_checksum(e) else "TAMPERED"
     print(f"  Integrity [{status}]: {e.entity_id}")
 
 stats = prov.get_statistics()

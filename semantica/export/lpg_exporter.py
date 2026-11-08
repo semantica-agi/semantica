@@ -245,12 +245,11 @@ class LPGExporter:
             node_type = node.get("type") or node.get("entity_type", "Entity")
             label = node.get("label") or node.get("name") or node.get("text", "")
 
-            # Escape special characters
-            node_id_escaped = self._escape_cypher_string(str(node_id))
-            label_escaped = self._escape_cypher_string(str(label))
-
             # Build properties
-            properties = {"id": node_id_escaped, "name": label_escaped}
+            properties = {
+                "id": self._format_cypher_value(node_id),
+                "name": self._format_cypher_value(str(label)),
+            }
 
             # Add other properties
             for key, value in node.items():
@@ -315,8 +314,8 @@ class LPGExporter:
                 continue
 
             # Escape special characters
-            source_escaped = self._escape_cypher_string(str(source_id))
-            target_escaped = self._escape_cypher_string(str(target_id))
+            source_escaped = self._format_cypher_value(source_id)
+            target_escaped = self._format_cypher_value(target_id)
             rel_type_escaped = rel_type.upper().replace(" ", "_")
 
             # Build properties
@@ -340,7 +339,7 @@ class LPGExporter:
 
             # Create relationship
             lines.append(
-                f"MATCH (a {{id: '{source_escaped}'}}), (b {{id: '{target_escaped}'}}) "
+                f"MATCH (a {{id: {source_escaped}}}), (b {{id: {target_escaped}}}) "
                 f"CREATE (a)-[r:{rel_type_escaped}{props_str}]->(b);"
             )
 
@@ -348,7 +347,7 @@ class LPGExporter:
 
     def _escape_cypher_string(self, value: str) -> str:
         """Escape special characters in Cypher strings."""
-        return value.replace("'", "\\'").replace("\\", "\\\\")
+        return value.replace("\\", "\\\\").replace("'", "\\'")
 
     def _format_cypher_value(self, value: Any) -> str:
         """Format a value for Cypher query."""

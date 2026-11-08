@@ -234,35 +234,22 @@ jobs:
           #   https://github.com/semantica-agi/semantica/actions/runs/34296586683
           #   where this ignore list had only the GHSA id but the report's `id`
           #   was the CVE, so the gate still failed.
-          # - pillow 12.3.0, eight advisories (TIFF/GIF/EPS/PDF decoding and
-          #   _imagingmorph), all fixed only in 13.0.0 with no patched 12.x.
-          #   NOT non-actionable: ImageParser opens caller-supplied files, so
-          #   these are reachable. Accepted temporarily only because every
-          #   docling release (latest 2.141.0) requires pillow<13, so no fix
-          #   is installable. Remove once docling allows pillow 13 - see #2067.
-          #   GHSA-462x-pgg6-55fp / CVE-2026-112395
-          #   GHSA-58r4-6rv3-gfh8 / CVE-2026-112397
-          #   GHSA-65qm-jvmh-6pqg / CVE-2026-112400
-          #   GHSA-c6hw-5grf-ff96 / CVE-2026-112404
-          #   GHSA-p4wg-p73j-c528 / CVE-2026-112895
-          #   GHSA-pchr-8j38-3x4p / CVE-2026-112896
-          #   GHSA-q45j-58j2-45rg / CVE-2026-112897
-          #   GHSA-vx6w-vv9f-6gvg / CVE-2026-112899
-          #   The acceptance expires on 2027-01-21, the same date as the
-          #   ignoreUntil in osv-scanner.toml; after that the scan fails again
-          #   until #2067 is resolved or the acceptance is explicitly renewed.
+          # - opentelemetry-api 1.43.0, GHSA-xcq7-p3pf-p88h / CVE-2026-114603:
+          #   TraceState.from_header parses an inbound W3C tracestate header in
+          #   O(N^2) time. Fixed in 1.45.1, but every google-adk release
+          #   (latest 2.13.0) caps opentelemetry-api<=1.44, so no fix is
+          #   installable: a [tool.uv] override would make pip's resolver
+          #   reject requirements-ci.txt (see #2209). Semantica never
+          #   imports opentelemetry and its google-adk integration runs no
+          #   HTTP server, so nothing here extracts trace context from
+          #   inbound headers. Re-evaluate when
+          #   google-adk allows 1.45.1; the acceptance expires on 2027-01-23,
+          #   the same date as the ignoreUntil in osv-scanner.toml.
           IGNORED_VULN_IDS=""
-          if [ "$(date -u +%Y%m%d)" -lt 20270121 ]; then
-            IGNORED_VULN_IDS="GHSA-462x-pgg6-55fp,CVE-2026-112395"
-            IGNORED_VULN_IDS="$IGNORED_VULN_IDS,GHSA-58r4-6rv3-gfh8,CVE-2026-112397"
-            IGNORED_VULN_IDS="$IGNORED_VULN_IDS,GHSA-65qm-jvmh-6pqg,CVE-2026-112400"
-            IGNORED_VULN_IDS="$IGNORED_VULN_IDS,GHSA-c6hw-5grf-ff96,CVE-2026-112404"
-            IGNORED_VULN_IDS="$IGNORED_VULN_IDS,GHSA-p4wg-p73j-c528,CVE-2026-112895"
-            IGNORED_VULN_IDS="$IGNORED_VULN_IDS,GHSA-pchr-8j38-3x4p,CVE-2026-112896"
-            IGNORED_VULN_IDS="$IGNORED_VULN_IDS,GHSA-q45j-58j2-45rg,CVE-2026-112897"
-            IGNORED_VULN_IDS="$IGNORED_VULN_IDS,GHSA-vx6w-vv9f-6gvg,CVE-2026-112899"
+          if [ "$(date -u +%Y%m%d)" -lt 20270123 ]; then
+            IGNORED_VULN_IDS="GHSA-xcq7-p3pf-p88h,CVE-2026-114603"
           else
-            echo "::warning::The pillow advisory acceptance expired on 2027-01-21 and those findings now fail the scan. See #2067."
+            echo "::warning::The opentelemetry-api GHSA-xcq7-p3pf-p88h acceptance expired on 2027-01-23 and that finding now fails the scan."
           fi
 
           # Exported so the "Comment PR with Security Results" step below can

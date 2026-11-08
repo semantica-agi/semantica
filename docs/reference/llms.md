@@ -257,7 +257,7 @@ llm = Groq(api_key=os.getenv("GROQ_API_KEY"), model="llama-3.1-8b-instant")
 `Jev` and `AsyncJev` wrap the official `typesafe-sdk` System One client. They are decision-only providers: neither class implements `generate()`, `generate_structured()`, or `generate_typed()`, and neither can stand in for a generative provider: not as the `llm_provider=` argument of a reasoning query, and not as `provider=` in an extractor.
 
 <Warning>
-  Jev is experimental and early-access. The `llm-typesafe` extra currently supports the reviewed TypeSafe SDK 0.7 API on Python 3.10 or newer. Semantica's base installation remains compatible with Python 3.9 because the SDK is optional and guarded.
+  Jev is experimental and early-access. The `llm-typesafe` extra currently supports the reviewed TypeSafe SDK 0.7 API. Like Semantica itself, it requires Python 3.11 or newer; the SDK is optional and guarded, so the base installation does not need it.
 </Warning>
 
 <Warning>

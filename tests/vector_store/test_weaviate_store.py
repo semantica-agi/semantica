@@ -5,6 +5,9 @@ WeaviateStore against MagicMocks, following the pattern already used for
 weaviate in test_backend_metadata_filtering.py.
 """
 
+import importlib
+import sys
+import types
 from unittest.mock import MagicMock, patch
 
 import numpy as np
@@ -258,3 +261,55 @@ def test_iter_all_propagates_fetch_errors():
 
     with pytest.raises(RuntimeError, match="connection reset"):
         list(store.iter_all())
+
+
+def _fake_weaviate(*, include_query_return: bool) -> dict[str, types.ModuleType]:
+    """Build a minimal stand-in for the ``weaviate`` package tree.
+
+    weaviate-client is not a test dependency here, so a real import cannot reach
+    the "4.16 removed QueryReturn" path. This fake module tree feeds it to
+    ``importlib.reload`` instead.
+    """
+    weaviate = types.ModuleType("weaviate")
+    classes = types.ModuleType("weaviate.classes")
+    query = types.ModuleType("weaviate.classes.query")
+    query.MetadataQuery = MagicMock(name="MetadataQuery")
+    if include_query_return:
+        query.QueryReturn = MagicMock(name="QueryReturn")
+    classes.query = query
+    weaviate.classes = classes
+    return {
+        "weaviate": weaviate,
+        "weaviate.classes": classes,
+        "weaviate.classes.query": query,
+    }
+
+
+@pytest.mark.parametrize("include_query_return", [True, False])
+def test_query_return_is_not_a_hard_requirement(include_query_return):
+    """weaviate-client 4.16 removed ``QueryReturn``.
+
+    The module used to import the name without ever using it, so removing it
+    must not flip WEAVIATE_AVAILABLE to False: that marks the whole optional
+    dependency as missing and makes every WeaviateStore method raise "Weaviate
+    not available" even though weaviate-client is installed.
+    """
+    import semantica.vector_store.weaviate_store as store_module
+
+    fake_modules = _fake_weaviate(include_query_return=include_query_return)
+    saved = {name: sys.modules.get(name) for name in fake_modules}
+    try:
+        with patch.dict(sys.modules, fake_modules):
+            reloaded = importlib.reload(store_module)
+            assert reloaded.WEAVIATE_AVAILABLE is True
+            assert (
+                reloaded.MetadataQuery
+                is fake_modules["weaviate.classes.query"].MetadataQuery
+            )
+    finally:
+        for name, module in saved.items():
+            if module is None:
+                sys.modules.pop(name, None)
+            else:
+                sys.modules[name] = module
+        importlib.reload(store_module)

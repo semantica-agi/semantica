@@ -1,10 +1,10 @@
 [build-system]
-requires = ["setuptools==84.0.0", "wheel==0.48.0"]
+requires = ["setuptools==84.2.1", "wheel==0.48.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "semantica"
-version = "0.7.0"
+version = "0.8.0"
 description = "Graph-Native Infrastructure for Context and Accountable AI Systems: context graphs, decision intelligence, full provenance tracking, and explainable reasoning engines — every AI decision traceable, every output auditable."
 readme = "README.md"
 license = { text = "MIT" }
@@ -12,18 +12,18 @@ license = { text = "MIT" }
 authors = [{ name = "Semantica", email = "kaif@getsemantica.ai" }]
 maintainers = [{ name = "Semantica", email = "kaif@getsemantica.ai" }]
 
-# Supported: 3.10-3.13. The Install Matrix, the classifiers below and the
+# Supported: 3.11-3.13. The Install Matrix, the classifiers below and the
 # Docker image (python:3.13) cover exactly this range; keep them in sync
 # (tests/test_python_support_policy.py enforces it).
-#   - Floor: 3.8/3.9 are dropped. Every dependency floor below already
-#     requires 3.10+ (pyarrow>=24, requests>=2.33, click>=8.2, ...), so a lower
-#     floor only made `uv lock` / `uv sync` fail to resolve the universal
-#     (all-Python-versions) lock. See #1506.
+#   - Floor: 3.8/3.9 were dropped in #1506. 3.10 is dropped because it reached
+#     end of life on 2026-10-01 and Pillow 13, which fixes advisories that no
+#     12.x release does, requires 3.11 (#2067). Installs on 3.10 resolve to
+#     the last release that supports it, 0.7.x.
 #   - Ceiling: 3.14 is not yet supported. gensim (extras `graph-embeddings`
 #     and `split-topic`, both in `all`) ships no cp314 wheel, so those extras
 #     and the Docker build need a C compiler there. Raise the cap together
 #     with the Install Matrix and the Docker image once 3.14 is verified.
-requires-python = ">=3.10,<3.14"
+requires-python = ">=3.11,<3.14"
 
 classifiers = [
   "Development Status :: 5 - Production/Stable",
@@ -33,7 +33,6 @@ classifiers = [
   "License :: OSI Approved :: MIT License",
   "Operating System :: OS Independent",
   "Programming Language :: Python :: 3",
-  "Programming Language :: Python :: 3.10",
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
   "Programming Language :: Python :: 3.13",
@@ -64,7 +63,10 @@ dependencies = [
   "chardet>=7.4.3",
   "protobuf>=5.29.1,<8.0",
   "grpcio>=1.81.1",
-  "pillow>=12.2.0",
+  # 13.0.0 fixes 41 advisories against 12.3.0 (several critical, e.g.
+  # GHSA-v9pv-5gc8-w2m6) and no 12.x release carries them. It needs Python
+  # 3.11, which is why requires-python starts at 3.11 (#2067).
+  "pillow>=13.0.0",
   "pydantic>=2.13.4",
   "click>=8.4.2",
   "rich>=12.5.0",
@@ -99,10 +101,9 @@ llm-deepseek = ["openai>=1.0.0"]
 llm-novita = ["openai>=1.0.0"]
 llm-litellm = ["litellm>=1.83.9"]
 llm-instructor = ["instructor>=1.15.3"]
-# TypeSafe SDK has no Python 3.9 release. Jev is also early-access, so keep the
-# integration on the reviewed 0.7 response contract until compatibility with a
-# newer minor line is verified.
-llm-typesafe = ["typesafe-sdk>=0.7.0,<0.8.0; python_version >= '3.10'"]
+# Jev is early-access, so keep the integration on the reviewed 0.7 response
+# contract until compatibility with a newer minor line is verified.
+llm-typesafe = ["typesafe-sdk>=0.7.0,<0.8.0"]
 
 llm-all = [
   "semantica[llm-openai,llm-groq,llm-gemini,llm-anthropic,llm-ollama,llm-deepseek,llm-novita,llm-litellm,llm-instructor,llm-typesafe]"
@@ -154,7 +155,9 @@ models-huggingface = [
 ]
 embeddings-local = [
   "sentence-transformers>=2.2.0",
-  "fastembed>=0.2.0",
+  # 0.9.1 is the first fastembed that accepts Pillow 13 (earlier ones cap
+  # pillow<13.0), so it is the floor that matches pillow>=13.0.0 above.
+  "fastembed>=0.9.1",
   "onnxruntime>=1.20.1",
   "tokenizers>=0.15.0"
 ]
@@ -215,8 +218,8 @@ monitoring = [
   "prometheus-client>=0.14.0",
   "opentelemetry-api>=1.30.0,<2.0.0",
   "opentelemetry-sdk>=1.30.0,<2.0.0",
-  "opentelemetry-semantic-conventions>=0.58b0,<0.65",
-  "opentelemetry-instrumentation>=0.62b1,<0.65"
+  "opentelemetry-semantic-conventions>=0.58b0,<0.67",
+  "opentelemetry-instrumentation>=0.62b1,<0.67"
 ]
 
 # ---- Visualization ----
@@ -289,7 +292,9 @@ explorer = [
   "defusedxml>=0.7.1"
 ]
 explorer-lite = [
-  "streamlit>=1.25.0",
+  # 1.66.1 is the first streamlit that accepts Pillow 13 (earlier releases cap
+  # pillow<13), so it is the floor that matches the core pillow>=13.0.0.
+  "streamlit>=1.66.1",
   "streamlit-agraph>=0.0.45"
 ]
 
@@ -343,7 +348,9 @@ include = ["semantica*", "integrations*", "semantica_mcp*"]
 # The connector only uses WebApplicationClient (prepare_authorization_request,
 # parse_request_uri_response, prepare_request_body, prepare_refresh_body),
 # which is unchanged in 4.0.0. Drop this once the connector lifts its cap.
-override-dependencies = ["oauthlib>=4.0.0"]
+override-dependencies = [
+  "oauthlib>=4.0.0",
+]
 
 [tool.black]
 line-length = 88
