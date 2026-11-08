@@ -143,6 +143,7 @@ class TestVuln2LinkPredictionDos:
 
     def test_cap_constant_defined(self):
         """_LINK_PREDICTION_MAX_NODES must be defined and <= 50_000."""
+        pytest.importorskip("fastapi")
         from semantica.explorer.routes.enrich import _LINK_PREDICTION_MAX_NODES
         assert isinstance(_LINK_PREDICTION_MAX_NODES, int)
         assert _LINK_PREDICTION_MAX_NODES <= 50_000, (
@@ -151,6 +152,7 @@ class TestVuln2LinkPredictionDos:
 
     def test_semaphore_defined(self):
         """_link_prediction_semaphore must exist."""
+        pytest.importorskip("fastapi")
         import asyncio
         from semantica.explorer.routes.enrich import _link_prediction_semaphore
         assert isinstance(_link_prediction_semaphore, asyncio.Semaphore)
@@ -269,6 +271,7 @@ class TestVuln3ImportNodeIdSanitization:
 @pytest.fixture
 def _real_client(monkeypatch):
     pytest.importorskip("starlette")
+    pytest.importorskip("fastapi")
     # These tests exercise route logic, not the API-key auth layer (see
     # tests/explorer/conftest.py, which does the same for that directory).
     monkeypatch.setenv("SEMANTICA_ALLOW_ANONYMOUS", "true")
@@ -380,6 +383,7 @@ class TestVuln2CapEnforcedBeforeExpensiveWork:
         """Exercise the real route: with the cap patched low, an oversized
         graph must 413 instead of scoring the full candidate pool."""
         pytest.importorskip("starlette")
+        pytest.importorskip("fastapi")
         monkeypatch.setenv("SEMANTICA_ALLOW_ANONYMOUS", "true")
         monkeypatch.delenv("SEMANTICA_API_KEY", raising=False)
         from starlette.testclient import TestClient

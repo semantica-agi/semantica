@@ -44,6 +44,11 @@ WORKDIR /app
 #   retransmission out-of-bounds read) and CVE-2026-75804 (QUIC connection
 #   flow control not enforced). Neither is reachable here - uvicorn serves
 #   plain HTTP/TCP, no DTLS or QUIC - but patching clears the alerts.
+# - #6195-#6196: apt and libapt-pkg7.0 (one source package, fixed in 3.0.4,
+#   DSA-6607-1) for CVE-2026-109518 (an on-path attacker can get an
+#   unverified package installed by abusing hard-link reuse on download
+#   retries). Only reachable while apt runs, i.e. during this build, but
+#   patching clears the alerts.
 #
 # --only-upgrade scopes this to just the named packages instead of a
 # blanket `apt-get upgrade` (terrascan AC_DOCKER_0052 - that breaks build
@@ -64,6 +69,8 @@ RUN apt-get update \
         openssl \
         libssl3t64 \
         openssl-provider-legacy \
+        apt \
+        libapt-pkg7.0 \
     && rm -rf /var/lib/apt/lists/*
 
 RUN groupadd --system semantica \

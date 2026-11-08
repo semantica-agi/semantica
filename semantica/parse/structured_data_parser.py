@@ -19,9 +19,9 @@ Main Classes:
 Example Usage:
     >>> from semantica.parse import StructuredDataParser
     >>> parser = StructuredDataParser()
-    >>> json_data = parser.parse_json("data.json")
-    >>> csv_data = parser.parse_csv("data.csv")
-    >>> xml_data = parser.parse_xml("data.xml")
+    >>> json_data = parser.parse_data("data.json")
+    >>> csv_data = parser.parse_data("data.csv")
+    >>> xml_data = parser.parse_data("data.xml", data_format="xml")
 
 Author: Semantica Contributors
 License: MIT

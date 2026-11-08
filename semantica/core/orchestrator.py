@@ -753,8 +753,15 @@ class Semantica:
             Pipeline object or configuration dict (if pipeline module not available)
         """
         try:
-            # Use the lazy property
-            builder = self.pipeline_builder
+            # Build each pipeline on a fresh builder. PipelineBuilder keeps the
+            # steps it is given, so reusing the cached one would add a second
+            # "default_step" on the next call and fail validation. Handlers
+            # registered on the shared builder are carried over.
+            from ..pipeline import PipelineBuilder
+
+            shared_builder = self.pipeline_builder
+            builder = PipelineBuilder(config=dict(self.config.get("pipeline", {})))
+            builder.step_registry.update(shared_builder.step_registry)
 
             if not pipeline_config:
                 builder.add_step("default_step", "default")
