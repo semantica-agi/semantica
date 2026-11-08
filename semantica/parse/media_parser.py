@@ -19,9 +19,8 @@ Main Classes:
 Example Usage:
     >>> from semantica.parse import MediaParser
     >>> parser = MediaParser()
-    >>> metadata = parser.parse("image.jpg")
-    >>> info = parser.get_media_info("video.mp4")
-    >>> formats = parser.get_supported_formats()
+    >>> parsed = parser.parse_media("photo.jpg")
+    >>> metadata = parser.extract_metadata("video.mp4")
 
 Author: Semantica Contributors
 License: MIT

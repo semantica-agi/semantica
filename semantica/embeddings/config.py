@@ -74,10 +74,11 @@ class EmbeddingsConfig:
                         self._configs.update(data.get("embeddings", {}))
                         self._method_configs.update(data.get("embeddings_methods", {}))
                 elif config_file.endswith(".toml"):
-                    import toml
+                    # tomllib needs a binary file.
+                    import tomllib
 
-                    with open(config_file, "r") as f:
-                        data = toml.load(f) or {}
+                    with open(config_file, "rb") as f:
+                        data = tomllib.load(f) or {}
                         if "embeddings" in data:
                             self._configs.update(data["embeddings"])
                         if "embeddings_methods" in data:

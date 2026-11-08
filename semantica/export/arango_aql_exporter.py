@@ -31,6 +31,7 @@ from typing import Any, Dict, List, Optional, Union
 from ..utils.helpers import _require_mapping, ensure_directory, normalize_graph_payload
 from ..utils.logging import get_logger
 from ..utils.progress_tracker import get_progress_tracker
+from .endpoint_names import SOURCE_ENDPOINT_NAMES, TARGET_ENDPOINT_NAMES, first_set_id
 
 
 class ArangoAQLExporter:
@@ -331,7 +332,9 @@ class ArangoAQLExporter:
         document = {}
 
         # Set _key from id or generate one
-        vertex_id = vertex.get("id") or vertex.get("entity_id") or f"vertex_{idx}"
+        vertex_id = first_set_id(vertex, ("id", "entity_id"))
+        if vertex_id is None:
+            vertex_id = f"vertex_{idx}"
         document["_key"] = self._sanitize_key(str(vertex_id))
 
         # Add original ID if different from _key
@@ -452,10 +455,10 @@ class ArangoAQLExporter:
             ArangoDB edge document dictionary, or None if source/target missing
         """
         # Extract source and target
-        source_id = edge.get("source") or edge.get("source_id")
-        target_id = edge.get("target") or edge.get("target_id")
+        source_id = first_set_id(edge, SOURCE_ENDPOINT_NAMES)
+        target_id = first_set_id(edge, TARGET_ENDPOINT_NAMES)
 
-        if not source_id or not target_id:
+        if source_id is None or target_id is None:
             self.logger.warning(
                 f"Skipping edge {idx}: missing source or target "
                 f"(source={source_id}, target={target_id})"
@@ -490,10 +493,8 @@ class ArangoAQLExporter:
                 "_to",
                 "id",
                 "relationship_id",
-                "source",
-                "source_id",
-                "target",
-                "target_id",
+                *SOURCE_ENDPOINT_NAMES,
+                *TARGET_ENDPOINT_NAMES,
                 "type",
                 "relationship_type",
             ]:

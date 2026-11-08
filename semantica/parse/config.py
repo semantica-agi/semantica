@@ -71,10 +71,11 @@ class ParseConfig:
                         self._configs.update(data.get("parse", {}))
                         self._method_configs.update(data.get("parse_methods", {}))
                 elif config_file.endswith(".toml"):
-                    import toml
+                    # tomllib needs a binary file.
+                    import tomllib
 
-                    with open(config_file, "r") as f:
-                        data = toml.load(f) or {}
+                    with open(config_file, "rb") as f:
+                        data = tomllib.load(f) or {}
                         if "parse" in data:
                             self._configs.update(data["parse"])
                         if "parse_methods" in data:

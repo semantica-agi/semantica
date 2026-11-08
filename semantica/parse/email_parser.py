@@ -24,9 +24,9 @@ Main Classes:
 Example Usage:
     >>> from semantica.parse import EmailParser
     >>> parser = EmailParser()
-    >>> email_data = parser.parse("email.eml")
-    >>> headers = parser.parse_headers("email.eml")
-    >>> thread = parser.analyze_thread("email.eml")
+    >>> email_data = parser.parse_email("email.eml")
+    >>> headers = email_data.headers
+    >>> thread = parser.analyze_thread([email_data])
 
 Author: Semantica Contributors
 License: MIT
