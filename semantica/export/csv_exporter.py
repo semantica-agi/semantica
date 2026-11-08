@@ -288,7 +288,8 @@ class CSVExporter:
             # rather than at the top level (#1796).
             confidence = entity.get("confidence")
             if confidence is None:
-                confidence = (entity.get("properties") or {}).get("confidence", "")
+                props = entity.get("properties")
+                confidence = props.get("confidence", "") if isinstance(props, dict) else ""
 
             normalized = {
                 "id": entity.get("id") or entity.get("entity_id", ""),
@@ -381,7 +382,8 @@ class CSVExporter:
             # "properties" (#1796).
             confidence = rel.get("confidence")
             if confidence is None:
-                confidence = (rel.get("metadata") or {}).get("confidence", "")
+                meta = rel.get("metadata")
+                confidence = meta.get("confidence", "") if isinstance(meta, dict) else ""
 
             normalized = {
                 "id": rel.get("id", ""),

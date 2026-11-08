@@ -85,3 +85,36 @@ def test_arrow_exporter_writes_nested_decision_confidence(tmp_path):
     assert confidence == CONFIDENCE, (
         f"expected confidence {CONFIDENCE}, got {confidence!r}"
     )
+
+
+def test_exporters_tolerate_non_dict_properties(tmp_path):
+    kg = {
+        "entities": [
+            {"id": "E1", "text": "a", "type": "Entity", "properties": "not-a-dict"}
+        ],
+        "relationships": [],
+    }
+    CSVExporter().export_knowledge_graph(kg, tmp_path / "csv_out")
+    GraphExporter(format="graphml").export_knowledge_graph(kg, tmp_path / "graph_out")
+    ArrowExporter().export_knowledge_graph(kg, tmp_path / "arrow_out")
+
+
+def test_csv_and_arrow_tolerate_non_dict_relationship_metadata(tmp_path):
+    kg = {
+        "entities": [
+            {"id": "E1", "text": "a", "type": "Entity"},
+            {"id": "E2", "text": "b", "type": "Entity"},
+        ],
+        "relationships": [
+            {
+                "id": "R1",
+                "source_id": "E1",
+                "target_id": "E2",
+                "type": "rel",
+                "metadata": "not-a-dict",
+            }
+        ],
+    }
+    CSVExporter().export_knowledge_graph(kg, tmp_path / "csv_out")
+    ArrowExporter().export_knowledge_graph(kg, tmp_path / "arrow_out")
+

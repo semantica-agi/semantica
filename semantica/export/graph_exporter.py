@@ -262,8 +262,11 @@ class GraphExporter:
                 # "properties" rather than at the top level (#1796).
                 confidence = entity.get("confidence")
                 if confidence is None:
-                    confidence = (entity.get("properties") or {}).get(
-                        "confidence", 1.0
+                    props = entity.get("properties")
+                    confidence = (
+                        props.get("confidence", 1.0)
+                        if isinstance(props, dict)
+                        else 1.0
                     )
                 node["attributes"] = {
                     "confidence": confidence,
@@ -287,8 +290,11 @@ class GraphExporter:
                 # than "properties" (#1796).
                 confidence = rel.get("confidence")
                 if confidence is None:
-                    confidence = (rel.get("metadata") or {}).get(
-                        "confidence", 1.0
+                    meta = rel.get("metadata")
+                    confidence = (
+                        meta.get("confidence", 1.0)
+                        if isinstance(meta, dict)
+                        else 1.0
                     )
                 edge["attributes"] = {
                     "confidence": confidence,
