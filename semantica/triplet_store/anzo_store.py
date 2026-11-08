@@ -380,7 +380,11 @@ class AnzoStore:
         obj = triplet.object
         metadata = triplet.metadata or {}
 
-        if self._is_uri_value(obj):
+        datatype = metadata.get("datatype") or metadata.get("literal_datatype")
+        language = metadata.get("lang") or metadata.get("language")
+
+        # A datatype or language marks a literal, even one that looks like a URI.
+        if not (datatype or language) and self._is_uri_value(obj):
             if obj.startswith("<") and obj.endswith(">"):
                 inner = obj[1:-1]
                 sparql_escaping.validate_uri(inner)
@@ -389,8 +393,6 @@ class AnzoStore:
             return f"<{obj}>"
 
         escaped = sparql_escaping.escape_literal(obj)
-        datatype = metadata.get("datatype") or metadata.get("literal_datatype")
-        language = metadata.get("lang") or metadata.get("language")
 
         if datatype:
             datatype_iri = sparql_escaping.resolve_datatype_iri(datatype)

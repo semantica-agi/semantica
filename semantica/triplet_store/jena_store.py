@@ -248,9 +248,10 @@ class JenaStore:
                     subject = URIRef(triplet.subject)
                     predicate = URIRef(triplet.predicate)
                     metadata = triplet.metadata or {}
+                    is_literal = metadata.get("language") or metadata.get("datatype")
                     obj = (
                         URIRef(triplet.object)
-                        if triplet.object.startswith("http")
+                        if triplet.object.startswith("http") and not is_literal
                         else Literal(
                             triplet.object,
                             lang=metadata.get("language"),
@@ -385,9 +386,10 @@ class JenaStore:
             subject = URIRef(triplet.subject)
             predicate = URIRef(triplet.predicate)
             metadata = triplet.metadata or {}
+            is_literal = metadata.get("language") or metadata.get("datatype")
             obj = (
                 URIRef(triplet.object)
-                if triplet.object.startswith("http")
+                if triplet.object.startswith("http") and not is_literal
                 else Literal(
                     triplet.object,
                     lang=metadata.get("language"),
