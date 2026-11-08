@@ -11,7 +11,10 @@ on:
       - '.github/workflows/**'
       - '.github/scripts/verify-action-pins.sh'
   schedule:
-    - cron: '0 3 * * 1'  # weekly, in case an upstream tag is deliberately moved
+    # Weekly, in case an upstream tag is deliberately moved. Monday 12:00 UTC,
+    # after Dependabot's Monday 09:00 UTC github-actions run (dependabot.yml),
+    # so it checks the pins after that run rather than before it.
+    - cron: '0 12 * * 1'
   workflow_dispatch:
 
 permissions:
@@ -21,7 +24,7 @@ jobs:
   verify:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Verify pinned action SHAs match their tag comments
         env:
           GH_TOKEN: ${{ github.token }}

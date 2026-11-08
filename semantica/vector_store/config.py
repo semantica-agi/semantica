@@ -96,10 +96,12 @@ class VectorStoreConfig:
                     if config_data and "vector_store" in config_data:
                         self._config.update(config_data["vector_store"])
             elif file_path.suffix == ".toml":
-                import tomli
+                # stdlib since 3.11, the supported floor. The tomli backport was
+                # never a declared dependency, so .toml files were ignored on 3.11+.
+                import tomllib
 
                 with open(file_path, "rb") as f:
-                    config_data = tomli.load(f)
+                    config_data = tomllib.load(f)
                     if config_data and "vector_store" in config_data:
                         self._config.update(config_data["vector_store"])
         except Exception as e:

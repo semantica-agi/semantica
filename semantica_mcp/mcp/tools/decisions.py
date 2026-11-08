@@ -171,7 +171,7 @@ def handle_find_precedents(args: dict) -> dict:
 
 
 def handle_get_causal_chain(args: dict) -> dict:
-    """Trace the upstream or downstream causal chain from a decision."""
+    """Trace the upstream, downstream or both causal chains from a decision."""
     if not isinstance(args, dict):
         return {"error": "args must be a dictionary", "chain": []}
     decision_id = str(args.get("decision_id") or "").strip()
@@ -392,7 +392,7 @@ DECISION_TOOLS = [
     },
     {
         "name": "get_causal_chain",
-        "description": "Trace the causal chain upstream or downstream from a recorded decision.",
+        "description": "Trace the causal chain upstream, downstream or both from a recorded decision.",
         "inputSchema": GET_CAUSAL_CHAIN,
         "_handler": handle_get_causal_chain,
     },

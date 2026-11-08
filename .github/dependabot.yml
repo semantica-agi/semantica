@@ -70,9 +70,11 @@ updates:
       - "dependencies"
       - "github-actions"
       - "ci"
-    # All our actions are SHA-pinned with a "# vX" comment; Dependabot
-    # resolves the new tag's SHA and updates both the pin and the comment
-    # together, so this stays the source of truth (no separate script needed).
+    # All our actions are SHA-pinned with an exact-version comment
+    # ("# vX.Y.Z"); Dependabot resolves the new tag's SHA and updates both the
+    # pin and the comment together, so this stays the source of truth (no
+    # separate script needed). Not a floating "# vX": every upstream point
+    # release moves that tag and fails Verify Action Pins.
     groups:
       github-actions:
         patterns:

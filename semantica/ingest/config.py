@@ -74,10 +74,11 @@ class IngestConfig:
                         self._configs.update(data.get("ingest", {}))
                         self._method_configs.update(data.get("ingest_methods", {}))
                 elif config_file.endswith(".toml"):
-                    import toml
+                    # tomllib needs a binary file.
+                    import tomllib
 
-                    with open(config_file, "r") as f:
-                        data = toml.load(f) or {}
+                    with open(config_file, "rb") as f:
+                        data = tomllib.load(f) or {}
                         if "ingest" in data:
                             self._configs.update(data["ingest"])
                         if "ingest_methods" in data:

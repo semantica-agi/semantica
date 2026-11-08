@@ -57,7 +57,7 @@ plugins/
 ```bash
 git clone https://github.com/semantica-agi/semantica.git
 cd semantica
-pip install semantica        # Python 3.10+
+pip install semantica        # Python 3.11+
 ```
 
 ---

@@ -8,6 +8,7 @@ import pytest
 from semantica.provenance import ProvenanceManager
 from semantica.provenance.bridge_axiom import (
     BridgeAxiom,
+    ProvenanceRecordingError,
     TranslationChain,
     create_translation_chain,
     trace_translation_chain
@@ -489,3 +490,199 @@ class TestEdgeCases:
         assert data["chain_id"] == "chain_dict"
         assert len(data["layers"]) == 1
         assert data["confidence"] == 1.0
+
+
+class TestProvenanceFailClosed:
+    """A failed provenance write must not be silent (issue #2137)."""
+
+    def _axiom(self):
+        return BridgeAxiom(
+            axiom_id="BA-FAIL-001",
+            name="fail_closed",
+            rule="Test rule",
+            coefficient=2.0,
+            source_doi="10.1234/test",
+            source_page="Page 1",
+        )
+
+    def test_failure_raises_by_default(self):
+        with pytest.raises(ProvenanceRecordingError, match="BA-FAIL-001"):
+            self._axiom().apply("in", 3, prov_manager=object())
+
+    def test_opt_out_returns_a_flag_instead_of_raising(self):
+        result = self._axiom().apply(
+            "in", 3, prov_manager=object(), require_provenance=False
+        )
+
+        assert result["output_value"] == 6.0
+        assert result["provenance_recorded"] is False
+        assert "AttributeError" in result["provenance_error"]
+
+    def test_successful_write_reports_recorded(self):
+        result = self._axiom().apply("in", 3, prov_manager=ProvenanceManager())
+
+        assert result["output_value"] == 6.0
+        assert result["provenance_recorded"] is True
+        assert result["provenance_error"] is None
+
+    def test_no_manager_is_not_a_failure(self):
+        result = self._axiom().apply("in", 3)
+
+        assert result["output_value"] == 6.0
+        assert result["provenance_recorded"] is False
+        assert result["provenance_error"] is None
+
+    def test_chain_propagates_the_failure(self):
+        with pytest.raises(ProvenanceRecordingError):
+            create_translation_chain(
+                {"entity_id": "e1", "value": 3, "source": "doc"},
+                [self._axiom()],
+                object(),
+            )
+
+    def test_trace_reports_a_lineage_lookup_failure(self):
+        class _BadLineage:
+            def get_lineage(self, entity_id):
+                raise RuntimeError("lineage unavailable")
+
+        chain = TranslationChain(chain_id="chain_trace")
+        chain.add_layer("L1", "input", 1, entity_id="e1")
+
+        trace = trace_translation_chain(chain, _BadLineage())
+
+        layer = trace["layers"][0]
+        assert layer["provenance"] is None
+        assert "RuntimeError" in layer["provenance_error"]
+
+    def _broken_storage(self, manager, monkeypatch):
+        def fail(*args, **kwargs):
+            raise IOError("disk full")
+
+        monkeypatch.setattr(manager.storage, "store", fail)
+        monkeypatch.setattr(manager.storage, "_store_with_conn", fail)
+
+    def test_real_manager_storage_failure_raises(self, monkeypatch):
+        manager = ProvenanceManager()
+        self._broken_storage(manager, monkeypatch)
+
+        with pytest.raises(ProvenanceRecordingError) as excinfo:
+            self._axiom().apply("in", 3, prov_manager=manager)
+
+        assert excinfo.value.entity_id == "in_transformed_BA-FAIL-001"
+        assert excinfo.value.error_code == "SEM007"
+
+    def test_real_manager_storage_failure_is_reported_when_opted_out(
+        self, monkeypatch
+    ):
+        manager = ProvenanceManager()
+        self._broken_storage(manager, monkeypatch)
+
+        result = self._axiom().apply(
+            "in", 3, prov_manager=manager, require_provenance=False
+        )
+
+        assert result["provenance_recorded"] is False
+        assert result["provenance_error"] is not None
+
+    def test_failed_update_is_not_reported_as_recorded(self, monkeypatch):
+        # A failed update hands back a copy of the old entry; the new value
+        # must not be reported as recorded on the strength of that copy.
+        manager = ProvenanceManager()
+        axiom = self._axiom()
+        axiom.apply("in", 3, prov_manager=manager)
+        self._broken_storage(manager, monkeypatch)
+
+        result = axiom.apply("in", 5, prov_manager=manager, require_provenance=False)
+
+        assert result["output_value"] == 10.0
+        assert result["provenance_recorded"] is False
+        lineage = manager.get_lineage("in_transformed_BA-FAIL-001")
+        assert lineage["metadata"]["output_value"] == 6.0
+
+    def test_successful_update_is_recorded(self):
+        manager = ProvenanceManager()
+        axiom = self._axiom()
+        axiom.apply("in", 3, prov_manager=manager)
+
+        result = axiom.apply("in", 5, prov_manager=manager)
+
+        assert result["provenance_recorded"] is True
+        lineage = manager.get_lineage("in_transformed_BA-FAIL-001")
+        assert lineage["metadata"]["output_value"] == 10.0
+
+    def test_trace_layers_without_an_entity_still_carry_both_keys(self):
+        """A consumer walking the trace should not have to check for the key
+        first: a layer that names no entity reports "unavailable", it does not
+        omit the field."""
+        chain = TranslationChain(chain_id="chain_no_entity")
+        chain.add_layer("L2_axiom", "bridge_axiom", 2.0)
+
+        trace = trace_translation_chain(chain, ProvenanceManager())
+
+        layer = trace["layers"][0]
+        assert "provenance" in layer
+        assert "provenance_error" in layer
+        assert layer["provenance"] is None
+        assert layer["provenance_error"] is None
+
+    def test_the_raised_message_does_not_echo_the_storage_error(self):
+        """Storage failures carry SQL and paths. The message reaches logs and
+        API responses, so only the type goes in; the detail stays on the
+        cause."""
+
+        class _LeakyManager:
+            def track_entity(self, **kwargs):
+                raise RuntimeError("no such table: /home/analyst/secret.db")
+
+        with pytest.raises(ProvenanceRecordingError) as caught:
+            self._axiom().apply("in", 3, prov_manager=_LeakyManager())
+
+        message = str(caught.value)
+        assert "BA-FAIL-001" in message
+        assert "RuntimeError" in message
+        assert "secret.db" not in message
+        assert isinstance(caught.value.__cause__, RuntimeError)
+
+    def test_best_effort_and_trace_errors_do_not_echo_the_storage_error(self):
+        """The opt-out result and the trace layer reach the same logs and API
+        responses as the raised message, so they carry only the type too."""
+
+        class _LeakyManager:
+            def track_entity(self, **kwargs):
+                raise RuntimeError("no such table: /home/analyst/secret.db")
+
+            def get_lineage(self, entity_id):
+                raise RuntimeError("no such table: /home/analyst/secret.db")
+
+        result = self._axiom().apply(
+            "in", 3, prov_manager=_LeakyManager(), require_provenance=False
+        )
+        assert result["provenance_error"] == "RuntimeError"
+
+        chain = TranslationChain(chain_id="chain_leaky")
+        chain.add_layer("L1", "input", 1, entity_id="e1")
+        layer = trace_translation_chain(chain, _LeakyManager())["layers"][0]
+        assert layer["provenance_error"] == "RuntimeError"
+
+    def test_real_manager_storage_failure_names_the_reason(self, monkeypatch):
+        # ProvenanceManager swallows the storage exception, so the message
+        # has to say what went wrong rather than name an exception type.
+        manager = ProvenanceManager()
+        self._broken_storage(manager, monkeypatch)
+
+        with pytest.raises(ProvenanceRecordingError, match="did not persist"):
+            self._axiom().apply("in", 3, prov_manager=manager)
+
+    def test_falsy_manager_still_fails_closed(self):
+        """A manager that defines __len__ (an empty store) is falsy, but it is
+        still a manager: a failed write must raise, not be skipped."""
+
+        class _EmptyManager:
+            def __len__(self):
+                return 0
+
+            def track_entity(self, **kwargs):
+                raise RuntimeError("write failed")
+
+        with pytest.raises(ProvenanceRecordingError):
+            self._axiom().apply("in", 3, prov_manager=_EmptyManager())

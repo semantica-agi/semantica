@@ -6,7 +6,8 @@ icon: "microchip"
 
 **`semantica.llms`** provides a consistent generation API across major LLM providers and a separate typed-decision API for TypeSafe Jev:
 
-- Generative providers are drop-in replacements for the `llm_provider=` parameter in extractors, reasoners, and agents
+- Generative providers are interchangeable wherever a provider instance is taken: the `llm_provider=` argument of `AgentContext.query_with_reasoning()`, `ContextRetriever.query_with_reasoning()` and `TemporalQueryRewriter`
+- Extractors take no instance: they build the provider themselves from `provider=`, `llm_model=` and `api_key=`
 - `LiteLLM` routes to 100+ providers with a single class and model-string prefixes
 - `HuggingFaceLLM` runs fully on-premise: no API key, no network calls
 - Structured output via `generate_typed()` for schema-validated extraction
@@ -253,10 +254,10 @@ llm = Groq(api_key=os.getenv("GROQ_API_KEY"), model="llama-3.1-8b-instant")
 
 ## TypeSafe Jev
 
-`Jev` and `AsyncJev` wrap the official `typesafe-sdk` System One client. They are decision-only providers: neither class implements `generate()`, `generate_structured()`, or `generate_typed()`, and neither can be passed as the `llm_provider=` argument to a generative extractor or reasoner.
+`Jev` and `AsyncJev` wrap the official `typesafe-sdk` System One client. They are decision-only providers: neither class implements `generate()`, `generate_structured()`, or `generate_typed()`, and neither can stand in for a generative provider: not as the `llm_provider=` argument of a reasoning query, and not as `provider=` in an extractor.
 
 <Warning>
-  Jev is experimental and early-access. The `llm-typesafe` extra currently supports the reviewed TypeSafe SDK 0.7 API on Python 3.10 or newer. Semantica's base installation remains compatible with Python 3.9 because the SDK is optional and guarded.
+  Jev is experimental and early-access. The `llm-typesafe` extra currently supports the reviewed TypeSafe SDK 0.7 API. Like Semantica itself, it requires Python 3.11 or newer; the SDK is optional and guarded, so the base installation does not need it.
 </Warning>
 
 <Warning>
@@ -491,19 +492,31 @@ llm = OpenAI(
 
 ## Using Generative Providers in Extractors
 
-Extractors accept generative providers as `llm_provider=`. Jev is not accepted here because it returns decisions rather than generated text:
+Extractors do not take a provider instance. They build one themselves from keyword configuration: `provider` names the backend (default `"openai"`), `llm_model` picks the model, and `api_key` is read from the matching `<PROVIDER>_API_KEY` variable when it is omitted. `llm_provider=` is not read here: it travels through `**config` into the provider factory and is kept in the constructed provider's `config` mapping, which nothing consults — the instance never serves as the extractor's provider, so the extractor runs against the backend named by `provider=` (the `"openai"` default when it is omitted). Jev is not usable here either, because it returns decisions rather than generated text:
 
 ```python
 import os
-from semantica.semantic_extract import NERExtractor, RelationExtractor, TripletExtractor
-from semantica.llms import Groq
+from semantica.semantic_extract import (
+    NERExtractor,
+    RelationExtractor,
+    TripletExtractor,
+)
 
-llm = Groq(model="llama-3.3-70b-versatile", api_key=os.getenv("GROQ_API_KEY"))
+llm_config = {
+    "method": "llm",
+    "provider": "groq",
+    "api_key": os.environ["GROQ_API_KEY"],
+    "llm_model": "llama-3.3-70b-versatile",
+}
 
-ner  = NERExtractor(method="llm",      llm_provider=llm, max_retries=3)
-rel  = RelationExtractor(method="llm", llm_provider=llm)
-trip = TripletExtractor(method="llm",  llm_provider=llm)
+ner  = NERExtractor(**llm_config, max_retries=3)
+rel  = RelationExtractor(**llm_config)
+trip = TripletExtractor(**llm_config)
 ```
+
+<Note>
+  Use `llm_model`, not `model`. Both names configure an extractor's own LLM call (`llm_model` wins), but `TripletExtractor` strips `model` out of the configuration it shares with the entity and relation extractors it builds internally, because there that keyword is the spaCy/HuggingFace model name. So `model` alone reaches the triplet stage only, and the two internal stages are built with no LLM model at all: they are constructed with an explicit `model=None`, which overrides the provider's own default. `llm_model` configures all three.
+</Note>
 
 ## Provider Comparison
 
@@ -551,10 +564,14 @@ These are the models used when you construct a provider without specifying `mode
 ```python
 import os
 from semantica.semantic_extract import NERExtractor
-from semantica.llms import Groq
 
-llm = Groq(model="llama-3.3-70b-versatile", api_key=os.getenv("GROQ_API_KEY"))
-ner = NERExtractor(method="llm", llm_provider=llm, max_retries=3)
+ner = NERExtractor(
+    method="llm",
+    provider="groq",
+    api_key=os.environ["GROQ_API_KEY"],
+    llm_model="llama-3.3-70b-versatile",
+    max_retries=3,
+)
 
 # Process multiple texts with automatic retries
 texts = ["Document 1 text...", "Document 2 text...", "Document 3 text..."]
@@ -580,19 +597,15 @@ for text in texts:
 
 ```python
 import os
-from semantica.llms import Groq
 from semantica.semantic_extract import NERExtractor
-
-llm = Groq(
-    model="llama-3.3-70b-versatile",
-    api_key=os.getenv("GROQ_API_KEY")
-)
 
 # Automatic retries for rate limits and transient errors
 extractor = NERExtractor(
     method="llm",
-    llm_provider=llm,
-    max_retries=3      # Retry failed requests automatically
+    provider="groq",
+    api_key=os.environ["GROQ_API_KEY"],
+    llm_model="llama-3.3-70b-versatile",
+    max_retries=3,     # Retry failed requests automatically
 )
 ```
 

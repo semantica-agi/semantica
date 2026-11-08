@@ -2,7 +2,7 @@
 # Verifies that every third-party GitHub Action referenced in
 # .github/workflows/*.yml and .github/workflows/*.yaml is pinned to a full
 # commit SHA (not a mutable tag
-# or branch), and that any pin's trailing "# vX" comment still matches what
+# or branch), and that any pin's trailing "# vX.Y.Z" comment still matches what
 # that tag resolves to today.
 #
 # Fails closed on purpose:
@@ -46,7 +46,7 @@ while IFS=: read -r file lineno content; do
     if [[ "$content" =~ \#[[:space:]]*([^[:space:]]+)[[:space:]]*$ ]]; then
       tag="${BASH_REMATCH[1]}"
     else
-      echo "::warning file=$file,line=$lineno::$repo@$sha has no trailing '# vX' comment recording which tag it corresponds to - add one for auditability."
+      echo "::warning file=$file,line=$lineno::$repo@$sha has no trailing '# vX.Y.Z' comment recording which tag it corresponds to - add one for auditability."
       continue
     fi
 

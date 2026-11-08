@@ -165,21 +165,7 @@ def _() -> list[str]:
     ]
 
 
-# ── 7. No Python 3.9+ type syntax in code blocks ─────────────────────────────
-@check("No Python 3.9+ type syntax in code blocks (3.8 compat)")
-def _() -> list[str]:
-    issues: list[str] = []
-    for fpath in ALL_MD:
-        in_block = False
-        for i, line in enumerate(open(fpath, encoding="utf-8"), 1):
-            if line.strip().startswith("```"):
-                in_block = not in_block
-            if in_block and re.search(r":\s*(list|dict|tuple|set)\[", line):
-                issues.append(f"{fpath}:{i}: {line.rstrip()}")
-    return issues
-
-
-# ── 8. index.md covers all 27 modules ────────────────────────────────────────
+# ── 7. index.md covers all 27 modules ────────────────────────────────────────
 @check("All 27 modules present in index.md")
 def _() -> list[str]:
     modules = [
@@ -196,7 +182,7 @@ def _() -> list[str]:
     return [m for m in modules if m not in index]
 
 
-# ── 9. JSX component tags are balanced in every page ─────────────────────────
+# ── 8. JSX component tags are balanced in every page ─────────────────────────
 @check("All Mintlify JSX component tags are balanced")
 def _() -> list[str]:
     # Paired block-level components that must open and close.
@@ -226,7 +212,7 @@ def _() -> list[str]:
     return issues
 
 
-# ── 10. Mintlify export succeeds (requires Node.js / npx) ────────────────────
+# ── 9. Mintlify export succeeds (requires Node.js / npx) ────────────────────
 @check("Mintlify export builds without errors")
 def _() -> list[str]:
     npx = "npx.cmd" if sys.platform == "win32" else "npx"

@@ -429,3 +429,221 @@ else:
     assert result.returncode == 0, result.stderr
     assert "ImportError" in result.stdout
     assert "ingest-looker" in result.stdout
+
+
+def test_web_ingestion_reports_missing_beautifulsoup_at_import() -> None:
+    """The probe import must fail fast, not defer to call time.
+
+    `semantica.ingest.__getattr__` raises for a backend whose module imported
+    with its dependency set to None, so `try: from semantica.ingest import X`
+    stays a usable availability check.
+    """
+    result = _run_python_with_blocked_modules(
+        """
+try:
+    from semantica.ingest import WebIngestor
+except ImportError as exc:
+    print("ImportError", exc)
+else:
+    raise SystemExit("expected WebIngestor to fail without beautifulsoup4")
+""",
+        ("bs4",),
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "ImportError" in result.stdout
+    assert "Web ingestion" in result.stdout
+    assert "beautifulsoup4" in result.stdout
+
+
+def test_feed_ingestion_reports_missing_beautifulsoup_at_import() -> None:
+    result = _run_python_with_blocked_modules(
+        """
+try:
+    from semantica.ingest import FeedIngestor
+except ImportError as exc:
+    print("ImportError", exc)
+else:
+    raise SystemExit("expected FeedIngestor to fail without beautifulsoup4")
+""",
+        ("bs4",),
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "ImportError" in result.stdout
+    assert "Feed ingestion" in result.stdout
+
+
+def test_web_ingestor_module_imports_without_beautifulsoup() -> None:
+    """Importing the module must not require the extra.
+
+    Six test modules import `semantica.ingest.web_ingestor` directly; a bare
+    `from bs4 import BeautifulSoup` there aborted collection for all of them.
+    """
+    result = _run_python_with_blocked_modules(
+        """
+import semantica.ingest.web_ingestor as web
+
+print("imported", web.BeautifulSoup is None)
+""",
+        ("bs4",),
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "imported True" in result.stdout
+
+
+def test_html_parsing_reports_missing_beautifulsoup_when_used() -> None:
+    """The guarded branch raises with the install hint rather than crashing."""
+    result = _run_python_with_blocked_modules(
+        """
+from semantica.ingest.web_ingestor import _parse_html
+
+try:
+    _parse_html("<p>hi</p>")
+except Exception as exc:
+    print(type(exc).__name__, exc)
+else:
+    raise SystemExit("expected HTML parsing to fail without beautifulsoup4")
+""",
+        ("bs4",),
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "ProcessingError" in result.stdout
+    assert "beautifulsoup4" in result.stdout
+
+
+def test_feed_discovery_does_not_report_no_feeds_without_beautifulsoup() -> None:
+    """discover_feeds must raise, not return [].
+
+    Its `except Exception` returns an empty list, so a dependency checked
+    inside the try would read as "this site publishes no feeds".
+    """
+    result = _run_python_with_blocked_modules(
+        """
+import logging
+from semantica.ingest.feed_ingestor import FeedIngestor
+
+ingestor = FeedIngestor.__new__(FeedIngestor)
+ingestor.allow_private_ips = False
+ingestor.logger = logging.getLogger("probe")
+
+try:
+    result = ingestor.discover_feeds("https://example.com")
+except Exception as exc:
+    print(type(exc).__name__, exc)
+else:
+    raise SystemExit(f"expected discover_feeds to raise, got {result!r}")
+""",
+        ("bs4",),
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "ProcessingError" in result.stdout
+    assert "beautifulsoup4" in result.stdout
+
+
+def test_ingest_web_reports_configuration_error_without_beautifulsoup() -> None:
+    """The public entry point keeps its ConfigurationError contract.
+
+    `ingest_web` translated an import-time ModuleNotFoundError into
+    ConfigurationError. Guarding the module import made that translation stop
+    firing, so the call reached validation and fetching and then failed with a
+    ProcessingError from the parser — a different type, later.
+    """
+    result = _run_python_with_blocked_modules(
+        """
+from semantica.ingest import ingest_web
+
+try:
+    ingest_web("https://example.com")
+except Exception as exc:
+    print(type(exc).__name__, exc)
+else:
+    raise SystemExit("expected ingest_web to fail without beautifulsoup4")
+""",
+        ("bs4",),
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "ConfigurationError" in result.stdout
+    assert "Web ingestion" in result.stdout
+    assert "beautifulsoup4" in result.stdout
+
+
+def test_ingest_feed_reports_configuration_error_without_beautifulsoup() -> None:
+    result = _run_python_with_blocked_modules(
+        """
+from semantica.ingest import ingest_feed
+
+try:
+    ingest_feed("https://example.com/feed.xml")
+except Exception as exc:
+    print(type(exc).__name__, exc)
+else:
+    raise SystemExit("expected ingest_feed to fail without beautifulsoup4")
+""",
+        ("bs4",),
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "ConfigurationError" in result.stdout
+    assert "Feed ingestion" in result.stdout
+
+
+def test_email_link_extraction_does_not_silently_degrade(monkeypatch) -> None:
+    """extract_links must not swallow the missing dependency.
+
+    Its `except Exception: pass` would drop the error and fall back to a regex
+    scan that misses relative URLs and href-only links, leaving the caller with
+    quietly worse results and no install hint.
+
+    Tested in-process because patching the guarded name is the cheapest way to
+    reach this branch; the subprocess form would work too now that
+    `semantica.ingest.email_ingestor` imports cleanly (see
+    test_email_ingestor_imports_without_a_preimported_email_submodule).
+    """
+    pytest.importorskip("bs4")
+    from semantica.ingest import email_ingestor
+    from semantica.utils.exceptions import ProcessingError
+
+    monkeypatch.setattr(email_ingestor, "BeautifulSoup", None)
+    parser = email_ingestor.EmailParser.__new__(email_ingestor.EmailParser)
+
+    with pytest.raises(ProcessingError, match="beautifulsoup4"):
+        parser.extract_links("<html><body><a href='/a'>x</a></body></html>")
+
+
+def test_email_ingestor_imports_without_a_preimported_email_submodule() -> None:
+    """`import email` does not bind the `email.message` submodule.
+
+    email_ingestor annotates four methods with `email.message.Message`, and
+    those annotations are evaluated when their enclosing class body runs, so
+    the module needs `email.message` imported explicitly. Nothing else it
+    imports (imaplib, poplib, email.header, tempfile) pulls that submodule in.
+
+    This has to run in a subprocess. pytest imports importlib.metadata for
+    plugin discovery, which imports email.message, so sys.modules is already
+    primed before any in-process test runs and the attribute resolves whether
+    or not the module imports it itself.
+
+    The submodule is imported directly rather than through the public
+    `EmailIngestor` name: `__getattr__` raises `ImportError` for that name when
+    beautifulsoup4 is missing, and this test has to pass on a core install.
+    """
+    result = _run_python_with_blocked_modules(
+        """
+import sys
+
+assert "email.message" not in sys.modules, "email.message was pre-imported"
+
+import semantica.ingest.email_ingestor as email_ingestor
+
+print(email_ingestor.EmailIngestor.__name__)
+""",
+        (),
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "EmailIngestor" in result.stdout

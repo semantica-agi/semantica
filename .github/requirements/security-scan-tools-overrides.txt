@@ -14,3 +14,18 @@ pyjwt[crypto]>=2.15.1
 # Capped below 2 so the override stays on the 1.x API semgrep was built for.
 # Drop this once semgrep moves its pin to 1.30.0 or later.
 mcp>=1.30.0,<2
+
+# semgrep (latest 1.183.0) pins opentelemetry-api/sdk/exporter ~=1.37.0, which is
+# affected by GHSA-xcq7-p3pf-p88h (O(N^2) W3C tracestate header parsing),
+# fixed in 1.45.1. semgrep uses OpenTelemetry only to export its own outbound
+# spans (--trace) and never parses an inbound tracestate header. The whole
+# family moves together; `semgrep --config=auto` / `p/python` results on
+# semantica/ are identical on 1.37.0 and 1.45.2, and `--trace` still exports.
+# Drop this once semgrep moves its pin to 1.45.1 or later.
+opentelemetry-api>=1.45.1,<2
+opentelemetry-sdk>=1.45.1,<2
+opentelemetry-proto>=1.45.1,<2
+opentelemetry-exporter-otlp-proto-common>=1.45.1,<2
+opentelemetry-exporter-otlp-proto-http>=1.45.1,<2
+opentelemetry-instrumentation-requests>=0.66b1,<1
+opentelemetry-instrumentation-threading>=0.66b1,<1

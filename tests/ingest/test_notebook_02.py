@@ -1,12 +1,17 @@
 import os
 import tempfile
-import pytest
 import sqlite3
 import time
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from semantica.ingest import (
+import pytest
+
+# WebIngestor/FeedIngestor need beautifulsoup4 (the optional documents
+# extra); semantica.ingest raises ImportError for them without it.
+pytest.importorskip("bs4")
+
+from semantica.ingest import (  # noqa: E402
     ingest, 
     FileIngestor, FileTypeDetector, CloudStorageIngestor,
     WebIngestor, ContentExtractor, SitemapCrawler, RobotsChecker,

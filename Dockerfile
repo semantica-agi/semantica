@@ -15,7 +15,7 @@ RUN mkdir -p /app/semantica && npm run build
 # is rebuilt on top of them.
 #
 # Pinned to 3.13, NOT 3.14. The image must stay inside the supported range in
-# pyproject.toml (`requires-python = ">=3.10,<3.14"`, Install Matrix 3.10-3.13)
+# pyproject.toml (`requires-python = ">=3.11,<3.14"`, Install Matrix 3.11-3.13)
 # and on the interpreter explorer-extra-py313.txt below was resolved for.
 # Dependabot bumped this to python:3.14-slim in #1290 (which broke the build:
 # no cp314 wheel for gensim, so pip compiled it and the slim image has no gcc)
@@ -44,6 +44,11 @@ WORKDIR /app
 #   retransmission out-of-bounds read) and CVE-2026-75804 (QUIC connection
 #   flow control not enforced). Neither is reachable here - uvicorn serves
 #   plain HTTP/TCP, no DTLS or QUIC - but patching clears the alerts.
+# - #6195-#6196: apt and libapt-pkg7.0 (one source package, fixed in 3.0.4,
+#   DSA-6607-1) for CVE-2026-109518 (an on-path attacker can get an
+#   unverified package installed by abusing hard-link reuse on download
+#   retries). Only reachable while apt runs, i.e. during this build, but
+#   patching clears the alerts.
 #
 # --only-upgrade scopes this to just the named packages instead of a
 # blanket `apt-get upgrade` (terrascan AC_DOCKER_0052 - that breaks build
@@ -64,6 +69,8 @@ RUN apt-get update \
         openssl \
         libssl3t64 \
         openssl-provider-legacy \
+        apt \
+        libapt-pkg7.0 \
     && rm -rf /var/lib/apt/lists/*
 
 RUN groupadd --system semantica \
@@ -84,8 +91,8 @@ COPY --from=frontend-builder /app/semantica/static ./semantica/static
 # missing hashes pip needs on this image's actual 3.13 interpreter and
 # --require-hashes fails outright rather than silently under-pinning).
 # Every fetched package is hash-verified (Scorecard Pinned-Dependencies)
-# and pinned to the same versions CI audited, e.g. msgpack==1.2.1 and
-# setuptools==84.0.0 (which also replaces the base image's vulnerable
+# and pinned to the same versions CI audited, e.g.
+# setuptools==84.2.1 (which also replaces the base image's vulnerable
 # 70.3.0, CVE-2025-47273 - nothing else in the tree pulls a newer copy).
 # --no-deps on the local package itself: it's our own source tree, not a
 # fetch, so there's nothing to hash-pin there - but `pip install .` still

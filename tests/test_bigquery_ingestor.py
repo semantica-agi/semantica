@@ -2028,13 +2028,8 @@ class TestNullIdHandling:
 
 
 def _load_pyproject_toml():
-    try:
-        import tomllib  # Python 3.11+
-    except ModuleNotFoundError:
-        try:
-            import tomli as tomllib  # backport for <3.11
-        except ModuleNotFoundError:
-            pytest.skip("tomllib / tomli not available — skipping TOML-based tests")
+    # stdlib since 3.11, the supported floor, so these tests can no longer skip.
+    import tomllib
     from pathlib import Path
 
     toml_path = Path(__file__).resolve().parents[1] / "pyproject.toml"

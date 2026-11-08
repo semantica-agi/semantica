@@ -88,7 +88,7 @@ from ..utils.exceptions import ProcessingError, ValidationError
 from ..utils.helpers import ensure_directory
 from ..utils.logging import get_logger
 from ..utils.progress_tracker import get_progress_tracker
-from .endpoint_names import canonical_endpoints, has_endpoints
+from .endpoint_names import canonical_endpoints, first_set_id, has_endpoints
 
 
 class ParquetExporter:
@@ -526,26 +526,16 @@ class ParquetExporter:
 
         # Normalize relationship data to consistent format
         normalized_rels = []
-        for i, rel in enumerate(relationships):
+        for i, rel in enumerate(canonical_endpoints(relationships)):
             if not isinstance(rel, dict):
                 self.logger.warning(f"Relationship {i} is not a dictionary, skipping")
                 continue
 
             # Extract source and target IDs
-            source_id = (
-                rel.get("source_id")
-                or rel.get("source")
-                or rel.get("from_id")
-                or rel.get("from")
-            )
-            target_id = (
-                rel.get("target_id")
-                or rel.get("target")
-                or rel.get("to_id")
-                or rel.get("to")
-            )
+            source_id = first_set_id(rel, ("source_id", "source", "from_id", "from"))
+            target_id = first_set_id(rel, ("target_id", "target", "to_id", "to"))
 
-            if not source_id or not target_id:
+            if source_id is None or target_id is None:
                 self.logger.warning(
                     f"Relationship {i} missing source or target ID, skipping"
                 )

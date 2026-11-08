@@ -477,6 +477,34 @@ print(f"Text: {ocr_result.text}")
 print(f"Confidence: {ocr_result.confidence}")
 ```
 
+`ImageParser` only opens PNG, JPEG (including multi-picture JPEGs), WebP and
+BMP by default, and rejects files over 50 MB or `PIL.Image.MAX_IMAGE_PIXELS`
+pixels. The format is detected from the file contents, not the extension.
+
+- TIFF and GIF must be enabled explicitly. Their Pillow decoders have open
+  advisories (#2067), and enabling TIFF re-exposes all four TIFF ones.
+- `allowed_formats` replaces the default list, so include every format you
+  need. `"JPG"` and `"TIF"` are accepted as aliases. EPS can't be enabled.
+- `max_pixels` can't exceed `2 * PIL.Image.MAX_IMAGE_PIXELS`, because Pillow
+  refuses larger images itself. If your application sets
+  `PIL.Image.MAX_IMAGE_PIXELS = None`, the default is 89,478,485 pixels.
+- On memory-constrained hosts, lower `max_pixels`: `extract_text()` and
+  `preprocess_image()` decode the whole image, and a WebP at the default
+  limit can take about 2 GB.
+- Rejected files raise `ValidationError`, not `ProcessingError`; both derive
+  from `SemanticaError`.
+- `preprocess_image()` always writes PNG, as `<stem>_preprocessed.png` next
+  to the input. Inputs that differ only by extension (`a.png`, `a.jpg`)
+  share that output path.
+
+```python
+image_parser = ImageParser(
+    allowed_formats=["PNG", "JPEG", "WEBP", "BMP", "TIFF"],  # defaults + TIFF
+    max_file_size=20 * 1024 * 1024,  # bytes
+    max_pixels=50_000_000,
+)
+```
+
 ### Media File Parsing
 
 ```python

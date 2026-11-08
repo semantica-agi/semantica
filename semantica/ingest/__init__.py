@@ -417,6 +417,27 @@ def __getattr__(name: str) -> Any:
             if message:
                 raise ImportError(message)
 
+    if module_name == ".web_ingestor" and name in {
+        "WebIngestor",
+        "ContentExtractor",
+    }:
+        if getattr(module, "BeautifulSoup", None) is None:
+            message = _OPTIONAL_DEPENDENCY_MESSAGES.get(module_name)
+            if message:
+                raise ImportError(message)
+
+    if module_name == ".feed_ingestor" and name in {"FeedIngestor"}:
+        if getattr(module, "BeautifulSoup", None) is None:
+            message = _OPTIONAL_DEPENDENCY_MESSAGES.get(module_name)
+            if message:
+                raise ImportError(message)
+
+    if module_name == ".email_ingestor" and name in {"EmailIngestor"}:
+        if getattr(module, "BeautifulSoup", None) is None:
+            message = _OPTIONAL_DEPENDENCY_MESSAGES.get(module_name)
+            if message:
+                raise ImportError(message)
+
     if module_name == ".xml_ingestor" and name in {"XMLIngestor"}:
         if getattr(module, "etree", None) is None:
             message = _OPTIONAL_DEPENDENCY_MESSAGES.get(module_name)

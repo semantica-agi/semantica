@@ -252,6 +252,63 @@ class VectorStoreIterAllDispatchTests(unittest.TestCase):
 
         self.assertEqual(backend.batch_sizes, [32])
 
+    def test_iter_vectors_forwards_namespace_to_pinecone(self):
+        class _PineconeIterAllBackend:
+            def __init__(self):
+                self.calls = []
+
+            def iter_all(self, batch_size=500, namespace=""):
+                self.calls.append((batch_size, namespace))
+                yield {"id": "a", "vector": None, "metadata": {}}
+
+        backend = _PineconeIterAllBackend()
+        store = self._persistent_store(backend, backend_name="pinecone")
+
+        self.assertEqual(
+            list(store.iter_vectors(batch_size=7, namespace="production")),
+            [{"id": "a", "vector": None, "metadata": {}}],
+        )
+        self.assertEqual(backend.calls, [(7, "production")])
+
+    def test_iter_vectors_does_not_forward_namespace_to_other_backends(self):
+        backend = _IterAllBackendStore([])
+        store = self._persistent_store(backend, backend_name="qdrant")
+
+        self.assertEqual(list(store.iter_vectors(namespace="production")), [])
+        self.assertEqual(backend.batch_sizes, [500])
+
+    def test_delete_vectors_forwards_namespace_to_pinecone(self):
+        class _PineconeDeleteBackend:
+            def __init__(self):
+                self.calls = []
+
+            def delete_vectors(self, vector_ids, **options):
+                self.calls.append((vector_ids, options))
+                return {"deleted": True}
+
+        backend = _PineconeDeleteBackend()
+        store = self._persistent_store(backend, backend_name="pinecone")
+
+        self.assertTrue(store.delete_vectors(["a"], namespace="production"))
+        self.assertEqual(
+            backend.calls, [(["a"], {"namespace": "production"})]
+        )
+
+    def test_delete_vectors_does_not_forward_namespace_to_other_backends(self):
+        class _DeleteBackend:
+            def __init__(self):
+                self.calls = []
+
+            def delete_vectors(self, vector_ids, **options):
+                self.calls.append((vector_ids, options))
+                return True
+
+        backend = _DeleteBackend()
+        store = self._persistent_store(backend, backend_name="qdrant")
+
+        self.assertTrue(store.delete_vectors(["a"], namespace="production"))
+        self.assertEqual(backend.calls, [(["a"], {})])
+
     def test_iter_vectors_falls_back_to_scan_vectors_without_iter_all(self):
         items = [{"id": "a", "vector": None, "metadata": {}}]
         store = self._persistent_store(_ScanningBackendStore(items))
