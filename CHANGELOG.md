@@ -42,6 +42,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Failed identical-input BridgeAxiom retries could report provenance as recorded** (fixes #2154)
+  - `ProvenanceManager.track_entity()` now accepts keyword-only `raise_on_error=True` to propagate the original tracking or transaction exception after rollback. Its default still returns `None` for a failed new write or a copy of the previous entry for a failed update; shared transactions and batch savepoints retain their existing behavior.
+  - `BridgeAxiom.apply()` requests strict tracking from `ProvenanceManager` and retains the missing-entry/metadata-mismatch guard for older overrides. Subclasses must honor strict tracking for identical-input failure detection; matching metadata alone does not prove persistence. Required mode raises `ProvenanceRecordingError` with the original cause; best-effort mode reports the failure. Public errors still expose only the exception type, and duck-typed legacy managers retain their existing contract.
+
 - **`RepoIngestor.analyze_commits()` returned no commits whenever a filter was set** by @Melihunlu
   - `max_commits`, `since`, `until` and `author` were built as bare `git log` flags (`-N`, `--since=...`) and passed positionally to `Repo.iter_commits`, which treats positional arguments as the revision and paths. `git rev-list` rejected them with its usage text (exit code 129), the error was only logged, and `ingest_repository(..., commit_filters={"max_commits": N})` silently returned an empty `commits` list. The filters are now passed as `iter_commits` keyword arguments (`max_count`, `since`, `until`, `author`); `max_commits` accepts integers and numeric strings, and a malformed value (`"abc"`, `2.5`, `-1`) is reported through the method's logged error path instead of aborting `ingest_repository()`. New `tests/ingest/test_repo_ingestor_commit_filters.py` runs the filters against a real throwaway repository
 - **semgrep's `opentelemetry-api` pin no longer carries GHSA-xcq7-p3pf-p88h** by @Sameer6305
