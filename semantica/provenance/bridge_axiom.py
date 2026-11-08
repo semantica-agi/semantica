@@ -203,6 +203,13 @@ class BridgeAxiom:
             failure: Optional[str] = None
             cause: Optional[BaseException] = None
             try:
+                # Legacy duck-typed managers may return None on success and
+                # need not accept the strict persistence option.
+                track_kwargs = (
+                    {"raise_on_error": True}
+                    if isinstance(prov_manager, ProvenanceManager)
+                    else {}
+                )
                 # Track the bridge axiom application
                 recorded = prov_manager.track_entity(
                     entity_id=output_entity,
@@ -213,15 +220,15 @@ class BridgeAxiom:
                     source_quote=self.source_quote,
                     confidence=self.confidence,
                     metadata=metadata,
+                    **track_kwargs,
                 )
             except Exception as exc:
                 failure = type(exc).__name__
                 cause = exc
             else:
-                # ProvenanceManager logs storage failures instead of raising:
-                # it returns None for a new entity, or a copy of the old entry
-                # when an update fails. Either way this application is not on
-                # record, so treat it as a failed write.
+                # Strict tracking detects failed retries with matching metadata.
+                # Keep the return-value guard for older overrides that ignore
+                # strict tracking; matching metadata alone does not prove a write.
                 if isinstance(prov_manager, ProvenanceManager) and (
                     recorded is None or recorded.metadata != metadata
                 ):
