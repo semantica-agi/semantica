@@ -121,6 +121,12 @@ def test_get_triplets_preserves_literal_terms(remote_store):
             'say "hello"\nnext',
             {"datatype": EX + "text"},
         ),
+        (
+            '"https://example.org/doc"^^<%sanyURI>' % xsd,
+            "https://example.org/doc",
+            {"datatype": xsd + "anyURI"},
+        ),
+        ('"http://example.org/home"@en', "http://example.org/home", {"language": "en"}),
         ("<%sbob>" % EX, EX + "bob", {}),
     ]
     server.clear()
