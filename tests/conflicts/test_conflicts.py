@@ -288,8 +288,8 @@ class TestConflictsModule(unittest.TestCase):
         self.assertEqual(result.resolved_value, "A")  # first-seen
         self.assertIn("first-seen", result.resolution_notes.lower())
         self.assertTrue(result.metadata.get("credibility_fallback"))
-        # strategy field is overwritten by resolve_conflict after the method returns
-        self.assertEqual(result.resolution_strategy, "credibility_weighted")
+        # the fallback records the strategy it actually used
+        self.assertEqual(result.resolution_strategy, "first_seen")
 
 
     def test_conflict_resolver_first_seen(self):

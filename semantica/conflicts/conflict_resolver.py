@@ -276,7 +276,7 @@ class ConflictResolver:
             else:
                 result = self._resolve_by_voting(conflict)
 
-            result.resolution_strategy = strategy.value
+            result.resolution_strategy = result.resolution_strategy or strategy.value
             conflict_type = (
                 conflict.conflict_type.value
                 if hasattr(conflict.conflict_type, "value")
@@ -293,7 +293,7 @@ class ConflictResolver:
             self.progress_tracker.stop_tracking(
                 tracking_id,
                 status="completed",
-                message=f"Resolved conflict using {strategy.value}",
+                message=f"Resolved conflict using {result.resolution_strategy}",
             )
             return result
 
@@ -440,12 +440,20 @@ class ConflictResolver:
         # Detect whether any non-default credibility data exists for the sources
         # involved. When every source falls back to the default 0.5 score, the
         # weighting is not actually credibility-based.
+        # Known limitation: a source explicitly scored 0.5 cannot be told apart
+        # from an unregistered one, so such a conflict still falls back.
         has_real_credibility = False
+        credibility_map = getattr(self.source_tracker, "source_credibility", None)
+        get_credibility = getattr(self.source_tracker, "get_source_credibility", None)
         for source in conflict.sources:
             document = source.get("document", "unknown")
             # get_source_credibility returns 0.5 when the document is not in the
             # tracker's source_credibility map.
-            if document in getattr(self.source_tracker, "source_credibility", {}):
+            if isinstance(credibility_map, dict):
+                if document in credibility_map:
+                    has_real_credibility = True
+                    break
+            elif callable(get_credibility) and get_credibility(document) != 0.5:
                 has_real_credibility = True
                 break
 
@@ -457,6 +465,7 @@ class ConflictResolver:
                 conflict.conflict_id,
             )
             fallback = self._resolve_by_first_seen(conflict)
+            fallback.resolution_strategy = ResolutionStrategy.FIRST_SEEN.value
             fallback.resolution_notes = (
                 "Fell back to first-seen strategy because no credibility "
                 "data was available for the sources. "
