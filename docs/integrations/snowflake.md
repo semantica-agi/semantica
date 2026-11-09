@@ -34,7 +34,7 @@ ingestor = SnowflakeIngestor(
 )
 
 data = ingestor.ingest_table("CUSTOMERS")
-print(f"Retrieved {data.row_count} rows: columns: {data.columns}")
+print(f"Retrieved {data.row_count} rows with columns: {data.columns}")
 ```
 
 <Tip>
@@ -171,8 +171,8 @@ if not connector.test_connection():
 
 ## See Also
 
-- [Ingest Module](../reference/ingest) — Full SnowflakeIngestor and all other ingestors.
-- [Databricks Integration](/integrations/databricks) — Companion connector for a Snowflake + Databricks hybrid estate.
-- [Pipeline](../reference/pipeline) — Use Snowflake ingestion as a pipeline step.
-- [Installation](../installation) — All optional dependency extras.
-- [Knowledge Graph](../reference/kg) — Build a KG from ingested Snowflake data.
+- [Ingest Module](/reference/ingest): Full SnowflakeIngestor and all other ingestors.
+- [Databricks Integration](/integrations/databricks): Companion connector for a Snowflake + Databricks hybrid estate.
+- [Pipeline](/reference/pipeline): Use Snowflake ingestion as a pipeline step.
+- [Installation](/installation): All optional dependency extras.
+- [Knowledge Graph](/reference/kg): Build a KG from ingested Snowflake data.

@@ -24,11 +24,11 @@ pip install "semantica[agno,graph-neo4j,vectorstore-pgvector]"
 
 ## Components at a Glance
 
-- **AgnoContextStore** — `AgentMemory(db=…)`: Replaces Agno's flat storage with hybrid vector + context graph memory. Adds decision tracking and precedent search to any agent.
-- **AgnoKnowledgeGraph** — `Agent(knowledge=…)`: Documents flow through the full Semantica extraction pipeline into a queryable `ContextGraph` with multi-hop GraphRAG.
-- **AgnoDecisionKit** — `Agent(tools=[…])`: 6 decision intelligence tools: record decisions, find precedents, trace causal chains, analyze impact, check policies, summarize history.
-- **AgnoKGToolkit** — `Agent(tools=[…])`: 7 KG construction tools: extract entities, extract relations, add to graph, query graph, find related, infer facts, export subgraph.
-- **AgnoSharedContext** — Team-level: A single `ContextGraph` shared across all agents. Each agent gets a role-scoped view via `bind_agent()`. Writes are tagged by role.
+- **AgnoContextStore** (`AgentMemory(db=…)`): Replaces Agno's flat storage with hybrid vector + context graph memory. Adds decision tracking and precedent search to any agent.
+- **AgnoKnowledgeGraph** (`Agent(knowledge=…)`): Documents flow through the full Semantica extraction pipeline into a queryable `ContextGraph` with multi-hop GraphRAG.
+- **AgnoDecisionKit** (`Agent(tools=[…])`): 6 decision intelligence tools: record decisions, find precedents, trace causal chains, analyze impact, check policies, summarize history.
+- **AgnoKGToolkit** (`Agent(tools=[…])`): 7 KG construction tools: extract entities, extract relations, add to graph, query graph, find related, infer facts, export subgraph.
+- **AgnoSharedContext** (team-level): A single `ContextGraph` shared across all agents. Each agent gets a role-scoped view via `bind_agent()`. Writes are tagged by role.
 
 
 ## Component Details
@@ -221,7 +221,7 @@ All five classes are usable without `agno` installed: they carry the full Semant
 
 ## See Also
 
-- [Context Module](../reference/context) — AgentContext and ContextGraph backing the integration.
-- [Knowledge Graph](../reference/kg) — KG construction used by AgnoKnowledgeGraph.
-- [LLMs](../reference/llms) — Configure LLM providers for Agno agents.
-- [Vector Store](../reference/vector_store) — Vector backend for AgnoContextStore.
+- [Context Module](/reference/context): AgentContext and ContextGraph backing the integration.
+- [Knowledge Graph](/reference/kg): KG construction used by AgnoKnowledgeGraph.
+- [LLMs](/reference/llms): Configure LLM providers for Agno agents.
+- [Vector Store](/reference/vector_store): Vector backend for AgnoContextStore.
