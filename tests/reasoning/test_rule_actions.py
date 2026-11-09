@@ -397,14 +397,14 @@ class TestReteActionExecution(unittest.TestCase):
         first_results = self.engine.execute_matches([self.match])
         second_results = self.engine.execute_matches([self.match])
 
-        self.assertEqual(first_results, ["Adult(?x)"])
-        self.assertEqual(second_results, ["Adult(?x)"])
+        self.assertEqual(first_results, ["Adult(John)"])
+        self.assertEqual(second_results, ["Adult(John)"])
         self.assertEqual(self.calls, [{"x": "John"}])
 
     def test_rete_duplicate_match_preserves_results_but_fires_once(self):
         results = self.engine.execute_matches([self.match, self.match])
 
-        self.assertEqual(results, ["Adult(?x)", "Adult(?x)"])
+        self.assertEqual(results, ["Adult(John)", "Adult(John)"])
         self.assertEqual(self.calls, [{"x": "John"}])
 
     def test_rete_distinct_fact_ids_create_distinct_activations(self):
@@ -465,9 +465,13 @@ class TestReteActionExecution(unittest.TestCase):
         first_results = self.engine.execute_matches([cyclic_match])
         second_results = self.engine.execute_matches([cyclic_match])
 
-        self.assertEqual(first_results, ["Adult(?x)"])
-        self.assertEqual(second_results, ["Adult(?x)"])
+        self.assertEqual(first_results, ["Adult([[...]])"])
+        self.assertEqual(second_results, ["Adult([[...]])"])
         self.assertEqual(len(self.calls), 1)
+
+    def test_rete_execute_matches_instantiates_conclusion(self):
+        """execute_matches() substitutes bindings, like the Reasoner path."""
+        self.assertEqual(self.engine.execute_matches([self.match]), ["Adult(John)"])
 
     def test_rete_equivalent_mapping_implementations_share_an_activation(self):
         first_match = Match(
