@@ -371,7 +371,11 @@ class AgnoKnowledgeGraph(_KnowledgeBase):  # type: ignore[misc]
         import uuid
 
         chunks = self._chunk_text(text)
-        all_entities: List[str] = []
+        # Keep the extracted ``Entity`` objects for GraphBuilder: it reads
+        # ``.text``/``.label`` directly.  A parallel list of names is kept for
+        # the document cache, which looks graph neighbours up by node id.
+        all_entities: List[Any] = []
+        entity_names: List[str] = []
         all_relations: List[Any] = []
 
         for chunk in chunks:
@@ -379,8 +383,10 @@ class AgnoKnowledgeGraph(_KnowledgeBase):  # type: ignore[misc]
             ner_result: List[Any] = []
             try:
                 ner_result = self._ner.extract_entities(chunk) or []
-                chunk_entities = [getattr(e, "text", str(e)) for e in ner_result]
-                all_entities.extend(chunk_entities)
+                all_entities.extend(ner_result)
+                for ent in ner_result:
+                    name = getattr(ent, "text", None) or getattr(ent, "name", None)
+                    entity_names.append(str(name) if name else str(ent))
             except Exception as exc:
                 logger.debug("NER failed for chunk in '%s': %s", source, exc)
 
@@ -397,7 +403,10 @@ class AgnoKnowledgeGraph(_KnowledgeBase):  # type: ignore[misc]
                 {
                     "text": text,
                     "entities": all_entities,
-                    "relations": all_relations,
+                    # GraphBuilder reads pre-extracted relations from the
+                    # ``relationships`` key; a ``relations`` key is ignored and
+                    # the relations are silently dropped.
+                    "relationships": all_relations,
                     "source": source,
                 }
             ]
@@ -417,7 +426,7 @@ class AgnoKnowledgeGraph(_KnowledgeBase):  # type: ignore[misc]
                 "id": str(uuid.uuid4()),
                 "text": text,
                 "source": source,
-                "entities": all_entities,
+                "entities": entity_names,
                 "metadata": {"source": source},
             }
         )
