@@ -20,9 +20,10 @@ Main Classes:
 Example Usage:
     >>> from semantica.parse import DOCXParser
     >>> parser = DOCXParser()
-    >>> text = parser.parse("document.docx")
-    >>> sections = parser.extract_sections("document.docx")
-    >>> metadata = parser.extract_metadata("document.docx")
+    >>> parsed = parser.parse("document.docx")
+    >>> sections = parsed["sections"]
+    >>> metadata = parsed["metadata"]
+    >>> text = parser.extract_text("document.docx")
 
 Author: Semantica Contributors
 License: MIT

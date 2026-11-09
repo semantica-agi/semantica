@@ -22,6 +22,7 @@ import copy
 import csv
 import io
 import time
+import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
@@ -49,15 +50,8 @@ except (ImportError, OSError):
 
 try:
     from defusedxml import ElementTree as safe_xml_etree
-    from defusedxml.common import DefusedXmlException
 except (ImportError, OSError):  # pragma: no cover - fallback for minimal installs
     safe_xml_etree = None
-
-    class DefusedXmlException(Exception):
-        """Fallback exception placeholder when defusedxml is unavailable."""
-
-        pass
-
 
 from ..utils.exceptions import ProcessingError, ValidationError
 from ..utils.logging import get_logger
@@ -743,7 +737,10 @@ class PublicAPIIngestor(RESTIngestor):
             raise ProcessingError(
                 f"Failed to parse {detected_format.upper()} public API response"
             ) from exc
-        except (DefusedXmlException, *_LXML_SYNTAX_ERRORS) as exc:
+        except (ET.ParseError, *_LXML_SYNTAX_ERRORS) as exc:
+            # defusedxml raises xml.etree's ParseError and lxml raises its
+            # own XMLSyntaxError. Neither subclasses ValueError, and lxml's
+            # does not subclass ET.ParseError, so both have to be listed.
             raise ProcessingError("Failed to parse XML public API response") from exc
 
     def _detect_response_format(

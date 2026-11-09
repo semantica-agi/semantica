@@ -20,9 +20,10 @@ Main Classes:
 Example Usage:
     >>> from semantica.parse import PDFParser
     >>> parser = PDFParser()
-    >>> text = parser.parse("document.pdf")
-    >>> pages = parser.extract_pages("document.pdf")
-    >>> metadata = parser.extract_metadata("document.pdf")
+    >>> parsed = parser.parse("document.pdf")
+    >>> pages = parsed["pages"]
+    >>> metadata = parsed["metadata"]
+    >>> text = parser.extract_text("document.pdf")
 
 Author: Semantica Contributors
 License: MIT
@@ -130,7 +131,13 @@ class PDFParser:
 
                     # Extract pages
                     pages = []
-                    page_numbers = options.get("pages", range(len(pdf.pages)))
+                    # dict.get's default only applies when the key is absent.
+                    # extract_text() and extract_tables() always forward
+                    # pages=, so an omitted pages argument arrives as None and
+                    # would otherwise be iterated directly.
+                    page_numbers = options.get("pages")
+                    if page_numbers is None:
+                        page_numbers = range(len(pdf.pages))
 
                     self.progress_tracker.update_tracking(
                         tracking_id, message=f"Parsing {len(pdf.pages)} pages"

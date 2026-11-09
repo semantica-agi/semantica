@@ -120,5 +120,73 @@ class TestModelSwitching(unittest.TestCase):
         embedder.set_model(method="sentence_transformers", model_name="st-model-small")
         self.assertEqual(embedder.get_embedding_dimension(), 512)
 
+
+class TestFallbackReporting(unittest.TestCase):
+    """get_model_info must not name a model that is not loaded.
+
+    Model loading degrades to hash embedding without raising (documented on
+    _initialize_model), so a caller's only signal is what get_model_info
+    reports. Reporting the requested name while `method` is "fallback" made the
+    two fields contradict each other, and the docstring promises model_name is
+    the model "actually in use".
+    """
+
+    def test_fallback_does_not_report_the_requested_model_as_in_use(self):
+        # Patch before constructing: the default method is "fastembed", so a
+        # bare TextEmbedder() loads (and downloads) a real model wherever the
+        # extra is installed, which is the case in CI.
+        with patch(
+            "semantica.embeddings.text_embedder.FASTEMBED_AVAILABLE", False
+        ), patch(
+            "semantica.embeddings.text_embedder.SENTENCE_TRANSFORMERS_AVAILABLE",
+            False,
+        ):
+            embedder = TextEmbedder()
+            embedder.set_model("fastembed", "BAAI/bge-small-en-v1.5")
+            info = embedder.get_model_info()
+        self.assertEqual(info["method"], "fallback")
+        self.assertFalse(info["model_loaded"])
+        self.assertNotEqual(
+            info["model_name"],
+            "BAAI/bge-small-en-v1.5",
+            "model_name named a model that was never loaded",
+        )
+        self.assertEqual(info["requested_model_name"], "BAAI/bge-small-en-v1.5")
+
+    def test_requested_name_is_preserved_for_diagnostics(self):
+        with patch(
+            "semantica.embeddings.text_embedder.FASTEMBED_AVAILABLE", False
+        ), patch(
+            "semantica.embeddings.text_embedder.SENTENCE_TRANSFORMERS_AVAILABLE",
+            False,
+        ):
+            embedder = TextEmbedder()
+            embedder.set_model("fastembed", "some/model")
+            info = embedder.get_model_info()
+
+        self.assertEqual(info["requested_model_name"], "some/model")
+
+    def test_requested_name_follows_the_fastembed_config_override(self):
+        """FastEmbed reads fastembed_model_name when that override is set.
+
+        Reporting self.model_name would name a model the loader never tried.
+        """
+        with patch(
+            "semantica.embeddings.text_embedder.FASTEMBED_AVAILABLE", False
+        ), patch(
+            "semantica.embeddings.text_embedder.SENTENCE_TRANSFORMERS_AVAILABLE",
+            False,
+        ):
+            embedder = TextEmbedder(
+                method="fastembed",
+                model_name="declared/name",
+                fastembed_model_name="override/name",
+            )
+            info = embedder.get_model_info()
+
+        self.assertEqual(info["method"], "fallback")
+        self.assertEqual(info["requested_model_name"], "override/name")
+
+
 if __name__ == '__main__':
     unittest.main()

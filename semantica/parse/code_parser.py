@@ -23,11 +23,13 @@ Main Classes:
     - CodeComment: Dataclass for code comment representation
 
 Example Usage:
+    >>> from pathlib import Path
     >>> from semantica.parse import CodeParser
     >>> parser = CodeParser()
-    >>> structure = parser.parse_file("script.py")
-    >>> comments = parser.extract_comments("script.py")
-    >>> dependencies = parser.analyze_dependencies("script.py")
+    >>> parsed = parser.parse_code("script.py")
+    >>> source = Path("script.py").read_text()
+    >>> comments = parser.extract_comments(source, "python")
+    >>> dependencies = parser.analyze_dependencies(source, "python")
 
 Author: Semantica Contributors
 License: MIT
