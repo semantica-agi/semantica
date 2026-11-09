@@ -3077,6 +3077,9 @@ class ContextGraph:
             self.edge_type_index.clear()
             self._linked_graphs.clear()
             self._unresolved_links.clear()
+            # Cached analytics describe the graph that was just dropped, the
+            # same reason load_from_file() clears them.
+            self._analytics_cache.clear()
             self._retractions.clear()
             self._tombstones.clear()
             # Reset derived decision indexes so that decision queries against

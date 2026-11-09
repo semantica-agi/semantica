@@ -7,8 +7,9 @@ import io
 import json
 import logging
 import re
+from typing import Literal
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from fastapi.responses import Response
 
 from ..dependencies import get_session
@@ -62,9 +63,47 @@ def _import_response(nodes_added: int, edges_added: int, message: str = "Import 
     )
 
 
+def _apply_import(
+    session: GraphSession,
+    nodes: list,
+    edges: list,
+    mode: str,
+) -> ImportResponse:
+    """Apply parsed nodes/edges to the session in the requested ``mode``."""
+    try:
+        if mode == "replace":
+            # A replace from an empty payload would wipe the whole session. A
+            # source that really is empty is indistinguishable from a wrong or
+            # truncated upload here, so refuse rather than guess.
+            if not nodes and not edges:
+                raise HTTPException(
+                    status_code=422,
+                    detail="Refusing mode=replace with an empty payload: it would clear the whole graph.",
+                )
+            summary = session.replace_nodes_and_edges(nodes, edges)
+            return ImportResponse(
+                status="success",
+                message="Graph replaced from import",
+                mode="replace",
+                **summary,
+            )
+        nodes_added, edges_added = session.add_nodes_and_edges(nodes, edges)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return _import_response(nodes_added, edges_added)
+
+
 @router.post("/api/import", response_model=ImportResponse)
 async def import_file(
     file: UploadFile = File(...),
+    mode: Literal["add", "replace"] = Query(
+        "add",
+        description=(
+            "'add' (default) merges the file into the session and never removes anything. "
+            "'replace' rebuilds the session graph from the file, dropping nodes and edges "
+            "that are no longer in it."
+        ),
+    ),
     session: GraphSession = Depends(get_session),
 ):
     import os as _os
@@ -147,11 +186,7 @@ async def import_file(
                 }
             )
 
-        try:
-            nodes_added, edges_added = session.add_nodes_and_edges(nodes, edges)
-        except ValueError as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
-        return _import_response(nodes_added, edges_added)
+        return _apply_import(session, nodes, edges, mode)
 
     if filename.endswith(".csv"):
         try:
@@ -221,11 +256,7 @@ async def import_file(
                 detail="No valid nodes or edges could be parsed from the CSV payload.",
             )
 
-        try:
-            nodes_added, edges_added = session.add_nodes_and_edges(nodes, edges)
-        except ValueError as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
-        return _import_response(nodes_added, edges_added)
+        return _apply_import(session, nodes, edges, mode)
 
     raise HTTPException(
         status_code=422,

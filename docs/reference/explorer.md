@@ -76,8 +76,12 @@ The browser opens automatically at `http://127.0.0.1:8000`. The interactive API 
   </Step>
   <Step title="Import new data without restarting">
     ```bash
-    # Import a JSON or CSV file into the running session
+    # Add a JSON or CSV file to the running session (existing nodes are kept)
     curl -X POST http://localhost:8000/api/import \
+      -F "file=@updated_graph.json"
+
+    # Make the session match the file: nodes/edges no longer in it are removed
+    curl -X POST "http://localhost:8000/api/import?mode=replace" \
       -F "file=@updated_graph.json"
     ```
   </Step>
@@ -309,7 +313,7 @@ Full interactive docs at `http://localhost:8000/docs`. All endpoints accept and 
     | :-------- | :------ | :----------- |
     | `/api/export` | `POST` | Export graph as JSON or CSV: body: `{format, node_ids}` |
     | `/api/export/distance-enriched` | `POST` | Export pairwise distances as CSV or JSONL |
-    | `/api/import` | `POST` | Import nodes/edges from `.json` or `.csv` file (max 50 MB) |
+    | `/api/import` | `POST` | Import nodes/edges from `.json` or `.csv` file (max 50 MB). `?mode=add` (default) only adds; `?mode=replace` rebuilds the graph from the file and reports `nodes_removed`/`edges_removed` |
 
   </Accordion>
   <Accordion title="Health & Info">
@@ -398,6 +402,9 @@ The server only binds to `127.0.0.1` by default. To access Explorer from another
 
 **Empty graph after import**
 The import endpoint (`/api/import`) only parses `.json` and `.csv` files. Other formats return HTTP 422. JSON files must contain a top-level `entities`/`nodes` array or `relationships`/`edges` array.
+
+**Removed entities still show up after re-importing**
+`/api/import` is additive by default: it never deletes anything that is missing from the new file. Re-import with `?mode=replace` to make the session match the file. A replace with an empty file is refused (HTTP 422) so a wrong upload cannot clear the graph.
 
 **`PathFinder not available` error from `/api/graph/path`**
 Path finding requires the `semantica[kg]` extras. Install with `pip install "semantica[all]"`.

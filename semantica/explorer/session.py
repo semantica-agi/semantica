@@ -896,6 +896,82 @@ class GraphSession:
             self.rebuild_search_index()
         return nodes_added, edges_added
 
+    def replace_nodes_and_edges(
+        self,
+        nodes: List[Dict[str, Any]],
+        edges: List[Dict[str, Any]],
+    ) -> Dict[str, int]:
+        """Replace the session graph with ``nodes`` and ``edges``.
+
+        ``add_nodes_and_edges`` only ever adds, so re-importing an updated
+        source leaves every entity that disappeared from it behind (#1817).
+        This is the explicit counterpart: the graph is cleared and rebuilt from
+        the payload, so afterwards it reflects the source and nothing else.
+
+        The SKOS hierarchy is validated against the *payload alone* before
+        anything is cleared -- the existing edges are about to be dropped, so
+        they must not veto the new graph, and a payload that is rejected
+        leaves the session untouched. Annotations on nodes that no longer exist
+        are dropped with them; annotations on surviving nodes are kept.
+
+        The graph object itself is kept (cleared in place) because the mutation
+        bridge, markdown resources and provenance wiring hold references to it.
+
+        Returns:
+            Counts: ``nodes_imported``/``edges_imported`` (loaded from the
+            payload), ``nodes_added``/``edges_added`` (ids that were not in the
+            graph before), ``nodes_removed``/``edges_removed`` (ids that were in
+            the graph before and are not any more) and ``annotations_removed``.
+
+        Raises:
+            ValueError: the payload's SKOS hierarchy contains a cycle.
+        """
+        with self._lock:
+            hierarchy_edges = [edge for edge in edges if is_skos_hierarchy_edge(edge)]
+            if hierarchy_edges:
+                validate_skos_hierarchy(hierarchy_edges, [])
+
+            old_node_ids = set(self.graph.nodes)
+            old_edge_ids = set(self.graph._edge_index)
+
+            has_mutation_callback = callable(getattr(self.graph, "mutation_callback", None))
+            self.graph.clear()
+            nodes_imported = self.graph.add_nodes(nodes)
+            edges_imported = self.graph.add_edges(edges)
+
+            new_node_ids = set(self.graph.nodes)
+            new_edge_ids = set(self.graph._edge_index)
+
+            stale_annotations = [
+                ann_id
+                for ann_id, ann in self.annotations.items()
+                if ann.get("node_id") not in new_node_ids
+            ]
+            for ann_id in stale_annotations:
+                del self.annotations[ann_id]
+
+            summary = {
+                "nodes_imported": nodes_imported,
+                "edges_imported": edges_imported,
+                "nodes_added": len(new_node_ids - old_node_ids),
+                "edges_added": len(new_edge_ids - old_edge_ids),
+                "nodes_removed": len(old_node_ids - new_node_ids),
+                "edges_removed": len(old_edge_ids - new_edge_ids),
+                "annotations_removed": len(stale_annotations),
+            }
+
+            # ``clear()`` emits no events, so removed nodes would otherwise
+            # linger in the search index. RELOAD_GRAPH makes the mutation
+            # bridge bump the revision, rebuild the index and tell WebSocket
+            # clients; without a bridge the session does the first two itself.
+            if has_mutation_callback:
+                self.graph._emit_mutation("RELOAD_GRAPH", "", dict(summary))
+            else:
+                self._bump_graph_revision_locked()
+        if not has_mutation_callback:
+            self.rebuild_search_index()
+        return summary
+
     def add_node(
         self,
         node_id: str,
