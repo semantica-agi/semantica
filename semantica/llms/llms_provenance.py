@@ -271,6 +271,39 @@ class LLMProvenanceMixin:
         activity_ended_at_time = datetime.utcnow().isoformat()
 
         if self.provenance:
+            response = result
+            if isinstance(result, BaseModel):
+                response = getattr(
+                    result,
+                    "_semantica_response_metadata",
+                    getattr(result, "_raw_response", None),
+                )
+            usage = getattr(response, "usage", None)
+            if response is not result and isinstance(response, dict):
+                usage = response.get("usage")
+            if usage is not None:
+                if isinstance(usage, dict):
+                    prompt_tokens = usage.get("prompt_tokens")
+                    completion_tokens = usage.get("completion_tokens")
+                else:
+                    prompt_tokens = getattr(usage, "prompt_tokens", None)
+                    completion_tokens = getattr(usage, "completion_tokens", None)
+                metadata.update(
+                    prompt_tokens=prompt_tokens,
+                    completion_tokens=completion_tokens,
+                    total_tokens=(
+                        prompt_tokens + completion_tokens
+                        if prompt_tokens is not None and completion_tokens is not None
+                        else None
+                    ),
+                )
+            cost = getattr(response, "cost", None)
+            if cost is None:
+                cost = (getattr(response, "_hidden_params", None) or {}).get(
+                    "response_cost"
+                )
+            if cost is not None:
+                metadata["total_cost"] = cost
             # Pass the serialized preview rather than the raw result, so
             # _track_llm_call does not pick a model's .text/.content field.
             self._track_llm_call(

@@ -13,7 +13,7 @@ from pydantic import BaseModel
 
 from ..utils.exceptions import ProcessingError
 from ..utils.logging import get_logger
-from ..semantic_extract.providers import ResponseText
+from ..semantic_extract.providers import ResponseText, _with_response_metadata
 
 logger = get_logger("llms.litellm")
 
@@ -272,7 +272,7 @@ class LiteLLM:
             
             # Parse JSON
             try:
-                return json.loads(text_response)
+                return _with_response_metadata(json.loads(text_response), response)
             except json.JSONDecodeError:
                 # Primary parse failed — prose surrounds the JSON.  Scan forward
                 # from each candidate opening bracket ({, [) and find its
@@ -280,7 +280,7 @@ class LiteLLM:
                 # string literals so we never pair unrelated brackets.
                 extracted = _extract_first_json(text_response)
                 if extracted is not None:
-                    return extracted
+                    return _with_response_metadata(extracted, response)
                 raise ProcessingError(f"Failed to parse JSON from LiteLLM response: {text_response[:200]}")
                 
         except Exception as e:
@@ -355,7 +355,7 @@ class LiteLLM:
         for _attempt in range(max_retries):
             try:
                 data = self.generate_structured(current_prompt, **kwargs)
-                return schema.model_validate(data)
+                return _with_response_metadata(schema.model_validate(data), data)
             except Exception as e:
                 last_error = e
                 current_prompt = (
