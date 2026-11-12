@@ -49,6 +49,8 @@ WORKDIR /app
 #   unverified package installed by abusing hard-link reuse on download
 #   retries). Only reachable while apt runs, i.e. during this build, but
 #   patching clears the alerts.
+# - #6199-#6200: zlib1g (fixed in 1:1.3.dfsg+really1.3.1-1+deb13u1) for
+#   CVE-2026-76844 and CVE-2026-85091 (heap buffer overflow in gz_vacate()).
 #
 # --only-upgrade scopes this to just the named packages instead of a
 # blanket `apt-get upgrade` (terrascan AC_DOCKER_0052 - that breaks build
@@ -60,6 +62,14 @@ WORKDIR /app
 # Build, and local Compose alike. Leaving the version unpinned means apt
 # always resolves to whatever trixie-security currently has, which is
 # guaranteed >= today's fixed version since security repos never regress.
+#
+# The two skips below are for alerts #6197/#6198. Both rules mean "don't drive
+# the interactive `apt` CLI from a RUN, use apt-get" - which this layer does.
+# They fire on the bare word `apt` in the package list, i.e. the Debian
+# *package* named apt being upgraded for CVE-2026-109518 above, not on a
+# command. Dropping it from the list would reopen #6195.
+# checkov:skip=CKV_DOCKER_9:apt-get is the command; `apt` here is the name of the package being upgraded
+# ts:skip=AC_DOCKER_0002 apt-get is the command; `apt` here is the name of the package being upgraded
 RUN apt-get update \
     && apt-get install -y --no-install-recommends --only-upgrade \
         perl-base \
@@ -70,7 +80,7 @@ RUN apt-get update \
         libssl3t64 \
         openssl-provider-legacy \
         apt \
-        libapt-pkg7.0 \
+        libapt-pkg7.0         zlib1g \
     && rm -rf /var/lib/apt/lists/*
 
 RUN groupadd --system semantica \
