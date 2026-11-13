@@ -360,24 +360,32 @@ def _tool_link_decisions(args: dict) -> dict:
 
         kg_path = os.environ.get("SEMANTICA_KG_PATH")
         if added and kg_path:
-            if not _kg_load_ok:
-                _drop_link_edges(graph, new_edges)
-                return {
-                    "error": (
-                        "Persistence blocked: the configured SEMANTICA_KG_PATH "
-                        "could not be loaded at startup. Restart the server to retry."
+            if os.environ.get("SEMANTICA_KG_AUTO_RELOAD", "").strip().lower() == "true":
+                try:
+                    _save_graph(graph, kg_path)
+                except Exception as save_exc:
+                    return {
+                        "error": f"Mutation rolled back: could not persist graph: {save_exc}"
+                    }
+            else:
+                if not _kg_load_ok:
+                    _drop_link_edges(graph, new_edges)
+                    return {
+                        "error": (
+                            "Persistence blocked: the configured SEMANTICA_KG_PATH "
+                            "could not be loaded at startup. Restart the server to retry."
+                        )
+                    }
+                try:
+                    graph.save_to_file(kg_path)
+                except Exception as save_exc:
+                    _drop_link_edges(graph, new_edges)
+                    log.exception(
+                        "save_to_file failed after link_decisions; mutation rolled back"
                     )
-                }
-            try:
-                graph.save_to_file(kg_path)
-            except Exception as save_exc:
-                _drop_link_edges(graph, new_edges)
-                log.exception(
-                    "save_to_file failed after link_decisions; mutation rolled back"
-                )
-                return {
-                    "error": f"Mutation rolled back: could not persist graph: {save_exc}"
-                }
+                    return {
+                        "error": f"Mutation rolled back: could not persist graph: {save_exc}"
+                    }
     return {
         "source": source,
         "target": target,

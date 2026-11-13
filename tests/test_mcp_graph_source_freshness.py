@@ -304,6 +304,15 @@ class _GraphSourceFreshness:
                     "add_node_attribute",
                     {"node_id": "source:original"},
                 ),
+                (
+                    legacy._tool_link_decisions,
+                    "add_causal_relationship",
+                    {
+                        "source": "decision:first",
+                        "target": "decision:second",
+                        "relationship": "CAUSED",
+                    },
+                ),
             ]
         else:
             cases = [
