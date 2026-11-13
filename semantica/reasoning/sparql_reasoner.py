@@ -19,11 +19,26 @@ Main Classes:
     - SPARQLQueryResult: Dataclass for SPARQL query results
 
 Example Usage:
+    ``execute_query`` needs a triplet store -- it refuses to run without
+    one rather than return an empty result set:
+
     >>> from semantica.reasoning import SPARQLReasoner
-    >>> reasoner = SPARQLReasoner()
+    >>> from semantica.triplet_store import TripletStore
+    >>> store = TripletStore(
+    ...     backend="jena", endpoint="http://localhost:3030/ds"
+    ... )
+    >>> reasoner = SPARQLReasoner(triplet_store=store)
     >>> query = "SELECT ?s ?p ?o WHERE { ?s ?p ?o }"
-    >>> result = reasoner.query(query)
-    >>> expanded = reasoner.expand_query(query, rules)
+    >>> result = reasoner.execute_query(query)
+
+    Query expansion needs no store. Rules come from
+    ``add_inference_rule``, not from an argument to ``expand_query``:
+
+    >>> expander = SPARQLReasoner()
+    >>> expander.add_inference_rule("IF ?x is_a Person THEN ?x is_a Human")
+    >>> expanded = expander.expand_query(
+    ...     "SELECT ?x WHERE { ?x a :Person . }"
+    ... )
 
 Author: Semantica Contributors
 License: MIT
