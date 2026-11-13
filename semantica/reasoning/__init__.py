@@ -7,7 +7,21 @@ rule-based inference via Rete, SPARQL reasoning, abductive and deductive reasoni
 and native Datalog evaluation.
 """
 
+from .abductive_reasoner import (
+    AbductiveReasoner,
+    Hypothesis,
+    HypothesisRanking,
+    Observation,
+)
+from .abductive_reasoner import Explanation as AbductiveExplanation
 from .datalog_reasoner import DatalogFact, DatalogReasoner, DatalogRule
+from .deductive_reasoner import (
+    Argument,
+    Conclusion,
+    DeductiveReasoner,
+    Premise,
+    Proof,
+)
 from .explanation_generator import (
     Explanation,
     ExplanationGenerator,
@@ -102,4 +116,18 @@ __all__ = [
     "ReasoningStep",
     "ReasoningPath",
     "Justification",
+    # Deductive reasoning
+    "DeductiveReasoner",
+    "Premise",
+    "Conclusion",
+    "Proof",
+    "Argument",
+    # Abductive reasoning. Its Explanation is exported under an alias because
+    # explanation_generator already owns the plain name; the same alias is
+    # used inside explanation_generator.py.
+    "AbductiveReasoner",
+    "Observation",
+    "Hypothesis",
+    "HypothesisRanking",
+    "AbductiveExplanation",
 ]
