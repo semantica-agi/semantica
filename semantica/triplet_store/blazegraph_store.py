@@ -389,7 +389,11 @@ class BlazegraphStore:
         obj = triplet.object
         metadata = triplet.metadata or {}
 
-        if self._is_uri_value(obj):
+        datatype = metadata.get("datatype") or metadata.get("literal_datatype")
+        language = metadata.get("lang") or metadata.get("language")
+
+        # A datatype or language marks a literal, even one that looks like a URI.
+        if not (datatype or language) and self._is_uri_value(obj):
             if obj.startswith("<") and obj.endswith(">"):
                 # Validate the inner IRI with the same disallowed-character
                 # set as the unwrapped branch below — a narrower ad-hoc
@@ -401,8 +405,6 @@ class BlazegraphStore:
             return f"<{validated_obj}>"
 
         escaped = self._escape_literal(obj)
-        datatype = metadata.get("datatype") or metadata.get("literal_datatype")
-        language = metadata.get("lang") or metadata.get("language")
 
         if datatype:
             datatype_iri = self._resolve_datatype_iri(datatype)
@@ -490,12 +492,21 @@ class BlazegraphStore:
         # Convert bindings to triplets
         triplets = []
         for binding in result["bindings"]:
+            metadata = {"source": "blazegraph"}
+            obj = binding.get("o", {})
+            if obj.get("type") in {"literal", "typed-literal"}:
+                if obj.get("xml:lang"):
+                    metadata["language"] = obj["xml:lang"]
+                elif obj.get("datatype") and obj["datatype"] != (
+                    "http://www.w3.org/2001/XMLSchema#string"
+                ):
+                    metadata["datatype"] = obj["datatype"]
             triplets.append(
                 Triplet(
                     subject=binding.get("s", {}).get("value", ""),
                     predicate=binding.get("p", {}).get("value", ""),
                     object=binding.get("o", {}).get("value", ""),
-                    metadata={"source": "blazegraph"},
+                    metadata=metadata,
                 )
             )
 
