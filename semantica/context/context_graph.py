@@ -1397,23 +1397,11 @@ class ContextGraph:
             return
 
         with self._lock:
-    
-            links_data = []
-            for link_id, (other_graph, source_node_id, target_node_id) in self._linked_graphs.items():
-                links_data.append(
-                    {
-                        "link_id": link_id,
-                        "source_node_id": source_node_id,
-                        "target_node_id": target_node_id,
-                        "other_graph_id": other_graph.graph_id,
-                    }
-                )
-
             data = {
                 "graph_id": self.graph_id,
                 "nodes": [node.to_dict() for node in self.nodes.values()],
                 "edges": [edge.to_dict() for edge in self.edges],
-                "links": links_data,
+                "links": self._serialized_links(),
             }
 
         # Write atomically: serialize to a sibling temp file then replace the
@@ -1540,6 +1528,42 @@ class ContextGraph:
             self._rebuild_decision_indexes()
 
         self.logger.info(f"Loaded context graph from {path}")
+
+    def _serialized_links(self) -> List[Dict[str, Any]]:
+        """Every cross-graph link of this graph, in its persisted shape.
+
+        The caller must hold ``self._lock``. A link is either resolved (in
+        ``_linked_graphs``, holding the live other graph) or unresolved (in
+        ``_unresolved_links``, holding only the stored metadata after a load
+        whose other graph has not been reconnected). Both kinds are written,
+        so loading a graph and saving it again keeps links whose other graph
+        was never passed to :meth:`resolve_links`. A link present in both
+        maps is written once, from its resolved entry.
+        """
+        links: List[Dict[str, Any]] = [
+            {
+                "link_id": link_id,
+                "source_node_id": source_node_id,
+                "target_node_id": target_node_id,
+                "other_graph_id": other_graph.graph_id,
+            }
+            for link_id, (
+                other_graph,
+                source_node_id,
+                target_node_id,
+            ) in self._linked_graphs.items()
+        ]
+        links.extend(
+            {
+                "link_id": link_id,
+                "source_node_id": meta.get("source_node_id"),
+                "target_node_id": meta.get("target_node_id"),
+                "other_graph_id": meta.get("other_graph_id"),
+            }
+            for link_id, meta in self._unresolved_links.items()
+            if link_id not in self._linked_graphs
+        )
+        return links
 
     @staticmethod
     def _normalize_persistence_format(format: str) -> str:
@@ -1685,21 +1709,7 @@ class ContextGraph:
                 for edge in self.edges
             ]
             graph_id = self.graph_id
-            links_by_id = {
-                link_id: copy.deepcopy(link)
-                for link_id, link in self._unresolved_links.items()
-            }
-            for link_id, (
-                other_graph,
-                source_node_id,
-                target_node_id,
-            ) in self._linked_graphs.items():
-                links_by_id[link_id] = {
-                    "link_id": link_id,
-                    "source_node_id": source_node_id,
-                    "target_node_id": target_node_id,
-                    "other_graph_id": other_graph.graph_id,
-                }
+            serialized_links = self._serialized_links()
 
         edges.sort(
             key=lambda edge: (
@@ -1728,7 +1738,7 @@ class ContextGraph:
                 f"Cannot export ContextGraph: duplicate edge ID(s): {duplicates}."
             )
         links = sorted(
-            links_by_id.values(), key=lambda link: str(link.get("link_id", ""))
+            serialized_links, key=lambda link: str(link.get("link_id", ""))
         )
         manifest = {
             "format": self._MARKDOWN_FORMAT,
@@ -3607,6 +3617,7 @@ class ContextGraph:
             return {
                 "nodes": nodes_out,
                 "edges": edges_out,
+                "links": self._serialized_links(),
                 "statistics": {
                     "node_count": len(self.nodes),
                     "edge_count": len(self.edges),
@@ -3750,6 +3761,18 @@ class ContextGraph:
                 valid_until=edge_data.get("valid_until"),
             )
             self._add_internal_edge(edge)
+
+        # Cross-graph links come back unresolved, as after load_from_file:
+        # the other graph is a live object that a dict cannot carry, so
+        # navigation needs resolve_links(). Keeping them here means a
+        # to_dict() / from_dict() round trip does not drop them.
+        with self._lock:
+            for link_meta in graph_dict.get("links") or []:
+                if not isinstance(link_meta, dict):
+                    continue
+                link_id = link_meta.get("link_id")
+                if link_id:
+                    self._unresolved_links[link_id] = dict(link_meta)
 
         # Rebuild derived decision indexes from the now-populated node store.
         self._rebuild_decision_indexes()

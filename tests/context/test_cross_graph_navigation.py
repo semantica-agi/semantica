@@ -229,3 +229,128 @@ class TestCrossGraphPersistence:
         finally:
             for p in (p1, p2, p3):
                 os.unlink(p)
+
+
+# ---------------------------------------------------------------------------
+# Unresolved links survive a load followed by a save
+# ---------------------------------------------------------------------------
+
+
+def _saved_links(path):
+    with open(path, encoding="utf-8") as fp:
+        return json.load(fp)["links"]
+
+
+class TestUnresolvedLinksRoundTrip:
+    def test_load_then_save_keeps_unresolved_link(self, tmp_path):
+        g1, g2 = _two_graphs()
+        link_id = g1.link_graph(g2, "src", "dst")
+        path = tmp_path / "g1.json"
+        g1.save_to_file(path)
+
+        g1b = ContextGraph()
+        g1b.load_from_file(path)
+        g1b.save_to_file(path)
+
+        assert _saved_links(path) == [
+            {
+                "link_id": link_id,
+                "source_node_id": "src",
+                "target_node_id": "dst",
+                "other_graph_id": g2.graph_id,
+            }
+        ]
+
+    def test_unresolved_link_still_resolves_after_resave(self, tmp_path):
+        g1, g2 = _two_graphs()
+        link_id = g1.link_graph(g2, "src", "dst")
+        path = tmp_path / "g1.json"
+        g1.save_to_file(path)
+
+        g1b = ContextGraph()
+        g1b.load_from_file(path)
+        g1b.save_to_file(path)
+        g1c = ContextGraph()
+        g1c.load_from_file(path)
+
+        assert g1c.resolve_links({g2.graph_id: g2}) == 1
+        other, entry = g1c.navigate_to(link_id)
+        assert other is g2 and entry == "dst"
+
+    def test_relinking_after_load_keeps_old_and_new_links(self, tmp_path):
+        g1, g2 = _two_graphs()
+        old_link = g1.link_graph(g2, "src", "dst")
+        path = tmp_path / "g1.json"
+        g1.save_to_file(path)
+
+        g1b = ContextGraph()
+        g1b.load_from_file(path)
+        g3 = ContextGraph()
+        g3.add_node("other", "entity")
+        new_link = g1b.link_graph(g3, "src", "other")
+
+        # The new link is live; the old one still waits for resolve_links.
+        other, entry = g1b.navigate_to(new_link)
+        assert other is g3 and entry == "other"
+        with pytest.raises(KeyError, match="resolve_links"):
+            g1b.navigate_to(old_link)
+
+        g1b.save_to_file(path)
+        saved = {link["link_id"]: link for link in _saved_links(path)}
+        assert set(saved) == {old_link, new_link}
+        assert saved[old_link]["other_graph_id"] == g2.graph_id
+        assert saved[new_link]["other_graph_id"] == g3.graph_id
+
+        g1c = ContextGraph()
+        g1c.load_from_file(path)
+        assert g1c.resolve_links({g2.graph_id: g2, g3.graph_id: g3}) == 2
+        assert g1c.navigate_to(old_link) == (g2, "dst")
+        assert g1c.navigate_to(new_link) == (g3, "other")
+
+    def test_link_both_resolved_and_unresolved_is_written_once(self, tmp_path):
+        g1, g2 = _two_graphs()
+        link_id = g1.link_graph(g2, "src", "dst")
+        g1._unresolved_links[link_id] = {
+            "link_id": link_id,
+            "source_node_id": "stale-src",
+            "target_node_id": "stale-dst",
+            "other_graph_id": "stale-graph",
+        }
+        path = tmp_path / "g1.json"
+        g1.save_to_file(path)
+
+        links = _saved_links(path)
+        assert len(links) == 1
+        assert links[0]["other_graph_id"] == g2.graph_id
+        assert links[0]["source_node_id"] == "src"
+        assert g1.to_dict()["links"] == links
+
+    def test_to_dict_from_dict_round_trip_keeps_links(self):
+        g1, g2 = _two_graphs()
+        link_id = g1.link_graph(g2, "src", "dst")
+
+        restored = ContextGraph()
+        restored.from_dict(g1.to_dict())
+        with pytest.raises(KeyError, match="resolve_links"):
+            restored.navigate_to(link_id)
+
+        # A second round trip from the unresolved state keeps the link too.
+        again = ContextGraph()
+        again.from_dict(restored.to_dict())
+        assert again.resolve_links({g2.graph_id: g2}) == 1
+        assert again.navigate_to(link_id) == (g2, "dst")
+
+    def test_markdown_load_then_save_keeps_unresolved_link(self, tmp_path):
+        g1, g2 = _two_graphs()
+        link_id = g1.link_graph(g2, "src", "dst")
+        export = tmp_path / "g1-md"
+        g1.save_to_file(export, format="markdown")
+
+        g1b = ContextGraph()
+        g1b.load_from_file(export, format="markdown")
+        g1b.save_to_file(export, format="markdown")
+        g1c = ContextGraph()
+        g1c.load_from_file(export, format="markdown")
+
+        assert g1c.resolve_links({g2.graph_id: g2}) == 1
+        assert g1c.navigate_to(link_id) == (g2, "dst")

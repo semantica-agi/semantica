@@ -42,6 +42,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Loading a graph and saving it again dropped cross-graph links**
+  - `ContextGraph.save_to_file()` wrote only links whose other graph was connected, so links loaded from a file and not yet passed to `resolve_links()` were lost on the next save. JSON save, Markdown export and `to_dict()` now share one link writer that includes both kinds, and a link present in both is written once.
+  - `to_dict()` / `from_dict()` now carry cross-graph links too. `to_dict()` always includes a `"links"` list, and `from_dict()` reads entries with a `link_id` back as unresolved, the same as `load_from_file()`. New tests in `tests/context/test_cross_graph_navigation.py`
+
 - **Failed identical-input BridgeAxiom retries could report provenance as recorded** (fixes #2154)
   - `ProvenanceManager.track_entity()` now accepts keyword-only `raise_on_error=True` to propagate the original tracking or transaction exception after rollback. Its default still returns `None` for a failed new write or a copy of the previous entry for a failed update; shared transactions and batch savepoints retain their existing behavior.
   - `BridgeAxiom.apply()` requests strict tracking from `ProvenanceManager` and retains the missing-entry/metadata-mismatch guard for older overrides. Subclasses must honor strict tracking for identical-input failure detection; matching metadata alone does not prove persistence. Required mode raises `ProvenanceRecordingError` with the original cause; best-effort mode reports the failure. Public errors still expose only the exception type, and duck-typed legacy managers retain their existing contract.
