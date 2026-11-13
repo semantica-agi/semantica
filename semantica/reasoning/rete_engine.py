@@ -39,6 +39,7 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 
 from ..utils.logging import get_logger
 from ..utils.progress_tracker import get_progress_tracker
+from ._rule_matching import substitute_variables as _substitute_variables
 from .reasoner import Fact, Rule, _make_activation_key
 
 logger = get_logger("rete_engine")
@@ -625,8 +626,18 @@ class ReteEngine:
             results = []
             for match in matches:
                 # Conclusions are the pure inference result and remain
-                # independent from optional side-effect execution below.
-                results.append(match.rule.conclusion)
+                # independent from optional side-effect execution below. The
+                # template is instantiated with the match's bindings, matching
+                # the Reasoner/forward_chain() path; an unrepresentable binding
+                # falls back to the raw template instead of failing the match.
+                try:
+                    str_bindings = {k: str(v) for k, v in match.bindings.items()}
+                    conclusion = _substitute_variables(
+                        match.rule.conclusion, str_bindings
+                    )
+                except Exception:
+                    conclusion = match.rule.conclusion
+                results.append(conclusion)
                 try:
                     # Fire the rule's actions (and any legacy handler) through
                     # the bound Reasoner so Rete matching produces the same
