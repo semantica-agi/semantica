@@ -4,17 +4,17 @@ description: "Native Docling integration for high-fidelity PDF, DOCX, and PPTX p
 icon: "file-lines"
 ---
 
-> Parse complex documents: PDFs, DOCX, PPTX, HTML: with high-fidelity table extraction and built-in OCR.
+> Parse complex documents, including PDFs, DOCX, PPTX, and HTML, with high-fidelity table extraction and built-in OCR.
 
 
 ## Overview
 
 Docling is integrated into Semantica's `parse` module via the **`DoclingParser`**. Documents pass through Docling's **layout engine**, then feed directly into Semantica's extraction and KG pipeline.
 
-- **Multi-format** — PDF, DOCX, PPTX, HTML, and more.
-- **Table Extraction** — High-fidelity table parsing with header detection.
-- **OCR Support** — Built-in OCR for scanned documents.
-- **Markdown Export** — Clean Markdown output optimized for LLM consumption.
+- **Multi-format**: PDF, DOCX, PPTX, HTML, and more.
+- **Table Extraction**: High-fidelity table parsing with header detection.
+- **OCR Support**: Built-in OCR for scanned documents.
+- **Markdown Export**: Clean Markdown output optimized for LLM consumption.
 
 
 ## Installation
@@ -90,7 +90,7 @@ print(f"Pages: {result.get('total_pages')}")
 
 ## See Also
 
-- [Parse Module](../reference/parse) — Full DocumentParser and DoclingParser reference.
-- [Ingest Module](../reference/ingest) — Loading documents before parsing.
-- [Semantic Extract](../reference/semantic_extract) — NER and relation extraction on parsed text.
-- [Pipeline](../reference/pipeline) — Using DoclingParser in a full pipeline.
+- [Parse Module](/reference/parse): Full DocumentParser and DoclingParser reference.
+- [Ingest Module](/reference/ingest): Loading documents before parsing.
+- [Semantic Extract](/reference/semantic_extract): NER and relation extraction on parsed text.
+- [Pipeline](/reference/pipeline): Using DoclingParser in a full pipeline.
