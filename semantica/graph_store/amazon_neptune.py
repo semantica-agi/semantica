@@ -990,12 +990,14 @@ class AmazonNeptuneStore:
 
             # Build parameters
             params = {"node_id": str(node_id)}
-            for key, value in props_copy.items():
-                params[key] = value
+            for index, value in enumerate(props_copy.values()):
+                params[f"prop_{index}"] = value
 
             if use_merge:
                 # MERGE: Return existing node if ID matches, or create new
-                set_parts = [f"n.{key} = ${key}" for key in safe_keys]
+                set_parts = [
+                    f"n.{key} = $prop_{index}" for index, key in enumerate(safe_keys)
+                ]
 
                 if set_parts:
                     set_clause = ", ".join(set_parts)
@@ -1008,7 +1010,9 @@ class AmazonNeptuneStore:
                     query = f"MERGE (n:{label_str} {{`~id`: $node_id}}) RETURN n"
             else:
                 # CREATE: Will fail if node with same ID exists
-                prop_parts = ["`~id`: $node_id"] + [f"{key}: ${key}" for key in safe_keys]
+                prop_parts = ["`~id`: $node_id"] + [
+                    f"{key}: $prop_{index}" for index, key in enumerate(safe_keys)
+                ]
                 prop_assignments = ", ".join(prop_parts)
                 query = f"CREATE (n:{label_str} {{{prop_assignments}}}) RETURN n"
 
@@ -1345,9 +1349,11 @@ class AmazonNeptuneStore:
             # Build property assignments including ~id
             safe_rel_type = sanitize_identifier(rel_type, "relationship type")
             prop_parts = ["`~id`: $rel_id"]
-            for key, value in props_copy.items():
-                prop_parts.append(f"{sanitize_identifier(key, 'property key')}: ${key}")
-                params[key] = value
+            for index, (key, value) in enumerate(props_copy.items()):
+                safe_key = sanitize_identifier(key, "property key")
+                param = f"prop_{index}"
+                prop_parts.append(f"{safe_key}: ${param}")
+                params[param] = value
 
             prop_assignments = ", ".join(prop_parts)
             query = (
