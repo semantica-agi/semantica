@@ -332,6 +332,12 @@ class ImportResponse(BaseModel):
     edges_added: int = 0
     nodes_imported: Optional[int] = None
     edges_imported: Optional[int] = None
+    # ``mode=replace`` only: what the import dropped from the session. Both
+    # stay 0 in the default additive mode, which never removes anything.
+    mode: str = "add"
+    nodes_removed: int = 0
+    edges_removed: int = 0
+    annotations_removed: int = 0
 
 
 class AnnotationCreate(BaseModel):
