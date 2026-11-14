@@ -908,11 +908,16 @@ class GraphSession:
         This is the explicit counterpart: the graph is cleared and rebuilt from
         the payload, so afterwards it reflects the source and nothing else.
 
-        The SKOS hierarchy is validated against the *payload alone* before
-        anything is cleared -- the existing edges are about to be dropped, so
-        they must not veto the new graph, and a payload that is rejected
-        leaves the session untouched. Annotations on nodes that no longer exist
-        are dropped with them; annotations on surviving nodes are kept.
+        The payload is checked before anything is cleared: the SKOS hierarchy is
+        validated against the payload alone (the existing edges are about to be
+        dropped, so they must not veto the new graph) and the payload is loaded
+        into a scratch graph first, so one that holds nothing the graph can load
+        -- e.g. only nodes without a usable id -- is rejected instead of wiping
+        the session. A rejected payload leaves the session untouched. Annotations
+        on nodes that no longer exist are dropped with them; annotations on
+        surviving nodes are kept. The audit-grade provenance store is *not*
+        touched: it is an independent, append-only record and keeps the lineage
+        of entities that have left the graph, as it does for any other removal.
 
         The graph object itself is kept (cleared in place) because the mutation
         bridge, markdown resources and provenance wiring hold references to it.
@@ -924,12 +929,28 @@ class GraphSession:
             the graph before and are not any more) and ``annotations_removed``.
 
         Raises:
-            ValueError: the payload's SKOS hierarchy contains a cycle.
+            ValueError: the payload's SKOS hierarchy contains a cycle, or the
+                payload contains no node or edge the graph can load.
         """
         with self._lock:
             hierarchy_edges = [edge for edge in edges if is_skos_hierarchy_edge(edge)]
             if hierarchy_edges:
                 validate_skos_hierarchy(hierarchy_edges, [])
+
+            # Dry run on a throwaway graph. The graph loader silently skips
+            # records it cannot use (a node without an id, an edge without
+            # endpoints), so "the lists are non-empty" does not mean "something
+            # will be loaded" -- and by then the live graph is already cleared.
+            scratch = ContextGraph(advanced_analytics=False)
+            scratch.add_nodes(nodes)
+            scratch.add_edges(edges)
+            if not scratch.nodes:
+                raise ValueError(
+                    "Refusing mode=replace: the payload has no loadable nodes or "
+                    "edges (empty, or every record is missing an id or endpoints), "
+                    "so it would clear the whole graph."
+                )
+            del scratch
 
             old_node_ids = set(self.graph.nodes)
             old_edge_ids = set(self.graph._edge_index)
@@ -960,17 +981,37 @@ class GraphSession:
                 "annotations_removed": len(stale_annotations),
             }
 
-            # ``clear()`` emits no events, so removed nodes would otherwise
-            # linger in the search index. RELOAD_GRAPH makes the mutation
-            # bridge bump the revision, rebuild the index and tell WebSocket
-            # clients; without a bridge the session does the first two itself.
+            # ``clear()`` emits no events, so without help nothing listening to
+            # the graph -- the search index, open WebSocket views, a change
+            # tracker writing the audit log -- would ever learn what was
+            # removed. Publish the removals by id, exactly as a purge does,
+            # then a RELOAD_GRAPH summary that rebuilds the search index.
+            # Edges go first so a consumer never sees an edge without its node.
+            # Without a mutation callback nobody is listening and the session
+            # only has to keep its own revision and index current.
             if has_mutation_callback:
+                for edge_id in sorted(old_edge_ids - new_edge_ids, key=str):
+                    self.graph._emit_mutation(
+                        "REMOVE_EDGE", edge_id, self._replace_removal_payload(edge_id, "edge")
+                    )
+                for node_id in sorted(old_node_ids - new_node_ids, key=str):
+                    self.graph._emit_mutation(
+                        "REMOVE_NODE", node_id, self._replace_removal_payload(node_id, "node")
+                    )
                 self.graph._emit_mutation("RELOAD_GRAPH", "", dict(summary))
             else:
                 self._bump_graph_revision_locked()
         if not has_mutation_callback:
             self.rebuild_search_index()
         return summary
+
+    @staticmethod
+    def _replace_removal_payload(entity_id: Any, kind: str) -> Dict[str, Any]:
+        return {
+            "entity_id": entity_id,
+            "entity_kind": kind,
+            "reason": "import_replace",
+        }
 
     def add_node(
         self,

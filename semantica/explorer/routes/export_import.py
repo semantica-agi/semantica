@@ -72,14 +72,9 @@ def _apply_import(
     """Apply parsed nodes/edges to the session in the requested ``mode``."""
     try:
         if mode == "replace":
-            # A replace from an empty payload would wipe the whole session. A
-            # source that really is empty is indistinguishable from a wrong or
-            # truncated upload here, so refuse rather than guess.
-            if not nodes and not edges:
-                raise HTTPException(
-                    status_code=422,
-                    detail="Refusing mode=replace with an empty payload: it would clear the whole graph.",
-                )
+            # The session refuses (ValueError -> 422) a payload that holds
+            # nothing loadable, because that would wipe the whole graph and a
+            # source that is really empty looks the same as a wrong upload.
             summary = session.replace_nodes_and_edges(nodes, edges)
             return ImportResponse(
                 status="success",

@@ -404,7 +404,7 @@ The server only binds to `127.0.0.1` by default. To access Explorer from another
 The import endpoint (`/api/import`) only parses `.json` and `.csv` files. Other formats return HTTP 422. JSON files must contain a top-level `entities`/`nodes` array or `relationships`/`edges` array.
 
 **Removed entities still show up after re-importing**
-`/api/import` is additive by default: it never deletes anything that is missing from the new file. Re-import with `?mode=replace` to make the session match the file. A replace with an empty file is refused (HTTP 422) so a wrong upload cannot clear the graph.
+`/api/import` is additive by default: it never deletes anything that is missing from the new file. Re-import with `?mode=replace` to make the session match the file. A replace whose file holds nothing loadable (empty, or only records without an id) is refused (HTTP 422) so a wrong upload cannot clear the graph. Provenance audit records of removed nodes are kept.
 
 **`PathFinder not available` error from `/api/graph/path`**
 Path finding requires the `semantica[kg]` extras. Install with `pip install "semantica[all]"`.
