@@ -56,6 +56,7 @@ Author: Semantica Contributors
 License: MIT
 """
 
+import math
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Dict, List, Optional, Union
@@ -92,6 +93,81 @@ class Conflict:
     metadata: Dict[str, Any] = field(default_factory=dict)
 
 
+def _is_number(value: Any) -> bool:
+    """True for int and float, but not for bool (which subclasses int)."""
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
+def _finite_float(value: Any) -> Optional[float]:
+    """The value as a float when float arithmetic keeps it exact, else ``None``.
+
+    ``None`` for anything that cannot be compared by difference: values that are
+    not numbers, NaN and the infinities, and integers beyond 2**53, where two
+    distinct values map to the same float. Integers outside the float range
+    therefore cannot raise either.
+    """
+    if not _is_number(value):
+        return None
+    if isinstance(value, int) and abs(value) > 2**53:
+        return None
+    try:
+        as_float = float(value)
+    except OverflowError:
+        return None
+    return as_float if math.isfinite(as_float) else None
+
+
+def _same(left: Any, right: Any, tolerance: Optional[float]) -> bool:
+    """Whether two values count as the same value.
+
+    Matching string forms is the first rule, and it is the rule the detector
+    used before the tolerance existed: 640 and "640" are the same value, and so
+    are two NaNs or two infinities. Only with a positive ``tolerance``, and only
+    when float arithmetic can carry both, are two numbers closer than it also
+    the same.
+    """
+    if str(left) == str(right):
+        return True
+    if not tolerance:
+        return False
+    left_float = _finite_float(left)
+    right_float = _finite_float(right)
+    if left_float is None or right_float is None:
+        return False
+    return abs(left_float - right_float) <= tolerance
+
+
+def _distinct_values(values: List[Any], tolerance: Optional[float]) -> List[Any]:
+    """Return one key per distinct value.
+
+    Two values are the same when their string forms match, so a number and the
+    string that spells it stay equal, as they were when everything was compared
+    as a string. A positive ``tolerance`` adds one rule on top: two finite
+    numbers that differ by at most it are the same. Grouping is complete-linkage
+    — every pair inside a group is the same — because the tolerance relation is
+    not transitive (0, 0.8e-9 and 1.6e-9 with a 1e-9 tolerance form two groups,
+    not one).
+
+    NaN, the infinities and integers beyond 2**53 never reach the tolerance
+    comparison, since float arithmetic cannot tell their values apart; they are
+    compared by string form alone. ``None`` is not a value and is skipped.
+
+    ``tolerance`` of ``None`` or ``0`` leaves the string comparison alone, which
+    is what the detector did before the tolerance existed.
+    """
+    groups: List[List[Any]] = []
+    for value in values:
+        if value is None:
+            continue
+        for group in groups:
+            if all(_same(value, member, tolerance) for member in group):
+                group.append(value)
+                break
+        else:
+            groups.append([value])
+    return [tuple(group) for group in groups]
+
+
 class ConflictDetector:
     """
     Conflict detector for multi-source conflict identification.
@@ -123,6 +199,13 @@ class ConflictDetector:
         self.track_provenance = self.config.get("track_provenance", True)
         self.conflict_fields = self.config.get("conflict_fields", {})
         self.confidence_threshold = self.config.get("confidence_threshold", 0.7)
+        # Two numbers are the same when they differ by at most this much, so
+        # the same measurement at different precisions from two sources is not
+        # a conflict. None or 0 keeps the exact comparison.
+        tolerance_config = self.config.get("numeric_tolerance", 1e-9)
+        self.numeric_tolerance = (
+            None if tolerance_config is None else float(tolerance_config)
+        )
         self.auto_resolve = self.config.get("auto_resolve", False)
 
         # Initialize progress tracker
@@ -268,7 +351,7 @@ class ConflictDetector:
                             )
 
                 # Check for value conflicts
-                unique_values = list(set(str(v) for v in values if v is not None))
+                unique_values = _distinct_values(values, self.numeric_tolerance)
 
                 if len(unique_values) > 1:
                     conflict = Conflict(
@@ -289,7 +372,7 @@ class ConflictDetector:
 
                     self.logger.warning(
                         f"Value conflict detected: {entity_id}.{property_name} "
-                        f"has conflicting values: {unique_values}"
+                        f"has conflicting values: {values}"
                     )
                 
                 remaining_groups = total_groups - (j + 1)
@@ -425,7 +508,7 @@ class ConflictDetector:
                 # Check for conflicting properties
                 for prop_name in ["type", "properties", "confidence"]:
                     values = [r.get(prop_name) for r in rel_list if prop_name in r]
-                    unique_values = list(set(str(v) for v in values if v is not None))
+                    unique_values = _distinct_values(values, self.numeric_tolerance)
 
                     if len(unique_values) > 1:
                         conflict = Conflict(
@@ -566,9 +649,8 @@ class ConflictDetector:
         avg_confidence = sum(s.get("confidence", 0.5) for s in sources) / len(sources)
 
         # Higher confidence if values are very different
-        value_diversity = (
-            len(set(str(v) for v in values)) / len(values) if values else 0
-        )
+        distinct = _distinct_values(values, self.numeric_tolerance)
+        value_diversity = len(distinct) / len(values) if values else 0
 
         return min(1.0, avg_confidence * (1 + value_diversity))
 
@@ -586,7 +668,7 @@ class ConflictDetector:
                 value_range = max(numeric_values) - min(numeric_values)
                 if value_range > 1000:  # Large difference
                     return "high"
-        except (ValueError, TypeError):
+        except (ValueError, TypeError, OverflowError):
             pass
 
         return "medium"
@@ -963,8 +1045,8 @@ class ConflictDetector:
                             except (ValueError, TypeError):
                                 normalized_values.append(v)
 
-                        unique_values = list(
-                            set(str(v) for v in normalized_values if v is not None)
+                        unique_values = _distinct_values(
+                            normalized_values, self.numeric_tolerance
                         )
 
                         if len(unique_values) > 1:
@@ -990,7 +1072,7 @@ class ConflictDetector:
 
                             self.logger.warning(
                                 f"Temporal conflict detected: {entity_id}.{prop_name} "
-                                f"has conflicting values: {unique_values}"
+                                f"has conflicting values: {values}"
                             )
                 
                 remaining_groups = total_groups - (j + 1)
