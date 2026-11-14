@@ -207,7 +207,7 @@ The repository commits a `uv.lock`, so `uv` can build the exact same
 environment for every contributor:
 
 ```bash
-pip install uv==0.13.4        # same version CI uses (.github/requirements/uv-tool.txt)
+pip install uv==0.13.7        # same version CI uses (.github/requirements/uv-tool.txt)
 uv sync                       # creates .venv from uv.lock, including the `dev` group
 uv sync --extra explorer      # add whichever extras you are working on
 uv sync --python 3.11         # match CI's interpreter (any of 3.11-3.13 works)

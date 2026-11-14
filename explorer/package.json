@@ -61,6 +61,7 @@
   "overrides": {
     "dompurify": "^3.4.17",
     "uuid": "^13.0.1",
-    "esbuild": "^0.28.1"
+    "esbuild": "^0.28.1",
+    "minimatch": "^11.0.1"
   }
 }

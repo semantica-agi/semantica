@@ -236,21 +236,7 @@ Some dependency advisories cannot be fixed from inside this repository. Each
 one is recorded here with what it affects and when to revisit it, and its IDs
 are accepted in `osv-scanner.toml`.
 
-#### opentelemetry-api 1.43.0
-
-GHSA-xcq7-p3pf-p88h (CVE-2026-114603): `TraceState.from_header` parses an
-inbound W3C `tracestate` header in quadratic time. It is fixed in 1.45.1, but
-every google-adk release caps `opentelemetry-api<=1.44`. Overriding that cap
-in `[tool.uv]` makes pip's resolver reject `requirements-ci.txt`, so the fix
-waits on google-adk. The semgrep security-scan tool's own `~=1.37.0` pin is
-already overridden in `.github/requirements/security-scan-tools-overrides.txt`.
-
-- **Exposure**: Semantica never imports opentelemetry and its google-adk
-  integration runs no HTTP server, so no inbound `tracestate` header is
-  parsed.
-- **Revisit**: when google-adk allows 1.45.1. Accepted until 2027-01-23 in
-  `osv-scanner.toml` and in `IGNORED_VULN_IDS` in
-  `.github/workflows/security-scan.yml`.
+There are none at the moment.
 
 ## Best Practices for Users
 

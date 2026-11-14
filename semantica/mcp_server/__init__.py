@@ -35,7 +35,8 @@ Run directly for testing:
     python -m semantica.mcp_server
 
 Environment variables:
-    SEMANTICA_KG_PATH   — path to a persisted graph to load on start (optional)
+    SEMANTICA_KG_PATH   — persisted graph file to load on first use (optional)
+    SEMANTICA_KG_AUTO_RELOAD — true to reload changed graph files (default: false)
     SEMANTICA_LOG_LEVEL — log level: DEBUG, INFO, WARNING (default: WARNING)
 """
 
@@ -76,10 +77,26 @@ _graph: Any = None
 # SEMANTICA_KG_PATH file.  When False (load failed) mutation handlers skip
 # save_to_file to avoid overwriting the original file with an empty graph.
 _kg_load_ok: bool = True
+_graph_cache: Any = None
 
 
 def _get_graph():
-    global _graph, _kg_load_ok
+    global _graph, _kg_load_ok, _graph_cache
+    if os.environ.get("SEMANTICA_KG_AUTO_RELOAD", "").strip().lower() == "true":
+        if _graph_cache is None:
+            from semantica.context._graph_cache import _PersistedGraphCache
+
+            _graph_cache = _PersistedGraphCache()
+        try:
+            _graph = _graph_cache.get_graph(
+                _graph, os.environ.get("SEMANTICA_KG_PATH") or ""
+            )
+        except Exception:
+            _kg_load_ok = False
+            raise
+        _kg_load_ok = True
+        return _graph
+
     if _graph is None:
         from semantica.context import ContextGraph
         _graph = ContextGraph(advanced_analytics=True)
@@ -106,6 +123,22 @@ def _get_graph():
 # ══════════════════════════════════════════════════════════════════════════════
 # Tool implementations
 # ══════════════════════════════════════════════════════════════════════════════
+
+
+def _save_graph(graph, path: str) -> None:
+    """Persist a mutation under this session's load and revision contract."""
+    if not _kg_load_ok:
+        raise ValueError(
+            "Persistence blocked: the configured SEMANTICA_KG_PATH "
+            "could not be loaded at startup. Restart the server to retry."
+        )
+    if os.environ.get("SEMANTICA_KG_AUTO_RELOAD", "").strip().lower() == "true":
+        if _graph_cache is None:
+            raise ValueError("The graph source has not been loaded.")
+        _graph_cache.save_graph(graph, path)
+    else:
+        graph.save_to_file(path)
+
 
 def _tool_extract_entities(args: dict) -> dict:
     """Extract named entities from text.
@@ -197,32 +230,38 @@ def _tool_record_decision(args: dict) -> dict:
     # Persist back to disk so the decision survives server restarts.
     kg_path = os.environ.get("SEMANTICA_KG_PATH")
     if kg_path:
-        if not _kg_load_ok:
-            # Roll back to keep in-memory state consistent with persisted state.
-            if hasattr(graph, "_decisions") and decision_id in graph._decisions:
-                del graph._decisions[decision_id]
-                if hasattr(graph, "_decision_index"):
-                    cat = args.get("category", "")
-                    if cat in graph._decision_index:
-                        graph._decision_index[cat].discard(decision_id)
-            return {
-                "error": (
-                    "Persistence blocked: the configured SEMANTICA_KG_PATH "
-                    "could not be loaded at startup. Restart the server to retry."
-                )
-            }
-        try:
-            graph.save_to_file(kg_path)
-        except Exception as save_exc:
-            # Atomic write failed. Roll back to keep states consistent.
-            if hasattr(graph, "_decisions") and decision_id in graph._decisions:
-                del graph._decisions[decision_id]
-                if hasattr(graph, "_decision_index"):
-                    cat = args.get("category", "")
-                    if cat in graph._decision_index:
-                        graph._decision_index[cat].discard(decision_id)
-            log.exception("save_to_file failed after record_decision; mutation rolled back")
-            return {"error": f"Mutation rolled back: could not persist graph: {save_exc}"}
+        if os.environ.get("SEMANTICA_KG_AUTO_RELOAD", "").strip().lower() == "true":
+            try:
+                _save_graph(graph, kg_path)
+            except Exception as save_exc:
+                return {"error": f"Mutation rolled back: could not persist graph: {save_exc}"}
+        else:
+            if not _kg_load_ok:
+                # Roll back to keep in-memory state consistent with persisted state.
+                if hasattr(graph, "_decisions") and decision_id in graph._decisions:
+                    del graph._decisions[decision_id]
+                    if hasattr(graph, "_decision_index"):
+                        cat = args.get("category", "")
+                        if cat in graph._decision_index:
+                            graph._decision_index[cat].discard(decision_id)
+                return {
+                    "error": (
+                        "Persistence blocked: the configured SEMANTICA_KG_PATH "
+                        "could not be loaded at startup. Restart the server to retry."
+                    )
+                }
+            try:
+                graph.save_to_file(kg_path)
+            except Exception as save_exc:
+                # Atomic write failed. Roll back to keep states consistent.
+                if hasattr(graph, "_decisions") and decision_id in graph._decisions:
+                    del graph._decisions[decision_id]
+                    if hasattr(graph, "_decision_index"):
+                        cat = args.get("category", "")
+                        if cat in graph._decision_index:
+                            graph._decision_index[cat].discard(decision_id)
+                log.exception("save_to_file failed after record_decision; mutation rolled back")
+                return {"error": f"Mutation rolled back: could not persist graph: {save_exc}"}
     return {"decision_id": decision_id, "status": "recorded"}
 
 
@@ -321,24 +360,32 @@ def _tool_link_decisions(args: dict) -> dict:
 
         kg_path = os.environ.get("SEMANTICA_KG_PATH")
         if added and kg_path:
-            if not _kg_load_ok:
-                _drop_link_edges(graph, new_edges)
-                return {
-                    "error": (
-                        "Persistence blocked: the configured SEMANTICA_KG_PATH "
-                        "could not be loaded at startup. Restart the server to retry."
+            if os.environ.get("SEMANTICA_KG_AUTO_RELOAD", "").strip().lower() == "true":
+                try:
+                    _save_graph(graph, kg_path)
+                except Exception as save_exc:
+                    return {
+                        "error": f"Mutation rolled back: could not persist graph: {save_exc}"
+                    }
+            else:
+                if not _kg_load_ok:
+                    _drop_link_edges(graph, new_edges)
+                    return {
+                        "error": (
+                            "Persistence blocked: the configured SEMANTICA_KG_PATH "
+                            "could not be loaded at startup. Restart the server to retry."
+                        )
+                    }
+                try:
+                    graph.save_to_file(kg_path)
+                except Exception as save_exc:
+                    _drop_link_edges(graph, new_edges)
+                    log.exception(
+                        "save_to_file failed after link_decisions; mutation rolled back"
                     )
-                }
-            try:
-                graph.save_to_file(kg_path)
-            except Exception as save_exc:
-                _drop_link_edges(graph, new_edges)
-                log.exception(
-                    "save_to_file failed after link_decisions; mutation rolled back"
-                )
-                return {
-                    "error": f"Mutation rolled back: could not persist graph: {save_exc}"
-                }
+                    return {
+                        "error": f"Mutation rolled back: could not persist graph: {save_exc}"
+                    }
     return {
         "source": source,
         "target": target,
@@ -360,28 +407,34 @@ def _tool_add_entity(args: dict) -> dict:
     # Persist back to disk so the entity survives server restarts.
     kg_path = os.environ.get("SEMANTICA_KG_PATH")
     if kg_path:
-        if not _kg_load_ok:
+        if os.environ.get("SEMANTICA_KG_AUTO_RELOAD", "").strip().lower() == "true":
             try:
-                with graph._lock:
-                    graph._drop_node_from_indexes(node_id)
-            except Exception:
-                pass
-            return {
-                "error": (
-                    "Persistence blocked: the configured SEMANTICA_KG_PATH "
-                    "could not be loaded at startup. Restart the server to retry."
-                )
-            }
-        try:
-            graph.save_to_file(kg_path)
-        except Exception as save_exc:
+                _save_graph(graph, kg_path)
+            except Exception as save_exc:
+                return {"error": f"Mutation rolled back: could not persist graph: {save_exc}"}
+        else:
+            if not _kg_load_ok:
+                try:
+                    with graph._lock:
+                        graph._drop_node_from_indexes(node_id)
+                except Exception:
+                    pass
+                return {
+                    "error": (
+                        "Persistence blocked: the configured SEMANTICA_KG_PATH "
+                        "could not be loaded at startup. Restart the server to retry."
+                    )
+                }
             try:
-                with graph._lock:
-                    graph._drop_node_from_indexes(node_id)
-            except Exception:
-                pass
-            log.exception("save_to_file failed after add_entity; mutation rolled back")
-            return {"error": f"Mutation rolled back: could not persist graph: {save_exc}"}
+                graph.save_to_file(kg_path)
+            except Exception as save_exc:
+                try:
+                    with graph._lock:
+                        graph._drop_node_from_indexes(node_id)
+                except Exception:
+                    pass
+                log.exception("save_to_file failed after add_entity; mutation rolled back")
+                return {"error": f"Mutation rolled back: could not persist graph: {save_exc}"}
     return {"status": "added", "id": node_id}
 
 
@@ -398,38 +451,44 @@ def _tool_add_relationship(args: dict) -> dict:
     # Persist back to disk so the relationship survives server restarts.
     kg_path = os.environ.get("SEMANTICA_KG_PATH")
     if kg_path:
-        if not _kg_load_ok:
+        if os.environ.get("SEMANTICA_KG_AUTO_RELOAD", "").strip().lower() == "true":
             try:
-                with graph._lock:
-                    for edge in reversed(list(graph.edges)):
-                        if (edge.source_id == source
-                                and edge.target_id == target
-                                and edge.edge_type == rel_type):
-                            graph._drop_edge_from_indexes(edge)
-                            break
-            except Exception:
-                pass
-            return {
-                "error": (
-                    "Persistence blocked: the configured SEMANTICA_KG_PATH "
-                    "could not be loaded at startup. Restart the server to retry."
-                )
-            }
-        try:
-            graph.save_to_file(kg_path)
-        except Exception as save_exc:
+                _save_graph(graph, kg_path)
+            except Exception as save_exc:
+                return {"error": f"Mutation rolled back: could not persist graph: {save_exc}"}
+        else:
+            if not _kg_load_ok:
+                try:
+                    with graph._lock:
+                        for edge in reversed(list(graph.edges)):
+                            if (edge.source_id == source
+                                    and edge.target_id == target
+                                    and edge.edge_type == rel_type):
+                                graph._drop_edge_from_indexes(edge)
+                                break
+                except Exception:
+                    pass
+                return {
+                    "error": (
+                        "Persistence blocked: the configured SEMANTICA_KG_PATH "
+                        "could not be loaded at startup. Restart the server to retry."
+                    )
+                }
             try:
-                with graph._lock:
-                    for edge in reversed(list(graph.edges)):
-                        if (edge.source_id == source
-                                and edge.target_id == target
-                                and edge.edge_type == rel_type):
-                            graph._drop_edge_from_indexes(edge)
-                            break
-            except Exception:
-                pass
-            log.exception("save_to_file failed after add_relationship; mutation rolled back")
-            return {"error": f"Mutation rolled back: could not persist graph: {save_exc}"}
+                graph.save_to_file(kg_path)
+            except Exception as save_exc:
+                try:
+                    with graph._lock:
+                        for edge in reversed(list(graph.edges)):
+                            if (edge.source_id == source
+                                    and edge.target_id == target
+                                    and edge.edge_type == rel_type):
+                                graph._drop_edge_from_indexes(edge)
+                                break
+                except Exception:
+                    pass
+                log.exception("save_to_file failed after add_relationship; mutation rolled back")
+                return {"error": f"Mutation rolled back: could not persist graph: {save_exc}"}
     return {"status": "added", "source": source, "target": target, "type": rel_type}
 
 
@@ -566,8 +625,15 @@ def _tool_update_node(args: dict) -> dict:
         # Persist back to disk so the change survives restarts
         kg_path = os.environ.get("SEMANTICA_KG_PATH")
         if kg_path:
-            graph.save_to_file(kg_path)
-            persisted = True
+            if os.environ.get("SEMANTICA_KG_AUTO_RELOAD", "").strip().lower() == "true":
+                try:
+                    _save_graph(graph, kg_path)
+                    persisted = True
+                except Exception as save_exc:
+                    return {"error": f"Mutation rolled back: could not persist graph: {save_exc}"}
+            else:
+                graph.save_to_file(kg_path)
+                persisted = True
         else:
             persisted = False
         updated = graph.find_node(node_id)
@@ -597,7 +663,13 @@ def _tool_delete_node(args: dict) -> dict:
         graph.add_node_attribute(node_id, {"status": "archived"})
         kg_path = os.environ.get("SEMANTICA_KG_PATH")
         if kg_path:
-            graph.save_to_file(kg_path)
+            if os.environ.get("SEMANTICA_KG_AUTO_RELOAD", "").strip().lower() == "true":
+                try:
+                    _save_graph(graph, kg_path)
+                except Exception as save_exc:
+                    return {"error": f"Mutation rolled back: could not persist graph: {save_exc}"}
+            else:
+                graph.save_to_file(kg_path)
         return {"status": "archived", "node_id": node_id, "persisted": bool(kg_path)}
     except Exception as exc:
         return {"error": str(exc)}
@@ -1035,7 +1107,11 @@ def _handle(req: dict) -> dict | None:
 
     if method == "resources/read":
         uri = params.get("uri", "")
-        data = _read_resource(uri)
+        try:
+            data = _read_resource(uri)
+        except Exception as exc:
+            log.exception("Resource %s raised", uri)
+            return err(-32603, f"Resource read failed ({type(exc).__name__}).")
         text = json.dumps(data, ensure_ascii=False, indent=2)
         return ok({"contents": [{"uri": uri, "mimeType": "application/json", "text": text}]})
 
