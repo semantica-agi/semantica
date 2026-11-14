@@ -25,15 +25,15 @@ def pyproject():
 
 
 def _range(requires_python: str):
-    """Parse ``>=3.11,<3.14`` into ``((3, 11), (3, 14))``."""
-    floor = re.fullmatch(r".*>=\s*(\d+)\.(\d+)(?:\.\d+)?.*", requires_python)
-    ceiling = re.fullmatch(r".*<\s*(\d+)\.(\d+)(?:\.\d+)?.*", requires_python)
+    """Parse ``>=3.11.5,<3.14`` into ``((3, 11, 5), (3, 14, 0))``."""
+    floor = re.fullmatch(r".*>=\s*(\d+)\.(\d+)(?:\.(\d+))?.*", requires_python)
+    ceiling = re.fullmatch(r".*<\s*(\d+)\.(\d+)(?:\.(\d+))?.*", requires_python)
     assert floor and ceiling, (
         f"requires-python must state both a floor and a ceiling, got {requires_python!r}"
     )
     return (
-        (int(floor.group(1)), int(floor.group(2))),
-        (int(ceiling.group(1)), int(ceiling.group(2))),
+        (int(floor.group(1)), int(floor.group(2)), int(floor.group(3) or 0)),
+        (int(ceiling.group(1)), int(ceiling.group(2)), int(ceiling.group(3) or 0)),
     )
 
 
@@ -66,7 +66,10 @@ def test_install_matrix_tests_exactly_the_supported_versions(pyproject):
         )
     )
     matrix = workflow["jobs"]["verify-install"]["strategy"]["matrix"]
-    assert {str(v) for v in matrix["python-version"]} == _supported_versions(pyproject)
+    # The matrix may pin a patch release for the floor (3.11.5) while the
+    # supported versions are expressed as major.minor.
+    pinned = {".".join(str(v).split(".")[:2]) for v in matrix["python-version"]}
+    assert pinned == _supported_versions(pyproject)
 
 
 def test_docker_runtime_image_is_inside_the_supported_range(pyproject):
@@ -92,7 +95,11 @@ def test_dev_tooling_is_a_dependency_group_not_a_runtime_extra(pyproject):
         ((3, 9, 21), "fail"),
         # 3.10 has failed since 0.8.0, which moved the floor to 3.11 (#2067).
         ((3, 10, 18), "fail"),
-        ((3, 11, 0), "ok"),
+        # 3.11.0 to 3.11.4 cannot install soupsieve 4.x, which the audit gate
+        # requires (#2251), so the floor carries a patch version.
+        ((3, 11, 0), "fail"),
+        ((3, 11, 4), "fail"),
+        ((3, 11, 5), "ok"),
         ((3, 13, 9), "ok"),
         ((3, 14, 0), "warn"),
     ],
