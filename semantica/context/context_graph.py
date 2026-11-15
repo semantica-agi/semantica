@@ -3094,37 +3094,37 @@ class ContextGraph:
 
     def _normalize_timestamp(self, timestamp_value) -> datetime:
         """
-        Normalize timestamp value to datetime object.
+        Normalize timestamp value to a tz-naive UTC datetime object.
         
         Handles various timestamp formats:
-        - datetime: returns as-is
-        - int/float: converts from epoch seconds
-        - str: parses ISO format (with optional Z)
-        - None/invalid: returns current datetime
+        - datetime: converted to tz-naive UTC
+        - int/float: converts from epoch seconds to UTC
+        - str: parses ISO format (with optional Z or timezone offset)
+        - None/invalid: returns current UTC datetime
         
         Args:
             timestamp_value: Timestamp value in various formats
             
         Returns:
-            datetime: Normalized datetime object
+            datetime: Normalized tz-naive UTC datetime object
         """
-        from datetime import datetime
+        from datetime import datetime, timezone
         
+        if timestamp_value is None:
+            return datetime.utcnow()
         if isinstance(timestamp_value, datetime):
+            if timestamp_value.tzinfo is not None:
+                return timestamp_value.astimezone(timezone.utc).replace(tzinfo=None)
             return timestamp_value
         elif isinstance(timestamp_value, (int, float)):
-            return datetime.fromtimestamp(timestamp_value)
+            return datetime.fromtimestamp(timestamp_value, tz=timezone.utc).replace(tzinfo=None)
         elif isinstance(timestamp_value, str):
-            # Handle ISO format with optional Z suffix
-            timestamp_str = timestamp_value.rstrip('Z')  #
-            try:
-                return datetime.fromisoformat(timestamp_str)
-            except ValueError:
-                # Fallback to current datetime if parsing fails
-                return datetime.now()
+            parsed = _parse_iso_dt(timestamp_value)
+            if parsed is not None:
+                return parsed
+            return datetime.utcnow()
         else:
-            # Fallback for None or other types
-            return datetime.now()
+            return datetime.utcnow()
 
     def _add_internal_node(self, node: ContextNode) -> bool:
         """Internal method to add a node."""
@@ -3759,7 +3759,10 @@ class ContextGraph:
 
     def state_at(self, timestamp: Union[str, int, float, datetime]) -> Dict[str, Any]:
         """Return a serializable snapshot of graph state valid at the given time."""
-        at_time = self._normalize_timestamp(timestamp)
+        normalized_str = normalize_temporal_input(timestamp)
+        if normalized_str is None:
+            raise ValueError("timestamp must not be None")
+        at_time = datetime.fromisoformat(normalized_str)
         with self._lock:
             active_nodes = [node for node in self.nodes.values() if node.is_active(at_time)]
             active_node_ids = {node.node_id for node in active_nodes}
@@ -3792,7 +3795,7 @@ class ContextGraph:
         ]
 
         return {
-            "timestamp": at_time.isoformat(),
+            "timestamp": normalized_str,
             "nodes": nodes_payload,
             "edges": edges_payload,
             "entities": nodes_payload,
