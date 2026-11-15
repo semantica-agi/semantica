@@ -197,9 +197,10 @@ pip install -e . --group dev
 pre-commit install
 ```
 
-Semantica supports Python **3.11–3.13** (`requires-python = ">=3.11,<3.14"`). Python 3.10
+Semantica supports Python **3.11.5–3.13** (`requires-python = ">=3.11.5,<3.14"`). Python 3.10
 support ended in 0.8.0; see the CHANGELOG.
-CI runs on 3.11 and the Install Matrix covers the whole range.
+CI asks for the 3.11 line, which setup-python resolves to its latest patch; the Install
+Matrix pins 3.11.5 next to the bare 3.11–3.13 lines.
 
 #### Reproducible environment with uv (recommended)
 
@@ -207,10 +208,10 @@ The repository commits a `uv.lock`, so `uv` can build the exact same
 environment for every contributor:
 
 ```bash
-pip install uv==0.13.4        # same version CI uses (.github/requirements/uv-tool.txt)
+pip install uv==0.13.7        # same version CI uses (.github/requirements/uv-tool.txt)
 uv sync                       # creates .venv from uv.lock, including the `dev` group
 uv sync --extra explorer      # add whichever extras you are working on
-uv sync --python 3.11         # match CI's interpreter (any of 3.11-3.13 works)
+uv sync --python 3.11.5       # 3.11.0-3.11.4 cannot resolve soupsieve 4.x
 uv run pytest tests/
 ```
 
@@ -245,7 +246,7 @@ Regenerate it after changing `pyproject.toml` dependencies:
 
 ```bash
 pip install uv==0.12.1
-uv pip compile pyproject.toml --python-version 3.11 --python-platform linux --extra all --group dev --generate-hashes -o requirements-ci.txt
+uv pip compile pyproject.toml --python-version 3.11.5 --python-platform linux --extra all --group dev --generate-hashes -o requirements-ci.txt
 ```
 
 The `all` extra is the repo's cross-platform dependency set (GPU extras like

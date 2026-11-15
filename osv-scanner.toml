@@ -5,20 +5,6 @@
 # See https://github.com/google/osv-scanner#ignore-vulnerabilities-by-id for
 # the file format.
 
-# opentelemetry-api: TraceState.from_header parses an inbound W3C tracestate
-# header in O(N^2) time, fixed in 1.45.1. Pinned at 1.43.0 in requirements-ci.txt
-# and uv.lock because google-adk caps opentelemetry-api (<=1.44 as of 2.13.0).
-# (security-scan-tools.txt is fixed through security-scan-tools-overrides.txt.)
-# Semantica never imports opentelemetry and its google-adk integration runs no
-# HTTP server, so no inbound tracestate header is parsed. See the matching
-# IGNORED_VULN_IDS entry in
-# .github/workflows/security-scan.yml.
-
-[[IgnoredVulns]]
-id = "GHSA-xcq7-p3pf-p88h"
-ignoreUntil = 2027-01-23
-reason = "opentelemetry-api <1.45.1, capped by google-adk; no inbound tracestate parsing. See security-scan.yml."
-
 # ---------------------------------------------------------------------------
 # chromadb / json-repair (previously pulled in transitively by an opt-in
 # `crewai` extra) are no longer resolvable at all: the `crewai` extra was

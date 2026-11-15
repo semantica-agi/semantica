@@ -28,19 +28,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **Breaking: Python 3.10 is no longer supported. Semantica now requires Python 3.11–3.13** (closes #2067)
+- **Breaking: Python 3.10 is no longer supported. Semantica now requires Python 3.11.5–3.13** (closes #2067)
   - **Why**: Python 3.10 reached end of life on 2026-10-01, and Pillow 13.0.0 requires Python 3.11. Pillow 13 fixes 41 advisories against Pillow 12.3.0, several of them critical (for example GHSA-v9pv-5gc8-w2m6 and GHSA-5x8w-8jj5-q52h, where opening a crafted image can lead to code execution). No Pillow 12.x release carries those fixes, so a 3.10 install could not be made safe. Pillow is required by matplotlib, docling, pdfplumber, python-pptx and other dependencies, so it could not simply be removed either
   - **Who is affected**: anyone installing or running Semantica on Python 3.10, about 10% of downloads in September–October 2026. Python 3.11, 3.12 and 3.13 are unaffected
-  - **What happens on 3.10**: `requires-python` is now `>=3.11,<3.14`, so `pip install semantica` on 3.10 installs the last release that supports it, 0.7.x, and gets no further updates. Pinning a newer version on 3.10 fails with "requires a different Python". Existing 3.10 installs keep working but stay on Pillow 12.x, which carries these advisories
-  - **Migration**: move to Python 3.11 or newer (3.13 is what the Docker image uses), then upgrade: `pip install --upgrade semantica`. No Semantica API changes; code that ran on 3.10 runs unchanged
+  - **What happens on 3.10**: `requires-python` is now `>=3.11.5,<3.14`, so `pip install semantica` on 3.10 installs the last release that supports it, 0.7.x, and gets no further updates. Pinning a newer version on 3.10 fails with "requires a different Python". Existing 3.10 installs keep working but stay on Pillow 12.x, which carries these advisories
+  - **Migration**: move to Python 3.11.5 or newer (3.13 is what the Docker image uses), then upgrade: `pip install --upgrade semantica`. No Semantica API changes; code that ran on 3.10 runs unchanged
   - **Dependency changes**: core `pillow>=13.0.0` (was `>=12.2.0`); `embeddings-local` now needs `fastembed>=0.9.1` and `explorer-lite` needs `streamlit>=1.66.1`, the first releases that accept Pillow 13. The `[tool.uv]` Pillow override and the `--no-deps` / `--disable-pip` CI workarounds it needed are gone
-  - **Policy**: classifiers, the Install Matrix (3.11–3.13 on Ubuntu/macOS/Windows), `semantica doctor` (`MIN_PYTHON = (3, 11)`), the Dockerfile and `tests/test_python_support_policy.py` all agree on the new floor. `uv.lock` drops its 3.10-only resolutions (about 1,700 lines net)
+  - **Policy**: classifiers, the Install Matrix (3.11.5–3.13 on Ubuntu/macOS/Windows), `semantica doctor` (`MIN_PYTHON = (3, 11, 5)`), the Dockerfile and `tests/test_python_support_policy.py` all agree on the new floor. `uv.lock` drops its 3.10-only resolutions (about 1,700 lines net)
   - **Security**: closes the 13 Pillow Dependabot alerts (including #392 and #425) and the 3 Python 3.10 filelock alerts. The 28 Pillow and 3 filelock acceptances are removed from `osv-scanner.toml` and `SECURITY.md`
 
 - **The remaining config modules load `.toml` files with stdlib `tomllib`** (#2107)
   - `ConflictsConfig`, `DeduplicationConfig`, `EmbeddingsConfig`, `ExportConfig`, `IngestConfig`, `KGConfig`, `NormalizeConfig`, `OntologyConfig`, `ParseConfig` and `SplitConfig` loaded `.toml` with the third-party `toml` package (TOML 0.5) from a text file, then unwrapped their own section. `semantic_extract.config.Config` merged the whole document. All eleven now use stdlib `tomllib` (TOML 1.0) from a binary file, matching `graph_store`, `triplet_store`, `vector_store` and `visualization`. Section handling is unchanged. A file that uses TOML 1.0 syntax now loads; a file that depended on a `toml` 0.5 quirk can be rejected. `toml` stays a core dependency.
 
 ### Fixed
+
+- **soupsieve 2.9.2 → 4.1.1 and tornado 6.6 → 6.6.1 clear the remaining audit advisories** (supersedes #2257, #2260; fixes #2251): soupsieve 4.0.0 fixes CVE-2026-126190 and 2.10.0 fixes CVE-2026-126192, and every soupsieve 4.x release declares `requires-python >=3.11.5`, so the project floor moves with the bump. Only the two packages and the two pre-3.11 backports (`async-timeout`, `tomli`) change in `requirements-ci.txt`, and `uv.lock` is regenerated from the same target.
 
 - **Failed identical-input BridgeAxiom retries could report provenance as recorded** (fixes #2154)
   - `ProvenanceManager.track_entity()` now accepts keyword-only `raise_on_error=True` to propagate the original tracking or transaction exception after rollback. Its default still returns `None` for a failed new write or a copy of the previous entry for a failed update; shared transactions and batch savepoints retain their existing behavior.
