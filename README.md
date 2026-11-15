@@ -1,3 +1,5 @@
+Maintained fork of [semantica-agi/semantica](https://github.com/semantica-agi/semantica). It applies security patches and maintenance fixes on top of upstream. Part of the [Dark Gravity](https://github.com/lgcorzo/rust_CACD_autonomous_factory) factory. License: MIT.
+
 <div align="center">
 
 <img src="Semantica Logo.png" alt="Semantica" width="420"/>
