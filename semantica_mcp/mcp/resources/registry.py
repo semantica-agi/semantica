@@ -79,18 +79,29 @@ def _read_schema_info(uri: str) -> dict:
 
 
 def _read_ontology_schema(uri: str) -> dict:
+    """Describe the node and relationship types present in the session graph.
+
+    The MCP session holds a ``ContextGraph`` and no ontology store, so the
+    schema reported here is the one the graph actually uses: each node type and
+    each relationship type with how many of them exist.
+    """
     try:
         graph = get_graph()
-        try:
-            from semantica.ontology import OntologyManager
-            mgr = OntologyManager(graph_store=graph)
-            schema = mgr.get_schema()
-            text = json.dumps(schema, indent=2) if isinstance(schema, dict) else str(schema)
-        except (ImportError, AttributeError):
-            text = json.dumps({"message": "Ontology manager not available"}, indent=2)
+        node_types: dict[str, int] = {}
+        for node in graph.find_nodes():
+            node_type = str(node.get("type", "Unknown"))
+            node_types[node_type] = node_types.get(node_type, 0) + 1
+        edge_types: dict[str, int] = {}
+        for edge in graph.find_edges():
+            edge_type = str(edge.get("type", "Unknown"))
+            edge_types[edge_type] = edge_types.get(edge_type, 0) + 1
+        data = {
+            "node_types": dict(sorted(node_types.items())),
+            "edge_types": dict(sorted(edge_types.items())),
+        }
     except Exception as exc:
-        text = json.dumps({"error": str(exc)}, indent=2)
-    return {"uri": uri, "mimeType": "application/json", "text": text}
+        data = {"error": str(exc)}
+    return {"uri": uri, "mimeType": "application/json", "text": json.dumps(data, indent=2)}
 
 
 # Map URI → handler
@@ -123,7 +134,7 @@ RESOURCE_DEFINITIONS = [
     {
         "uri": "semantica://ontology/schema",
         "name": "Ontology Schema",
-        "description": "Full ontology schema from the OntologyManager (concept hierarchy and constraints).",
+        "description": "Node types and relationship types in use in the current knowledge graph, with counts.",
         "mimeType": "application/json",
     },
 ]
