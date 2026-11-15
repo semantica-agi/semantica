@@ -54,10 +54,13 @@ python -c "import semantica; print(semantica.__version__)"
   </Tab>
   <Tab title="conda">
     ```bash
-    conda create -n semantica python=3.11.5
+    conda create -n semantica python=3.11
     conda activate semantica
     pip install semantica
     ```
+
+    conda installs the latest patch of that line; if it is below 3.11.5, run
+    `conda install python=3.11.5` before `pip install semantica`.
   </Tab>
 </Tabs>
 

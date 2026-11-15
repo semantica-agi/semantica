@@ -66,10 +66,16 @@ def test_install_matrix_tests_exactly_the_supported_versions(pyproject):
         )
     )
     matrix = workflow["jobs"]["verify-install"]["strategy"]["matrix"]
-    # The matrix may pin a patch release for the floor (3.11.5) while the
-    # supported versions are expressed as major.minor.
-    pinned = {".".join(str(v).split(".")[:2]) for v in matrix["python-version"]}
+    versions = [str(v) for v in matrix["python-version"]]
+    # The matrix carries a bare major.minor for every supported line, plus the
+    # floor patch release (3.11.5), because nothing before it installs.
+    pinned = {".".join(v.split(".")[:2]) for v in versions}
     assert pinned == _supported_versions(pyproject)
+    floor, _ = _range(pyproject["project"]["requires-python"])
+    floor_pin = ".".join(str(part) for part in floor)
+    assert floor_pin in versions, (
+        f"Install Matrix must test the floor pin {floor_pin}, got {versions}"
+    )
 
 
 def test_docker_runtime_image_is_inside_the_supported_range(pyproject):
@@ -97,6 +103,7 @@ def test_dev_tooling_is_a_dependency_group_not_a_runtime_extra(pyproject):
         ((3, 10, 18), "fail"),
         # 3.11.0 to 3.11.4 cannot install soupsieve 4.x, which the audit gate
         # requires (#2251), so the floor carries a patch version.
+        ((3, 11), "fail"),
         ((3, 11, 0), "fail"),
         ((3, 11, 4), "fail"),
         ((3, 11, 5), "ok"),
@@ -109,4 +116,4 @@ def test_doctor_python_check(version, status):
     assert got == status
     assert (hint is None) == (status == "ok")
     if status == "fail":
-        assert "3.11" in hint
+        assert "3.11.5" in hint

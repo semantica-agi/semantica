@@ -22,7 +22,8 @@ maintainers = [{ name = "Semantica", email = "kaif@getsemantica.ai" }]
 #     The floor is 3.11.5 rather than 3.11.0 because soupsieve 4.0, which is
 #     the release that fixes the four advisories in 2.9.2 (#2251), declares
 #     requires-python >=3.11.5. Keeping a 3.11.0 floor leaves the resolver no
-#     solution at all. The Install Matrix has always run 3.11.17+.
+#     solution at all. The bare 3.11 entry in the Install Matrix resolves to
+#     the latest patch of that line.
 #   - Ceiling: 3.14 is not yet supported. gensim (extras `graph-embeddings`
 #     and `split-topic`, both in `all`) ships no cp314 wheel, so those extras
 #     and the Docker build need a C compiler there. Raise the cap together
@@ -69,7 +70,8 @@ dependencies = [
   "grpcio>=1.81.1",
   # 13.0.0 fixes 41 advisories against 12.3.0 (several critical, e.g.
   # GHSA-v9pv-5gc8-w2m6) and no 12.x release carries them. It needs Python
-  # 3.11, which is why requires-python starts at 3.11 (#2067).
+  # 3.11. The floor itself is 3.11.5 because soupsieve 4.x requires it
+  # (#2251).
   "pillow>=13.0.0",
   "pydantic>=2.13.4",
   "click>=8.4.2",
