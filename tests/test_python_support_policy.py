@@ -37,6 +37,15 @@ def _range(requires_python: str):
     )
 
 
+def _declared_floor(requires_python: str) -> str:
+    """Return the floor exactly as declared, e.g. ``3.11.5`` or ``3.11``."""
+    match = re.fullmatch(r".*>=\s*(\d+\.\d+(?:\.\d+)?).*", requires_python)
+    assert match, (
+        f"requires-python must state a floor, got {requires_python!r}"
+    )
+    return match.group(1)
+
+
 def _supported_versions(pyproject):
     floor, ceiling = _range(pyproject["project"]["requires-python"])
     assert floor[0] == ceiling[0] == 3
@@ -71,10 +80,21 @@ def test_install_matrix_tests_exactly_the_supported_versions(pyproject):
     # floor patch release (3.11.5), because nothing before it installs.
     pinned = {".".join(v.split(".")[:2]) for v in versions}
     assert pinned == _supported_versions(pyproject)
-    floor, _ = _range(pyproject["project"]["requires-python"])
-    floor_pin = ".".join(str(part) for part in floor)
-    assert floor_pin in versions, (
-        f"Install Matrix must test the floor pin {floor_pin}, got {versions}"
+    # Both entries are checked against the raw list. Folding 3.11.5 down to
+    # 3.11 for the set comparison above would let either one go missing and
+    # still pass, so the matrix is read twice.
+    declared = _declared_floor(pyproject["project"]["requires-python"])
+    assert declared.count(".") == 2, (
+        f"the floor must be declared with a patch release, got {declared!r}: "
+        "3.11.0-3.11.4 cannot resolve soupsieve 4.x (#2251)"
+    )
+    assert declared in versions, (
+        f"Install Matrix must test the floor pin {declared}, got {versions}"
+    )
+    bare = ".".join(declared.split(".")[:2])
+    assert bare in versions, (
+        f"Install Matrix must keep the bare {bare} line alongside {declared}, "
+        f"got {versions}"
     )
 
 
