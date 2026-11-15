@@ -4,6 +4,8 @@ Reasoning tools — forward chaining, abductive reasoning.
 
 from __future__ import annotations
 
+import dataclasses
+import json
 import logging
 
 from ..schemas import ABDUCTIVE_REASONING, RUN_REASONING
@@ -37,21 +39,34 @@ def handle_run_reasoning(args: dict) -> dict:
         return {"error": str(exc), "derived_facts": []}
 
 
+def _hypothesis_to_dict(hypothesis) -> dict:
+    """Project a Hypothesis dataclass into a JSON-serialisable dict."""
+    return json.loads(json.dumps(dataclasses.asdict(hypothesis), default=str))
+
+
 def handle_abductive_reasoning(args: dict) -> dict:
     """Generate plausible hypotheses that explain a set of observations."""
     observations = args.get("observations", [])
     if not observations:
         return {"error": "observations list is required", "hypotheses": []}
-    max_hypotheses = int(args.get("max_hypotheses", 5))
     try:
-        from semantica.reasoning import AbductiveReasoner
-        reasoner = AbductiveReasoner()
-        hypotheses = reasoner.generate_hypotheses(observations)
-        result = hypotheses if isinstance(hypotheses, list) else list(hypotheses)
-        return {
-            "hypotheses": result[:max_hypotheses],
-            "count": min(len(result), max_hypotheses),
-        }
+        max_hypotheses = int(args.get("max_hypotheses", 5))
+        # Imported from the defining module so the handler does not depend on
+        # what the package namespace happens to re-export.
+        from semantica.reasoning.abductive_reasoner import (
+            AbductiveReasoner,
+            Observation,
+        )
+
+        reasoner = AbductiveReasoner(config={"max_hypotheses": max_hypotheses})
+        hypotheses = reasoner.generate_hypotheses(
+            [
+                Observation(observation_id=f"obs_{i}", description=str(text))
+                for i, text in enumerate(observations)
+            ]
+        )
+        result = [_hypothesis_to_dict(h) for h in hypotheses]
+        return {"hypotheses": result, "count": len(result)}
     except Exception as exc:
         log.exception("abductive_reasoning failed")
         return {"error": str(exc), "hypotheses": []}
