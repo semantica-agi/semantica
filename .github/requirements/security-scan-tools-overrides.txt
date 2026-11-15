@@ -14,3 +14,10 @@ pyjwt[crypto]>=2.15.1
 # Capped below 2 so the override stays on the 1.x API semgrep was built for.
 # Drop this once semgrep moves its pin to 1.30.0 or later.
 mcp>=1.30.0,<2
+
+# semgrep pins opentelemetry-api~=1.37.0 and opentelemetry-sdk~=1.37.0,
+# which are vulnerable to GHSA-mf5v-w3w3-f6cg / CVE-2026-126360 (fixed in 1.45.2).
+opentelemetry-api>=1.45.2
+opentelemetry-sdk>=1.45.2
+opentelemetry-exporter-otlp-proto-http>=1.45.2
+
