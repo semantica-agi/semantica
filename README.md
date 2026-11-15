@@ -52,7 +52,7 @@ This system provides the **Ontological Causal Graph & Decision Provenance Engine
 
 ### 1. Architectural Role in Dark Gravity
 - **Decision Lineage & Causal Tracking:** Captures immutable snapshots of agent cognitive decisions, mapping requirement inputs (Vertex 1) directly down to exact AST line modifications (Vertex 3) and verification verdicts (Vertex 4).
-- **Regulatory Compliance (EU AI Act & SPRI/Hazitek):** Persists causal graph snapshots into the sovereign S3 storage tier (`semantica-provenance` bucket), providing legally auditable evidence of non-hallucinatory AI development.
+- **Auditability & Traceability:** Persists causal graph snapshots into the self-hosted S3 storage tier (`semantica-provenance` bucket) to facilitate auditing and lineage inspection.
 - **Air-Gapped Context Management:** Operates within the private cluster network without relying on external SaaS graph databases.
 
 ### 2. Supply-Chain Sovereignty & Independent Maintenance
@@ -1702,3 +1702,10 @@ If this project helps you build better AI, a star means a lot.
 [English](https://readme-i18n.com/semantica-agi/semantica?lang=en) · [Deutsch](https://readme-i18n.com/semantica-agi/semantica?lang=de) · [Français](https://readme-i18n.com/semantica-agi/semantica?lang=fr) · [Español](https://readme-i18n.com/semantica-agi/semantica?lang=es) · [Italiano](https://readme-i18n.com/semantica-agi/semantica?lang=it) · [Português](https://readme-i18n.com/semantica-agi/semantica?lang=pt) · [العربية](https://readme-i18n.com/semantica-agi/semantica?lang=ar) · [اردو](https://readme-i18n.com/semantica-agi/semantica?lang=ur) · [हिन्दी](https://readme-i18n.com/semantica-agi/semantica?lang=hi) · [中文](https://readme-i18n.com/semantica-agi/semantica?lang=zh) · [日本語](https://readme-i18n.com/semantica-agi/semantica?lang=ja) · [한국어](https://readme-i18n.com/semantica-agi/semantica?lang=ko)
 
 </div>
+
+---
+
+### Fork Maintenance & Agent Transparency
+
+- **Changes vs. Upstream:** Security dependency updates, CI/CD workflow fixes, and CodeQL remediation are tracked in the [commit history](../../commits) and [Pull Requests](../../pulls?q=is%3Apr).
+- **Agent Tagging (`[agent]`):** Commits and pull requests generated automatically by agents in the Dark Gravity pipeline are prefixed with `[agent]` to distinguish automated maintenance from manual work.
