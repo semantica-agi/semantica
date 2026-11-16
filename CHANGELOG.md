@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`semantica.reasoning` now exports `DeductiveReasoner` and `AbductiveReasoner`** (fixes #2243) by @dex0shubham
+  - Both classes are listed under "Main Classes" in their own module docstrings and imported by the MCP `abductive_reasoning` tool, but neither was re-exported, so the documented `from semantica.reasoning import AbductiveReasoner` raised `ImportError` and the MCP tool answered every call with an error instead of hypotheses. Imports from `semantica.reasoning.abductive_reasoner` and `semantica.reasoning.deductive_reasoner` are unchanged
+  - The abductive module's `Explanation` is exported as `AbductiveExplanation`, so `semantica.reasoning.Explanation` keeps meaning the explanation generator's class
 - `DecisionRecorder` and `AgentContext` gain opt-in `evaluators`/`eval_config` constructor parameters that run `semantica.evals` evaluators (e.g. `decision_scores`) automatically during `record_decision()`, storing `eval_score`/`eval_passed`/`eval_details` in `Decision.metadata`. Fully backward-compatible: omitting `evaluators` leaves recording behavior unchanged. Evaluator failures are logged and never block decision persistence. Both the `graph_store` and `context_graph` `AgentContext` decision backends run the hook.
 - **Trust-tier grading of retrieved context** (#1703, phase 2 of #1557) by @pkupt
   - `ContextRetriever` now grades every retrieved fact on evidence quality and records the tier in `RetrievedContext.metadata["trust_tier"]` (`quarantine` / `bronze` / `silver` / `gold`). Tiers are computed at query time from signals already present in the result — graph node confidence and, when a `provenance_manager` is configured, the number of distinct sources from `get_all_sources` — and are never persisted, so grades stay current as source sets change

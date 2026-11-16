@@ -21,7 +21,27 @@ under test.
 import pytest
 
 import semantica.reasoning as reasoning
-from semantica.reasoning import abductive_reasoner, explanation_generator
+from semantica.reasoning import (
+    abductive_reasoner,
+    deductive_reasoner,
+    explanation_generator,
+)
+
+# The module each advertised name has to resolve to. Checking only that the
+# attribute exists and appears in ``__all__`` lets a name bound to the wrong
+# class pass, which is the exact failure this file exists to catch.
+EXPECTED_BINDINGS = {
+    "DeductiveReasoner": deductive_reasoner.DeductiveReasoner,
+    "Premise": deductive_reasoner.Premise,
+    "Conclusion": deductive_reasoner.Conclusion,
+    "Proof": deductive_reasoner.Proof,
+    "Argument": deductive_reasoner.Argument,
+    "AbductiveReasoner": abductive_reasoner.AbductiveReasoner,
+    "Observation": abductive_reasoner.Observation,
+    "Hypothesis": abductive_reasoner.Hypothesis,
+    "HypothesisRanking": abductive_reasoner.HypothesisRanking,
+    "AbductiveExplanation": abductive_reasoner.Explanation,
+}
 
 
 class TestDocumentedImports:
@@ -58,6 +78,7 @@ class TestDocumentedImports:
     def test_name_is_bound_and_advertised(self, name):
         assert hasattr(reasoning, name)
         assert name in reasoning.__all__
+        assert getattr(reasoning, name) is EXPECTED_BINDINGS[name]
 
 
 class TestExplanationNameCollision:
@@ -102,7 +123,7 @@ class TestMCPAbductiveToolImportsItsReasoner:
     that are out of scope here (it supplies no rules, so there is nothing to
     reason from; it passes raw strings where ``Observation`` objects are
     required; and ``Hypothesis`` is not JSON-serializable), which is why this
-    checks for the absence of the import error rather than for hypotheses.
+    checks for the absence of any ``error`` key rather than for hypotheses.
     """
 
     def test_handler_does_not_report_a_missing_reasoner(self):
@@ -114,5 +135,4 @@ class TestMCPAbductiveToolImportsItsReasoner:
             {"observations": ["the lawn is wet"]}
         )
 
-        assert "cannot import name" not in result.get("error", "")
-        assert "AbductiveReasoner" not in result.get("error", "")
+        assert "error" not in result
