@@ -369,7 +369,7 @@ class LinkPredictor:
         for neighbor in common_neighbors:
             degree = self._get_node_degree(graph_store, neighbor)
             if degree > 1:
-                score += 1.0 / (degree * np.log(degree))
+                score += 1.0 / np.log(degree)
         
         return score
     
