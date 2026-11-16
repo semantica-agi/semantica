@@ -50,6 +50,7 @@ License: MIT
 """
 
 import math
+from collections import Counter
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple, Set
 
@@ -615,22 +616,22 @@ class SimilarityCalculator:
         return jaro
 
     def _cosine_similarity(self, s1: str, s2: str) -> float:
-        """Calculate cosine similarity based on character n-grams."""
+        """Cosine similarity of character-pair counts."""
 
-        # Simple character bigram approach
-        def get_bigrams(text):
-            return set(text[i : i + 2] for i in range(len(text) - 1))
+        def pair_counts(text):
+            return Counter(text[i : i + 2] for i in range(len(text) - 1))
 
-        bigrams1 = get_bigrams(s1)
-        bigrams2 = get_bigrams(s2)
+        counts1 = pair_counts(s1)
+        counts2 = pair_counts(s2)
+        if not counts1 or not counts2:
+            return 0.0
 
-        if not bigrams1 and not bigrams2:
-            return 1.0
-
-        intersection = bigrams1 & bigrams2
-        union = bigrams1 | bigrams2
-
-        return len(intersection) / len(union) if union else 0.0
+        dot = sum(counts1[pair] * counts2[pair] for pair in counts1)
+        mag1 = math.sqrt(sum(count * count for count in counts1.values()))
+        mag2 = math.sqrt(sum(count * count for count in counts2.values()))
+        if mag1 == 0 or mag2 == 0:
+            return 0.0
+        return dot / (mag1 * mag2)
     
     def _soundex(self, word: str) -> str:
         """Soundex algorithm for phonetic blocking."""

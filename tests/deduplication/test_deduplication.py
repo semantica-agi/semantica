@@ -287,6 +287,18 @@ class TestDeduplication(unittest.TestCase):
         invalid = get_deduplication_method("similarity", "non_existent_method")
         self.assertIsNone(invalid)
 
+    def test_cosine_string_similarity_uses_character_pairs(self):
+        calc = SimilarityCalculator()
+        self.assertEqual(calc.calculate_string_similarity("a", "b", method="cosine"), 0.0)
+        self.assertAlmostEqual(
+            calc.calculate_string_similarity("abcd", "abxy", method="cosine"),
+            1.0 / 3.0,
+        )
+        self.assertEqual(
+            calc.calculate_string_similarity("abcd", "abcd", method="cosine"),
+            1.0,
+        )
+
 
 class TestProgressTrackerEncoding(unittest.TestCase):
     """Regression tests for issue #531 — Unicode crash on cp1252 Windows consoles."""
