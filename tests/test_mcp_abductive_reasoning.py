@@ -63,9 +63,17 @@ class AbductiveReasoningHandlerTests(unittest.TestCase):
             )
         self.assertEqual(result["count"], 12)
 
-    def test_no_rules_gives_an_empty_result_without_error(self):
+    def test_no_rules_gives_an_empty_result_with_an_explanation(self):
         result = handle_abductive_reasoning({"observations": ["WetLawn(yard)"]})
-        self.assertEqual(result, {"hypotheses": [], "count": 0})
+        self.assertNotIn("error", result)
+        self.assertEqual(result["hypotheses"], [])
+        self.assertEqual(result["count"], 0)
+        self.assertEqual(result["message"], "No rules available for abductive reasoning")
+
+    def test_no_message_when_rules_are_present(self):
+        with _reasoner_with_rules(1):
+            result = handle_abductive_reasoning({"observations": ["WetLawn(yard)"]})
+        self.assertNotIn("message", result)
 
     def test_invalid_max_hypotheses_is_reported_as_error(self):
         result = handle_abductive_reasoning(
