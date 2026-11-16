@@ -66,7 +66,12 @@ def handle_abductive_reasoning(args: dict) -> dict:
             ]
         )
         result = [_hypothesis_to_dict(h) for h in hypotheses]
-        return {"hypotheses": result, "count": len(result)}
+        response = {"hypotheses": result, "count": len(result)}
+        if not reasoner.reasoner.rules:
+            # Hypotheses are only generated from rules, and this tool has no way
+            # to receive any yet, so say why the list is empty.
+            response["message"] = "No rules available for abductive reasoning"
+        return response
     except Exception as exc:
         log.exception("abductive_reasoning failed")
         return {"error": str(exc), "hypotheses": []}
