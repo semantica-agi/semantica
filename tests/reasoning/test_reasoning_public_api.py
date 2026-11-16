@@ -138,5 +138,34 @@ class TestMCPAbductiveToolImportsItsReasoner:
         )
 
         assert "error" not in result
-        assert result["hypotheses"] == []
-        assert result["count"] == 0
+        assert result["count"] == len(result["hypotheses"])
+
+    def test_handler_asks_the_reasoner(self, monkeypatch):
+        """The shape above is also what a handler that skips the work returns.
+
+        A stub that never touches the reasoner answers with empty hypotheses
+        too, so assert the reasoner is constructed and asked for exactly the
+        observations that came in.
+        """
+        import semantica.reasoning as reasoning_pkg
+        from semantica_mcp.mcp.tools.reasoning import (
+            handle_abductive_reasoning,
+        )
+
+        calls = []
+
+        class RecordingReasoner:
+            def generate_hypotheses(self, observations):
+                calls.append(list(observations))
+                return []
+
+        monkeypatch.setattr(
+            reasoning_pkg, "AbductiveReasoner", RecordingReasoner
+        )
+
+        result = handle_abductive_reasoning(
+            {"observations": ["the lawn is wet"]}
+        )
+
+        assert calls == [["the lawn is wet"]]
+        assert result == {"hypotheses": [], "count": 0}
