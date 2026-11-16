@@ -101,6 +101,28 @@ def test_alignment_round_trip(client):
     assert client.get("/api/ontology/alignments").json() == []
 
 
+def test_alignment_entity_route_returns_alignment_response(client):
+    payload = {
+        "source_uri": "http://example.org/onto-a#Person",
+        "target_uri": "http://example.org/onto-b#PersonRecord",
+        "relation": "owl:equivalentClass",
+        "confidence": 0.91,
+    }
+    created = client.post("/api/ontology/alignments", json=payload).json()
+
+    entity_uri = quote(payload["source_uri"], safe="")
+    response = client.get(f"/api/ontology/alignments/{entity_uri}")
+
+    assert response.status_code == 200
+    assert response.json() == [
+        {
+            "source": payload["source_uri"],
+            "predicate": created["predicate_uri"],
+            "target": payload["target_uri"],
+        }
+    ]
+
+
 def test_alignment_suggestions_are_ranked(client):
     response = client.post(
         "/api/ontology/suggest-alignments",
