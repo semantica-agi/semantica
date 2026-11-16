@@ -418,7 +418,14 @@ class TripletExtractor:
             # Methods that raised, in order, e.g. ["llm:failed(ProcessingError)"].
             # When non-empty, the degradation is recorded in-band on the
             # returned triplets' metadata["extraction_trace"] (see #2274).
+            # Each entry is paired with the 1-based position of the method
+            # that raised, so only failures that happened BEFORE the chosen
+            # producer can be stamped: a later method's failure did not
+            # cause this result (see #2278 review).
             failed_methods: List[str] = []
+            failed_method_indices: List[int] = []
+            # 1-based position of the first method that produced triplets.
+            first_success_idx: Optional[int] = None
             total_methods = len(methods)
             if total_methods <= 10:
                 method_update_interval = 1  # Update every method for small datasets
@@ -516,6 +523,8 @@ class TripletExtractor:
                     filtered = [t for t in triplets if t.confidence >= min_conf]
 
                     if filtered:
+                        if not all_triplets:
+                            first_success_idx = method_idx
                         all_triplets.append((method_name, filtered))
 
                         # If not using ensemble, return first successful result
@@ -539,6 +548,7 @@ class TripletExtractor:
                     verbose_mode = options.get("verbose", False) or self.config.get("verbose", False)
                     self.logger.warning("Method %s failed: %s", method_name, e, exc_info=verbose_mode)
                     failed_methods.append(f"{method_name}:failed({type(e).__name__})")
+                    failed_method_indices.append(method_idx)
                     continue
 
             # Use first successful method or fallback to relation conversion
@@ -583,10 +593,22 @@ class TripletExtractor:
             # A failed method followed by a fallback is a degradation, not a
             # clean run: record it in-band so the returned triplets say which
             # method produced them and which one failed (see #2274). Clean
-            # runs (no method failed) carry no trace key.
-            if failed_methods:
+            # runs (no method failed) carry no trace key. Only failures that
+            # happened BEFORE the chosen producer are stamped: the loop keeps
+            # trying methods after the first success, so a later method's
+            # failure neither caused this result nor precedes it in
+            # execution order (see #2278 review). When no method succeeded,
+            # first_success_idx is None and every failure precedes the
+            # relations/rules fallback, so all of them are kept.
+            relevant_failures = [
+                segment
+                for segment, idx in zip(failed_methods, failed_method_indices)
+                if first_success_idx is None or idx < first_success_idx
+            ]
+            if relevant_failures:
                 stamp_extraction_trace(
-                    triplets, "->".join([*failed_methods, f"{producer}:ok"])
+                    triplets,
+                    "->".join([*relevant_failures, f"{producer}:ok"]),
                 )
 
             self.progress_tracker.stop_tracking(

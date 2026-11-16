@@ -41,6 +41,27 @@ def stamp_extraction_trace(items, trace: str) -> None:
         metadata[EXTRACTION_TRACE_KEY] = f"{existing}; {trace}" if existing else trace
 
 
+def collect_extraction_traces(items) -> Optional[str]:
+    """Combine the degradation traces recorded on *items*.
+
+    Returns the distinct ``metadata[EXTRACTION_TRACE_KEY]`` values in
+    first-seen order, joined with "; " (the same separator
+    :func:`stamp_extraction_trace` uses when appending), or ``None`` when no
+    item carries a trace. Used when a result derived from those items (a
+    relation built from entities, a triplet built from entities) must keep
+    the degradation signal of its inputs instead of looking clean (see
+    #2274). Identical traces from several inputs are kept once: both
+    endpoints of a relation usually share one enhancement failure.
+    """
+    seen = []
+    for item in items:
+        metadata = getattr(item, "metadata", None) or {}
+        trace = metadata.get(EXTRACTION_TRACE_KEY)
+        if trace and trace not in seen:
+            seen.append(trace)
+    return "; ".join(seen) if seen else None
+
+
 @dataclass
 class Entity:
     """Entity representation.
