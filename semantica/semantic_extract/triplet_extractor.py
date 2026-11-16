@@ -78,7 +78,7 @@ from urllib.parse import quote
 from ..utils.exceptions import ProcessingError, ValidationError
 from ..utils.logging import get_logger
 from ..utils.progress_tracker import get_progress_tracker
-from .types import Entity, Relation, Triplet
+from .types import Entity, Relation, Triplet, stamp_extraction_trace
 
 
 class TripletExtractor:
@@ -317,7 +317,11 @@ class TripletExtractor:
             **options: Extraction options
 
         Returns:
-            list: List of extracted triplets
+            list: List of extracted triplets. When a method in the fallback
+            chain fails and a later method (or the relation-conversion /
+            rules fallback) produces the result, every returned triplet
+            carries ``metadata["extraction_trace"]`` recording the chain,
+            e.g. ``"llm:failed(ProcessingError)->pattern:ok"``.
         """
         if isinstance(text, list):
             entities_batch = entities
@@ -411,6 +415,10 @@ class TripletExtractor:
 
             # Try each method in order (fallback chain)
             all_triplets = []
+            # Methods that raised, in order, e.g. ["llm:failed(ProcessingError)"].
+            # When non-empty, the degradation is recorded in-band on the
+            # returned triplets' metadata["extraction_trace"] (see #2274).
+            failed_methods: List[str] = []
             total_methods = len(methods)
             if total_methods <= 10:
                 method_update_interval = 1  # Update every method for small datasets
@@ -515,6 +523,11 @@ class TripletExtractor:
                             result = filtered
                             if options.get("validate", self._should_validate):
                                 result = self.triplet_validator.validate_triplets(result)
+                            if failed_methods:
+                                stamp_extraction_trace(
+                                    result,
+                                    "->".join([*failed_methods, f"{method_name}:ok"]),
+                                )
                             self.progress_tracker.stop_tracking(
                                 tracking_id,
                                 status="completed",
@@ -525,11 +538,13 @@ class TripletExtractor:
                 except Exception as e:
                     verbose_mode = options.get("verbose", False) or self.config.get("verbose", False)
                     self.logger.warning("Method %s failed: %s", method_name, e, exc_info=verbose_mode)
+                    failed_methods.append(f"{method_name}:failed({type(e).__name__})")
                     continue
 
             # Use first successful method or fallback to relation conversion
             if all_triplets:
                 triplets = all_triplets[0][1]
+                producer = all_triplets[0][0]
             else:
                 # Fallback: Convert relations to triplets
                 if relations:
@@ -547,6 +562,7 @@ class TripletExtractor:
                             metadata={"context": relation.context, **relation.metadata},
                         )
                         triplets.append(triplet)
+                    producer = "relations"
                 else:
                     # Last resort: Try rule-based extraction if no relations exist
                     self.progress_tracker.update_tracking(
@@ -555,6 +571,7 @@ class TripletExtractor:
                     )
                     method_func = get_triplet_method("rules")
                     triplets = method_func(text, entities=entities, relations=[], **all_options)
+                    producer = "rules"
 
             # Validate triplets
             if options.get("validate", self._should_validate):
@@ -562,6 +579,15 @@ class TripletExtractor:
                     tracking_id, message="Validating triplets..."
                 )
                 triplets = self.triplet_validator.validate_triplets(triplets)
+
+            # A failed method followed by a fallback is a degradation, not a
+            # clean run: record it in-band so the returned triplets say which
+            # method produced them and which one failed (see #2274). Clean
+            # runs (no method failed) carry no trace key.
+            if failed_methods:
+                stamp_extraction_trace(
+                    triplets, "->".join([*failed_methods, f"{producer}:ok"])
+                )
 
             self.progress_tracker.stop_tracking(
                 tracking_id,

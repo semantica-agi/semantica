@@ -17,6 +17,29 @@ CONFIDENCE_SOURCE_HEURISTIC = "heuristic"  # filled by EntityConfidenceScorer
 CONFIDENCE_SOURCE_TYPE_SIMILARITY = "type_similarity"  # from entity_types weighting
 CONFIDENCE_SOURCE_UNAVAILABLE = "unavailable"  # backend exposes no score
 
+# Degradation-trace vocabulary, recorded under metadata[EXTRACTION_TRACE_KEY].
+# When an LLM stage fails and the pipeline degrades to a fallback (or returns
+# un-enhanced originals), the failure is recorded in-band on the returned
+# items, e.g. "llm:failed(ProcessingError)->pattern:ok". A log line alone is
+# not enough: the returned data must say the result is degraded. The key is
+# only stamped when a degradation actually happened; clean runs carry no key.
+EXTRACTION_TRACE_KEY = "extraction_trace"
+
+
+def stamp_extraction_trace(items, trace: str) -> None:
+    """Record a degradation event in-band on *items*' metadata.
+
+    Appends to an existing trace (joined with "; ") instead of overwriting
+    it, so a failure recorded by an earlier stage (e.g. LLM enhancement on a
+    relation that is later converted to a triplet) is preserved.
+    """
+    for item in items:
+        metadata = item.metadata
+        if metadata is None:
+            metadata = item.metadata = {}
+        existing = metadata.get(EXTRACTION_TRACE_KEY)
+        metadata[EXTRACTION_TRACE_KEY] = f"{existing}; {trace}" if existing else trace
+
 
 @dataclass
 class Entity:
