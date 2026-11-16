@@ -238,7 +238,13 @@ jobs:
           # that --generate-hashes emits.
           # --group dev: the contributor tooling (pytest, black, ...) lives in
           # the PEP 735 `dev` dependency group, not in the `all` extra.
-          uv pip compile pyproject.toml --python-version 3.11 --extra all \
+          # The target is 3.11.5 rather than 3.11: requires-python now floors
+          # at 3.11.5 (soupsieve 4.x needs it, #2251), and a bare 3.11 target
+          # resolves as 3.11.0, which makes soupsieve 4.x unsatisfiable. The
+          # flags mirror the command recorded in the file's own header so the
+          # two cannot drift apart.
+          uv pip compile pyproject.toml --python-version 3.11.5 \
+            --python-platform linux --extra all \
             --group dev --constraint requirements-ci.txt \
             -o /tmp/requirements-ci-check.txt
           diff \

@@ -21,7 +21,7 @@ Example Usage:
     >>> parser = JSONParser()
     >>> data = parser.parse("data.json")
     >>> flattened = parser.parse("data.json", flatten=True)
-    >>> paths = parser.extract_paths("data.json")
+    >>> values = parser.extract_values("data.json", "users")
 
 Author: Semantica Contributors
 License: MIT

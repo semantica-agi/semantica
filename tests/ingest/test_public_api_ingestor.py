@@ -1,3 +1,4 @@
+import contextlib
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -12,7 +13,24 @@ from semantica.ingest import (
     ingest_public_api,
     list_available_methods,
 )
+from semantica.ingest import public_api_ingestor
+from semantica.ingest.public_api_ingestor import (
+    _SAFE_XML_PARSER,
+    lxml_etree,
+    safe_xml_etree,
+)
 from semantica.utils.exceptions import ProcessingError, ValidationError
+
+# _parse_xml needs defusedxml, or lxml with its hardened parser. Mirror that
+# condition instead of probing the two packages, so the guard cannot drift
+# from the branch it guards.
+_XML_BACKEND_AVAILABLE = safe_xml_etree is not None or (
+    lxml_etree is not None and _SAFE_XML_PARSER is not None
+)
+_NO_XML_BACKEND = pytest.mark.skipif(
+    not _XML_BACKEND_AVAILABLE,
+    reason="XML parsing needs defusedxml or lxml",
+)
 
 
 def _mock_response(
@@ -125,6 +143,7 @@ def test_public_api_ingestor_parses_csv_records() -> None:
     assert result.metadata["response_format"] == "csv"
 
 
+@_NO_XML_BACKEND
 def test_public_api_ingestor_parses_xml_records_with_record_path() -> None:
     xml_text = "<items><item id='1'>Ada</item><item id='2'>Grace</item></items>"
 
@@ -147,6 +166,7 @@ def test_public_api_ingestor_parses_xml_records_with_record_path() -> None:
     assert result.data[0]["text"] == "Ada"
 
 
+@_NO_XML_BACKEND
 def test_public_api_ingestor_rejects_malicious_xml_entities() -> None:
     xml_text = """<?xml version="1.0"?>
 <!DOCTYPE items [
@@ -433,3 +453,56 @@ def test_html_response_is_not_misclassified_as_xml() -> None:
         )
 
     assert result.metadata["response_format"] == "text"
+
+
+@pytest.mark.parametrize(
+    "force_lxml",
+    [
+        pytest.param(
+            False,
+            id="defusedxml",
+            marks=pytest.mark.skipif(
+                safe_xml_etree is None, reason="needs defusedxml"
+            ),
+        ),
+        pytest.param(
+            True,
+            id="lxml",
+            marks=pytest.mark.skipif(
+                lxml_etree is None or _SAFE_XML_PARSER is None,
+                reason="needs lxml with the hardened parser",
+            ),
+        ),
+    ],
+)
+def test_malformed_xml_message_is_the_same_on_both_backends(force_lxml):
+    """The XML parse message is the same whichever backend does the parsing.
+
+    _parse_xml prefers defusedxml and falls back to lxml, and the two raise
+    unrelated exception types: defusedxml raises xml.etree's ParseError, lxml
+    raises its own XMLSyntaxError, and neither subclasses ValueError. When the
+    except clause missed one of them the error escaped _parse_response and was
+    reported by the outer handler in ingest_public_api instead, so the same
+    response produced a different message depending on which extra happened to
+    be installed.
+    """
+    backend_patch = (
+        patch.object(public_api_ingestor, "safe_xml_etree", None)
+        if force_lxml
+        else contextlib.nullcontext()
+    )
+
+    with backend_patch, patch("requests.Session") as mock_session_class:
+        mock_session = mock_session_class.return_value
+        mock_session.headers = {}
+        mock_session.request.return_value = _mock_response(
+            text="<items><item>unclosed",
+            headers={"Content-Type": "application/xml"},
+        )
+
+        with pytest.raises(
+            ProcessingError, match=r"^Failed to parse XML public API response$"
+        ):
+            PublicAPIIngestor(rate_limit_delay=0).ingest_public_api(
+                "https://example.com/data.xml"
+            )

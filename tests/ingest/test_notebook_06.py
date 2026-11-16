@@ -1,12 +1,17 @@
 import os
 import tempfile
-import pytest
 from unittest.mock import MagicMock, patch
 
-from semantica.ingest import FileIngestor, WebIngestor, DBIngestor, StreamIngestor, FeedIngestor
-from semantica.kg import GraphBuilder, EntityResolver, ProvenanceTracker
-from semantica.provenance import InMemoryStorage, ProvenanceManager
-from semantica.conflicts import ConflictDetector
+import pytest
+
+# WebIngestor/FeedIngestor need beautifulsoup4 (the optional documents
+# extra); semantica.ingest raises ImportError for them without it.
+pytest.importorskip("bs4")
+
+from semantica.ingest import FileIngestor, WebIngestor, DBIngestor, StreamIngestor, FeedIngestor  # noqa: E402
+from semantica.kg import GraphBuilder, EntityResolver, ProvenanceTracker  # noqa: E402
+from semantica.provenance import InMemoryStorage, ProvenanceManager  # noqa: E402
+from semantica.conflicts import ConflictDetector  # noqa: E402
 
 pytestmark = pytest.mark.integration
 

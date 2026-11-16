@@ -1,0 +1,77 @@
+---
+# Standards catalog: one machine-readable entry per standard Semantica leans on.
+#
+# This is an inventory, not a dependency list and not a mapping between
+# standards. Each entry records which standard the project consumes, the
+# version it consumes, the licence its reusable parts are available under, who
+# maintains it, how often it moves, where the source lives, and which module
+# in this repository does the consuming.
+#
+# Adding a standard: append an entry with every required field, then run
+#   pytest -q tests/test_standards_catalog.py
+# The test fails when an entry is missing a field, so the catalog cannot rot
+# silently. Source-link reachability is checked when an entry is added
+# (SEMANTICA_TEST_STANDARDS_NETWORK=1 pytest -q tests/test_standards_catalog.py),
+# not by the default test run.
+#
+# Licence note: every standard listed here is a W3C Recommendation. All but
+# JSON-LD 1.1 use a version of the W3C Document License
+# (https://www.w3.org/copyright/); JSON-LD 1.1 uses the W3C Software and
+# Document License, 2015 version
+# (https://www.w3.org/Consortium/Legal/2015/copyright-software-and-document).
+# The licence that applies to a particular copy is the one stated in that copy.
+
+catalog_version: 1
+
+standards:
+  - name: OWL 2
+    version: "2 (W3C Recommendation, 11 December 2012)"
+    license: W3C Document License
+    maintainer: W3C OWL Working Group
+    cadence: Stable since 2012; the OWL Working Group has closed, so no further revisions are planned.
+    source: https://www.w3.org/TR/owl2-overview/
+    consumed_by:
+      - semantica/ontology/owl_generator.py
+      - semantica/ontology/engine.py
+      - semantica/export/owl_exporter.py
+
+  - name: SHACL
+    version: "1.0 (W3C Recommendation, 20 July 2017)"
+    license: W3C Document License
+    maintainer: W3C RDF Data Shapes Working Group (RDF Data Shapes WG)
+    cadence: Stable since 2017; the working group has closed, so any revision arrives as a new Recommendation.
+    source: https://www.w3.org/TR/shacl/
+    consumed_by:
+      - semantica/ontology/ontology_generator.py
+      - semantica/ontology/ontology_validator.py
+      - semantica/ontology/engine.py
+
+  - name: RDF 1.1
+    version: "1.1 (W3C Recommendation, 25 February 2014)"
+    license: W3C Document License
+    maintainer: W3C RDF Working Group (RDF WG)
+    cadence: Stable since 2014; the RDF Working Group has closed, so no further revisions are planned.
+    source: https://www.w3.org/TR/rdf11-concepts/
+    consumed_by:
+      - semantica/export/rdf_exporter.py
+      - semantica/ingest/ontology_ingestor.py
+      - semantica/triplet_store/rdf4j_store.py
+
+  - name: JSON-LD 1.1
+    version: "1.1 (W3C Recommendation, 16 July 2020)"
+    license: W3C Software and Document License (2015)
+    maintainer: W3C JSON-LD Working Group (JSON-LD WG)
+    cadence: Stable since 2020; the JSON-LD Working Group has closed, so no further revisions are planned.
+    source: https://www.w3.org/TR/json-ld11/
+    consumed_by:
+      - semantica/export/json_exporter.py
+      - semantica/export/rdf_exporter.py
+
+  - name: PROV-O
+    version: "1.0 (W3C Recommendation, 30 April 2013)"
+    license: W3C Document License
+    maintainer: W3C Provenance Working Group (PROV WG)
+    cadence: Stable since 2013; the Provenance Working Group has closed, so no further revisions are planned.
+    source: https://www.w3.org/TR/prov-o/
+    consumed_by:
+      - semantica/provenance/manager.py

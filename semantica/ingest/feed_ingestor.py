@@ -37,11 +37,18 @@ from typing import Any, Dict, List, Optional
 from urllib.parse import urljoin, urlparse
 
 import requests
-from bs4 import BeautifulSoup
 
 from ..utils.exceptions import ProcessingError, ValidationError
 from ..utils.logging import get_logger
 from ..utils.progress_tracker import get_progress_tracker
+
+# beautifulsoup4 ships in the optional `documents` extra, so guard it the way
+# the sibling ingestors guard theirs (`git` in repo_ingestor, `lxml` in
+# xml_ingestor): importing this module must not require the extra.
+try:
+    from bs4 import BeautifulSoup
+except (ImportError, OSError):
+    BeautifulSoup = None
 from .ssrf import parse_bool, request_with_ssrf_guard
 
 
@@ -707,6 +714,14 @@ class FeedIngestor:
             list: List of discovered and validated feed URLs
         """
         feed_urls = []
+
+        # Checked before the try: the `except Exception` below returns [] on
+        # failure, which would report a missing dependency as "no feeds found".
+        if BeautifulSoup is None:
+            raise ProcessingError(
+                "HTML parsing requires 'beautifulsoup4'. "
+                "Install it with: pip install 'semantica[documents]'"
+            )
 
         try:
             # Fetch website content

@@ -67,7 +67,7 @@ def setup_logging(config: Optional[Dict[str, Any]] = None, **kwargs) -> logging.
             - level: Logging level (default: from config or INFO)
             - format: Log format string
             - file: Log file path
-            - console: Enable console output (default: True)
+            - console: Enable console output to stderr (default: True)
             - rotation: Enable file rotation (default: True)
             - max_bytes: Maximum file size for rotation
             - backup_count: Number of backup files to keep
@@ -108,7 +108,8 @@ def setup_logging(config: Optional[Dict[str, Any]] = None, **kwargs) -> logging.
 
     # Console handler
     if console_enabled:
-        console_handler = logging.StreamHandler(sys.stdout)
+        # stderr, so a command's own output on stdout (e.g. `--json`) stays clean.
+        console_handler = logging.StreamHandler(sys.stderr)
         console_handler.setLevel(level)
         console_handler.setFormatter(formatter)
         root_logger.addHandler(console_handler)
@@ -168,7 +169,7 @@ def get_logger(
 
     # Add custom handler if format specified
     if "format" in options:
-        handler = logging.StreamHandler(sys.stdout)
+        handler = logging.StreamHandler(sys.stderr)
         handler.setFormatter(logging.Formatter(options["format"]))
         logger.addHandler(handler)
 

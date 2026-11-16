@@ -30,6 +30,17 @@ from ..utils.exceptions import ProcessingError, ValidationError
 from ..utils.helpers import ensure_directory
 from ..utils.logging import get_logger
 from ..utils.progress_tracker import get_progress_tracker
+from .endpoint_names import (
+    SOURCE_ENDPOINT_NAMES,
+    TARGET_ENDPOINT_NAMES,
+    first_set_id,
+    is_unset_id,
+)
+
+
+def _id_text(value: Any) -> str:
+    """An id as text: unset ids are empty, and ``0`` stays ``"0"``."""
+    return "" if is_unset_id(value) else str(value)
 
 
 class GraphExporter:
@@ -246,7 +257,7 @@ class GraphExporter:
         entities = kg.get("entities", [])
         for entity in entities:
             node = {
-                "id": entity.get("id") or entity.get("entity_id"),
+                "id": first_set_id(entity, ("id", "entity_id")),
                 "label": (
                     entity.get("text")
                     or entity.get("label")
@@ -258,8 +269,18 @@ class GraphExporter:
 
             # Add attributes if requested
             if self.include_attributes:
+                # A decision's confidence is commonly nested under
+                # "properties" rather than at the top level (#1796).
+                confidence = entity.get("confidence")
+                if confidence is None:
+                    props = entity.get("properties")
+                    confidence = (
+                        props.get("confidence", 1.0)
+                        if isinstance(props, dict)
+                        else 1.0
+                    )
                 node["attributes"] = {
-                    "confidence": entity.get("confidence", 1.0),
+                    "confidence": confidence,
                     **entity.get("metadata", {}),
                 }
 
@@ -269,15 +290,25 @@ class GraphExporter:
         relationships = kg.get("relationships", [])
         for rel in relationships:
             edge = {
-                "source": rel.get("source_id") or rel.get("source"),
-                "target": rel.get("target_id") or rel.get("target"),
+                "source": first_set_id(rel, SOURCE_ENDPOINT_NAMES),
+                "target": first_set_id(rel, TARGET_ENDPOINT_NAMES),
                 "type": rel.get("type") or rel.get("relationship_type", "related_to"),
             }
 
             # Add attributes if requested
             if self.include_attributes:
+                # Relationships nest extra fields under "metadata" rather
+                # than "properties" (#1796).
+                confidence = rel.get("confidence")
+                if confidence is None:
+                    meta = rel.get("metadata")
+                    confidence = (
+                        meta.get("confidence", 1.0)
+                        if isinstance(meta, dict)
+                        else 1.0
+                    )
                 edge["attributes"] = {
-                    "confidence": rel.get("confidence", 1.0),
+                    "confidence": confidence,
                     **rel.get("metadata", {}),
                 }
 
@@ -367,7 +398,7 @@ class GraphExporter:
         # Export nodes
         nodes = graph_data.get("nodes", [])
         for node in nodes:
-            node_id = str(node.get("id") or "")
+            node_id = _id_text(node.get("id"))
             label = str(node.get("label") or "")
             node_type = str(node.get("type") or "")
 
@@ -391,8 +422,8 @@ class GraphExporter:
         # Export edges
         edges = graph_data.get("edges", [])
         for edge in edges:
-            source = str(edge.get("source") or "")
-            target = str(edge.get("target") or "")
+            source = _id_text(edge.get("source"))
+            target = _id_text(edge.get("target"))
             edge_type = str(edge.get("type") or "")
 
             lines.append(f"    <edge source={quoteattr(source)} target={quoteattr(target)}>")
@@ -512,7 +543,7 @@ class GraphExporter:
         nodes = graph_data.get("nodes", [])
         for node in nodes:
             # Escape quotes in IDs and labels
-            node_id = node.get("id", "").replace('"', '\\"')
+            node_id = _id_text(node.get("id")).replace('"', '\\"')
             label = node.get("label", "").replace('"', '\\"')
             node_type = node.get("type", "")
 
@@ -530,8 +561,8 @@ class GraphExporter:
         edges = graph_data.get("edges", [])
         for edge in edges:
             # Escape quotes in source, target, and type
-            source = edge.get("source", "").replace('"', '\\"')
-            target = edge.get("target", "").replace('"', '\\"')
+            source = _id_text(edge.get("source")).replace('"', '\\"')
+            target = _id_text(edge.get("target")).replace('"', '\\"')
             edge_type = edge.get("type", "").replace('"', '\\"')
 
             # Build edge attributes

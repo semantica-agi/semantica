@@ -93,10 +93,11 @@ class Config:
                     with open(config_file, "r") as f:
                         self._configs.update(json.load(f) or {})
                 elif config_file.endswith(".toml"):
-                    import toml
+                    # tomllib needs a binary file.
+                    import tomllib
 
-                    with open(config_file, "r") as f:
-                        self._configs.update(toml.load(f) or {})
+                    with open(config_file, "rb") as f:
+                        self._configs.update(tomllib.load(f) or {})
             except Exception as e:
                 self.logger.warning(f"Failed to load config file {config_file}: {e}")
 

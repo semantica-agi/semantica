@@ -81,10 +81,11 @@ class DeduplicationConfig:
                             data.get("deduplication_methods", {})
                         )
                 elif config_file.endswith(".toml"):
-                    import toml
+                    # tomllib needs a binary file.
+                    import tomllib
 
-                    with open(config_file, "r") as f:
-                        data = toml.load(f) or {}
+                    with open(config_file, "rb") as f:
+                        data = tomllib.load(f) or {}
                         if "deduplication" in data:
                             self._configs.update(data["deduplication"])
                         if "deduplication_methods" in data:

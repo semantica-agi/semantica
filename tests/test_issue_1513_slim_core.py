@@ -1,3 +1,4 @@
+import tomllib
 from pathlib import Path
 from unittest.mock import patch
 import pytest
@@ -10,21 +11,9 @@ from semantica.utils.exceptions import ProcessingError
 
 
 def _load_toml(file_path: Path) -> dict:
-    """Load and parse a TOML file across Python 3.8-3.14+ without mode mismatches."""
-    content = file_path.read_text(encoding="utf-8")
-    try:
-        import tomllib  # Python 3.11+ standard library
-
-        return tomllib.loads(content)
-    except ImportError:
-        try:
-            import tomli  # Fast PEP 680 compatible parser for Python < 3.11
-
-            return tomli.loads(content)
-        except ImportError:
-            import toml  # Fallback toml parser
-
-            return toml.loads(content)
+    """Load and parse a TOML file with the stdlib parser (3.11+ is the floor)."""
+    with open(file_path, "rb") as f:
+        return tomllib.load(f)
 
 
 def test_core_dependencies_count():
@@ -525,3 +514,16 @@ def test_huggingface_model_loader_catches_oserror():
                 loader.load_triplet_model("t5-base-oserror")
         finally:
             builtins.__import__ = real_import
+
+
+def test_graph_session_node_embedder_without_gensim():
+    with patch("semantica.kg.node_embeddings.GENSIM_AVAILABLE", False):
+        from semantica.context import ContextGraph
+        from semantica.explorer.session import GraphSession
+
+        session = GraphSession(ContextGraph(advanced_analytics=False))
+        assert session.node_embedder is None
+        with patch("semantica.explorer.session.NodeEmbedder") as embedder:
+            assert session.node_embedder is None
+            embedder.assert_not_called()
+        assert session.centrality is not None

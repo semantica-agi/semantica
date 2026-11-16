@@ -58,6 +58,18 @@ def is_unset_id(value: Any) -> bool:
     return value is None or value == ""
 
 
+def first_set_id(record: Dict[str, Any], names: Tuple[str, ...]) -> Any:
+    """The value under the first of ``names`` that is set, else ``None``.
+
+    Unlike an ``or`` chain, an id of ``0`` is kept (see ``is_unset_id``).
+    """
+    for name in names:
+        value = record.get(name)
+        if not is_unset_id(value):
+            return value
+    return None
+
+
 def has_endpoints(sample: Dict[str, Any]) -> bool:
     """Whether a record carries both ends of a relationship, under any name."""
     return any(k in sample for k in SOURCE_ENDPOINT_NAMES) and any(

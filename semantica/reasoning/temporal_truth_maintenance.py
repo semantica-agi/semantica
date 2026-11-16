@@ -1,9 +1,10 @@
 """Opt-in projection of bitemporal graph evidence into managed reasoning."""
 
+from collections.abc import Iterable
 from copy import deepcopy
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Dict, FrozenSet, Iterable, Optional, Tuple
+from typing import Any
 
 from ..utils.exceptions import ValidationError
 from ._temporal_support_projection import Projection, normalize_graph, timestamp
@@ -19,7 +20,7 @@ from .truth_maintenance_types import (
     MaintenanceDelta,
 )
 
-__all__ = ["TemporalTruthMaintenanceAdapter", "TemporalFactSnapshot"]
+__all__ = ["TemporalFactSnapshot", "TemporalTruthMaintenanceAdapter"]
 
 
 @dataclass(frozen=True)
@@ -29,9 +30,9 @@ class TemporalFactSnapshot:
     valid_at: datetime
     known_at: datetime
     graph_revision: int
-    facts: FrozenSet[str]
-    active_supports: Tuple[FactSupport, ...]
-    explanations: Tuple[FactExplanation, ...]
+    facts: frozenset[str]
+    active_supports: tuple[FactSupport, ...]
+    explanations: tuple[FactExplanation, ...]
 
     def explain(self, fact: str) -> FactExplanation:
         canonical = validate_fact_text(fact)
@@ -60,13 +61,13 @@ class TemporalTruthMaintenanceAdapter:
         self._session = TruthMaintenanceSession(rules=self._rules)
         _, self._rule_arities = build_rule_snapshots(self._rules)
         self._projection = Projection({}, {})
-        self._active_supports: Dict[str, FactSupport] = {}
+        self._active_supports: dict[str, FactSupport] = {}
         self._graph_revision = 0
-        self._valid_at: Optional[datetime] = None
-        self._known_at: Optional[datetime] = None
+        self._valid_at: datetime | None = None
+        self._known_at: datetime | None = None
 
     @property
-    def facts(self) -> FrozenSet[str]:
+    def facts(self) -> frozenset[str]:
         return self._session.facts
 
     @property
@@ -80,11 +81,11 @@ class TemporalTruthMaintenanceAdapter:
         return self._graph_revision
 
     @property
-    def valid_at(self) -> Optional[datetime]:
+    def valid_at(self) -> datetime | None:
         return self._valid_at
 
     @property
-    def known_at(self) -> Optional[datetime]:
+    def known_at(self) -> datetime | None:
         return self._known_at
 
     def explain(self, fact: str) -> FactExplanation:
@@ -92,7 +93,7 @@ class TemporalTruthMaintenanceAdapter:
 
     def sync(
         self,
-        graph: Dict[str, Any],
+        graph: dict[str, Any],
         *,
         valid_at: Any,
         known_at: Any,
@@ -130,6 +131,25 @@ class TemporalTruthMaintenanceAdapter:
         self._valid_at = valid_time
         self._known_at = known_time
         return delta
+
+    def snapshot(self) -> TemporalFactSnapshot:
+        """Return the current live closure without moving any state.
+
+        Unlike :meth:`query_at`, this never re-derives facts: the immutable
+        state of the internal session is reused verbatim, so capturing the
+        current view costs no rule matching.
+        """
+        if self._valid_at is None or self._known_at is None:
+            raise ValidationError("Temporal adapter has no live coordinates")
+        state = self._session.snapshot()
+        return TemporalFactSnapshot(
+            self._valid_at,
+            self._known_at,
+            self._graph_revision,
+            state.facts,
+            state.active_supports,
+            tuple(self._session.explain(fact) for fact in sorted(state.facts)),
+        )
 
     def query_at(self, *, valid_at: Any, known_at: Any) -> TemporalFactSnapshot:
         """Recompute a historical closure without changing the live session."""

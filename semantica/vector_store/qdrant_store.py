@@ -126,6 +126,7 @@ class QdrantCollection:
         """Initialize Qdrant collection wrapper."""
         self.client = client
         self.collection_name = collection_name
+        self._vectors_config = None
         self.logger = get_logger("qdrant_collection")
 
     def upsert_points(self, points: List[PointStruct], **options) -> Dict[str, Any]:
@@ -153,6 +154,17 @@ class QdrantCollection:
             raise ProcessingError("Qdrant not available")
 
         try:
+            if self._vectors_config is None:
+                try:
+                    info = self.client.get_collection(self.collection_name)
+                    self._vectors_config = info.config.params.vectors
+                except Exception as e:
+                    self.logger.warning(f"Could not determine collection distance: {e}")
+            vector_config = self._vectors_config
+            if isinstance(vector_config, dict):
+                vector_config = vector_config.get(options.get("using"))
+            distance = getattr(vector_config, "distance", None)
+
             # qdrant-client >=1.10.0: query_points() supersedes the removed search().
             # It returns a QueryResponse whose .points attribute is a list of
             # ScoredPoint objects (id, score, payload, …).
@@ -168,17 +180,16 @@ class QdrantCollection:
 
             results = []
             for point in response.points:
+                score = float(point.score)
+                if distance in ("Euclid", "Manhattan"):
+                    similarity = 1.0 / (1.0 + max(0.0, score))
+                else:
+                    # Preserve the existing normalization for Cosine and unbounded Dot.
+                    similarity = (score / (1.0 + abs(score)) + 1.0) / 2.0
                 results.append(
                     {
                         "id": point.id,
-                        # See pinecone_store.py PineconeIndex.search_vectors for why
-                        # this uses x/(1+|x|) rather than clamping distance-to-zero:
-                        # Qdrant's Dot distance metric is unbounded, and the old
-                        # clamped formula collapsed every score >= 1.0 to 1.0.
-                        "score": (
-                            float(point.score) / (1.0 + abs(float(point.score))) + 1.0
-                        )
-                        / 2.0,
+                        "score": similarity,
                         "metadata": point.payload or {},
                         "vector": None,
                         "distance": None,

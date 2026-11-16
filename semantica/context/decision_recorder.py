@@ -86,6 +86,71 @@ from .decision_models import (
 from .context_graph import ContextGraph
 
 
+def evaluate_and_enrich_decision(
+    decision: Decision,
+    evaluators: Optional[List[str]],
+    eval_config: Optional[Dict[str, Any]],
+    logger: Any,
+) -> None:
+    """Run opt-in ``semantica.evals`` evaluators and enrich ``decision.metadata``.
+
+    Shared by :class:`DecisionRecorder` and ``AgentContext``'s ContextGraph
+    decision backend so both recording paths apply the same evaluator contract.
+    No-op when ``evaluators`` is empty. Evaluator failures are logged and never
+    prevent the decision from being recorded.
+    """
+    if not evaluators:
+        return
+
+    # Decision.metadata defaults to {} but callers may pass metadata=None
+    # explicitly; normalize before writing eval_* keys below so recording
+    # never crashes on that (mirrors record_decision()'s own tolerance
+    # for a missing metadata dict).
+    if decision.metadata is None:
+        decision.metadata = {}
+
+    case = {"id": decision.decision_id, "actual": decision}
+    try:
+        # Lazy import: semantica.evals is only exercised when evaluators=
+        # is configured, and resolving it here (rather than at module
+        # import time) lets callers/tests monkeypatch semantica.evals.evaluate.
+        from ..evals import evaluate
+
+        summary = evaluate([case], evaluators=evaluators, config=eval_config or {})
+    except Exception as exc:
+        # Deliberate, narrow exception to just the evaluate() call: this
+        # hook is an optional quality check, and a broken evaluator must
+        # never prevent the decision itself from being recorded. Logs and
+        # returns (does not re-raise). Per-evaluator failures are already
+        # converted to CaseResult(status="error") inside evaluate();
+        # reaching here means evaluate() itself failed outright.
+        logger.warning(
+            f"Decision evaluation failed for {decision.decision_id}: {exc}",
+            exc_info=True,
+        )
+        return
+
+    # Outside the try: a summary-shape change here is a bug in this hook,
+    # not an evaluator failure, and must not be swallowed as one.
+    case_result = summary.cases[0]
+    if case_result.status == "error":
+        # A named evaluator itself errored (unknown name, or it raised) --
+        # evaluate() already downgraded that to CaseResult(status="error")
+        # instead of propagating, so without this log the only trace is
+        # eval_details on the stored decision.
+        logger.warning(
+            f"Decision evaluator(s) errored for {decision.decision_id}: "
+            f"{case_result.details}"
+        )
+    scores = [metric.score for metric in case_result.metrics.values()]
+    decision.metadata["eval_score"] = sum(scores) / len(scores) if scores else 0.0
+    decision.metadata["eval_passed"] = case_result.status == "pass"
+    decision.metadata["eval_details"] = {
+        name: {"score": metric.score, "passed": metric.passed, "meta": metric.meta}
+        for name, metric in case_result.metrics.items()
+    }
+
+
 class DecisionRecorder:
     """
     Records decisions with full context, policy applications, and provenance.
@@ -133,65 +198,10 @@ class DecisionRecorder:
         self.logger = get_logger(__name__)
 
     def _evaluate_and_enrich_decision(self, decision: Decision) -> None:
-        """
-        Run configured semantica.evals evaluators over a decision and store the
-        result in its metadata. No-op when no evaluators are configured.
-
-        Args:
-            decision: Decision to evaluate; mutated in place (decision.metadata).
-        """
-        if not self.evaluators:
-            return
-
-        # Decision.metadata defaults to {} but callers may pass metadata=None
-        # explicitly; normalize before writing eval_* keys below so recording
-        # never crashes on that (mirrors record_decision()'s own tolerance
-        # for a missing metadata dict).
-        if decision.metadata is None:
-            decision.metadata = {}
-
-        case = {"id": decision.decision_id, "actual": decision}
-        try:
-            # Lazy import: semantica.evals is only exercised when evaluators=
-            # is configured, and resolving it here (rather than at module
-            # import time) lets callers/tests monkeypatch semantica.evals.evaluate.
-            from ..evals import evaluate
-
-            summary = evaluate(
-                [case], evaluators=self.evaluators, config=self.eval_config
-            )
-        except Exception as exc:
-            # Deliberate, narrow exception to just the evaluate() call: this
-            # hook is an optional quality check, and a broken evaluator must
-            # never prevent the decision itself from being recorded. Logs and
-            # returns (does not re-raise). Per-evaluator failures are already
-            # converted to CaseResult(status="error") inside evaluate();
-            # reaching here means evaluate() itself failed outright.
-            self.logger.warning(
-                f"Decision evaluation failed for {decision.decision_id}: {exc}",
-                exc_info=True,
-            )
-            return
-
-        # Outside the try: a summary-shape change here is a bug in this hook,
-        # not an evaluator failure, and must not be swallowed as one.
-        case_result = summary.cases[0]
-        if case_result.status == "error":
-            # A named evaluator itself errored (unknown name, or it raised) --
-            # evaluate() already downgraded that to CaseResult(status="error")
-            # instead of propagating, so without this log the only trace is
-            # eval_details on the stored decision.
-            self.logger.warning(
-                f"Decision evaluator(s) errored for {decision.decision_id}: "
-                f"{case_result.details}"
-            )
-        scores = [metric.score for metric in case_result.metrics.values()]
-        decision.metadata["eval_score"] = sum(scores) / len(scores) if scores else 0.0
-        decision.metadata["eval_passed"] = case_result.status == "pass"
-        decision.metadata["eval_details"] = {
-            name: {"score": metric.score, "passed": metric.passed, "meta": metric.meta}
-            for name, metric in case_result.metrics.items()
-        }
+        """Run configured evaluators over a decision and enrich its metadata."""
+        evaluate_and_enrich_decision(
+            decision, self.evaluators, self.eval_config, self.logger
+        )
 
     def record_decision(
         self,

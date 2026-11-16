@@ -108,6 +108,8 @@ Production Examples:
 
 from .agent_context import AgentContext
 from .agent_memory import AgentMemory, MemoryItem
+from .causal_analyzer import CausalChainAnalyzer
+from .context_artifact_index import ContextArtifactIndex
 from .context_graph import ContextEdge, ContextGraph, ContextNode
 from .context_retriever import (
     ContextRetriever,
@@ -115,26 +117,35 @@ from .context_retriever import (
     TemporalGraphRetriever,
 )
 from .decision_context import DecisionContext
-from .entity_linker import EntityLink, EntityLinker, LinkedEntity
-from .erasure import ErasureCoordinator, ErasureReceipt
-from .truth_maintenance_filter import TruthMaintenanceContextFilter
+from .decision_methods import (
+    analyze_decision_impact,
+    capture_decision_trace,
+    check_decision_compliance,
+    create_policy_with_versioning,
+    find_exception_precedents,
+    find_precedents,
+    get_applicable_policies,
+    get_causal_chain,
+    get_decision_statistics,
+    multi_hop_query,
+    record_decision,
+    setup_decision_tracking,
+)
 
 # Decision tracking imports
-from .decision_models import (
-    Decision, DecisionContext as DecisionContextModel, Policy,
-    PolicyException, Precedent, ApprovalChain
-)
-from .decision_recorder import DecisionRecorder
+from .decision_models import ApprovalChain, Decision, Policy, PolicyException, Precedent
+from .decision_models import DecisionContext as DecisionContextModel
 from .decision_query import DecisionQuery
-from .causal_analyzer import CausalChainAnalyzer
-from .policy_engine import PolicyEngine
-from .decision_methods import (
-    record_decision, find_precedents, get_causal_chain, get_applicable_policies,
-    multi_hop_query, capture_decision_trace, find_exception_precedents,
-    analyze_decision_impact, create_policy_with_versioning, check_decision_compliance,
-    get_decision_statistics, setup_decision_tracking
+from .decision_recorder import DecisionRecorder
+from .drift_search import (
+    DriftFacet,
+    DriftFacetSchema,
+    DriftFacetsResponseSchema,
+    DriftSearchEngine,
+    DriftSearchResult,
 )
-from .graph_schema import setup_decision_schema, verify_schema, get_schema_info
+from .entity_linker import EntityLink, EntityLinker, LinkedEntity
+from .erasure import ErasureCoordinator, ErasureReceipt
 
 # Global GraphRAG and DRIFT search imports
 from .global_retriever import (
@@ -144,14 +155,20 @@ from .global_retriever import (
     MapPointSchema,
     MapResponseSchema,
 )
-from .drift_search import (
-    DriftFacet,
-    DriftFacetSchema,
-    DriftFacetsResponseSchema,
-    DriftSearchEngine,
-    DriftSearchResult,
+from .graph_schema import get_schema_info, setup_decision_schema, verify_schema
+from .grounded_context import GroundedContextAssembler
+from .grounded_context_types import (
+    ArtifactInvalidationReport,
+    ArtifactRegistrySnapshot,
+    ContextBlock,
+    ContextCitation,
+    ContextDependencies,
+    ContextReadView,
+    Exclusion,
+    GroundedArtifact,
+    GroundedContext,
+    SnapshotStamp,
 )
-from .registry import MethodRegistry, method_registry
 from .methods import (
     drift_search,
     global_search,
@@ -159,6 +176,10 @@ from .methods import (
     retrieve_drift,
     retrieve_global,
 )
+from .policy_engine import PolicyEngine
+from .registry import MethodRegistry, method_registry
+from .truth_maintenance_filter import TruthMaintenanceContextFilter
+from .truth_snapshot_provider import TruthSnapshotProvider
 
 __all__ = [
     # High-level interface
@@ -177,6 +198,20 @@ __all__ = [
     "RetrievedContext",
     "TemporalGraphRetriever",
     "TruthMaintenanceContextFilter",
+    # Grounded context consistency
+    "ContextArtifactIndex",
+    "GroundedContextAssembler",
+    "TruthSnapshotProvider",
+    "SnapshotStamp",
+    "ContextReadView",
+    "ContextDependencies",
+    "Exclusion",
+    "ArtifactInvalidationReport",
+    "GroundedArtifact",
+    "ArtifactRegistrySnapshot",
+    "ContextBlock",
+    "ContextCitation",
+    "GroundedContext",
     # Cross-store erasure
     "ErasureCoordinator",
     "ErasureReceipt",

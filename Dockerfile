@@ -15,7 +15,7 @@ RUN mkdir -p /app/semantica && npm run build
 # is rebuilt on top of them.
 #
 # Pinned to 3.13, NOT 3.14. The image must stay inside the supported range in
-# pyproject.toml (`requires-python = ">=3.10,<3.14"`, Install Matrix 3.10-3.13)
+# pyproject.toml (`requires-python = ">=3.11.5,<3.14"`, Install Matrix 3.11, 3.11.5-3.13)
 # and on the interpreter explorer-extra-py313.txt below was resolved for.
 # Dependabot bumped this to python:3.14-slim in #1290 (which broke the build:
 # no cp314 wheel for gensim, so pip compiled it and the slim image has no gcc)
@@ -44,6 +44,13 @@ WORKDIR /app
 #   retransmission out-of-bounds read) and CVE-2026-75804 (QUIC connection
 #   flow control not enforced). Neither is reachable here - uvicorn serves
 #   plain HTTP/TCP, no DTLS or QUIC - but patching clears the alerts.
+# - #6195-#6196: apt and libapt-pkg7.0 (one source package, fixed in 3.0.4,
+#   DSA-6607-1) for CVE-2026-109518 (an on-path attacker can get an
+#   unverified package installed by abusing hard-link reuse on download
+#   retries). Only reachable while apt runs, i.e. during this build, but
+#   patching clears the alerts.
+# - #6199-#6200: zlib1g (fixed in 1:1.3.dfsg+really1.3.1-1+deb13u1) for
+#   CVE-2026-76844 and CVE-2026-85091 (heap buffer overflow in gz_vacate()).
 #
 # --only-upgrade scopes this to just the named packages instead of a
 # blanket `apt-get upgrade` (terrascan AC_DOCKER_0052 - that breaks build
@@ -55,6 +62,14 @@ WORKDIR /app
 # Build, and local Compose alike. Leaving the version unpinned means apt
 # always resolves to whatever trixie-security currently has, which is
 # guaranteed >= today's fixed version since security repos never regress.
+#
+# The two skips below are for alerts #6197/#6198. Both rules mean "don't drive
+# the interactive `apt` CLI from a RUN, use apt-get" - which this layer does.
+# They fire on the bare word `apt` in the package list, i.e. the Debian
+# *package* named apt being upgraded for CVE-2026-109518 above, not on a
+# command. Dropping it from the list would reopen #6195.
+# checkov:skip=CKV_DOCKER_9:apt-get is the command; `apt` here is the name of the package being upgraded
+# ts:skip=AC_DOCKER_0002 apt-get is the command; `apt` here is the name of the package being upgraded
 RUN apt-get update \
     && apt-get install -y --no-install-recommends --only-upgrade \
         perl-base \
@@ -64,6 +79,8 @@ RUN apt-get update \
         openssl \
         libssl3t64 \
         openssl-provider-legacy \
+        apt \
+        libapt-pkg7.0         zlib1g \
     && rm -rf /var/lib/apt/lists/*
 
 RUN groupadd --system semantica \
@@ -84,8 +101,8 @@ COPY --from=frontend-builder /app/semantica/static ./semantica/static
 # missing hashes pip needs on this image's actual 3.13 interpreter and
 # --require-hashes fails outright rather than silently under-pinning).
 # Every fetched package is hash-verified (Scorecard Pinned-Dependencies)
-# and pinned to the same versions CI audited, e.g. msgpack==1.2.1 and
-# setuptools==84.0.0 (which also replaces the base image's vulnerable
+# and pinned to the same versions CI audited, e.g.
+# setuptools==84.2.1 (which also replaces the base image's vulnerable
 # 70.3.0, CVE-2025-47273 - nothing else in the tree pulls a newer copy).
 # --no-deps on the local package itself: it's our own source tree, not a
 # fetch, so there's nothing to hash-pin there - but `pip install .` still

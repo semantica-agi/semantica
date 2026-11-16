@@ -2,17 +2,17 @@
 
 ## Supported Versions
 
-We actively support the following versions of Semantica with security updates:
+Security updates go to the latest release line. Older lines do not get fixes;
+upgrade to the latest release to receive them.
 
-| Version | Supported          |
-| ------- | ------------------ |
-| 0.2.3   | :white_check_mark: |
-| 0.2.2   | :white_check_mark: |
-| 0.2.1   | :white_check_mark: |
-| 0.2.0   | :white_check_mark: |
-| 0.1.1   | :white_check_mark: |
-| 0.1.0   | :white_check_mark: |
-| < 0.1.0 | :x:                |
+| Version | Python      | Supported          |
+| ------- | ----------- | ------------------ |
+| 0.8.x   | 3.11.5 – 3.13 | :white_check_mark: |
+| < 0.8   | 3.10 – 3.13 | :x:                |
+
+0.7.x is the last line that installs on Python 3.10, so Python 3.10 users
+receive no further fixes, including the Pillow 13 security fixes, which need
+Python 3.11.5. See the 0.8.0 entry in the CHANGELOG.
 
 ## Reporting a Vulnerability
 
@@ -229,6 +229,14 @@ We use automated tools to scan for vulnerabilities:
 - **Dependabot**: Automated dependency updates and security alerts
 - **GitHub Security Advisories**: Vulnerability tracking
 - **Manual Reviews**: Regular security audits
+
+### Accepted advisories
+
+Some dependency advisories cannot be fixed from inside this repository. Each
+one is recorded here with what it affects and when to revisit it, and its IDs
+are accepted in `osv-scanner.toml`.
+
+There are none at the moment.
 
 ## Best Practices for Users
 

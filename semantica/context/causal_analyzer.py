@@ -5,7 +5,7 @@ Analyzes decision causality, influence chains, and precedent relationships using
 graph traversal and advanced analytics.
 
 Key Features:
-    - Causal chain tracing (upstream/downstream)
+    - Causal chain tracing (upstream, downstream or both)
     - Decision influence analysis and scoring
     - Precedent relationship mapping
     - Multi-directional causality analysis
@@ -70,6 +70,34 @@ from ..utils.logging import get_logger
 from .decision_models import Decision
 
 
+def _causal_rel_pattern(direction: str, *, rel_var: Optional[str] = None) -> str:
+    """Return the Cypher relationship pattern for a causal traversal.
+
+    Uses the same canonical-and-alias vocabulary as the in-memory
+    ``ContextGraph`` traversal.  A Neo4j/FalkorDB/AGE graph can contain edges
+    written through ``add_edge(edge_type="causes")``; a canonical-only Cypher
+    pattern silently omits them from an audit chain.
+    """
+    if direction not in ("upstream", "downstream"):
+        raise ValueError("direction must be 'upstream' or 'downstream'")
+
+    from .context_graph import _CAUSAL_TRAVERSAL_TYPES
+
+    # In-memory traversal compares ``edge_type.upper()``, so both the
+    # canonical uppercase spelling and the present-tense lowercase spelling
+    # can be stored by ``add_edge()``. Include both in the Cypher type filter.
+    types = sorted(
+        {
+            variant
+            for edge_type in _CAUSAL_TRAVERSAL_TYPES
+            for variant in (edge_type, edge_type.lower())
+        }
+    )
+    type_filter = "|".join(types)
+    inner = f"[{rel_var}:{type_filter}]" if rel_var else f"[:{type_filter}]"
+    return f"<-{inner}-" if direction == "upstream" else f"-{inner}->"
+
+
 class CausalChainAnalyzer:
     """
     Analyzes causal chains between decisions.
@@ -100,9 +128,14 @@ class CausalChainAnalyzer:
         
         Args:
             decision_id: Starting decision ID
-            direction: "upstream" (what caused this) or "downstream" (what this caused)
-            max_depth: Maximum traversal depth
-            
+            direction: "upstream" (what caused this), "downstream" (what this caused)
+                or "both" (the upstream chain followed by the downstream one, each
+                decision listed once and tagged with metadata["causal_direction"]).
+                With "both", causes come farthest first and effects nearest first,
+                matching ContextGraph. A plain "upstream" query against a graph
+                store returns nearest first; ContextGraph returns it farthest first.
+            max_depth: Maximum traversal depth, per direction
+
         Returns:
             List of decisions in causal chain
         """
@@ -117,14 +150,32 @@ class CausalChainAnalyzer:
             if not (1 <= max_depth <= 100):
                 raise ValueError("max_depth must be between 1 and 20")
 
+            if direction == "both":
+                # Each query returns nearest first, so within a side the first
+                # copy is the nearest; a decision reachable both ways is kept as
+                # upstream.
+                chain, seen = [], set()
+                for side in ("upstream", "downstream"):
+                    for d in self.get_causal_chain(decision_id, side, max_depth):
+                        if d.decision_id not in seen:
+                            seen.add(d.decision_id)
+                            d.metadata["causal_direction"] = side
+                            chain.append(d)
+                # Causes farthest first, then effects nearest first, as
+                # ContextGraph.get_causal_chain orders them.
+                n_up = sum(d.metadata["causal_direction"] == "upstream" for d in chain)
+                chain[:n_up] = sorted(
+                    chain[:n_up],
+                    key=lambda d: d.metadata.get("causal_distance", 0),
+                    reverse=True,
+                )
+                return chain
+
             if direction not in ["upstream", "downstream"]:
-                raise ValueError("Direction must be 'upstream' or 'downstream'")
+                raise ValueError("Direction must be 'upstream', 'downstream' or 'both'")
             
-            # Define relationship direction based on traversal direction
-            if direction == "upstream":
-                rel_pattern = "<-[:CAUSED|:INFLUENCED|:PRECEDENT_FOR]-"
-            else:
-                rel_pattern = "-[:CAUSED|:INFLUENCED|:PRECEDENT_FOR]->"
+            # Define relationship direction based on traversal direction.
+            rel_pattern = _causal_rel_pattern(direction)
             
             query = f"""
             MATCH (start:Decision {{decision_id: $decision_id}})
@@ -173,7 +224,7 @@ class CausalChainAnalyzer:
             return self._trace_at_time_from_context_graph(event_id, cutoff, direction, max_depth)
 
         if hasattr(self.graph_store, "execute_query"):
-            rel_pattern = "<-[rel:CAUSED|INFLUENCED|PRECEDENT_FOR]-" if direction == "upstream" else "-[rel:CAUSED|INFLUENCED|PRECEDENT_FOR]->"
+            rel_pattern = _causal_rel_pattern(direction, rel_var="rel")
             query = f"""
             MATCH (start:Decision {{decision_id: $decision_id}})
             MATCH path = (start){rel_pattern}{{1,{max_depth}}}(end:Decision)
@@ -632,9 +683,20 @@ class CausalChainAnalyzer:
         max_depth: int,
     ) -> List[Decision]:
         """Trace transaction-time causal chains against an in-memory ContextGraph."""
-        eligible_edges = []
+        from .context_graph import _CAUSAL_TRAVERSAL_TYPES
+
+        # Build the time-eligible causal adjacency once.  The traversal below
+        # used to scan ``eligible_edges`` for every visited decision, which is
+        # O(V*E) on a wide temporal graph.  The type set is the same union the
+        # other causal traversals accept, so aliases such as "causes" are not
+        # invisible here.
+        causal_neighbors: Dict[str, List[str]] = {}
         for edge in getattr(self.graph_store, "edges", []):
-            if edge.edge_type not in ["CAUSED", "INFLUENCED", "PRECEDENT_FOR"]:
+            edge_type = getattr(edge, "edge_type", None)
+            if (
+                not isinstance(edge_type, str)
+                or edge_type.upper() not in _CAUSAL_TRAVERSAL_TYPES
+            ):
                 continue
             recorded_at = (edge.metadata or {}).get("recorded_at")
             if recorded_at is None:
@@ -643,10 +705,14 @@ class CausalChainAnalyzer:
                 edge_recorded_at = self._normalize_at_time(recorded_at)
             except ValueError:
                 continue
-            if edge_recorded_at <= cutoff:
-                eligible_edges.append(edge)
+            if edge_recorded_at > cutoff:
+                continue
+            if direction == "upstream":
+                causal_neighbors.setdefault(edge.target_id, []).append(edge.source_id)
+            else:
+                causal_neighbors.setdefault(edge.source_id, []).append(edge.target_id)
 
-        if not eligible_edges:
+        if not causal_neighbors:
             return []
 
         visited = set()
@@ -678,11 +744,9 @@ class CausalChainAnalyzer:
                     decision.metadata["causal_distance"] = depth
                     decisions.append(decision)
 
-            for edge in eligible_edges:
-                if direction == "upstream" and edge.target_id == current_id and depth < max_depth:
-                    queue.append((edge.source_id, depth + 1))
-                if direction == "downstream" and edge.source_id == current_id and depth < max_depth:
-                    queue.append((edge.target_id, depth + 1))
+            for next_id in causal_neighbors.get(current_id, ()):
+                if depth < max_depth:
+                    queue.append((next_id, depth + 1))
 
         if direction == "upstream":
             decisions.sort(key=lambda d: d.metadata.get("causal_distance", 0), reverse=True)

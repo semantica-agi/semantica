@@ -33,6 +33,7 @@ License: MIT
 import re
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from ..utils.exceptions import ProcessingError, ValidationError
 from ..utils.logging import get_logger
@@ -252,7 +253,7 @@ class TimeZoneNormalizer:
         - UTC conversion
         - Timezone abbreviation processing
         - Daylight saving time handling
-        - ZoneInfo integration (Python 3.9+)
+        - ZoneInfo integration
 
     Example Usage:
         >>> tz_normalizer = TimeZoneNormalizer()
@@ -280,8 +281,8 @@ class TimeZoneNormalizer:
         """
         Normalize datetime to target timezone.
 
-        This method converts a datetime object to the specified timezone,
-        using ZoneInfo if available (Python 3.9+), or falling back to UTC.
+        This method converts a datetime object to the specified timezone with
+        ZoneInfo. If the conversion fails, the datetime comes back unconverted.
 
         Args:
             datetime_obj: Datetime object to normalize
@@ -299,7 +300,10 @@ class TimeZoneNormalizer:
                 datetime_obj = datetime_obj.replace(tzinfo=timezone.utc)
             return datetime_obj.astimezone(target_tz)
         except Exception:
-            # Fallback if zoneinfo not available
+            # zoneinfo is always available (stdlib on 3.11+). This falls back on
+            # any failure (an unknown, malformed or non-str timezone name, or a
+            # conversion overflow) and returns the datetime unconverted; a naive
+            # input may come back tagged UTC.
             return datetime_obj
 
     def convert_to_utc(
@@ -310,7 +314,7 @@ class TimeZoneNormalizer:
 
         This method converts a datetime object to UTC timezone. If the datetime
         has no timezone info, it assumes UTC or uses the source_timezone if
-        provided.
+        provided. Aware datetimes ignore source_timezone.
 
         Args:
             datetime_obj: Datetime object to convert
@@ -319,10 +323,20 @@ class TimeZoneNormalizer:
 
         Returns:
             datetime: Datetime object in UTC timezone
+
+        Raises:
+            ValidationError: If source_timezone is unknown or invalid for a
+                             naive datetime
         """
         if datetime_obj.tzinfo is None:
             if source_timezone:
-                datetime_obj = self.normalize_timezone(datetime_obj, source_timezone)
+                try:
+                    source_tz = ZoneInfo(source_timezone)
+                except (ZoneInfoNotFoundError, ValueError, TypeError) as e:
+                    raise ValidationError(
+                        f"Invalid source timezone: {source_timezone!r}"
+                    ) from e
+                datetime_obj = datetime_obj.replace(tzinfo=source_tz)
             else:
                 datetime_obj = datetime_obj.replace(tzinfo=timezone.utc)
 

@@ -78,7 +78,7 @@ def test_export_retains_zero_endpoint_ids(tmp_path, source, target):
 
     text = path.read_text(encoding="utf-8")
     assert (
-        f"MATCH (a {{id: '{source}'}}), (b {{id: '{target}'}}) "
+        f"MATCH (a {{id: {source}}}), (b {{id: {target}}}) "
         "CREATE (a)-[r:RELATED_TO]->(b);"
     ) in text
     # A node with id 0 keeps its id instead of a generated node_<n> placeholder.

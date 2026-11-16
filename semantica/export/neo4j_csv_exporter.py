@@ -41,6 +41,7 @@ from ..utils.exceptions import ProcessingError, ValidationError
 from ..utils.helpers import ensure_directory, normalize_graph_payload
 from ..utils.logging import get_logger
 from ..utils.progress_tracker import get_progress_tracker
+from .endpoint_names import first_set_id
 
 
 class Neo4jCSVExporter:
@@ -88,6 +89,7 @@ class Neo4jCSVExporter:
         "subject",
         "start",
         "start_id",
+        "start_node_id",
     )
     _TARGET_KEYS = (
         "target",
@@ -97,6 +99,7 @@ class Neo4jCSVExporter:
         "object",
         "end",
         "end_id",
+        "end_node_id",
     )
     _REL_TYPE_KEYS = (
         "type",
@@ -615,8 +618,8 @@ class Neo4jCSVExporter:
         relationship_infos = []
 
         for index, relationship in enumerate(relationships):
-            raw_start = self._first_value(relationship, self._SOURCE_KEYS)
-            raw_end = self._first_value(relationship, self._TARGET_KEYS)
+            raw_start = first_set_id(relationship, self._SOURCE_KEYS)
+            raw_end = first_set_id(relationship, self._TARGET_KEYS)
             if raw_start is None or raw_end is None:
                 raise ValidationError(
                     f"Relationship {index} is missing source or target",

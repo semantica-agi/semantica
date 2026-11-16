@@ -1,0 +1,120 @@
+{
+  "@context": "https://ref.gs1.org/standards/epcis/2.0.0/epcis-context.jsonld",
+  "type": "EPCISDocument",
+  "schemaVersion": "2.0",
+  "creationDate": "2026-10-21T09:00:00.000+02:00",
+  "epcisBody": {
+    "eventList": [
+      {
+        "eventID": "urn:uuid:5f0f4a3e-0001-4a3e-9b1a-0000000000a1",
+        "type": "ObjectEvent",
+        "eventTime": "2026-09-02T08:12:00.000+02:00",
+        "eventTimeZoneOffset": "+02:00",
+        "recordTime": "2026-09-02T08:12:04.000+02:00",
+        "epcList": ["urn:epc:id:sgtin:0614141.107346.2026"],
+        "action": "ADD",
+        "bizStep": "cbv:BizStep-commissioning",
+        "disposition": "cbv:Disp-active",
+        "readPoint": {"id": "urn:epc:id:sgln:0614141.00001.0"},
+        "bizLocation": {"id": "urn:epc:id:sgln:0614141.00001.0"}
+      },
+      {
+        "eventID": "urn:uuid:5f0f4a3e-0002-4a3e-9b1a-0000000000a2",
+        "type": "AggregationEvent",
+        "eventTime": "2026-09-02T09:40:00.000+02:00",
+        "eventTimeZoneOffset": "+02:00",
+        "recordTime": "2026-09-02T09:40:02.000+02:00",
+        "parentID": "urn:epc:id:sscc:0614141.1234567890",
+        "childEPCs": ["urn:epc:id:sgtin:0614141.107346.2026"],
+        "action": "ADD",
+        "bizStep": "cbv:BizStep-packing",
+        "readPoint": {"id": "urn:epc:id:sgln:0614141.00001.0"},
+        "bizLocation": {"id": "urn:epc:id:sgln:0614141.00001.0"},
+        "parentEventID": "urn:uuid:5f0f4a3e-0001-4a3e-9b1a-0000000000a1"
+      },
+      {
+        "eventID": "urn:uuid:5f0f4a3e-0003-4a3e-9b1a-0000000000a3",
+        "type": "ObjectEvent",
+        "eventTime": "2026-09-03T06:05:00.000+02:00",
+        "eventTimeZoneOffset": "+02:00",
+        "recordTime": "2026-09-03T06:05:11.000+02:00",
+        "epcList": ["urn:epc:id:sgtin:0614141.107346.2026"],
+        "action": "OBSERVE",
+        "bizStep": "cbv:BizStep-shipping",
+        "readPoint": {"id": "urn:epc:id:sgln:0614141.00002.0"},
+        "bizLocation": {"id": "urn:epc:id:sgln:0614141.00002.0"},
+        "bizTransactionList": [
+          {"type": "po", "bizTransaction": "https://example.org/purchase-orders/4711"}
+        ],
+        "parentEventID": "urn:uuid:5f0f4a3e-0002-4a3e-9b1a-0000000000a2"
+      },
+      {
+        "eventID": "urn:uuid:5f0f4a3e-0004-4a3e-9b1a-0000000000a4",
+        "type": "ObjectEvent",
+        "eventTime": "2026-09-03T14:22:00.000+02:00",
+        "eventTimeZoneOffset": "+02:00",
+        "recordTime": "2026-09-03T14:22:09.000+02:00",
+        "epcList": ["urn:epc:id:sgtin:0614141.107346.2026"],
+        "action": "OBSERVE",
+        "bizStep": "cbv:BizStep-receiving",
+        "readPoint": {"id": "urn:epc:id:sgln:0614141.00003.0"},
+        "bizLocation": {"id": "urn:epc:id:sgln:0614141.00003.0"},
+        "parentEventID": "urn:uuid:5f0f4a3e-0003-4a3e-9b1a-0000000000a3"
+      },
+      {
+        "eventID": "urn:uuid:5f0f4a3e-0005-4a3e-9b1a-0000000000a5",
+        "type": "ObjectEvent",
+        "eventTime": "2026-09-05T10:31:00.000+02:00",
+        "eventTimeZoneOffset": "+02:00",
+        "recordTime": "2026-09-05T10:31:01.000+02:00",
+        "epcList": ["urn:epc:id:sgtin:0614141.107346.2026"],
+        "action": "OBSERVE",
+        "bizStep": "cbv:BizStep-retail_selling",
+        "disposition": "cbv:Disp-sold",
+        "readPoint": {"id": "urn:epc:id:sgln:0614141.00003.1"},
+        "bizLocation": {"id": "urn:epc:id:sgln:0614141.00003.1"},
+        "parentEventID": "urn:uuid:5f0f4a3e-0004-4a3e-9b1a-0000000000a4"
+      },
+      {
+        "eventID": "urn:uuid:5f0f4a3e-0006-4a3e-9b1a-0000000000b1",
+        "type": "ObjectEvent",
+        "eventTime": "2026-09-02T08:14:00.000+02:00",
+        "eventTimeZoneOffset": "+02:00",
+        "recordTime": "2026-09-02T08:14:03.000+02:00",
+        "epcList": ["urn:epc:id:sgtin:0614141.107346.2027"],
+        "action": "ADD",
+        "bizStep": "cbv:BizStep-commissioning",
+        "disposition": "cbv:Disp-active",
+        "readPoint": {"id": "urn:epc:id:sgln:0614141.00001.0"},
+        "bizLocation": {"id": "urn:epc:id:sgln:0614141.00001.0"}
+      },
+      {
+        "eventID": "urn:uuid:5f0f4a3e-0007-4a3e-9b1a-0000000000b2",
+        "type": "AggregationEvent",
+        "eventTime": "2026-09-02T09:41:00.000+02:00",
+        "eventTimeZoneOffset": "+02:00",
+        "recordTime": "2026-09-02T09:41:02.000+02:00",
+        "parentID": "urn:epc:id:sscc:0614141.1234567891",
+        "childEPCs": ["urn:epc:id:sgtin:0614141.107346.2027"],
+        "action": "ADD",
+        "bizStep": "cbv:BizStep-packing",
+        "readPoint": {"id": "urn:epc:id:sgln:0614141.00001.0"},
+        "bizLocation": {"id": "urn:epc:id:sgln:0614141.00001.0"},
+        "parentEventID": "urn:uuid:5f0f4a3e-0006-4a3e-9b1a-0000000000b1"
+      },
+      {
+        "eventID": "urn:uuid:5f0f4a3e-0008-4a3e-9b1a-0000000000b3",
+        "type": "ObjectEvent",
+        "eventTime": "2026-09-03T06:07:00.000+02:00",
+        "eventTimeZoneOffset": "+02:00",
+        "recordTime": "2026-09-03T06:07:05.000+02:00",
+        "epcList": ["urn:epc:id:sgtin:0614141.107346.2027"],
+        "action": "OBSERVE",
+        "bizStep": "cbv:BizStep-shipping",
+        "readPoint": {"id": "urn:epc:id:sgln:0614141.00002.0"},
+        "bizLocation": {"id": "urn:epc:id:sgln:0614141.00002.0"},
+        "parentEventID": "urn:uuid:5f0f4a3e-0007-4a3e-9b1a-0000000000b2"
+      }
+    ]
+  }
+}

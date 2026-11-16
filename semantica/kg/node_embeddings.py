@@ -529,9 +529,13 @@ class NodeEmbedder:
         property_name: str
     ) -> Optional[List[float]]:
         """Get embedding for a specific node."""
-        # Prefer explicit _node_embeddings dict over auto-created Mock attributes
+        # The explicit _node_embeddings dict wins only for the ids it actually
+        # holds; an empty or partial dict must not shadow vectors stored as
+        # node properties through the public path (#1713 review).
         if hasattr(graph_store, '_node_embeddings') and isinstance(graph_store._node_embeddings, dict):
-            return graph_store._node_embeddings.get(node_id)
+            value = graph_store._node_embeddings.get(node_id)
+            if value is not None:
+                return value
         if hasattr(graph_store, 'get_node_property') and callable(graph_store.get_node_property):
             result = graph_store.get_node_property(node_id, property_name)
             if isinstance(result, (list, np.ndarray)):
@@ -543,26 +547,45 @@ class NodeEmbedder:
         graph_store: Any,
         property_name: str
     ) -> Dict[str, List[float]]:
-        """Get all node embeddings from the graph store."""
-        embeddings = {}
-        
+        """Get all node embeddings from the graph store.
+
+        The explicit ``_node_embeddings`` dict seeds the result; property-
+        backed vectors are then consulted for the ids it does not hold, so
+        an empty or partial dict never shadows vectors stored through the
+        public path (#1713 review).
+        """
+        embeddings: Dict[str, List[float]] = {}
+
         if hasattr(graph_store, '_node_embeddings') and isinstance(graph_store._node_embeddings, dict):
-            embeddings = graph_store._node_embeddings.copy()
-        elif hasattr(graph_store, 'get_all_nodes_with_property') and callable(graph_store.get_all_nodes_with_property):
+            embeddings.update(graph_store._node_embeddings)
+
+        if hasattr(graph_store, 'get_all_nodes_with_property') and callable(graph_store.get_all_nodes_with_property):
             try:
                 nodes = graph_store.get_all_nodes_with_property(property_name)
                 for node_id in (nodes if isinstance(nodes, (list, tuple)) else []):
+                    if node_id in embeddings:
+                        continue
                     embedding = self._get_node_embedding(graph_store, node_id, property_name)
                     if embedding:
                         embeddings[node_id] = embedding
             except (TypeError, AttributeError):
                 pass
-        else:
-            # Fallback - iterate through all nodes
+        elif not embeddings:
+            # Fallback - iterate through all nodes. ``nodes`` may be a method
+            # (list-returning) or a plain id-keyed mapping depending on the
+            # graph store; both shapes end up as a list of node ids.
             if hasattr(graph_store, 'nodes'):
-                for node_id in graph_store.nodes():
+                try:
+                    node_ids = list(
+                        graph_store.nodes()
+                        if callable(graph_store.nodes)
+                        else graph_store.nodes.keys()
+                    )
+                except (TypeError, AttributeError):
+                    node_ids = []
+                for node_id in node_ids:
                     embedding = self._get_node_embedding(graph_store, node_id, property_name)
                     if embedding:
                         embeddings[node_id] = embedding
-        
+
         return embeddings

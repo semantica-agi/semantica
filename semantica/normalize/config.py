@@ -71,10 +71,11 @@ class NormalizeConfig:
                         self._configs.update(data.get("normalize", {}))
                         self._method_configs.update(data.get("normalize_methods", {}))
                 elif config_file.endswith(".toml"):
-                    import toml
+                    # tomllib needs a binary file.
+                    import tomllib
 
-                    with open(config_file, "r") as f:
-                        data = toml.load(f) or {}
+                    with open(config_file, "rb") as f:
+                        data = tomllib.load(f) or {}
                         if "normalize" in data:
                             self._configs.update(data["normalize"])
                         if "normalize_methods" in data:

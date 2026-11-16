@@ -1,0 +1,257 @@
+# FIBO slice for the Semantica fibo-lei example.
+#
+# A small extract of FIBO release master_2026Q2
+# (https://github.com/edmcouncil/fibo/tree/master_2026Q2, commit f59157fe), plus the
+# OMG Commons Ontology Library terms those FIBO axioms refer to. Only the classes,
+# properties, and axioms the example's SHACL shapes are derived from are kept; this is
+# not a maintained FIBO mapping. Every source ontology is listed below as dct:source
+# (its owl:versionIRI).
+#
+# Copyright notices carried by the source ontologies:
+#   FIBO repository LICENSE at the pinned tag:
+#     Copyright (c) 2020 Enterprise Data Management Council
+#   FIBO (LEIEntities, LegalPersons, Relations, BusinessRegistries):
+#     Copyright (c) 2013-2026 EDM Council, Inc. (EDM Association dba EDM Council, Inc.)
+#     Copyright (c) 2013-2025 Object Management Group, Inc.
+#   OMG Commons (Organizations, RegulatoryAgencies, Identifiers, Designators, Collections):
+#     Copyright (c) 2013-2025 EDM Council, Inc.
+#     Copyright (c) 2013-2025 Object Management Group, Inc.
+#     Copyright (c) 2014-2025 Thematix Partners LLC
+#     Copyright (c) 2021-2025 agnos.ai U.K. Ltd
+#     Copyright (c) 2021-2025 Federated Knowledge, LLC
+#     Copyright (c) 2021-2025 Mayo Clinic
+#     Copyright (c) 2021-2025 Working Ontologist LLC
+#
+# Redistributed under the MIT License, the license FIBO and Commons are published under:
+#
+# Permission is hereby granted, free of charge, to any person obtaining a copy of this
+# software and associated documentation files (the "Software"), to deal in the Software
+# without restriction, including without limitation the rights to use, copy, modify,
+# merge, publish, distribute, sublicense, and/or sell copies of the Software, and to
+# permit persons to whom the Software is furnished to do so, subject to the following
+# conditions:
+#
+# The above copyright notice and this permission notice shall be included in all copies
+# or substantial portions of the Software.
+#
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED,
+# INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+# PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+# HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF
+# CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE
+# OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+@prefix cmns-col: <https://www.omg.org/spec/Commons/Collections/> .
+@prefix cmns-dsg: <https://www.omg.org/spec/Commons/Designators/> .
+@prefix cmns-id: <https://www.omg.org/spec/Commons/Identifiers/> .
+@prefix cmns-org: <https://www.omg.org/spec/Commons/Organizations/> .
+@prefix cmns-rga: <https://www.omg.org/spec/Commons/RegulatoryAgencies/> .
+@prefix dct: <http://purl.org/dc/terms/> .
+@prefix fibo-be-le-lei: <https://spec.edmcouncil.org/fibo/ontology/BE/LegalEntities/LEIEntities/> .
+@prefix fibo-fbc-fct-breg: <https://spec.edmcouncil.org/fibo/ontology/FBC/FunctionalEntities/BusinessRegistries/> .
+@prefix fibo-fnd-rel-rel: <https://spec.edmcouncil.org/fibo/ontology/FND/Relations/Relations/> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix skos: <http://www.w3.org/2004/02/skos/core#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+
+fibo-be-le-lei:ISO17442-CodeSet a owl:NamedIndividual,
+        fibo-be-le-lei:LegalEntityIdentifierScheme ;
+    rdfs:label "ISO 17442 code set" ;
+    skos:definition "the set of legal entity identifiers that comprise the ISO 17442 legal entity identifier specification" .
+
+fibo-be-le-lei:LEIRegisteredEntity a owl:Class ;
+    rdfs:label "LEI registered entity" ;
+    rdfs:subClassOf cmns-org:LegalPerson ;
+    owl:equivalentClass [ a owl:Restriction ;
+            owl:onProperty cmns-id:isIdentifiedBy ;
+            owl:someValuesFrom fibo-be-le-lei:LegalEntityIdentifier ] ;
+    skos:definition "a legal person that has registered for and is identified by a legal entity identifier" .
+
+fibo-fbc-fct-breg:AnnulledStatus a owl:NamedIndividual,
+        fibo-fbc-fct-breg:RegistrationStatus ;
+    rdfs:label "annulled status" ;
+    skos:definition "status indicating that the registration was determined to be erroneous or invalid after issuance" ;
+    fibo-fnd-rel-rel:hasTag "ANNULLED" .
+
+fibo-fbc-fct-breg:CancelledStatus a owl:NamedIndividual,
+        fibo-fbc-fct-breg:RegistrationStatus ;
+    rdfs:label "cancelled status" ;
+    skos:definition "status indicating that the registration was abandoned prior to issuance" ;
+    fibo-fnd-rel-rel:hasTag "CANCELLED" .
+
+fibo-fbc-fct-breg:DuplicateStatus a owl:NamedIndividual,
+        fibo-fbc-fct-breg:RegistrationStatus ;
+    rdfs:label "duplicate status" ;
+    skos:definition "status indicating that the registration was determined to be a duplicate registration of the same entity as another registration; duplicate status is assigned to the non-surviving registration (i.e. the identifier that should no longer be used)" ;
+    fibo-fnd-rel-rel:hasTag "DUPLICATE" .
+
+fibo-fbc-fct-breg:IssuedStatus a owl:NamedIndividual,
+        fibo-fbc-fct-breg:RegistrationStatus ;
+    rdfs:label "issued status" ;
+    skos:definition "status indicating that the registration has been validated and issued, and which identifies an entity that was operating legally as of the last update" ;
+    fibo-fnd-rel-rel:hasTag "ISSUED" .
+
+fibo-fbc-fct-breg:LapsedStatus a owl:NamedIndividual,
+        fibo-fbc-fct-breg:RegistrationStatus ;
+    rdfs:label "lapsed status" ;
+    skos:definition "status indicating that the registration that has not been renewed by the specified renewal date and is not known by public sources to have ceased operation as of the last update" ;
+    fibo-fnd-rel-rel:hasTag "LAPSED" .
+
+fibo-fbc-fct-breg:LegalEntityIdentifierRegistryEntry a owl:Class ;
+    rdfs:label "legal entity identifier registry entry" ;
+    rdfs:subClassOf [ a owl:Restriction ;
+            owl:onProperty cmns-col:comprises ;
+            owl:someValuesFrom fibo-be-le-lei:LegalEntityIdentifier ],
+        [ a owl:Restriction ;
+            owl:onProperty fibo-fbc-fct-breg:hasRegistrationStatus ;
+            owl:someValuesFrom fibo-fbc-fct-breg:RegistrationStatus ],
+        fibo-fbc-fct-breg:BusinessRegistryEntry ;
+    skos:definition "entry in a legal entity identifier registry that conforms to ISO 17442 and the Global Legal Entity Identifier Foundation (GLEIF) Common Data Format (CDF)" .
+
+fibo-fbc-fct-breg:MergedStatus a owl:NamedIndividual,
+        fibo-fbc-fct-breg:RegistrationStatus ;
+    rdfs:label "merged status" ;
+    skos:definition "status indicating that the registration is for an entity that has been merged into another legal entity, such that this legal entity no longer exists as an independently operating entity" ;
+    fibo-fnd-rel-rel:hasTag "MERGED" .
+
+fibo-fbc-fct-breg:PendingArchivalStatus a owl:NamedIndividual,
+        fibo-fbc-fct-breg:RegistrationStatus ;
+    rdfs:label "pending archival status" ;
+    skos:definition "status indicating that the registration is about to be transferred to a different registration authority, after which its registration status will revert to a non-pending status" ;
+    fibo-fnd-rel-rel:hasTag "PENDING_ARCHIVAL" .
+
+fibo-fbc-fct-breg:PendingTransferStatus a owl:NamedIndividual,
+        fibo-fbc-fct-breg:RegistrationStatus ;
+    rdfs:label "pending transfer status" ;
+    skos:definition "status indicating that the registration has requested transfer to a different registration authority, and for which transfer is in progress" ;
+    fibo-fnd-rel-rel:hasTag "PENDING_TRANSFER" .
+
+fibo-fbc-fct-breg:PendingValidationStatus a owl:NamedIndividual,
+        fibo-fbc-fct-breg:RegistrationStatus ;
+    rdfs:label "pending validation status" ;
+    skos:definition "status indicating that an application for registration has been submitted and is in process, pending validation" ;
+    fibo-fnd-rel-rel:hasTag "PENDING_VALIDATION" .
+
+fibo-fbc-fct-breg:RetiredStatus a owl:NamedIndividual,
+        fibo-fbc-fct-breg:RegistrationStatus ;
+    rdfs:label "retired status" ;
+    skos:definition "status indicating that the registration is for an entity that has ceased operation, without having been merged into another entity" ;
+    fibo-fnd-rel-rel:hasTag "RETIRED" .
+
+fibo-fbc-fct-breg:TransferredStatus a owl:NamedIndividual,
+        fibo-fbc-fct-breg:RegistrationStatus ;
+    rdfs:label "transferred status" ;
+    skos:definition "status indicating that the registration that has been transferred to a different registration authority" ;
+    fibo-fnd-rel-rel:hasTag "TRANSFERRED" .
+
+fibo-fnd-rel-rel:hasLegalName a owl:DatatypeProperty ;
+    rdfs:label "has legal name" ;
+    rdfs:subPropertyOf fibo-fnd-rel-rel:hasFormalName ;
+    skos:definition "specifies the name used to refer to a party in legal communications" .
+
+fibo-fnd-rel-rel:hasTag a owl:DatatypeProperty ;
+    rdfs:label "has tag" ;
+    rdfs:range xsd:string ;
+    rdfs:subPropertyOf <https://www.omg.org/spec/Commons/TextDatatype/hasTextValue> ;
+    skos:definition "combination of alphanumeric characters corresponding to a label for something" .
+
+<urn:semantica:example:fibo-lei:slice> a owl:Ontology ;
+    rdfs:label "FIBO legal-entity and LEI slice (Semantica example)" ;
+    dct:license "https://opensource.org/licenses/MIT"^^xsd:anyURI ;
+    dct:source <https://spec.edmcouncil.org/fibo/ontology/BE/20250301/LegalEntities/LEIEntities/>,
+        <https://spec.edmcouncil.org/fibo/ontology/BE/20251201/LegalEntities/LegalPersons/>,
+        <https://spec.edmcouncil.org/fibo/ontology/FBC/20260601/FunctionalEntities/BusinessRegistries/>,
+        <https://spec.edmcouncil.org/fibo/ontology/FND/20251201/Relations/Relations/>,
+        <https://www.omg.org/spec/Commons/20221101/Collections/>,
+        <https://www.omg.org/spec/Commons/20221101/Identifiers/>,
+        <https://www.omg.org/spec/Commons/20250801/Designators/>,
+        <https://www.omg.org/spec/Commons/20250801/Organizations/>,
+        <https://www.omg.org/spec/Commons/20250801/RegulatoryAgencies/> ;
+    owl:versionInfo "FIBO master_2026Q2" .
+
+fibo-fbc-fct-breg:BusinessRegistryEntry a owl:Class ;
+    rdfs:label "business registry entry" ;
+    rdfs:subClassOf [ a owl:Restriction ;
+            owl:maxQualifiedCardinality "1"^^xsd:nonNegativeInteger ;
+            owl:onClass fibo-fbc-fct-breg:RegistrationStatus ;
+            owl:onProperty fibo-fbc-fct-breg:hasRegistrationStatus ],
+        <https://www.omg.org/spec/Commons/RegistrationAuthorities/RegistryEntry> ;
+    skos:definition "entry in a business registry" .
+
+cmns-col:comprises a owl:ObjectProperty ;
+    rdfs:label "comprises" ;
+    skos:definition "includes, consists of, or contains, especially within a particular scope" .
+
+cmns-dsg:isDefinedIn a owl:ObjectProperty ;
+    rdfs:label "is defined in" ;
+    skos:definition "indicates something that specifies the meaning associated with the subject" .
+
+cmns-id:isIdentifiedBy a owl:ObjectProperty ;
+    rdfs:label "is identified by" ;
+    rdfs:range cmns-id:Identifier ;
+    rdfs:subPropertyOf cmns-dsg:isSignifiedBy ;
+    owl:inverseOf cmns-id:identifies ;
+    skos:definition "has an identifier that is unique within some context" .
+
+cmns-org:LegalEntity a owl:Class ;
+    rdfs:label "legal entity" ;
+    rdfs:subClassOf [ a owl:Restriction ;
+            owl:onClass cmns-rga:Jurisdiction ;
+            owl:onProperty cmns-rga:isOrganizedIn ;
+            owl:qualifiedCardinality "1"^^xsd:nonNegativeInteger ],
+        cmns-org:FormalOrganization,
+        cmns-org:LegalPerson ;
+    skos:definition "legal person that is a partnership, corporation, or other organization having the capacity to negotiate contracts, assume financial obligations, and pay off debts, organized under the laws of some jurisdiction" .
+
+cmns-rga:isOrganizedIn a owl:ObjectProperty ;
+    rdfs:label "is organized in" ;
+    rdfs:domain cmns-org:LegalEntity ;
+    rdfs:range cmns-rga:Jurisdiction ;
+    rdfs:subPropertyOf cmns-rga:isRecognizedIn ;
+    skos:definition "indicates the jurisdiction whose laws a legal entity is organized under" .
+
+fibo-be-le-lei:LegalEntityIdentifier a owl:Class ;
+    rdfs:label "legal entity identifier" ;
+    rdfs:subClassOf [ a owl:Restriction ;
+            owl:onProperty cmns-dsg:isDefinedIn ;
+            owl:someValuesFrom fibo-be-le-lei:LegalEntityIdentifierScheme ],
+        [ a owl:Restriction ;
+            owl:onClass cmns-org:LegalPerson ;
+            owl:onProperty cmns-id:identifies ;
+            owl:qualifiedCardinality "1"^^xsd:nonNegativeInteger ],
+        cmns-org:OrganizationIdentifier ;
+    skos:definition "an organization identifier that uniquely identifies a legal person as defined in ISO 17442" .
+
+fibo-be-le-lei:LegalEntityIdentifierScheme a owl:Class ;
+    rdfs:label "legal entity identifier scheme" ;
+    rdfs:subClassOf cmns-org:OrganizationIdentificationScheme ;
+    skos:definition "a scheme that specifies the elements of an unambiguous legal entity identifier (LEI) scheme to identify the legal entities relevant to any financial transaction" .
+
+fibo-fbc-fct-breg:hasRegistrationStatus a owl:ObjectProperty ;
+    rdfs:label "has registration status" ;
+    rdfs:range fibo-fbc-fct-breg:RegistrationStatus ;
+    rdfs:subPropertyOf <https://spec.edmcouncil.org/fibo/ontology/FND/Arrangements/Lifecycles/hasStage> ;
+    skos:definition "indicates the status of a specific registration, such as for an identifier or license" .
+
+cmns-id:identifies a owl:FunctionalProperty,
+        owl:ObjectProperty ;
+    rdfs:label "identifies" ;
+    rdfs:domain cmns-id:Identifier ;
+    rdfs:subPropertyOf cmns-dsg:denotes ;
+    skos:definition "recognizes or establishes identity within some context" .
+
+cmns-rga:Jurisdiction a owl:Class ;
+    rdfs:label "jurisdiction"@en ;
+    rdfs:subClassOf <https://www.omg.org/spec/Commons/ContextualDesignators/Context> ;
+    skos:definition "power of a court or regulatory agency to adjudicate cases, issue orders, and interpret and apply the law with respect to some specific geographic area" .
+
+cmns-org:LegalPerson a owl:Class ;
+    rdfs:label "legal person"@en ;
+    rdfs:subClassOf <https://www.omg.org/spec/Commons/PartiesAndSituations/Party> ;
+    skos:definition "party that is recognized as having rights and obligations under the law, including but not limited to the right to sue and be sued, enter into contracts, own property, and incur financial and other obligations" .
+
+fibo-fbc-fct-breg:RegistrationStatus a owl:Class ;
+    rdfs:label "registration status" ;
+    rdfs:subClassOf <https://spec.edmcouncil.org/fibo/ontology/FND/Arrangements/Lifecycles/LifecycleStage> ;
+    skos:definition "lifecycle stage indicating the status of a given registration of something, such as a business or legal entity, as specified by the registration authority" .

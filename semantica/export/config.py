@@ -74,10 +74,11 @@ class ExportConfig:
                         self._configs.update(data.get("export", {}))
                         self._method_configs.update(data.get("export_methods", {}))
                 elif config_file.endswith(".toml"):
-                    import toml
+                    # tomllib needs a binary file.
+                    import tomllib
 
-                    with open(config_file, "r") as f:
-                        data = toml.load(f) or {}
+                    with open(config_file, "rb") as f:
+                        data = tomllib.load(f) or {}
                         if "export" in data:
                             self._configs.update(data["export"])
                         if "export_methods" in data:

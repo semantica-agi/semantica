@@ -81,7 +81,7 @@ class PineconeClient:
             # Map metric names
             metric_map = {
                 "cosine": "cosine",
-                "euclidean": "euclidean_distance",
+                "euclidean": "euclidean",
                 "dot": "dotproduct",
             }
             pinecone_metric = metric_map.get(metric.lower(), "cosine")
@@ -129,13 +129,30 @@ class PineconeClient:
         except Exception as e:
             raise ProcessingError(f"Failed to get index: {str(e)}")
 
+    def get_index_metric(self, index_name: str) -> Optional[str]:
+        """Read the metric from the control-plane index description."""
+        try:
+            description = self.client.describe_index(index_name)
+            metric = (
+                description.get("metric")
+                if isinstance(description, dict)
+                else description.metric
+            )
+            return metric if isinstance(metric, str) else None
+        except Exception as e:
+            self.logger.warning(
+                f"Could not determine index metric for '{index_name}': {e}"
+            )
+            return None
+
 
 class PineconeIndex:
     """Pinecone index wrapper."""
 
-    def __init__(self, index: Any):
+    def __init__(self, index: Any, metric: Optional[str] = None):
         """Initialize Pinecone index wrapper."""
         self.index = index
+        self.metric = metric
         self.logger = get_logger("pinecone_index")
 
     def upsert_vectors(
@@ -191,19 +208,16 @@ class PineconeIndex:
 
             results = []
             for match in response.matches:
+                score = float(match.score)
+                if self.metric == "euclidean":
+                    similarity = 1.0 / (1.0 + max(0.0, score))
+                else:
+                    # Preserve the existing normalization for cosine and dotproduct.
+                    similarity = (score / (1.0 + abs(score)) + 1.0) / 2.0
                 results.append(
                     {
                         "id": match.id,
-                        # Pinecone's native score is already "higher is better" but its
-                        # range depends on the configured metric (bounded for cosine,
-                        # unbounded for dotproduct). Squash with x/(1+|x|) instead of
-                        # clamping distance-to-zero, since the latter collapses every
-                        # score >= 1.0 to an identical 1.0 and destroys ranking order
-                        # for dotproduct/unnormalized-vector indexes.
-                        "score": (
-                            float(match.score) / (1.0 + abs(float(match.score))) + 1.0
-                        )
-                        / 2.0,
+                        "score": similarity,
                         "metadata": match.metadata or {},
                         "vector": None,
                         "distance": None,
@@ -441,7 +455,9 @@ class PineconeStore:
 
             # Get the index
             pinecone_index = self.client.get_index(index_name)
-            self.index = PineconeIndex(pinecone_index)
+            self.index = PineconeIndex(
+                pinecone_index, metric=self.client.get_index_metric(index_name)
+            )
             self.search_engine = PineconeSearch(self.index)
             self.dimension = dimension
 
@@ -469,7 +485,9 @@ class PineconeStore:
 
         try:
             pinecone_index = self.client.get_index(index_name)
-            self.index = PineconeIndex(pinecone_index)
+            self.index = PineconeIndex(
+                pinecone_index, metric=self.client.get_index_metric(index_name)
+            )
             self.search_engine = PineconeSearch(self.index)
             if self.dimension is None:
                 try:

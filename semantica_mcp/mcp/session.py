@@ -1,16 +1,16 @@
 """
 Shared graph session — lazy singleton across all tool handlers.
 
-The graph is initialised once on first access and shared for the
-lifetime of the MCP server process.  Set SEMANTICA_KG_PATH to
-automatically load a persisted graph on start.
+Set SEMANTICA_KG_PATH to load a persisted graph on first use. With
+SEMANTICA_KG_AUTO_RELOAD=true, changed file revisions reload before graph
+operations; unavailable or invalid sources refuse access until repaired.
 """
 
 from __future__ import annotations
 
 import logging
 import os
-from typing import Any, Optional
+from typing import Any, Dict, Optional, Tuple
 
 log = logging.getLogger("semantica.mcp.session")
 
@@ -28,43 +28,92 @@ _vector_store: Optional[Any] = None
 # configured SEMANTICA_KG_PATH file.  When True (or no path was configured)
 # mutation handlers are allowed to save.  When False an existing file failed
 # to load; saving would overwrite the original data with an empty graph, so
-# persistence is blocked until the process is restarted with a readable file.
+# persistence is blocked until restart, or a successful opt-in source reload.
 _load_ok: bool = True
+
+
+_graph_cache: Optional[Any] = None
 
 
 def get_graph() -> Any:
     """
-    Return the shared ContextGraph instance, creating it on first call.
+    Return the shared ContextGraph, optionally reloading changed file revisions.
 
     The graph is created with advanced_analytics=True so all centrality,
     community-detection, and embedding features are available.
     """
-    global _graph, _load_ok
+    global _graph, _load_ok, _graph_cache
+    if os.environ.get("SEMANTICA_KG_AUTO_RELOAD", "").strip().lower() == "true":
+        if _graph_cache is None:
+            from semantica.context._graph_cache import _PersistedGraphCache
+
+            _graph_cache = _PersistedGraphCache()
+        try:
+            _graph = _graph_cache.get_graph(
+                _graph, os.environ.get("SEMANTICA_KG_PATH", "").strip()
+            )
+        except Exception:
+            _load_ok = False
+            raise
+        _load_ok = True
+        return _graph
+
     if _graph is None:
         from semantica.context import ContextGraph
 
         _graph = ContextGraph(advanced_analytics=True)
         _load_ok = True  # default: safe to persist
 
-        kg_path = os.environ.get("SEMANTICA_KG_PATH", "").strip()
-        if kg_path and os.path.exists(kg_path):
-            # Only attempt to load if the file has content.  An empty file
-            # means the path was just created (e.g. a fresh tempfile) and
-            # should be treated as "start with empty graph" rather than a
-            # corrupt-file failure.
-            if os.path.getsize(kg_path) > 0:
-                try:
-                    _graph.load_from_file(kg_path)
-                    log.info("Graph loaded from %s", kg_path)
-                except Exception as exc:
-                    log.warning(
-                        "Could not load graph from %s: %s — persistence disabled "
-                        "to protect existing data; restart the server to retry.",
-                        kg_path, exc,
-                    )
-                    _load_ok = False  # do not overwrite the original file
+        path = kg_file_to_load()
+        if path:
+            try:
+                _graph.load_from_file(path)
+                log.info("Graph loaded from %s", path)
+            except Exception as exc:
+                log.warning(
+                    "Could not load graph from %s: %s — persistence disabled "
+                    "to protect existing data; restart the server to retry.",
+                    path, exc,
+                )
+                _load_ok = False  # do not overwrite the original file
 
     return _graph
+
+
+def kg_path() -> str:
+    """Return the configured ``SEMANTICA_KG_PATH``, or ``""`` when unset."""
+    return os.environ.get("SEMANTICA_KG_PATH", "").strip()
+
+
+def kg_file_to_load() -> Optional[str]:
+    """Return the graph file ``get_graph`` will load, or None to start empty.
+
+    A missing file starts an empty graph that is created on the first save.
+    An empty file means the path was just created (e.g. a fresh tempfile)
+    and is likewise treated as "start with empty graph" rather than a
+    corrupt-file failure.  Shared with ``semantica doctor`` so its check
+    follows the same rules as the server (#1818).
+    """
+    path = kg_path()
+    if path and os.path.exists(path) and os.path.getsize(path) > 0:
+        return path
+    return None
+
+
+def save_graph(graph: Any, path: str) -> None:
+    """Persist a mutation under this session's load and revision contract."""
+    if not is_persistence_safe():
+        raise ValueError(
+            "Persistence blocked: the configured SEMANTICA_KG_PATH "
+            "could not be loaded at startup. Restart the server with "
+            "a readable graph file to re-enable persistence."
+        )
+    if os.environ.get("SEMANTICA_KG_AUTO_RELOAD", "").strip().lower() == "true":
+        if _graph_cache is None:
+            raise ValueError("The graph source has not been loaded.")
+        _graph_cache.save_graph(graph, path)
+    else:
+        graph.save_to_file(path)
 
 
 def get_embedder() -> Any:
@@ -85,6 +134,37 @@ def get_embedder() -> Any:
             _embedder.get_text_method(),
         )
     return _embedder
+
+
+def resolve_vector_backend() -> Tuple[str, Dict[str, Any]]:
+    """Return the backend and store config ``get_vector_store`` will use.
+
+    Reads and validates the environment without building a store or an
+    embedder, so ``semantica doctor`` can report exactly what this server
+    would do instead of re-implementing the rules (#1818).  The returned
+    config does not yet include ``dimension``, which comes from the embedder.
+
+    Raises:
+        ValueError: The backend is unsupported, or ``sqlite`` is selected
+            without ``SEMANTICA_VECTOR_DB_PATH``.
+    """
+    backend = os.environ.get("SEMANTICA_VECTOR_BACKEND", "inmemory").strip().lower()
+    if backend not in SUPPORTED_VECTOR_BACKENDS:
+        raise ValueError(
+            f"SEMANTICA_VECTOR_BACKEND={backend!r} is not supported by the "
+            "MCP retrieval tools; supported backends: "
+            + ", ".join(SUPPORTED_VECTOR_BACKENDS)
+        )
+    config: Dict[str, Any] = {}
+    if backend == "sqlite":
+        db_path = os.environ.get("SEMANTICA_VECTOR_DB_PATH", "").strip()
+        if not db_path:
+            raise ValueError(
+                "SEMANTICA_VECTOR_BACKEND=sqlite requires "
+                "SEMANTICA_VECTOR_DB_PATH to point at the database file"
+            )
+        config["db_path"] = db_path
+    return backend, config
 
 
 def get_vector_store() -> Any:
@@ -110,22 +190,7 @@ def get_vector_store() -> Any:
     if _vector_store is None:
         from semantica.vector_store import VectorStore
 
-        backend = os.environ.get("SEMANTICA_VECTOR_BACKEND", "inmemory").strip().lower()
-        if backend not in SUPPORTED_VECTOR_BACKENDS:
-            raise ValueError(
-                f"SEMANTICA_VECTOR_BACKEND={backend!r} is not supported by the "
-                "MCP retrieval tools; supported backends: "
-                + ", ".join(SUPPORTED_VECTOR_BACKENDS)
-            )
-        config: dict = {}
-        if backend == "sqlite":
-            db_path = os.environ.get("SEMANTICA_VECTOR_DB_PATH", "").strip()
-            if not db_path:
-                raise ValueError(
-                    "SEMANTICA_VECTOR_BACKEND=sqlite requires "
-                    "SEMANTICA_VECTOR_DB_PATH to point at the database file"
-                )
-            config["db_path"] = db_path
+        backend, config = resolve_vector_backend()
         # VectorStore defaults to dimension 768, which does not match the
         # default embedding model (all-MiniLM-L6-v2 = 384, hash fallback
         # = 128).  Always derive it from the embedder so store and
@@ -175,6 +240,7 @@ def is_persistence_safe() -> bool:
 
 def reset_graph() -> None:
     """Reset the singleton (mainly useful in tests)."""
-    global _graph, _load_ok
+    global _graph, _load_ok, _graph_cache
     _graph = None
     _load_ok = True
+    _graph_cache = None

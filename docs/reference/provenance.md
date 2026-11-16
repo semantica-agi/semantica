@@ -87,6 +87,20 @@ icon: "link"
 
 **`ProvenanceManager`** is the central tracker for all lineage data. Every call to `track_entity`, `track_relationship`, or `track_chunk` automatically computes and stores a **SHA-256 checksum** for tamper detection.
 
+`track_entity()` keeps its best-effort default: a failed new write returns `None`,
+and a failed update returns a copy of the previous entry. Pass
+`raise_on_error=True` when the caller needs a reliable failure signal:
+
+```python
+entry = manager.track_entity("entity_1", source="document_1", raise_on_error=True)
+```
+
+The original tracking or transaction exception propagates after rollback. This
+also detects failed retries with identical metadata, for which the default
+return value can look like success. With an internal shared transaction (`_conn`),
+failures always propagate, and a successful return stages the entry until the
+caller commits that transaction.
+
 ### Constructor
 
 ```python
@@ -349,7 +363,9 @@ if not is_valid:
     raise RuntimeError("Provenance record has been tampered with.")
 ```
 
-The checksum covers `entity_id`, `entity_type`, `activity_id`, `source_document`, `timestamp`, and `confidence`.
+The checksum covers `entity_type`, `activity_id`, the agent, `source_document`, `timestamp`, `confidence`, the lineage links (`parent_entity_id`, `previous_version_id`, `derived_from_id`, `used_entities`), `previous_checksum` and the invalidation fields. `entity_id` is deliberately excluded so an archival relabel does not break the chain.
+
+Compare with `verify_checksum(entry)`, not `compute_checksum(entry) == entry.checksum`. `compute_checksum()` always returns the current (v2) encoding, while rows written before the encoding changed carry a v1 digest; `verify_checksum()` checks each row against the encoding it was written with.
 
 <Tip>
   **Run `verify_checksum(entry)` before any compliance export.** Pass the `ProvenanceEntry` object returned by `trace_lineage()` directly. If the stored checksum no longer matches, raise an error before the export proceeds.
@@ -391,6 +407,29 @@ input_data = {"entity_id": "cabo_pulmo", "value": 463.0, "source": "DOI:10.1371/
 chain = create_translation_chain(input_data, [axiom], prov_manager=manager)
 print(chain.confidence)  # 0.92
 ```
+
+When a `prov_manager` is passed and the provenance record cannot be written, `apply()` raises `ProvenanceRecordingError` (from `semantica.utils`) rather than returning an unrecorded result, and `create_translation_chain()` lets it propagate. Pass `require_provenance=False` for best effort: the call then returns normally and the result carries `provenance_recorded` (`bool`) and `provenance_error` (`str` or `None`) so the caller can see whether the record was written.
+
+For a `ProvenanceManager`, `apply()` requests strict tracking even in best-effort
+mode so a failed retry is reported accurately. Public errors contain only the
+exception type; required-mode errors retain the original exception as their
+cause. Duck-typed legacy managers keep their exception-only success contract.
+Strict tracking failures in an owned transaction retain one traceback through
+the manager's existing internal diagnostic logger. This does not add metadata,
+source quotes or other input payloads to log messages; the existing internal
+exception diagnostics remain separate from the redacted public error strings.
+A failing diagnostic handler does not replace the original tracking exception.
+
+`ProvenanceManager` subclasses that override `track_entity()` must honor
+`raise_on_error=True` for reliable detection of failed identical-input retries.
+Overrides with an explicit older signature must accept the new keyword before
+they can be used by `apply()`, including when storage is healthy. Otherwise,
+required mode raises `ProvenanceRecordingError` with a `TypeError` cause, and
+best-effort mode reports `provenance_recorded=False` and `provenance_error="TypeError"`.
+Accepting the keyword without honoring it is insufficient for reliable tracking.
+`apply()` still rejects missing entries or mismatched metadata as a secondary
+compatibility guard for older overrides. Matching metadata alone does not prove
+that storage persisted the entry.
 
 ## Integration with GraphBuilder
 

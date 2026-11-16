@@ -142,7 +142,7 @@ Once connected, the LLM can call any of these tools during a conversation. The a
 
 **Live graph queries and edits.** `query_graph` reads the graph without exporting it: fetch one node, walk its neighbours up to five hops, or keyword-search nodes. `update_node` merges properties onto an existing node (for example marking a task node `done`), and `delete_node` archives a node it no longer tracks. When `SEMANTICA_KG_PATH` is set, `update_node` and `delete_node` write their changes back to that file so they survive a restart.
 
-**Decision intelligence.** `record_decision` writes a decision as a provenance node with confidence score, reasoning, and decision maker identity. `query_decisions` retrieves past decisions by query or category. `find_precedents` finds the most similar past decisions by semantic similarity. `get_causal_chain` traces decision causality upstream or downstream.
+**Decision intelligence.** `record_decision` writes a decision as a provenance node with confidence score, reasoning, and decision maker identity. `query_decisions` retrieves past decisions by query or category. `find_precedents` finds the most similar past decisions by semantic similarity. `get_causal_chain` traces decision causality upstream, downstream or both.
 
 **Reasoning.** `run_reasoning` applies forward-chaining IF/THEN rules over a set of facts and returns derived conclusions.
 

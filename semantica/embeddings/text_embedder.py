@@ -506,6 +506,18 @@ class TextEmbedder:
         else:
             return "fallback"
 
+    def _requested_model_name(self) -> str:
+        """The model name the loader attempted, including for a failed load.
+
+        FastEmbed takes its name from the ``fastembed_model_name`` config
+        override when one is set (see ``_initialize_model``), so reporting
+        ``self.model_name`` would name a different model from the one that was
+        actually requested.
+        """
+        if self.method == "fastembed":
+            return self.config.get("fastembed_model_name", self.model_name)
+        return self.model_name
+
     def get_model_info(self) -> Dict[str, Any]:
         """
         Get detailed information about the active embedding model.
@@ -513,7 +525,10 @@ class TextEmbedder:
         Returns:
             dict: Dictionary containing:
                 - method: Active embedding method ("fastembed", "sentence_transformers", "fallback")
-                - model_name: Model name being used
+                - model_name: Model actually in use, or "fallback" when the
+                  requested backend was unavailable and hash embedding is active
+                - requested_model_name: The model that was asked for, which
+                  differs from model_name whenever method is "fallback"
                 - model_loaded: Whether the model is successfully loaded
                 - dimension: Embedding dimension
                 - device: Device being used (for sentence-transformers)
@@ -535,7 +550,14 @@ class TextEmbedder:
 
         info = {
             "method": method,
-            "model_name": self.model_name,
+            # Report what is loaded, not what was asked for. Model loading
+            # degrades to hash embedding without raising (see
+            # _initialize_model), and reporting the requested name here claimed
+            # a model that is not in use: `method="fallback"` alongside
+            # `model_name="BAAI/bge-small-en-v1.5"` reads as success to anything
+            # that inspects the name.
+            "model_name": self.model_name if method != "fallback" else "fallback",
+            "requested_model_name": self._requested_model_name(),
             "model_loaded": model_loaded,
             "dimension": self.get_embedding_dimension(),
             "normalize": self.normalize,

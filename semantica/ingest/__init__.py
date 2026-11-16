@@ -98,6 +98,12 @@ Main Classes:
     - ParquetIngestor: Apache Parquet file and partitioned dataset processing
     - ArrowIngestor: Apache Arrow IPC and Feather file processing
     - XMLIngestor: XML file parsing, validation, and metadata extraction
+    - DuckDBIngestor: DuckDB database and query result processing
+    - ElasticIngestor: Elasticsearch index and document processing
+    - GDriveIngestor: Google Drive file and folder processing
+    - HuggingFaceIngestor: Hugging Face dataset processing
+    - MongoIngestor: MongoDB collection and document processing
+    - PandasIngestor: pandas DataFrame and tabular file processing
     - MethodRegistry: Registry for custom ingestion methods
     - IngestConfig: Configuration manager for ingest module
 
@@ -304,6 +310,25 @@ _LAZY_EXPORTS: Dict[str, Tuple[str, str]] = {
     "LookerIngestor": (".looker_ingestor", "LookerIngestor"),
     "LookerData": (".looker_ingestor", "LookerData"),
     "LookerConnector": (".looker_ingestor", "LookerConnector"),
+    # DuckDB ingestion
+    "DuckDBIngestor": (".duckdb_ingestor", "DuckDBIngestor"),
+    "DuckDBData": (".duckdb_ingestor", "DuckDBData"),
+    # Elasticsearch ingestion
+    "ElasticIngestor": (".elastic_ingestor", "ElasticIngestor"),
+    "ElasticData": (".elastic_ingestor", "ElasticData"),
+    # Google Drive ingestion
+    "GDriveIngestor": (".gdrive_ingestor", "GDriveIngestor"),
+    "GDriveData": (".gdrive_ingestor", "GDriveData"),
+    # Hugging Face dataset ingestion
+    "HuggingFaceIngestor": (".huggingface_ingestor", "HuggingFaceIngestor"),
+    "HFData": (".huggingface_ingestor", "HFData"),
+    # MongoDB ingestion
+    "MongoIngestor": (".mongo_ingestor", "MongoIngestor"),
+    "MongoData": (".mongo_ingestor", "MongoData"),
+    "MongoConnector": (".mongo_ingestor", "MongoConnector"),
+    # pandas DataFrame ingestion
+    "PandasIngestor": (".pandas_ingestor", "PandasIngestor"),
+    "PandasData": (".pandas_ingestor", "PandasData"),
 }
 
 _OPTIONAL_DEPENDENCY_MESSAGES = {
@@ -413,6 +438,27 @@ def __getattr__(name: str) -> Any:
     # fail at import time rather than postponing failure to construction time.
     if module_name == ".repo_ingestor" and name in {"RepoIngestor"}:
         if getattr(module, "git", None) is None:
+            message = _OPTIONAL_DEPENDENCY_MESSAGES.get(module_name)
+            if message:
+                raise ImportError(message)
+
+    if module_name == ".web_ingestor" and name in {
+        "WebIngestor",
+        "ContentExtractor",
+    }:
+        if getattr(module, "BeautifulSoup", None) is None:
+            message = _OPTIONAL_DEPENDENCY_MESSAGES.get(module_name)
+            if message:
+                raise ImportError(message)
+
+    if module_name == ".feed_ingestor" and name in {"FeedIngestor"}:
+        if getattr(module, "BeautifulSoup", None) is None:
+            message = _OPTIONAL_DEPENDENCY_MESSAGES.get(module_name)
+            if message:
+                raise ImportError(message)
+
+    if module_name == ".email_ingestor" and name in {"EmailIngestor"}:
+        if getattr(module, "BeautifulSoup", None) is None:
             message = _OPTIONAL_DEPENDENCY_MESSAGES.get(module_name)
             if message:
                 raise ImportError(message)
@@ -625,6 +671,25 @@ __all__ = [
     "LookerIngestor",
     "LookerData",
     "LookerConnector",
+    # DuckDB ingestion
+    "DuckDBIngestor",
+    "DuckDBData",
+    # Elasticsearch ingestion
+    "ElasticIngestor",
+    "ElasticData",
+    # Google Drive ingestion
+    "GDriveIngestor",
+    "GDriveData",
+    # Hugging Face dataset ingestion
+    "HuggingFaceIngestor",
+    "HFData",
+    # MongoDB ingestion
+    "MongoIngestor",
+    "MongoData",
+    "MongoConnector",
+    # pandas DataFrame ingestion
+    "PandasIngestor",
+    "PandasData",
     # Registry and Methods
     "MethodRegistry",
     "method_registry",
