@@ -17,7 +17,7 @@ from ..schemas import (
     QUERY_DECISIONS,
     RECORD_DECISION,
 )
-from ..session import get_graph, is_persistence_safe
+from ..session import get_graph, is_persistence_safe, save_graph
 
 log = logging.getLogger("semantica.mcp.tools.decisions")
 
@@ -45,39 +45,45 @@ def handle_record_decision(args: dict) -> dict:
         # Skip when the initial load failed to avoid overwriting original data.
         kg_path = os.environ.get("SEMANTICA_KG_PATH", "").strip()
         if kg_path:
-            if not is_persistence_safe():
-                # Roll back the in-memory mutation so the client-visible state
-                # matches the persisted state (neither is saved).
-                if hasattr(graph, "_decisions") and decision_id in graph._decisions:
-                    del graph._decisions[decision_id]
-                    if hasattr(graph, "_decision_index"):
-                        cat = args.get("category", "")
-                        if cat in graph._decision_index:
-                            graph._decision_index[cat].discard(decision_id)
-                return {
-                    "error": (
-                        "Persistence blocked: the configured SEMANTICA_KG_PATH "
-                        "could not be loaded at startup. Restart the server with "
-                        "a readable graph file to re-enable persistence."
+            if os.environ.get("SEMANTICA_KG_AUTO_RELOAD", "").strip().lower() == "true":
+                try:
+                    save_graph(graph, kg_path)
+                except Exception as save_exc:
+                    return {"error": f"Mutation rolled back: could not persist graph: {save_exc}"}
+            else:
+                if not is_persistence_safe():
+                    # Roll back the in-memory mutation so the client-visible state
+                    # matches the persisted state (neither is saved).
+                    if hasattr(graph, "_decisions") and decision_id in graph._decisions:
+                        del graph._decisions[decision_id]
+                        if hasattr(graph, "_decision_index"):
+                            cat = args.get("category", "")
+                            if cat in graph._decision_index:
+                                graph._decision_index[cat].discard(decision_id)
+                    return {
+                        "error": (
+                            "Persistence blocked: the configured SEMANTICA_KG_PATH "
+                            "could not be loaded at startup. Restart the server with "
+                            "a readable graph file to re-enable persistence."
+                        )
+                    }
+                try:
+                    graph.save_to_file(kg_path)
+                except Exception as save_exc:
+                    # Atomic write failed. Roll back the in-memory mutation so the
+                    # client-visible and persisted states remain consistent.
+                    if hasattr(graph, "_decisions") and decision_id in graph._decisions:
+                        del graph._decisions[decision_id]
+                        if hasattr(graph, "_decision_index"):
+                            cat = args.get("category", "")
+                            if cat in graph._decision_index:
+                                graph._decision_index[cat].discard(decision_id)
+                    log.exception(
+                        "save_to_file failed after record_decision; mutation rolled back"
                     )
-                }
-            try:
-                graph.save_to_file(kg_path)
-            except Exception as save_exc:
-                # Atomic write failed. Roll back the in-memory mutation so the
-                # client-visible and persisted states remain consistent.
-                if hasattr(graph, "_decisions") and decision_id in graph._decisions:
-                    del graph._decisions[decision_id]
-                    if hasattr(graph, "_decision_index"):
-                        cat = args.get("category", "")
-                        if cat in graph._decision_index:
-                            graph._decision_index[cat].discard(decision_id)
-                log.exception(
-                    "save_to_file failed after record_decision; mutation rolled back"
-                )
-                return {
-                    "error": f"Mutation rolled back: could not persist graph: {save_exc}"
-                }
+                    return {
+                        "error": f"Mutation rolled back: could not persist graph: {save_exc}"
+                    }
         return {
             "decision_id": decision_id,
             "status": "recorded",
@@ -299,6 +305,20 @@ def handle_analyze_decision_impact(args: dict) -> dict:
         return {"error": str(exc)}
 
 
+def _drop_edges(graph, edges) -> None:
+    """Undo add_causal_relationship: drop exactly the given edges."""
+    try:
+        with graph._lock:
+            for edge in edges:
+                graph._drop_edge_from_indexes(edge)
+                # _drop_edge_from_indexes leaves _edge_index alone; without this a
+                # retry of the same link would be treated as a duplicate and skipped
+                graph._edge_index.pop(edge.edge_id, None)
+    except Exception:
+        log.exception("could not roll back link_decisions")
+
+
+
 def handle_link_decisions(args: dict) -> dict:
     """Create a typed causal relationship between two recorded decisions."""
     source = str(args.get("source") or "").strip()
@@ -333,22 +353,29 @@ def handle_link_decisions(args: dict) -> dict:
         persisted = False
         kg_path = os.environ.get("SEMANTICA_KG_PATH", "").strip()
         if added and kg_path:
-            if not is_persistence_safe():
-                _drop_edges(graph, new_edges)
-                return {
-                    "error": (
-                        "Persistence blocked: the configured SEMANTICA_KG_PATH "
-                        "could not be loaded at startup. Restart the server with "
-                        "a readable graph file to re-enable persistence."
-                    )
-                }
-            try:
-                graph.save_to_file(kg_path)
-                persisted = True
-            except Exception as save_exc:
-                _drop_edges(graph, new_edges)
-                log.exception("save_to_file failed after link_decisions; mutation rolled back")
-                return {"error": f"Mutation rolled back: could not persist graph: {save_exc}"}
+            if os.environ.get("SEMANTICA_KG_AUTO_RELOAD", "").strip().lower() == "true":
+                try:
+                    save_graph(graph, kg_path)
+                    persisted = True
+                except Exception as save_exc:
+                    return {"error": f"Mutation rolled back: could not persist graph: {save_exc}"}
+            else:
+                if not is_persistence_safe():
+                    _drop_edges(graph, new_edges)
+                    return {
+                        "error": (
+                            "Persistence blocked: the configured SEMANTICA_KG_PATH "
+                            "could not be loaded at startup. Restart the server with "
+                            "a readable graph file to re-enable persistence."
+                        )
+                    }
+                try:
+                    graph.save_to_file(kg_path)
+                    persisted = True
+                except Exception as save_exc:
+                    _drop_edges(graph, new_edges)
+                    log.exception("save_to_file failed after link_decisions; mutation rolled back")
+                    return {"error": f"Mutation rolled back: could not persist graph: {save_exc}"}
     return {
         "source": source,
         "target": target,
@@ -356,19 +383,6 @@ def handle_link_decisions(args: dict) -> dict:
         "linked": added,
         "persisted": persisted,
     }
-
-
-def _drop_edges(graph, edges) -> None:
-    """Undo add_causal_relationship: drop exactly the given edges."""
-    try:
-        with graph._lock:
-            for edge in edges:
-                graph._drop_edge_from_indexes(edge)
-                # _drop_edge_from_indexes leaves _edge_index alone; without this a
-                # retry of the same link would be treated as a duplicate and skipped
-                graph._edge_index.pop(edge.edge_id, None)
-    except Exception:
-        log.exception("could not roll back link_decisions")
 
 
 DECISION_TOOLS = [
