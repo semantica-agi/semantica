@@ -27,8 +27,8 @@ registered, which is how these six got in.
 ``ImportError`` on a core install rather than returning ``False``: the lazy
 ``__getattr__`` probes the optional dependency and raises a helpful message,
 and ``hasattr`` only swallows ``AttributeError``. So the sweep below reads
-``_LAZY_EXPORTS`` and ``__all__`` statically and never touches an attribute
-whose backend might be absent.
+``_LAZY_EXPORTS`` plus the names already bound in the module namespace, and
+never probes an attribute whose backend might be absent.
 """
 
 import ast
@@ -72,14 +72,19 @@ _DOCUMENTED_IMPORTS = [
 
 
 def _statically_reachable():
-    """Names the package actually resolves, without touching an attribute.
+    """Names the package resolves, read from its own namespace.
 
     ``__all__`` is not part of this. A name listed there but neither
     registered in ``_LAZY_EXPORTS`` nor bound eagerly at import time raises
     ``ImportError`` on ``from semantica.ingest import X``, so counting it as
-    reachable made the guard blind to a dropped registration. ``vars()`` is a
-    plain namespace lookup, unlike ``hasattr``, which probes the optional
-    backend and raises ``ImportError`` on a core install.
+    reachable made the guard blind to a dropped registration.
+
+    ``vars()`` is a namespace snapshot, not a probe: unlike ``hasattr`` it
+    cannot trigger the lazy ``__getattr__``, which raises ``ImportError`` on a
+    core install. A lazy access that succeeds writes the name into the module
+    namespace, so a snapshot taken after other tests have run can contain more
+    names -- all of them names that did resolve here, which is why the guard
+    stays sound.
     """
     return set(ingest_pkg._LAZY_EXPORTS) | set(vars(ingest_pkg))
 
