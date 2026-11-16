@@ -129,21 +129,68 @@ class TestNoDocumentedCallIsMissing:
 _DRIFT_ERRORS = (AttributeError, NameError, TypeError, ImportError)
 
 
+def _bound_names(source):
+    """Names a statement would bind if it had run."""
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return set()
+    names = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign):
+            targets = node.targets
+        elif isinstance(node, (ast.AnnAssign, ast.AugAssign)):
+            targets = [node.target]
+        elif isinstance(node, (ast.For, ast.AsyncFor)):
+            targets = [node.target]
+        elif isinstance(node, (ast.With, ast.AsyncWith)):
+            targets = [i.optional_vars for i in node.items if i.optional_vars]
+        elif isinstance(node, (ast.Import, ast.ImportFrom)):
+            names.update(
+                (alias.asname or alias.name).split(".")[0] for alias in node.names
+            )
+            continue
+        else:
+            continue
+        for target in targets:
+            names.update(
+                sub.id for sub in ast.walk(target) if isinstance(sub, ast.Name)
+            )
+    return names
+
+
+def _missing_name(exc):
+    """The undefined name a ``NameError`` is about, if it is about one."""
+    match = re.search(r"name '([^']+)' is not defined", str(exc))
+    return match.group(1) if match else None
+
+
 def _run_example(stem):
-    """Execute a module's documented block; return the first drift error."""
+    """Execute a module's documented block; return the first drift error.
+
+    A statement that fails for an environment reason (no triplet store server
+    to query) is skipped rather than ending the run. Ending it there meant the
+    tail of ``sparql_reasoner``'s block was never executed, so drift in the
+    ``expand_query`` example passed this file. Names the skipped statement
+    would have bound are remembered, so the ``NameError`` its dependents raise
+    is not reported as drift.
+    """
     doc = ast.get_docstring(
         ast.parse((_REASONING_DIR / f"{stem}.py").read_text(encoding="utf-8"))
     )
     namespace = {}
+    unbound = set()
     for example in doctest.DocTestParser().get_examples(doc or ""):
         try:
             exec(compile(example.source, f"<{stem}>", "single"), namespace)
         except _DRIFT_ERRORS as exc:
+            if _missing_name(exc) in unbound:
+                unbound |= _bound_names(example.source)
+                continue
             return f"{type(exc).__name__}: {exc}"
         except Exception:
-            # Anything else is an environment limit, not drift. Stop here --
-            # later statements depend on this one.
-            return None
+            unbound |= _bound_names(example.source)
+            continue
     return None
 
 
