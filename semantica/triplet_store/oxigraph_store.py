@@ -274,12 +274,12 @@ class OxigraphStore:
         )
 
     def _object_from_triplet(self, triplet: Triplet) -> Any:
-        if self._is_uri_value(triplet.object):
-            return self._oxigraph.NamedNode(self._unwrap_iri(triplet.object))
-
         metadata = triplet.metadata or {}
         language = metadata.get("lang") or metadata.get("language")
         datatype = metadata.get("datatype") or metadata.get("literal_datatype")
+        # A datatype or language marks a literal, even one that looks like a URI.
+        if not (language or datatype) and self._is_uri_value(triplet.object):
+            return self._oxigraph.NamedNode(self._unwrap_iri(triplet.object))
         if language:
             return self._oxigraph.Literal(str(triplet.object), language=str(language))
         if datatype:

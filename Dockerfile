@@ -15,7 +15,7 @@ RUN mkdir -p /app/semantica && npm run build
 # is rebuilt on top of them.
 #
 # Pinned to 3.13, NOT 3.14. The image must stay inside the supported range in
-# pyproject.toml (`requires-python = ">=3.11,<3.14"`, Install Matrix 3.11-3.13)
+# pyproject.toml (`requires-python = ">=3.11.5,<3.14"`, Install Matrix 3.11, 3.11.5-3.13)
 # and on the interpreter explorer-extra-py313.txt below was resolved for.
 # Dependabot bumped this to python:3.14-slim in #1290 (which broke the build:
 # no cp314 wheel for gensim, so pip compiled it and the slim image has no gcc)

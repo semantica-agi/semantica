@@ -275,7 +275,28 @@ class TestAgnoKnowledgeGraphDataclassShapes(unittest.TestCase):
             context_graph=_FakeContextGraph(),
         )
         kg._ingest_text("Tesla was founded by Elon Musk.", source="test")
-        self.assertEqual(builder.sources[0]["entities"], ["Tesla"])
+        # GraphBuilder reads Entity.text/.label directly, so the integration
+        # must forward the dataclasses rather than bare name strings.
+        self.assertEqual([e.text for e in builder.sources[0]["entities"]], ["Tesla"])
+        self.assertEqual([e.label for e in builder.sources[0]["entities"]], ["ORG"])
+
+    def test_ingest_text_forwards_relations_under_graph_builder_key(self):
+        builder = _CapturingGraphBuilder()
+        kg = AgnoKnowledgeGraph(
+            graph_builder=builder,
+            ner_extractor=_DataclassNER(),
+            relation_extractor=_DataclassRelExtractor(),
+            context_graph=_FakeContextGraph(),
+        )
+        kg._ingest_text("Tesla was founded by Elon Musk.", source="test")
+        # GraphBuilder only reads pre-extracted relations from the
+        # ``relationships`` key; ``relations`` is ignored.
+        self.assertNotIn("relations", builder.sources[0])
+        relations = builder.sources[0]["relationships"]
+        self.assertEqual(len(relations), 1)
+        self.assertEqual(relations[0].predicate, "FOUNDED_BY")
+        # The keyword-search cache still stores names, not dataclasses.
+        self.assertEqual(kg._docs[0]["entities"], ["Tesla"])
 
 
 if __name__ == "__main__":
