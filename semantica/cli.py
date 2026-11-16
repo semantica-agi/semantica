@@ -63,24 +63,28 @@ console = Console()
 # here instead. See the --json promise in the CLI context setup below.
 err_console = Console(stderr=True)
 
-# Supported interpreter range: ``requires-python = ">=3.11,<3.14"`` in
+# Supported interpreter range: ``requires-python = ">=3.11.5,<3.14"`` in
 # pyproject.toml. tests/test_python_support_policy.py fails if the two drift.
+# The floor carries a patch version because soupsieve 4.x, the release that
+# clears the advisories in 2.9.2, requires 3.11.5 (#2251).
 # 3.10 was dropped in 0.8.0: it is past end of life and Pillow 13, which has
 # the security fixes 12.x lacks, needs 3.11 (#2067).
-MIN_PYTHON = (3, 11)
-MAX_PYTHON_EXCLUSIVE = (3, 14)
+MIN_PYTHON = (3, 11, 5)
+MAX_PYTHON_EXCLUSIVE = (3, 14, 0)
 
 
 def _python_version_check(version: Sequence[int]) -> Tuple[str, Optional[str]]:
-    """Return ``(status, hint)`` for an interpreter ``(major, minor, ...)``."""
+    """Return ``(status, hint)`` for an interpreter ``(major, minor[, patch])``."""
     supported = (
-        f"{MIN_PYTHON[0]}.{MIN_PYTHON[1]}"
+        f"{MIN_PYTHON[0]}.{MIN_PYTHON[1]}.{MIN_PYTHON[2]}"
         f"-{MAX_PYTHON_EXCLUSIVE[0]}.{MAX_PYTHON_EXCLUSIVE[1] - 1}"
     )
-    major_minor = (version[0], version[1])
-    if major_minor < MIN_PYTHON:
+    # Callers may pass two or three elements; a missing patch is treated as 0,
+    # so (3, 11) is still "too old" rather than silently accepted.
+    normalized = (version[0], version[1], version[2] if len(version) > 2 else 0)
+    if normalized < MIN_PYTHON:
         return "fail", f"upgrade to Python {supported}"
-    if major_minor >= MAX_PYTHON_EXCLUSIVE:
+    if normalized >= MAX_PYTHON_EXCLUSIVE:
         return "warn", f"Python {supported} is supported; newer versions are untested"
     return "ok", None
 
