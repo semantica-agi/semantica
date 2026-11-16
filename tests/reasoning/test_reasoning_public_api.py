@@ -119,11 +119,13 @@ class TestMCPAbductiveToolImportsItsReasoner:
     failure never surfaced as a traceback -- it surfaced as an ``error`` key
     that looked like a runtime problem with the request.
 
-    This asserts only that the import resolves. The tool has further defects
-    that are out of scope here (it supplies no rules, so there is nothing to
-    reason from; it passes raw strings where ``Observation`` objects are
-    required; and ``Hypothesis`` is not JSON-serializable), which is why this
-    checks for the absence of any ``error`` key rather than for hypotheses.
+    This pins the success shape, not just the absence of an error: the handler
+    returns ``{"count": ..., "hypotheses": ...}`` and puts ``error`` in the
+    result only when it fails. The tool has further defects that are out of
+    scope here (it supplies no rules, so there is nothing to reason from; it
+    passes raw strings where ``Observation`` objects are required; and
+    ``Hypothesis`` is not JSON-serializable), which is why the assertions stop
+    at the empty-hypotheses shape instead of checking hypothesis contents.
     """
 
     def test_handler_does_not_report_a_missing_reasoner(self):
@@ -136,3 +138,5 @@ class TestMCPAbductiveToolImportsItsReasoner:
         )
 
         assert "error" not in result
+        assert result["hypotheses"] == []
+        assert result["count"] == 0
