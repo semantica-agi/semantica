@@ -1,6 +1,6 @@
 """Tests for the ``semantica.ingest`` public package API.
 
-Six of the 33 ingestors were not reachable from the package. Each one's own
+Six of the 34 ingestors were not reachable from the package. Each one's own
 module docstring documents the package-level import, and each of those
 imports raised ``ImportError``::
 
@@ -12,13 +12,15 @@ imports raised ``ImportError``::
     PandasIngestor      pandas_ingestor.py:19
 
 Same shape as #2243, in a package that has a deliberate lazy-export
-mechanism those six were never added to: ``_LAZY_EXPORTS`` carried 90 entries
-covering 27 of the 33 ingestor classes.
+mechanism those six were never added to. ``_LAZY_EXPORTS`` carried 90 entries
+at the time, 26 of them ingestor classes; ``FileIngestor`` and
+``CloudStorageIngestor`` are bound eagerly in ``__init__`` instead, so 28 of
+the 34 classes resolved and these six did not.
 
 Nothing caught it because every existing test imports these classes by their
 full module path, so the tests exercise the classes while never touching the
 package surface that was broken. ``test_every_ingestor_class_is_reachable``
-is the durable guard: it fails if a 34th backend is added without being
+is the durable guard: it fails if a 35th backend is added without being
 registered, which is how these six got in.
 
 **On attribute access.** ``hasattr(semantica.ingest, "RepoIngestor")`` raises
@@ -70,8 +72,16 @@ _DOCUMENTED_IMPORTS = [
 
 
 def _statically_reachable():
-    """Names importable from the package, without touching an attribute."""
-    return set(ingest_pkg._LAZY_EXPORTS) | set(ingest_pkg.__all__)
+    """Names the package actually resolves, without touching an attribute.
+
+    ``__all__`` is not part of this. A name listed there but neither
+    registered in ``_LAZY_EXPORTS`` nor bound eagerly at import time raises
+    ``ImportError`` on ``from semantica.ingest import X``, so counting it as
+    reachable made the guard blind to a dropped registration. ``vars()`` is a
+    plain namespace lookup, unlike ``hasattr``, which probes the optional
+    backend and raises ``ImportError`` on a core install.
+    """
+    return set(ingest_pkg._LAZY_EXPORTS) | set(vars(ingest_pkg))
 
 
 def _ingestor_classes():
@@ -102,16 +112,35 @@ class TestEveryIngestorIsReachable:
     def test_the_sweep_actually_finds_the_modules(self):
         """Rule out a sweep that passes because it collected nothing."""
         classes = _ingestor_classes()
-        assert len(classes) >= 33
+        assert len(classes) >= 34
         names = {name for _, name in classes}
         for expected in _DOCUMENTED_IMPORTS:
             assert expected in names
+
+    def test_every_lazy_registration_points_at_its_own_module(self):
+        """A name wired to another module's class still resolves.
+
+        ``hasattr`` and ``__all__`` both stay happy when ``WebIngestor`` is
+        pointed at ``file_ingestor.FileIngestor``, so the entry itself is the
+        only place that can be checked without importing every backend.
+        """
+        miswired = []
+        for stem, name in _ingestor_classes():
+            entry = ingest_pkg._LAZY_EXPORTS.get(name)
+            if entry is None:
+                continue
+            module_name, attr_name = entry
+            if module_name != f".{stem}" or attr_name != name:
+                miswired.append(f"{name} -> {module_name}.{attr_name}")
+        assert miswired == []
 
 
 class TestDocumentedImportsWork:
     @pytest.mark.parametrize("name", _DOCUMENTED_IMPORTS)
     def test_module_docstring_import_resolves(self, name):
-        assert getattr(ingest_pkg, name) is not None
+        klass = getattr(ingest_pkg, name)
+        assert klass is not None
+        assert klass.__module__ == f"semantica.ingest.{_NEWLY_EXPORTED[name]}"
 
     @pytest.mark.parametrize("name", _DOCUMENTED_IMPORTS)
     def test_the_docstring_really_documents_that_import(self, name):
