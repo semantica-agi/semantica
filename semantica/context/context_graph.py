@@ -3101,6 +3101,11 @@ class ContextGraph:
         - int/float: converts from epoch seconds
         - str: parses ISO format (with optional Z)
         - None/invalid: returns current datetime
+
+        Note: Unlike public query methods such as state_at() which validate
+        and raise on unparseable inputs, this internal helper silently falls
+        back to datetime.now() for backwards compatibility with legacy internal
+        callers (e.g. decision ingestion).
         
         Args:
             timestamp_value: Timestamp value in various formats
@@ -3758,8 +3763,25 @@ class ContextGraph:
         self._rebuild_decision_indexes()
 
     def state_at(self, timestamp: Union[str, int, float, datetime]) -> Dict[str, Any]:
-        """Return a serializable snapshot of graph state valid at the given time."""
-        at_time = self._normalize_timestamp(timestamp)
+        """Return a serializable snapshot of graph state valid at the given time.
+
+        Args:
+            timestamp: The temporal query instant (ISO-8601 string, POSIX epoch
+                seconds as int/float, or datetime object).
+
+        Returns:
+            Dict containing the snapshot of active nodes, edges, and decisions
+            valid at the specified instant.
+
+        Raises:
+            ValueError: If ``timestamp`` is ``None``, a string that cannot be
+                parsed as an ISO-8601 datetime, or a type that is not supported
+                (e.g. a :class:`~datetime.date` object).
+        """
+        normalized_str = normalize_temporal_input(timestamp)
+        if normalized_str is None:
+            raise ValueError("timestamp must not be None")
+        at_time = datetime.fromisoformat(normalized_str)
         with self._lock:
             active_nodes = [node for node in self.nodes.values() if node.is_active(at_time)]
             active_node_ids = {node.node_id for node in active_nodes}
@@ -3792,7 +3814,7 @@ class ContextGraph:
         ]
 
         return {
-            "timestamp": at_time.isoformat(),
+            "timestamp": normalized_str,
             "nodes": nodes_payload,
             "edges": edges_payload,
             "entities": nodes_payload,
