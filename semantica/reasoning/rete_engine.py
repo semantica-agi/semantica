@@ -22,12 +22,13 @@ Main Classes:
     - Match: Dataclass for pattern matches
 
 Example Usage:
-    >>> from semantica.reasoning import ReteEngine, Fact
+    >>> from semantica.reasoning import ReteEngine, Fact, Rule
     >>> engine = ReteEngine()
-    >>> engine.add_rule(rule)
+    >>> rule = Rule("r1", "mortality", ["Person(?x)"], "Mortal(?x)")
+    >>> engine.build_network([rule])
     >>> fact = Fact("f1", "Person", ["John"])
     >>> engine.add_fact(fact)
-    >>> matches = engine.get_matches()
+    >>> matches = engine.match_patterns()
 
 Author: Semantica Contributors
 License: MIT
