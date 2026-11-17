@@ -33,7 +33,7 @@ ingestor = DatabricksIngestor(
 )
 
 data = ingestor.ingest_table("customers")
-print(f"Retrieved {data.row_count} rows: columns: {data.columns}")
+print(f"Retrieved {data.row_count} rows with columns: {data.columns}")
 ```
 
 <Tip>
@@ -67,7 +67,7 @@ Use environment variables (or a `.env` file with `python-dotenv`) to keep creden
 </Tabs>
 
 <Note>
-`http_path` identifies the SQL warehouse or all-purpose cluster used for query execution. Find it in the Databricks UI under **SQL Warehouses → Connection details**. Unity Catalog metadata calls (`list_catalogs`, `get_table_schema`, `get_table_lineage`, …) only need `host` and credentials — `http_path` is not required for those.
+`http_path` identifies the SQL warehouse or all-purpose cluster used for query execution. Find it in the Databricks UI under **SQL Warehouses → Connection details**. Unity Catalog metadata calls (`list_catalogs`, `get_table_schema`, `get_table_lineage`, …) only need `host` and credentials. `http_path` is not required for those.
 </Note>
 
 
@@ -192,8 +192,8 @@ if not connector.test_connection():
 
 ## See Also
 
-- [Ingest Module](../reference/ingest) — Full DatabricksIngestor and all other ingestors.
-- [Snowflake Integration](/integrations/snowflake) — Companion connector for a Snowflake + Databricks hybrid estate.
-- [Pipeline](../reference/pipeline) — Use Databricks ingestion as a pipeline step.
-- [Installation](../installation) — All optional dependency extras.
-- [Knowledge Graph](../reference/kg) — Build a KG from ingested Databricks data.
+- [Ingest Module](/reference/ingest): Full DatabricksIngestor and all other ingestors.
+- [Snowflake Integration](/integrations/snowflake): Companion connector for a Snowflake + Databricks hybrid estate.
+- [Pipeline](/reference/pipeline): Use Databricks ingestion as a pipeline step.
+- [Installation](/installation): All optional dependency extras.
+- [Knowledge Graph](/reference/kg): Build a KG from ingested Databricks data.
