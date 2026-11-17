@@ -40,6 +40,31 @@ def test_explorer_routers_have_no_duplicate_method_path_routes():
     assert duplicates == {}, f"Duplicate (method, path) registrations: {duplicates}"
 
 
+def test_alignment_collection_and_engine_routes_are_distinct():
+    """The in-memory collection routes and the engine-backed routes must coexist."""
+    from semantica.explorer.routes.ontology import router
+
+    registered = [
+        (method, route.path)
+        for route in router.routes
+        for method in (getattr(route, "methods", None) or set())
+    ]
+    expected = {
+        ("GET", "/api/ontology/alignments"),
+        ("POST", "/api/ontology/alignments"),
+        ("GET", "/api/ontology/alignments/engine"),
+        ("POST", "/api/ontology/alignments/engine"),
+        ("GET", "/api/ontology/alignments/{entity_uri:path}"),
+    }
+    assert expected.issubset(set(registered))
+
+    # The literal /engine path must be registered before the wildcard entity
+    # route, otherwise "engine" is treated as an entity URI.
+    assert registered.index(
+        ("GET", "/api/ontology/alignments/engine")
+    ) < registered.index(("GET", "/api/ontology/alignments/{entity_uri:path}"))
+
+
 def test_explorer_openapi_operation_ids_are_unique():
     """OpenAPI must not expose duplicate operationIds for the same endpoint set."""
     from semantica.explorer.app import create_app

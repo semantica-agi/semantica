@@ -123,6 +123,61 @@ def test_alignment_entity_route_returns_alignment_response(client):
     ]
 
 
+def test_engine_alignment_handlers_are_reachable(client, monkeypatch):
+    calls = {}
+
+    class FakeOntologyEngine:
+        def __init__(self, **kwargs):
+            calls["store"] = kwargs.get("store")
+
+        def create_alignment(self, source_uri, target_uri, predicate):
+            calls["create"] = (source_uri, target_uri, predicate)
+
+        def list_alignments(self, ontology_uri=None):
+            calls["list"] = ontology_uri
+            return [
+                {
+                    "source": "http://example.org/onto-a#Person",
+                    "predicate": "http://www.w3.org/2002/07/owl#equivalentClass",
+                    "target": "http://example.org/onto-b#PersonRecord",
+                }
+            ]
+
+    monkeypatch.setattr("semantica.ontology.OntologyEngine", FakeOntologyEngine)
+
+    body = {
+        "source_uri": "http://example.org/onto-a#Person",
+        "target_uri": "http://example.org/onto-b#PersonRecord",
+        "predicate": "http://www.w3.org/2002/07/owl#equivalentClass",
+    }
+    created = client.post("/api/ontology/alignments/engine", json=body)
+    assert created.status_code == 200
+    assert created.json() == {
+        "source": body["source_uri"],
+        "predicate": body["predicate"],
+        "target": body["target_uri"],
+    }
+    assert calls["create"] == (
+        body["source_uri"],
+        body["target_uri"],
+        body["predicate"],
+    )
+
+    listed = client.get(
+        "/api/ontology/alignments/engine",
+        params={"ontology_uri": "http://example.org"},
+    )
+    assert listed.status_code == 200
+    assert listed.json() == [
+        {
+            "source": body["source_uri"],
+            "predicate": body["predicate"],
+            "target": body["target_uri"],
+        }
+    ]
+    assert calls["list"] == "http://example.org"
+
+
 def test_alignment_suggestions_are_ranked(client):
     response = client.post(
         "/api/ontology/suggest-alignments",

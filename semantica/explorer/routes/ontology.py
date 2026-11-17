@@ -532,6 +532,12 @@ class VersionCompareResponse(BaseModel):
     axiom_changes: Dict[str, Any] = Field(default_factory=dict)
 
 
+class AlignmentRequest(BaseModel):
+    source_uri: str
+    target_uri: str
+    predicate: str
+
+
 class AlignmentResponse(BaseModel):
     source: str
     predicate: str
@@ -3675,6 +3681,73 @@ async def compare_versions(
 # ---------------------------------------------------------------------------
 # Alignment endpoints using OntologyEngine
 # ---------------------------------------------------------------------------
+
+@router.post("/alignments/engine", response_model=AlignmentResponse)
+async def create_engine_alignment(
+    body: AlignmentRequest,
+    session: GraphSession = Depends(get_session),
+):
+    """Create an alignment through OntologyEngine.
+
+    This is the engine-backed counterpart to the in-memory collection routes.
+    It requires a configured TripletStore; when one is not available, it
+    returns 503 rather than writing an incompatible object into the
+    OntologyAlignment store.
+    """
+    response = AlignmentResponse(
+        source=body.source_uri,
+        predicate=body.predicate,
+        target=body.target_uri,
+    )
+    try:
+        from ...ontology import OntologyEngine
+
+        engine = OntologyEngine(
+            store=session.graph.store if hasattr(session.graph, "store") else None
+        )
+        await asyncio.to_thread(
+            engine.create_alignment,
+            body.source_uri,
+            body.target_uri,
+            body.predicate,
+        )
+    except Exception as exc:
+        logger.info("OntologyEngine alignment store unavailable: %s", exc)
+        raise HTTPException(
+            status_code=503,
+            detail=f"OntologyEngine alignment store unavailable: {exc}",
+        ) from exc
+    return response
+
+
+@router.get("/alignments/engine", response_model=List[AlignmentResponse])
+async def list_engine_alignments(
+    ontology_uri: Optional[str] = Query(None),
+    session: GraphSession = Depends(get_session),
+):
+    """List alignments through OntologyEngine (requires a configured TripletStore)."""
+    try:
+        from ...ontology import OntologyEngine
+
+        engine = OntologyEngine(
+            store=session.graph.store if hasattr(session.graph, "store") else None
+        )
+        alignments = await asyncio.to_thread(
+            engine.list_alignments, ontology_uri=ontology_uri
+        )
+    except Exception as exc:
+        logger.info("OntologyEngine alignment listing unavailable: %s", exc)
+        raise HTTPException(
+            status_code=503,
+            detail=f"OntologyEngine alignment listing unavailable: {exc}",
+        ) from exc
+
+    return [
+        alignment
+        for alignment in (_coerce_alignment(raw) for raw in alignments)
+        if alignment is not None
+    ]
+
 
 @router.get("/alignments/{entity_uri:path}", response_model=List[AlignmentResponse])
 async def get_alignments(
