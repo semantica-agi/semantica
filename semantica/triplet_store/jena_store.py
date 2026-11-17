@@ -247,10 +247,17 @@ class JenaStore:
                 try:
                     subject = URIRef(triplet.subject)
                     predicate = URIRef(triplet.predicate)
+                    metadata = triplet.metadata or {}
+                    is_literal = metadata.get("language") or metadata.get("datatype")
                     obj = (
                         URIRef(triplet.object)
-                        if triplet.object.startswith("http")
-                        else Literal(triplet.object)
+                        if triplet.object.startswith("http") and not is_literal
+                        else Literal(
+                            triplet.object,
+                            lang=metadata.get("language"),
+                            datatype=metadata.get("datatype"),
+                            normalize=False,
+                        )
                     )
 
                     if context is not None:
@@ -332,12 +339,20 @@ class JenaStore:
 
             triplets = []
             for row in results:
+                metadata = {"source": "jena"}
+                if isinstance(row.o, Literal):
+                    if row.o.language:
+                        metadata["language"] = row.o.language
+                    elif row.o.datatype and str(row.o.datatype) != (
+                        "http://www.w3.org/2001/XMLSchema#string"
+                    ):
+                        metadata["datatype"] = str(row.o.datatype)
                 triplets.append(
                     Triplet(
                         subject=str(row.s),
                         predicate=str(row.p),
                         object=str(row.o),
-                        metadata={"source": "jena"},
+                        metadata=metadata,
                     )
                 )
 
@@ -370,10 +385,17 @@ class JenaStore:
         try:
             subject = URIRef(triplet.subject)
             predicate = URIRef(triplet.predicate)
+            metadata = triplet.metadata or {}
+            is_literal = metadata.get("language") or metadata.get("datatype")
             obj = (
                 URIRef(triplet.object)
-                if triplet.object.startswith("http")
-                else Literal(triplet.object)
+                if triplet.object.startswith("http") and not is_literal
+                else Literal(
+                    triplet.object,
+                    lang=metadata.get("language"),
+                    datatype=metadata.get("datatype"),
+                    normalize=False,
+                )
             )
 
             self.graph.remove((subject, predicate, obj, self.graph.default_graph))

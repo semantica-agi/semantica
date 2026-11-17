@@ -7,12 +7,12 @@ upgrade to the latest release to receive them.
 
 | Version | Python      | Supported          |
 | ------- | ----------- | ------------------ |
-| 0.8.x   | 3.11 – 3.13 | :white_check_mark: |
+| 0.8.x   | 3.11.5 – 3.13 | :white_check_mark: |
 | < 0.8   | 3.10 – 3.13 | :x:                |
 
 0.7.x is the last line that installs on Python 3.10, so Python 3.10 users
 receive no further fixes, including the Pillow 13 security fixes, which need
-Python 3.11. See the 0.8.0 entry in the CHANGELOG.
+Python 3.11.5. See the 0.8.0 entry in the CHANGELOG.
 
 ## Reporting a Vulnerability
 

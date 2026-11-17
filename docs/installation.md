@@ -9,14 +9,14 @@ icon: "download"
 </Check>
 
 <Note>
-  Python 3.11 or higher is required (3.11–3.13 are supported). Python 3.10 support ended in 0.8.0; on 3.10, pip installs the last release that supports it (0.7.x).
+  Python 3.11.5 or higher is required (3.11.5–3.13 are supported). Python 3.10 support ended in 0.8.0; on 3.10, pip installs the last release that supports it (0.7.x).
 </Note>
 
 ## System Requirements
 
 | Component | Minimum | Recommended |
 | :--------- | :------- | :----------- |
-| Python | 3.11 | 3.11–3.13 |
+| Python | 3.11.5 | 3.11.5–3.13 |
 | OS | Windows / Linux / Mac | Linux / Mac |
 | RAM | 4 GB | 16 GB+ |
 | Storage | 2 GB | 20 GB+ (models and data) |
@@ -58,6 +58,9 @@ python -c "import semantica; print(semantica.__version__)"
     conda activate semantica
     pip install semantica
     ```
+
+    conda installs the latest patch of that line; if it is below 3.11.5, run
+    `conda install python=3.11.5` before `pip install semantica`.
   </Tab>
 </Tabs>
 

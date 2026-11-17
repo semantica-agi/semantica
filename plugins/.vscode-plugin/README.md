@@ -44,5 +44,5 @@ Open `http://localhost:5174` to explore nodes, edges, decisions, SPARQL, lineage
 
 ## Requirements
 
-- Python 3.11+
+- Python 3.11.5+
 - `pip install semantica`
