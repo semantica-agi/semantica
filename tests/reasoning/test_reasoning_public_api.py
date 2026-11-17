@@ -21,7 +21,27 @@ under test.
 import pytest
 
 import semantica.reasoning as reasoning
-from semantica.reasoning import abductive_reasoner, explanation_generator
+from semantica.reasoning import (
+    abductive_reasoner,
+    deductive_reasoner,
+    explanation_generator,
+)
+
+# The module each advertised name has to resolve to. Checking only that the
+# attribute exists and appears in ``__all__`` lets a name bound to the wrong
+# class pass, which is the exact failure this file exists to catch.
+EXPECTED_BINDINGS = {
+    "DeductiveReasoner": deductive_reasoner.DeductiveReasoner,
+    "Premise": deductive_reasoner.Premise,
+    "Conclusion": deductive_reasoner.Conclusion,
+    "Proof": deductive_reasoner.Proof,
+    "Argument": deductive_reasoner.Argument,
+    "AbductiveReasoner": abductive_reasoner.AbductiveReasoner,
+    "Observation": abductive_reasoner.Observation,
+    "Hypothesis": abductive_reasoner.Hypothesis,
+    "HypothesisRanking": abductive_reasoner.HypothesisRanking,
+    "AbductiveExplanation": abductive_reasoner.Explanation,
+}
 
 
 class TestDocumentedImports:
@@ -58,6 +78,7 @@ class TestDocumentedImports:
     def test_name_is_bound_and_advertised(self, name):
         assert hasattr(reasoning, name)
         assert name in reasoning.__all__
+        assert getattr(reasoning, name) is EXPECTED_BINDINGS[name]
 
 
 class TestExplanationNameCollision:
@@ -98,11 +119,13 @@ class TestMCPAbductiveToolImportsItsReasoner:
     failure never surfaced as a traceback -- it surfaced as an ``error`` key
     that looked like a runtime problem with the request.
 
-    This asserts only that the import resolves. The tool has further defects
-    that are out of scope here (it supplies no rules, so there is nothing to
-    reason from; it passes raw strings where ``Observation`` objects are
-    required; and ``Hypothesis`` is not JSON-serializable), which is why this
-    checks for the absence of the import error rather than for hypotheses.
+    This pins the success shape, not just the absence of an error: the handler
+    returns ``{"count": ..., "hypotheses": ...}`` and puts ``error`` in the
+    result only when it fails. The tool has further defects that are out of
+    scope here (it supplies no rules, so there is nothing to reason from; it
+    passes raw strings where ``Observation`` objects are required; and
+    ``Hypothesis`` is not JSON-serializable), which is why the assertions stop
+    at the empty-hypotheses shape instead of checking hypothesis contents.
     """
 
     def test_handler_does_not_report_a_missing_reasoner(self):
@@ -114,5 +137,35 @@ class TestMCPAbductiveToolImportsItsReasoner:
             {"observations": ["the lawn is wet"]}
         )
 
-        assert "cannot import name" not in result.get("error", "")
-        assert "AbductiveReasoner" not in result.get("error", "")
+        assert "error" not in result
+        assert result["count"] == len(result["hypotheses"])
+
+    def test_handler_asks_the_reasoner(self, monkeypatch):
+        """The shape above is also what a handler that skips the work returns.
+
+        A stub that never touches the reasoner answers with empty hypotheses
+        too, so assert the reasoner is constructed and asked for exactly the
+        observations that came in.
+        """
+        import semantica.reasoning as reasoning_pkg
+        from semantica_mcp.mcp.tools.reasoning import (
+            handle_abductive_reasoning,
+        )
+
+        calls = []
+
+        class RecordingReasoner:
+            def generate_hypotheses(self, observations):
+                calls.append(list(observations))
+                return []
+
+        monkeypatch.setattr(
+            reasoning_pkg, "AbductiveReasoner", RecordingReasoner
+        )
+
+        result = handle_abductive_reasoning(
+            {"observations": ["the lawn is wet"]}
+        )
+
+        assert calls == [["the lawn is wet"]]
+        assert result == {"hypotheses": [], "count": 0}
