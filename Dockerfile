@@ -83,7 +83,8 @@ COPY integrations/ ./integrations/
 COPY --from=frontend-builder /app/semantica/static ./semantica/static
 
 # explorer-extra-py313.txt is `uv pip compile pyproject.toml --extra explorer
-# --python-version 3.13 --constraint requirements-ci.txt --generate-hashes`
+# --extra auth-ldap --python-version 3.13 --constraint requirements-ci.txt
+# --generate-hashes`
 # (see ci.yml's explorer-extra-py311.txt for the CI counterpart, resolved
 # for CI's python 3.11 instead - the two aren't interchangeable: audioread
 # (via librosa) needs standard-aifc/standard-sunau only on python>=3.13,

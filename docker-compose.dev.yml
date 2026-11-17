@@ -18,6 +18,12 @@ services:
       FALKORDB_PORT: "6379"
       # Local dev only: this compose file is not for public exposure.
       SEMANTICA_ALLOW_ANONYMOUS: "true"
+      # LDAP login is inert while ANONYMOUS is true. To try it instead, set
+      # SEMANTICA_ALLOW_ANONYMOUS to "false" and fill in (a directory on the
+      # Docker host is reachable as host.docker.internal):
+      # SEMANTICA_AUTH_SECRET: <openssl rand -hex 32>
+      # SEMANTICA_LDAP_URL: ldap://host.docker.internal:389
+      # SEMANTICA_LDAP_USER_DN_TEMPLATE: uid={username},ou=people,dc=example,dc=com
     volumes:
       - ./semantica:/app/semantica
       - ./pyproject.toml:/app/pyproject.toml:ro

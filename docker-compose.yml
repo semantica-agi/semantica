@@ -13,6 +13,26 @@ services:
       SEMANTICA_API_KEY: ${SEMANTICA_API_KEY:-}
       # Trusted local-only setups only: bypasses the API key entirely.
       SEMANTICA_ALLOW_ANONYMOUS: ${SEMANTICA_ALLOW_ANONYMOUS:-false}
+      # Optional LDAP login: when SEMANTICA_LDAP_URL and SEMANTICA_AUTH_SECRET
+      # are both set (and neither the API key nor anonymous mode applies), the
+      # Explorer shows its login screen and users sign in with directory
+      # accounts — see docs/auth-ldap.md. Generate the secret with
+      # `openssl rand -hex 32`. Values are read from the shell env or a
+      # .env file next to this compose file.
+      SEMANTICA_AUTH_SECRET: ${SEMANTICA_AUTH_SECRET:-}
+      SEMANTICA_AUTH_TOKEN_TTL: ${SEMANTICA_AUTH_TOKEN_TTL:-28800}
+      SEMANTICA_LDAP_URL: ${SEMANTICA_LDAP_URL:-}
+      SEMANTICA_LDAP_STARTTLS: ${SEMANTICA_LDAP_STARTTLS:-false}
+      SEMANTICA_LDAP_VERIFY_CERTS_OFF: ${SEMANTICA_LDAP_VERIFY_CERTS_OFF:-false}
+      SEMANTICA_LDAP_TIMEOUT: ${SEMANTICA_LDAP_TIMEOUT:-10}
+      # Bind mode A — direct bind:
+      SEMANTICA_LDAP_USER_DN_TEMPLATE: ${SEMANTICA_LDAP_USER_DN_TEMPLATE:-}
+      # Bind mode B — search-then-bind (mutually exclusive with A):
+      SEMANTICA_LDAP_BIND_DN: ${SEMANTICA_LDAP_BIND_DN:-}
+      SEMANTICA_LDAP_BIND_PASSWORD: ${SEMANTICA_LDAP_BIND_PASSWORD:-}
+      SEMANTICA_LDAP_SEARCH_BASE: ${SEMANTICA_LDAP_SEARCH_BASE:-}
+      # Empty uses the built-in default (sAMAccountName={username}).
+      SEMANTICA_LDAP_USER_FILTER: ${SEMANTICA_LDAP_USER_FILTER:-}
     depends_on:
       falkordb:
         condition: service_started

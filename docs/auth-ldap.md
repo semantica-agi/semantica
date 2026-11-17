@@ -33,6 +33,32 @@ semantica-explorer --graph my_graph.json
 启用;前端 `/api/auth/status` 检测到后自动展示登录页。未启用时行为
 与之前完全一致(匿名 / API Key / 503 fail-closed)。
 
+## Docker Compose 部署
+
+`docker-compose.yml` 已内置全部 LDAP 参数(经 `${VAR:-默认值}` 插值透传,
+默认为空 = 不启用)。最省事的方式是在 compose 文件旁放一个 `.env`:
+
+```bash
+# .env(与 docker-compose.yml 同目录)
+SEMANTICA_LDAP_URL=ldaps://dc01.example.com:636
+SEMANTICA_AUTH_SECRET=<openssl rand -hex 32>
+SEMANTICA_LDAP_BIND_DN=cn=svc-semantica,ou=service,dc=example,dc=com
+SEMANTICA_LDAP_BIND_PASSWORD=***
+SEMANTICA_LDAP_SEARCH_BASE=dc=example,dc=com
+
+docker compose up -d
+```
+
+要点:
+
+- 镜像的锁定依赖已包含 ldap3(`explorer-extra-*.txt` 以
+  `--extra explorer --extra auth-ldap` 生成),开箱即用;
+- 容器内访问宿主机上的目录服务器用 `host.docker.internal`;
+- 服务账号密码等敏感值建议走密钥管理(或至少保证 `.env` 权限为 600),
+  不要写进 compose 文件本身;
+- 开发用的 `docker-compose.dev.yml` 默认匿名,文件内附了切换到 LDAP
+  登录的注释示例。
+
 ## 环境变量
 
 | 变量 | 说明 | 默认 |

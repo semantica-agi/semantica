@@ -133,7 +133,7 @@ jobs:
           # providers such as Pinecone during test collection.
           #
           # .github/requirements/explorer-extra-py311.txt is
-          # `uv pip compile pyproject.toml --extra explorer --python-version 3.11 --constraint requirements-ci.txt --generate-hashes`
+          # `uv pip compile pyproject.toml --extra explorer --extra auth-ldap --python-version 3.11 --constraint requirements-ci.txt --generate-hashes`
           # - regenerate it the same way if pyproject.toml's base/explorer
           # deps change. Resolved specifically for this job's python 3.11
           # (see the Dockerfile's explorer-extra-py313.txt for why this
