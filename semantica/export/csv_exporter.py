@@ -289,7 +289,18 @@ class CSVExporter:
             confidence = entity.get("confidence")
             if confidence is None:
                 props = entity.get("properties")
-                confidence = props.get("confidence", "") if isinstance(props, dict) else ""
+                confidence = (
+                    props.get("confidence", "") if isinstance(props, dict) else ""
+                )
+
+            # 0 is a real character offset. An `or` chain drops it and
+            # lets start_offset override an explicit start of 0.
+            start = entity.get("start")
+            if start is None:
+                start = entity.get("start_offset", "")
+            end = entity.get("end")
+            if end is None:
+                end = entity.get("end_offset", "")
 
             normalized = {
                 "id": entity.get("id") or entity.get("entity_id", ""),
@@ -301,8 +312,8 @@ class CSVExporter:
                 ),
                 "type": entity.get("type") or entity.get("entity_type", ""),
                 "confidence": confidence,
-                "start": entity.get("start") or entity.get("start_offset", ""),
-                "end": entity.get("end") or entity.get("end_offset", ""),
+                "start": start,
+                "end": end,
             }
 
             # Add metadata as JSON string if present
@@ -383,7 +394,9 @@ class CSVExporter:
             confidence = rel.get("confidence")
             if confidence is None:
                 meta = rel.get("metadata")
-                confidence = meta.get("confidence", "") if isinstance(meta, dict) else ""
+                confidence = (
+                    meta.get("confidence", "") if isinstance(meta, dict) else ""
+                )
 
             normalized = {
                 "id": rel.get("id", ""),

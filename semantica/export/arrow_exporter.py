@@ -394,8 +394,14 @@ class ArrowExporter:
                 confidence = (
                     props.get("confidence") if isinstance(props, dict) else None
                 )
-            start = entity.get("start") or entity.get("start_offset")
-            end = entity.get("end") or entity.get("end_offset")
+            # 0 is a real character offset. An `or` chain drops it and
+            # lets start_offset override an explicit start of 0.
+            start = entity.get("start")
+            if start is None:
+                start = entity.get("start_offset")
+            end = entity.get("end")
+            if end is None:
+                end = entity.get("end_offset")
 
             # Convert confidence to float
             if confidence is not None:
