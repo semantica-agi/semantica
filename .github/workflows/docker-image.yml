@@ -1,0 +1,80 @@
+name: Docker Image
+
+# Build and publish the Explorer image to GHCR on every branch push, on
+# version tags, and on manual dispatch. The multi-stage Dockerfile bakes in
+# the built frontend bundle and the hash-pinned python dependencies, so the
+# produced image is directly deployable with the docker-compose.yml in the
+# repository root (LDAP login settings pass through as documented in
+# docs/auth-ldap.md).
+
+on:
+  push:
+    branches: ["**"]
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docker-image-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # GHCR image names must be lowercase; the repository name may not be.
+      - name: Resolve lowercase image name
+        id: image
+        run: echo "name=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Derive publish tags
+        id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          images: ${{ steps.image.outputs.name }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=tag
+            type=sha,format=short
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Smoke test the built image
+        run: |
+          image_tag="$(echo "${{ steps.meta.outputs.tags }}" | head -n1)"
+          docker run -d --rm --name semantica-smoke -p 8000:8000 "$image_tag"
+          for _ in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8000/api/health 2>/dev/null | grep -q '"ok"'; then
+              echo "smoke test passed: /api/health responded ok"
+              docker rm -f semantica-smoke >/dev/null
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "smoke test failed: /api/health never became healthy"
+          docker logs semantica-smoke 2>&1 | tail -50 || true
+          docker rm -f semantica-smoke >/dev/null || true
+          exit 1
