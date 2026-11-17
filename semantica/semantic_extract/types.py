@@ -17,6 +17,50 @@ CONFIDENCE_SOURCE_HEURISTIC = "heuristic"  # filled by EntityConfidenceScorer
 CONFIDENCE_SOURCE_TYPE_SIMILARITY = "type_similarity"  # from entity_types weighting
 CONFIDENCE_SOURCE_UNAVAILABLE = "unavailable"  # backend exposes no score
 
+# Degradation-trace vocabulary, recorded under metadata[EXTRACTION_TRACE_KEY].
+# When an LLM stage fails and the pipeline degrades to a fallback (or returns
+# un-enhanced originals), the failure is recorded in-band on the returned
+# items, e.g. "llm:failed(ProcessingError)->pattern:ok". A log line alone is
+# not enough: the returned data must say the result is degraded. The key is
+# only stamped when a degradation actually happened; clean runs carry no key.
+EXTRACTION_TRACE_KEY = "extraction_trace"
+
+
+def stamp_extraction_trace(items, trace: str) -> None:
+    """Record a degradation event in-band on *items*' metadata.
+
+    Appends to an existing trace (joined with "; ") instead of overwriting
+    it, so a failure recorded by an earlier stage (e.g. LLM enhancement on a
+    relation that is later converted to a triplet) is preserved.
+    """
+    for item in items:
+        metadata = item.metadata
+        if metadata is None:
+            metadata = item.metadata = {}
+        existing = metadata.get(EXTRACTION_TRACE_KEY)
+        metadata[EXTRACTION_TRACE_KEY] = f"{existing}; {trace}" if existing else trace
+
+
+def collect_extraction_traces(items) -> Optional[str]:
+    """Combine the degradation traces recorded on *items*.
+
+    Returns the distinct ``metadata[EXTRACTION_TRACE_KEY]`` values in
+    first-seen order, joined with "; " (the same separator
+    :func:`stamp_extraction_trace` uses when appending), or ``None`` when no
+    item carries a trace. Used when a result derived from those items (a
+    relation built from entities, a triplet built from entities) must keep
+    the degradation signal of its inputs instead of looking clean (see
+    #2274). Identical traces from several inputs are kept once: both
+    endpoints of a relation usually share one enhancement failure.
+    """
+    seen = []
+    for item in items:
+        metadata = getattr(item, "metadata", None) or {}
+        trace = metadata.get(EXTRACTION_TRACE_KEY)
+        if trace and trace not in seen:
+            seen.append(trace)
+    return "; ".join(seen) if seen else None
+
 
 @dataclass
 class Entity:
