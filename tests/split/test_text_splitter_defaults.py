@@ -32,7 +32,19 @@ def test_zero_overlap_keeps_word_chunks_disjoint():
     ]
 
 
-def test_omitted_overlap_uses_configured_default():
-    splitter = TextSplitter(method="character", chunk_size=500)
+def test_omitted_sizes_use_split_config(monkeypatch):
+    monkeypatch.setenv("SPLIT_CHUNK_SIZE", "300")
+    monkeypatch.setenv("SPLIT_CHUNK_OVERLAP", "50")
 
-    assert splitter.chunk_overlap == 200
+    splitter = TextSplitter(method="character")
+
+    assert (splitter.chunk_size, splitter.chunk_overlap) == (300, 50)
+
+
+def test_omitted_sizes_default_without_split_config(monkeypatch):
+    monkeypatch.delenv("SPLIT_CHUNK_SIZE", raising=False)
+    monkeypatch.delenv("SPLIT_CHUNK_OVERLAP", raising=False)
+
+    splitter = TextSplitter(method="character")
+
+    assert (splitter.chunk_size, splitter.chunk_overlap) == (1000, 200)
