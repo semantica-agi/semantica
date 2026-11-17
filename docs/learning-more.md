@@ -90,6 +90,13 @@ All settings can be overridden with environment variables: no code changes neede
 | Vector Store Backend | `VECTOR_STORE_DEFAULT_BACKEND` | `"faiss"` |
 | Server Host | `SEMANTICA_HOST` | `"127.0.0.1"` |
 | Server API Key | `SEMANTICA_API_KEY` | `None` |
+| Auth Token Signing Secret | `SEMANTICA_AUTH_SECRET` | `None` |
+| LDAP Directory URL | `SEMANTICA_LDAP_URL` | `None` |
+| LDAP Bind DN Template | `SEMANTICA_LDAP_USER_DN_TEMPLATE` | `None` |
+| LDAP Service Bind DN | `SEMANTICA_LDAP_BIND_DN` | `None` |
+| LDAP Search Base | `SEMANTICA_LDAP_SEARCH_BASE` | `None` |
+
+See [LDAP 登录](/auth-ldap) for the full login setup guide.
 
 
 ## Troubleshooting

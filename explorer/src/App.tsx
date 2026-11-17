@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useState, type ReactNode } from 'react';
+import { lazy, Suspense, useEffect, useRef, useState, type ReactNode } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import {
   ArrowRight,
@@ -7,6 +7,7 @@ import {
   FileSearch,
   GitBranchPlus,
   GitMerge,
+  LogOut,
   Network,
   Radar,
   Route,
@@ -20,6 +21,16 @@ import { ErrorBoundary } from './ErrorBoundary';
 import { ExploreWorkspaceTabs, type ExploreView } from './ExploreWorkspaceTabs';
 import { fetchAgentMemoryAvailability } from './explorerCapabilities';
 import { hasOntologyUrlState } from './workspaces/OntologyWorkspace/ontologyUrlState';
+import {
+  AUTH_EXPIRED_EVENT,
+  clearSession,
+  fetchAuthStatus,
+  installAuthFetchBridge,
+  peekStoredUser,
+  verifyStoredSession,
+  type AuthUser,
+} from './api/auth';
+import { LoginGate } from './api/LoginGate';
 
 const DecisionWorkspace = lazy(() => import('./workspaces/DecisionWorkspace/DecisionWorkspace').then((module) => ({ default: module.DecisionWorkspace })));
 const DiffMergeWorkspace = lazy(() => import('./workspaces/DiffMergeWorkspace/DiffMergeWorkspace').then((module) => ({ default: module.DiffMergeWorkspace })));
@@ -1788,6 +1799,9 @@ export default function App() {
   const [graphFocusRequest, setGraphFocusRequest] = useState<{ nodeId: string; token: number } | null>(null);
   const [exploreDraftDirty, setExploreDraftDirty] = useState(false);
   const [agentMemoryAvailable, setAgentMemoryAvailable] = useState(false);
+  const [authState, setAuthState] = useState<'checking' | 'login' | 'ready'>('checking');
+  const [authUser, setAuthUser] = useState<AuthUser | null>(peekStoredUser());
+  const authRequiredRef = useRef(false);
 
   useEffect(() => {
     let active = true;
@@ -1798,6 +1812,41 @@ export default function App() {
       active = false;
     };
   }, []);
+
+  useEffect(() => {
+    installAuthFetchBridge();
+    let cancelled = false;
+    void (async () => {
+      const status = await fetchAuthStatus();
+      if (cancelled) return;
+      // 服务不可达或未启用 LDAP 登录时，保持既有行为，不弹登录页。
+      if (!status || !status.ldap) {
+        setAuthState('ready');
+        return;
+      }
+      authRequiredRef.current = true;
+      const user = await verifyStoredSession();
+      if (cancelled) return;
+      setAuthUser(user);
+      setAuthState(user ? 'ready' : 'login');
+    })();
+    const handleAuthExpired = () => {
+      if (!authRequiredRef.current) return;
+      setAuthUser(null);
+      setAuthState('login');
+    };
+    window.addEventListener(AUTH_EXPIRED_EVENT, handleAuthExpired);
+    return () => {
+      cancelled = true;
+      window.removeEventListener(AUTH_EXPIRED_EVENT, handleAuthExpired);
+    };
+  }, []);
+
+  const handleLogout = () => {
+    clearSession();
+    setAuthUser(null);
+    setAuthState('login');
+  };
 
   const confirmDiscardExploreDraft = () => (
     !exploreDraftDirty
@@ -2008,6 +2057,23 @@ export default function App() {
     );
   };
 
+  if (authState === 'checking') {
+    return (
+      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#64748b', fontSize: 14 }}>
+        正在检查登录状态…
+      </div>
+    );
+  }
+  if (authState === 'login') {
+    return (
+      <LoginGate
+        onAuthenticated={(user) => {
+          setAuthUser(user);
+          setAuthState('ready');
+        }}
+      />
+    );
+  }
   return (
     <QueryClientProvider client={queryClient}>
       <style>{shellStyles}</style>
@@ -2028,6 +2094,16 @@ export default function App() {
               <span className="nav-label">{label}</span>
             </button>
           ))}
+          {authUser ? (
+            <button
+              className="nav-button"
+              onClick={handleLogout}
+              title={"退出登录（" + authUser.username + "）"}
+            >
+              <LogOut size={20} />
+              <span className="nav-label">退出登录</span>
+            </button>
+          ) : null}
         </aside>
         {renderWorkspace()}
       </div>

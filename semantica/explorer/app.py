@@ -98,6 +98,7 @@ def create_app(
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         import logging as _lifespan_logging
+
         _lifespan_logger = _lifespan_logging.getLogger(__name__)
         if anonymous_access_allowed():
             _lifespan_logger.warning(
@@ -106,7 +107,9 @@ def create_app(
                 "process beyond localhost."
             )
         elif get_expected_api_key():
-            _lifespan_logger.info("Explorer API authentication: enabled (SEMANTICA_API_KEY set).")
+            _lifespan_logger.info(
+                "Explorer API authentication: enabled (SEMANTICA_API_KEY set)."
+            )
         else:
             _lifespan_logger.warning(
                 "Explorer API authentication: NOT CONFIGURED. All protected "
@@ -135,7 +138,9 @@ def create_app(
     # enabling them when origins are broadened creates cross-site request
     # risk. Set EXPLORER_CORS_CREDENTIALS=true explicitly to opt in (e.g.
     # for a reverse-proxy setup that injects its own cookie-based auth).
-    _allow_credentials = os.environ.get("EXPLORER_CORS_CREDENTIALS", "false").lower() == "true"
+    _allow_credentials = (
+        os.environ.get("EXPLORER_CORS_CREDENTIALS", "false").lower() == "true"
+    )
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings["allowed_origins"],
@@ -146,6 +151,7 @@ def create_app(
     )
 
     import logging as _logging
+
     _logger = _logging.getLogger(__name__)
 
     @app.exception_handler(KeyError)
@@ -163,10 +169,13 @@ def create_app(
         if isinstance(exc, HTTPException):
             raise exc
         _logger.exception("Unhandled exception")
-        return JSONResponse(status_code=500, content={"detail": "Internal server error"})
+        return JSONResponse(
+            status_code=500, content={"detail": "Internal server error"}
+        )
 
     from .routes.analytics import router as analytics_router
     from .routes.annotations import router as annotations_router
+    from .routes.auth import router as auth_router
     from .routes.decisions import router as decisions_router
     from .routes.enrich import router as enrich_router
     from .routes.export_import import router as export_import_router
@@ -179,6 +188,9 @@ def create_app(
     from .routes.temporal import router as temporal_router
     from .routes.vocabulary import router as vocabulary_router
 
+    # Authentication routes stay public: login and status must be reachable
+    # without credentials, /api/auth/me re-checks them.
+    app.include_router(auth_router)
     _auth = [Depends(require_auth)]
     app.include_router(graph_router, dependencies=_auth)
     app.include_router(analytics_router, dependencies=_auth)
@@ -208,9 +220,9 @@ def create_app(
         )
         return HTMLResponse(
             '<!doctype html><html lang="en"><head><meta charset="UTF-8">'
-            '<title>Semantica Knowledge Explorer</title>'
-            '<style>body{font-family:sans-serif;padding:2rem;max-width:600px;margin:auto}'
-            'code{background:#f4f4f4;padding:2px 6px;border-radius:3px}</style></head>'
+            "<title>Semantica Knowledge Explorer</title>"
+            "<style>body{font-family:sans-serif;padding:2rem;max-width:600px;margin:auto}"
+            "code{background:#f4f4f4;padding:2px 6px;border-radius:3px}</style></head>"
             "<body><h2>Explorer UI not available</h2>"
             "<p>The frontend bundle was not found. This usually means the package was "
             "installed from source without building the frontend first.</p>"

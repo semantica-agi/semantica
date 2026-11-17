@@ -298,6 +298,9 @@ explorer-lite = [
   "streamlit-agraph>=0.0.45"
 ]
 
+# ---- Authentication (optional LDAP login for the Explorer) ----
+auth-ldap = ["ldap3>=2.9.0"]
+
 # Everything (cross-platform — gpu excluded; install semantica[gpu] separately on Linux)
 # NOTE: there is no ``crewai`` extra to include here — see the comment above
 # the (removed) crewai entry under "Agentic Framework Integrations".

@@ -5,14 +5,14 @@ Manages WebSocket connections for real-time graph updates,
 import progress events, and mutation broadcasts.
 """
 
-import asyncio
 import json
 import threading
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Sequence, Set
+from typing import Any, List, Sequence, Set
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 
+from .auth import is_valid_token
 from .dependencies import is_valid_api_key
 
 _WS_MAX_MESSAGE_BYTES = 64 * 1024
@@ -34,12 +34,15 @@ def install_graph_updates_websocket(
             await websocket.close(code=4403)
             return
 
-        # Browser clients pass the API key as a query parameter because the
-        # WebSocket API cannot set custom headers.
+        # Browser clients pass the credential as a query parameter because
+        # the WebSocket API cannot set custom headers: either the shared
+        # API key (``?api_key=``) or a login session token (``?token=``).
         candidate = websocket.headers.get("x-api-key") or websocket.query_params.get(
             "api_key"
         )
-        if not is_valid_api_key(candidate):
+        if not is_valid_api_key(candidate) and not is_valid_token(
+            websocket.query_params.get("token")
+        ):
             await websocket.close(code=4401)
             return
 

@@ -22,6 +22,7 @@ import { batchMergeEdges, batchMergeNodes, graph } from "../../store/graphStore"
 import { logEvent } from "../../store/registryStore";
 import type { EdgeAttributes, NodeAttributes } from "../../store/graphStore";
 import { InspectorPanel, MetricChip, SurfaceCard } from "../../ui/primitives";
+import { getStoredToken } from "../../api/auth";
 import { lazy, Suspense } from "react";
 import { SigmaSceneAdapter } from "./SigmaSceneAdapter";
 import { useLoadGraph, useReloadGraph } from "./useLoadGraph";
@@ -1919,7 +1920,11 @@ export function GraphWorkspace({ externalFocusNodeId, externalFocusToken, onDirt
 
   useEffect(() => {
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-    const socket = new WebSocket(`${protocol}//${window.location.host}/ws/graph-updates`);
+    const updatesUrl = new URL(`${protocol}//${window.location.host}/ws/graph-updates`);
+    // LDAP 会话通过查询参数传递 token（浏览器 WebSocket 无法自定义请求头）。
+    const sessionToken = getStoredToken();
+    if (sessionToken) updatesUrl.searchParams.set("token", sessionToken);
+    const socket = new WebSocket(updatesUrl.toString());
 
     socket.onmessage = (event) => {
       try {
