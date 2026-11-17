@@ -94,7 +94,11 @@ class TextSplitter:
 
         # Set default parameters
         self.chunk_size = chunk_size or split_config.get("chunk_size", 1000)
-        self.chunk_overlap = chunk_overlap or split_config.get("chunk_overlap", 200)
+        self.chunk_overlap = (
+            split_config.get("chunk_overlap", 200)
+            if chunk_overlap is None
+            else chunk_overlap
+        )
 
         # Store additional options
         self.options = kwargs
