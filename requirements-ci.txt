@@ -1309,9 +1309,9 @@ distfit==2.0.2 \
     --hash=sha256:26123275de1da9df8d967a9c9e7224fa1212fb29ccfabe2a6b67ade9195ede0d \
     --hash=sha256:2a180ead9d03f17616bd205032a0953af32c480be5b137170fd6b6efff25f892
     # via d3graph
-distlib==0.4.3 \
-    --hash=sha256:4b0ce306c966eb73bc3a7b6abad017c556dadd92c44701562cd528ac7fde4d5b \
-    --hash=sha256:f152097224a0ae24be5a0f6bae1b9359af82133bce63f98a95f86cae1aede9ed
+distlib==0.4.4 \
+    --hash=sha256:ca4175b4ac7f71223cc30ed7248c45d2b38c2439d8ee6e498ab67ed63cf3508d \
+    --hash=sha256:cf09d55b1e85a89576b036aeb71550bfd68320f3f21761ca329eadadad918638
     # via virtualenv
 distro==1.9.0 \
     --hash=sha256:2fa77c6fd8940f116ee1d6b94a2f90b13b5ea8d019b98bc8bafdcabcdd9bdbed \
