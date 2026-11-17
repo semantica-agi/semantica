@@ -150,10 +150,26 @@ The MCP server is included in the base install: no extras required.
 | `SEMANTICA_KG_PATH`        | _(none: in-memory graph)_ | Path to a persisted graph file to load on first use                                  |
 | `SEMANTICA_KG_AUTO_RELOAD` | `false`                   | Set to `true` to reload changed graph-file revisions before the next graph operation |
 | `SEMANTICA_LOG_LEVEL`      | `WARNING`                 | Log verbosity: `DEBUG`, `INFO`, `WARNING`                                            |
+| `SEMANTICA_PROVENANCE_DB`  | _(none)_                  | SQLite provenance database used by `get_provenance`; takes precedence over `EXPLORER_PROVENANCE_DB` |
+| `EXPLORER_PROVENANCE_DB`   | _(none)_                  | Fallback provenance database path shared with the Explorer                          |
 
 <Warning>
   **The graph starts empty unless you set `SEMANTICA_KG_PATH`.** The MCP server creates a fresh in-memory `ContextGraph` on first use. Set `SEMANTICA_KG_PATH` to a previously saved graph file to restore state across server restarts. Without it, all data is lost when the process exits.
 </Warning>
+
+### Provenance queries
+
+`get_provenance` reads the SQLite database named by `SEMANTICA_PROVENANCE_DB` (or `EXPLORER_PROVENANCE_DB`). Graph node metadata is never used as a provenance fallback.
+
+| Status | Meaning |
+| :--- | :--- |
+| `ok` | A current provenance record was found. |
+| `not_found` | The configured store has no current record for the entity. `lineage` may still be present. |
+| `not_configured` | Neither provenance environment variable is set (blank/whitespace values count as unset). |
+| `invalid_store` | A path is configured but the database file is missing or unreadable. |
+| `integrity_failed` | Records or lineage were returned, but per-entry checksum verification failed. Treat the payload as untrusted. |
+
+`include_metadata` (default `true`) controls the derived `sources` list; it does not strip `metadata` from individual provenance or lineage records. `provenance` contains the current record(s); `lineage` contains the full `get_lineage()` chain. `first_seen` and `last_updated` are lineage-wide aggregates. Invalidated records remain visible with `invalidated: true`. `invalid_store` responses set `isError: true`; the other statuses do not.
 
 ### Opt-in file refresh
 
@@ -169,7 +185,7 @@ Use `ContextGraph.save_to_file()` for atomic publication. The revision check is 
 
 ## Tools
 
-The MCP server exposes 15 tools that any connected AI assistant can call:
+The MCP server exposes tools that any connected AI assistant can call:
 
 | Tool                  | Category              | Description                                                                              |
 | :-------------------- | :-------------------- | :--------------------------------------------------------------------------------------- |
@@ -188,6 +204,7 @@ The MCP server exposes 15 tools that any connected AI assistant can call:
 | `delete_node`         | Graph Operations      | Soft-delete (archive) a node and persist to `SEMANTICA_KG_PATH`                          |
 | `run_reasoning`       | Reasoning             | Forward-chain IF/THEN rules over facts                                                   |
 | `export_graph`        | Reasoning & Export    | Serialise the graph (`turtle`/`ttl`: RDF Turtle aliases, `nt`, `xml`, `json-ld`, `json`) |
+| `get_provenance`      | Reasoning & Export    | Latest provenance record and lineage for a node from the configured provenance database |
 
 ### Knowledge Extraction
 

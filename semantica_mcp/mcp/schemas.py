@@ -287,6 +287,11 @@ GET_PROVENANCE = {
             "type": "string",
             "description": "Entity or node ID to get provenance for",
         },
+        "include_metadata": {
+            "type": "boolean",
+            "default": True,
+            "description": "Include the derived source list in the response",
+        },
     },
     "required": ["entity_id"],
 }

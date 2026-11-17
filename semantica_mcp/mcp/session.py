@@ -23,6 +23,7 @@ SUPPORTED_VECTOR_BACKENDS = ("inmemory", "sqlite")
 _graph: Optional[Any] = None
 _embedder: Optional[Any] = None
 _vector_store: Optional[Any] = None
+_provenance_manager: Optional[Any] = None
 
 # Tracks whether the last graph initialisation successfully loaded the
 # configured SEMANTICA_KG_PATH file.  When True (or no path was configured)
@@ -221,6 +222,42 @@ def get_vector_store() -> Any:
         _vector_store = store
         log.info("Vector store initialised (backend=%s)", backend)
     return _vector_store
+
+
+def get_provenance_manager() -> Optional[Any]:
+    """Return the shared ProvenanceManager, or None when no store is configured.
+
+    The MCP server and the Explorer/CLI share the same provenance database
+    through ``storage_path_from_env()``.  There is no useful in-memory
+    fallback here: the MCP tools do not write provenance themselves, so a
+    manager with no configured store would always report empty results and
+    hide the missing configuration.
+
+    Raises:
+        FileNotFoundError: A path is configured but no database file exists.
+    """
+    global _provenance_manager
+    if _provenance_manager is None:
+        from semantica.provenance import ProvenanceManager, storage_path_from_env
+
+        storage_path = (storage_path_from_env() or "").strip()
+        if not storage_path:
+            # storage_path_from_env() gives SEMANTICA_PROVENANCE_DB priority
+            # even when it is whitespace; fall back to the Explorer path then.
+            storage_path = (os.environ.get("EXPLORER_PROVENANCE_DB") or "").strip()
+        if not storage_path:
+            return None
+        if not os.path.isfile(storage_path):
+            raise FileNotFoundError("Configured provenance database not found")
+        _provenance_manager = ProvenanceManager(storage_path=storage_path)
+        log.info("Provenance manager initialised (storage=%s)", storage_path)
+    return _provenance_manager
+
+
+def reset_provenance_manager() -> None:
+    """Reset the provenance manager singleton (mainly useful in tests)."""
+    global _provenance_manager
+    _provenance_manager = None
 
 
 def reset_vector_store() -> None:
