@@ -4,6 +4,7 @@ Export tools — graph export (JSON/RDF/CSV/GraphML/Parquet) and provenance.
 
 from __future__ import annotations
 
+import json
 import logging
 import sqlite3
 
@@ -177,33 +178,45 @@ def handle_get_provenance(args: dict) -> dict:
                 "status": "not_configured",
             }
 
-        record = manager.get_provenance(node_id)
-        if record is None:
-            current = []
-        elif isinstance(record, list):
-            current = []
-            for item in record:
-                if isinstance(item, dict):
-                    current.append(item)
-                    continue
-                to_dict = getattr(item, "to_dict", None)
-                if callable(to_dict):
-                    converted = to_dict()
-                    if isinstance(converted, dict):
-                        current.append(converted)
-        elif isinstance(record, dict):
-            current = [record] if record else []
-        else:
-            to_dict = getattr(record, "to_dict", None)
-            converted = to_dict() if callable(to_dict) else None
-            current = [converted] if isinstance(converted, dict) else []
-
+        # Read the lineage once and derive the current record from the same
+        # snapshot. Reading get_provenance() separately could pair a stale
+        # current record with a newer lineage during a concurrent update.
         lineage_result = manager.get_lineage(node_id) or {}
         entries = (
             lineage_result.get("lineage_chain")
             or lineage_result.get("entries")
             or []
         )
+        current = []
+        for entry in entries:
+            if isinstance(entry, dict) and str(entry.get("entity_id")) == node_id:
+                current = [entry]
+                break
+
+        # Compatibility fallback for managers whose lineage does not include
+        # the queried entity. The real ProvenanceManager always includes it
+        # first, so the normal path stays on one lineage snapshot.
+        if not current:
+            record = manager.get_provenance(node_id)
+            if record is None:
+                current = []
+            elif isinstance(record, list):
+                current = []
+                for item in record:
+                    if isinstance(item, dict):
+                        current.append(item)
+                        continue
+                    to_dict = getattr(item, "to_dict", None)
+                    if callable(to_dict):
+                        converted = to_dict()
+                        if isinstance(converted, dict):
+                            current.append(converted)
+            elif isinstance(record, dict):
+                current = [record] if record else []
+            else:
+                to_dict = getattr(record, "to_dict", None)
+                converted = to_dict() if callable(to_dict) else None
+                current = [converted] if isinstance(converted, dict) else []
 
         integrity = lineage_result.get("integrity_verified")
         if integrity is False and (current or entries):
@@ -251,7 +264,7 @@ def handle_get_provenance(args: dict) -> dict:
             payload["sources"] = sorted(sources)
 
         return payload
-    except (OSError, sqlite3.DatabaseError):
+    except (OSError, sqlite3.DatabaseError, json.JSONDecodeError):
         log.warning("Configured provenance database is not readable")
         payload = {
             "node_id": node_id,

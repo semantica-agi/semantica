@@ -111,7 +111,6 @@ class TestGetProvenanceArgs(_ManagerTestMixin, unittest.TestCase):
         self.assertEqual(result["count"], 1)
         self.assertEqual(result["provenance"][0]["source_document"], "unit-test")
         self.assertEqual(result["sources"], ["unit-test"])
-        self.assertIn(("get_provenance", "apple_inc"), _DummyManager.calls)
         self.assertIn(("get_lineage", "apple_inc"), _DummyManager.calls)
 
     def test_legacy_node_id_still_works(self):
@@ -119,7 +118,7 @@ class TestGetProvenanceArgs(_ManagerTestMixin, unittest.TestCase):
         self.assertNotIn("error", result, result)
         self.assertEqual(result["node_id"], "apple_inc")
         self.assertEqual(result["status"], "ok")
-        self.assertIn(("get_provenance", "apple_inc"), _DummyManager.calls)
+        self.assertIn(("get_lineage", "apple_inc"), _DummyManager.calls)
 
     def test_entity_id_wins_when_both_are_provided(self):
         result = self._call({"entity_id": "apple_inc", "node_id": "other"})
@@ -287,11 +286,7 @@ class TestGetProvenanceLineageSemantics(unittest.TestCase):
                 return [Entry(), {"entity_id": entity_id}, "not-a-dict"]
 
             def get_lineage(self, entity_id):
-                return {
-                    "lineage_chain": [{"entity_id": entity_id}],
-                    "source_documents": ["wiki"],
-                    "integrity_verified": True,
-                }
+                return {}
 
         with patch(
             "semantica_mcp.mcp.tools.export.get_provenance_manager",
@@ -425,6 +420,62 @@ def test_invalidated_record_is_flagged(tmp_path):
     assert result["status"] == "ok"
     assert result["provenance"][0]["invalidated"] is True
     assert result["invalidated"] is True
+
+
+def test_alias_only_graph_node_returns_no_provenance(tmp_path):
+    """The exact #2253 reproduction: only aliases in graph metadata."""
+    from semantica.context.context_graph import ContextGraph
+    from semantica.provenance import ProvenanceManager
+    from semantica_mcp.mcp.tools.export import handle_get_provenance
+
+    graph = ContextGraph()
+    graph.add_node("apple_inc", "entity", aliases=["Apple"])
+    manager = ProvenanceManager(storage_path=str(tmp_path / "provenance.db"))
+
+    with (
+        patch(
+            "semantica_mcp.mcp.tools.export.get_provenance_manager",
+            return_value=manager,
+        ),
+        patch(
+            "semantica_mcp.mcp.tools.export.get_graph",
+            return_value=graph,
+        ),
+    ):
+        result = handle_get_provenance({"entity_id": "apple_inc"})
+
+    assert result["status"] == "not_found"
+    assert result["provenance"] == []
+    assert result["count"] == 0
+    assert result["sources"] == []
+    assert "Apple" not in json.dumps(result)
+
+
+def test_malformed_json_row_is_reported_as_invalid_store(tmp_path):
+    import sqlite3
+
+    from semantica.provenance import ProvenanceManager
+    from semantica_mcp.mcp.tools.export import handle_get_provenance
+
+    db_path = tmp_path / "provenance.db"
+    manager = ProvenanceManager(storage_path=str(db_path))
+    manager.track_entity("apple_inc", source="wiki")
+
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            "UPDATE provenance SET metadata = ? WHERE entity_id = ?",
+            ("{not-json", "apple_inc"),
+        )
+
+    with patch(
+        "semantica_mcp.mcp.tools.export.get_provenance_manager",
+        return_value=manager,
+    ):
+        result = handle_get_provenance({"entity_id": "apple_inc"})
+
+    assert result["status"] == "invalid_store"
+    assert result["provenance"] == []
+    assert "error" in result
 
 
 def test_configured_store_without_record_returns_not_found(tmp_path):
