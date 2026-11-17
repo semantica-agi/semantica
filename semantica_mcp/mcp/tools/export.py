@@ -4,10 +4,12 @@ Export tools — graph export (JSON/RDF/CSV/GraphML/Parquet) and provenance.
 
 from __future__ import annotations
 
+import json
 import logging
+import sqlite3
 
 from ..schemas import EXPORT_GRAPH, GET_PROVENANCE
-from ..session import get_graph
+from ..session import get_graph, get_provenance_manager
 
 log = logging.getLogger("semantica.mcp.tools.export")
 
@@ -146,11 +148,17 @@ def handle_export_graph(args: dict) -> dict:
 
 
 def handle_get_provenance(args: dict) -> dict:
-    """Retrieve the provenance / audit history for a node.
+    """Retrieve the provenance and lineage for a node.
 
     The advertised schema requires ``entity_id``. ``node_id`` is accepted as
     a compatibility alias for callers that discovered the old handler key
     (#1248).
+
+    Provenance is read from the configured ``ProvenanceManager`` store
+    (``SEMANTICA_PROVENANCE_DB`` / ``EXPLORER_PROVENANCE_DB``).  The response
+    uses ``ok``, ``not_found``, ``not_configured``, ``invalid_store`` or
+    ``integrity_failed``; arbitrary node metadata is never used as a
+    provenance fallback (#2253).
     """
     # Prefer the public schema field; fall back to the legacy key.
     entity_id = str(args.get("entity_id") or "").strip()
@@ -159,32 +167,116 @@ def handle_get_provenance(args: dict) -> dict:
         return {"error": "entity_id is required", "provenance": []}
     include_metadata = bool(args.get("include_metadata", True))
     try:
-        graph = get_graph()
+        manager = get_provenance_manager()
+        if manager is None:
+            return {
+                "node_id": node_id,
+                "provenance": [],
+                "count": 0,
+                "lineage": [],
+                "lineage_count": 0,
+                "status": "not_configured",
+            }
 
-        # Try ProvenanceTracker first
-        try:
-            from semantica.kg import ProvenanceTracker
-            tracker = ProvenanceTracker()
-            records = tracker.get_provenance(node_id)
-            result = records if isinstance(records, list) else list(records)
-        except (ImportError, AttributeError):
-            # Fallback: look for provenance on the node itself
-            nodes = list(graph.find_nodes())
-            matched = [n for n in nodes if n.get("id") == node_id]
-            if matched:
-                node = matched[0]
-                prov = node.get("provenance") or node.get("source") or node.get("metadata", {})
-                result = [prov] if prov else []
+        # Read the lineage once and derive the current record from the same
+        # snapshot. Reading get_provenance() separately could pair a stale
+        # current record with a newer lineage during a concurrent update.
+        lineage_result = manager.get_lineage(node_id) or {}
+        entries = (
+            lineage_result.get("lineage_chain")
+            or lineage_result.get("entries")
+            or []
+        )
+        current = []
+        for entry in entries:
+            if isinstance(entry, dict) and str(entry.get("entity_id")) == node_id:
+                current = [entry]
+                break
+
+        # Compatibility fallback for managers whose lineage does not include
+        # the queried entity. The real ProvenanceManager always includes it
+        # first, so the normal path stays on one lineage snapshot.
+        if not current:
+            record = manager.get_provenance(node_id)
+            if record is None:
+                current = []
+            elif isinstance(record, list):
+                current = []
+                for item in record:
+                    if isinstance(item, dict):
+                        current.append(item)
+                        continue
+                    to_dict = getattr(item, "to_dict", None)
+                    if callable(to_dict):
+                        converted = to_dict()
+                        if isinstance(converted, dict):
+                            current.append(converted)
+            elif isinstance(record, dict):
+                current = [record] if record else []
             else:
-                result = []
+                to_dict = getattr(record, "to_dict", None)
+                converted = to_dict() if callable(to_dict) else None
+                current = [converted] if isinstance(converted, dict) else []
 
-        payload: dict = {"node_id": node_id, "provenance": result, "count": len(result)}
-        if include_metadata and result:
-            payload["sources"] = list({
-                str(r.get("source", r.get("origin", "")))
-                for r in result
-                if isinstance(r, dict)
-            })
+        integrity = lineage_result.get("integrity_verified")
+        if integrity is False and (current or entries):
+            status = "integrity_failed"
+        elif current:
+            status = "ok"
+        else:
+            status = "not_found"
+
+        payload: dict = {
+            "node_id": node_id,
+            "provenance": current,
+            "count": len(current),
+            "lineage": entries,
+            "lineage_count": len(entries),
+            "status": status,
+        }
+        if entries:
+            payload["integrity_verified"] = integrity
+            payload["first_seen"] = lineage_result.get("first_seen")
+            payload["last_updated"] = lineage_result.get("last_updated")
+        if any(
+            isinstance(item, dict) and item.get("invalidated")
+            for item in current
+        ):
+            payload["invalidated"] = True
+
+        if include_metadata:
+            sources = set()
+            source_documents = lineage_result.get("source_documents") or []
+            if isinstance(source_documents, (list, tuple, set)):
+                for source in source_documents:
+                    if source:
+                        sources.add(str(source))
+            for item in current:
+                if not isinstance(item, dict):
+                    continue
+                source = (
+                    item.get("source_document")
+                    or item.get("source")
+                    or item.get("origin")
+                )
+                if source:
+                    sources.add(str(source))
+            payload["sources"] = sorted(sources)
+
+        return payload
+    except (OSError, sqlite3.DatabaseError, json.JSONDecodeError):
+        log.warning("Configured provenance database is not readable")
+        payload = {
+            "node_id": node_id,
+            "provenance": [],
+            "count": 0,
+            "lineage": [],
+            "lineage_count": 0,
+            "status": "invalid_store",
+            "error": "Configured provenance database is not readable",
+        }
+        if include_metadata:
+            payload["sources"] = []
         return payload
     except Exception as exc:
         log.exception("get_provenance failed")
@@ -203,7 +295,10 @@ EXPORT_TOOLS = [
     },
     {
         "name": "get_provenance",
-        "description": "Retrieve the provenance and audit history for a specific node in the knowledge graph.",
+        "description": (
+            "Retrieve the latest provenance record and lineage for a node "
+            "from the configured provenance database."
+        ),
         "inputSchema": GET_PROVENANCE,
         "_handler": handle_get_provenance,
     },
