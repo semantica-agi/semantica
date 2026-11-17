@@ -189,7 +189,7 @@ jobs:
           # the test runs, which is the only place the symlink rejection in
           # tests/semantic_extract/test_cache_backends.py gets exercised at all;
           # deselecting it unconditionally would drop a security check on the
-          # platform where it works. This job runs on ubuntu-latest, so the
+          # platform where it works. This job runs on a Linux runner, so the
           # Windows branch never fires in CI today; it is kept for a Windows
           # runner, where that id does fail, rather than dropped as dead weight.
           deselect=()
