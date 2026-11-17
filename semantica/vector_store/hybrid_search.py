@@ -44,6 +44,10 @@ from ..utils.exceptions import ProcessingError, ValidationError
 from ..utils.logging import get_logger
 from ..utils.progress_tracker import get_progress_tracker
 
+# Most results a filtered backend search widens to. Pinecone and Weaviate (by
+# default) reject queries for more than 10,000 results.
+_MAX_FILTERED_FETCH_K = 10_000
+
 
 class MetadataFilter:
     """Metadata filter builder."""
@@ -400,19 +404,32 @@ class HybridSearch:
                         tracking_id, message="Performing vector similarity search..."
                     )
                     fetch_k = k * (4 if metadata_filter else 2)
-                    backend_results = self.vector_store.search_vectors(
-                        query_vector=query_vector, k=fetch_k, **options
-                    )
-
-                    if metadata_filter:
-                        self.progress_tracker.update_tracking(
-                            tracking_id, message="Filtering by metadata..."
+                    while True:
+                        backend_results = self.vector_store.search_vectors(
+                            query_vector=query_vector, k=fetch_k, **options
                         )
-                        backend_results = [
-                            result
-                            for result in backend_results
-                            if metadata_filter.matches(result.get("metadata", {}))
-                        ]
+                        fetched_count = len(backend_results)
+
+                        if metadata_filter:
+                            self.progress_tracker.update_tracking(
+                                tracking_id, message="Filtering by metadata..."
+                            )
+                            backend_results = [
+                                result
+                                for result in backend_results
+                                if metadata_filter.matches(result.get("metadata", {}))
+                            ]
+
+                        # Matches can lie past any fixed candidate window, so
+                        # widen it until k match or the store runs out.
+                        if (
+                            not metadata_filter
+                            or len(backend_results) >= k
+                            or fetched_count < fetch_k
+                            or fetch_k >= _MAX_FILTERED_FETCH_K
+                        ):
+                            break
+                        fetch_k = min(fetch_k * 2, _MAX_FILTERED_FETCH_K)
 
                     # Normalize to the same result schema the local search
                     # path produces, since backends don't all return the
