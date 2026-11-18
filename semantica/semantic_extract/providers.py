@@ -72,6 +72,7 @@ License: MIT
 import json
 import threading
 import time
+from types import SimpleNamespace
 from typing import Any, Dict, List, Optional, Union, Type
 
 try:
@@ -168,6 +169,40 @@ class ResponseText(str):
         instance.usage = usage
         instance.cost = cost
         return instance
+
+
+class ResponseDict(dict):
+    """A JSON object carrying request-local usage and cost."""
+
+
+class ResponseList(list):
+    """A JSON array carrying request-local usage and cost."""
+
+
+def _with_response_metadata(result, response):
+    """Keep response metadata through JSON parsing and schema validation."""
+    if isinstance(result, BaseModel):
+        # Private metadata leaves schema fields and model_dump() unchanged.
+        metadata = SimpleNamespace(
+            usage=getattr(response, "usage", None),
+            cost=getattr(response, "cost", None),
+        )
+        object.__setattr__(result, "_semantica_response_metadata", metadata)
+        return result
+    if isinstance(result, dict):
+        result = ResponseDict(result)
+    elif isinstance(result, list):
+        result = ResponseList(result)
+    else:
+        return result
+    result.usage = getattr(response, "usage", None)
+    if not hasattr(response, "usage") and isinstance(response, dict):
+        result.usage = response.get("usage")
+    result.cost = getattr(response, "cost", None)
+    if result.cost is None:
+        hidden_params = getattr(response, "_hidden_params", None) or {}
+        result.cost = hidden_params.get("response_cost")
+    return result
 
 
 class BaseProvider:
@@ -612,7 +647,11 @@ class BaseProvider:
                         exc_info=True,
                     )
                     raw_content = self.generate(current_prompt, **kwargs)
-                    json_result = self._parse_json(raw_content)
+                    json_result = _with_response_metadata(
+                        self._parse_json(raw_content), raw_content
+                    )
+
+                response_metadata = json_result
 
                 # 2. Validate with Schema
                 # If the result is a list and schema expects a wrapper, or vice versa, we might need adjustment
@@ -709,7 +748,8 @@ class BaseProvider:
                     json_result = {"triplets": json_result}
 
                 validated = schema.model_validate(json_result)
-                return validated
+                # Manual retries retain only the final successful response's usage.
+                return _with_response_metadata(validated, response_metadata)
 
             except ValidationError as e:
                 last_error = e
@@ -868,7 +908,9 @@ class OpenAIProvider(BaseProvider):
 
         response = self.client.chat.completions.create(**create_kwargs)
         try:
-            return self._parse_json(response.choices[0].message.content)
+            return _with_response_metadata(
+                self._parse_json(response.choices[0].message.content), response
+            )
         except Exception as e:
             raise ProcessingError(f"Failed to parse JSON from OpenAI response: {e}")
 
@@ -1154,7 +1196,9 @@ class GroqProvider(BaseProvider):
 
         response = self.client.chat.completions.create(**create_kwargs)
         try:
-            return self._parse_json(response.choices[0].message.content)
+            return _with_response_metadata(
+                self._parse_json(response.choices[0].message.content), response
+            )
         except Exception as e:
             raise ProcessingError(f"Failed to parse JSON from Groq response: {e}")
 
