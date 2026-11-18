@@ -17,8 +17,9 @@ Already covered separately:
 
 from __future__ import annotations
 
+import os
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock
 
 import pytest
@@ -886,6 +887,71 @@ class TestContextGraphStateAt:
         ts = 1704067200  # 2024-01-01 UTC
         snapshot = self.graph.state_at(ts)
         assert "2024-01-01" in snapshot["timestamp"]
+
+    def test_state_at_timezone_independence_across_input_types(self):
+        """Verify that epoch, ISO string, and aware datetime for the same instant
+        return identical graph states regardless of the host machine's timezone."""
+        g = self.graph
+        g.add_node(
+            "n1",
+            "Thing",
+            content="n1",
+            valid_from="2026-06-01T12:00:00+00:00",
+            valid_until="2026-06-01T13:00:00+00:00",
+        )
+        instant_utc = datetime(2026, 6, 1, 12, 30, tzinfo=timezone.utc)
+        epoch = instant_utc.timestamp()
+        iso_str = instant_utc.isoformat()
+        offset_dt = instant_utc.astimezone(timezone(timedelta(hours=5, minutes=30)))
+
+        # Test under non-UTC timezone if tzset is available
+        original_tz = os.environ.get("TZ")
+        try:
+            if hasattr(time, "tzset"):
+                os.environ["TZ"] = "Asia/Kolkata"
+                time.tzset()
+
+            res_iso = g.state_at(iso_str)
+            res_dt = g.state_at(instant_utc)
+            res_offset = g.state_at(offset_dt)
+            res_epoch = g.state_at(epoch)
+            res_epoch_int = g.state_at(int(epoch))
+
+            # All input formats must yield the active node
+            assert [n["id"] for n in res_iso["nodes"]] == ["n1"]
+            assert [n["id"] for n in res_dt["nodes"]] == ["n1"]
+            assert [n["id"] for n in res_offset["nodes"]] == ["n1"]
+            assert [n["id"] for n in res_epoch["nodes"]] == ["n1"]
+            assert [n["id"] for n in res_epoch_int["nodes"]] == ["n1"]
+
+            # All must report the same UTC ISO timestamp string
+            assert res_iso["timestamp"] == "2026-06-01T12:30:00"
+            assert res_dt["timestamp"] == "2026-06-01T12:30:00"
+            assert res_offset["timestamp"] == "2026-06-01T12:30:00"
+            assert res_epoch["timestamp"] == "2026-06-01T12:30:00"
+            assert res_epoch_int["timestamp"] == "2026-06-01T12:30:00"
+        finally:
+            if hasattr(time, "tzset"):
+                if original_tz is not None:
+                    os.environ["TZ"] = original_tz
+                else:
+                    os.environ.pop("TZ", None)
+                time.tzset()
+
+    def test_state_at_unparseable_string_raises_value_error(self):
+        """state_at must raise ValueError on unparseable datetime strings."""
+        with pytest.raises(ValueError, match="not a valid ISO datetime string"):
+            self.graph.state_at("not-a-valid-date")
+
+    def test_state_at_none_raises_value_error(self):
+        """state_at must raise ValueError when timestamp is None."""
+        with pytest.raises(ValueError, match="timestamp must not be None"):
+            self.graph.state_at(None)
+
+    def test_state_at_invalid_type_raises_value_error(self):
+        """state_at must raise ValueError for unsupported types."""
+        with pytest.raises(ValueError, match="Temporal values must be"):
+            self.graph.state_at([2026, 6, 1])
 
     def test_decisions_key_contains_only_decision_nodes(self):
         self.graph.add_node(

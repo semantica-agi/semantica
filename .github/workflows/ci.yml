@@ -69,7 +69,9 @@ jobs:
         needs.changes.result != 'success' ||
         needs.changes.outputs.src == 'true'
       )
-    runs-on: ubuntu-latest
+    # Pinned: ubuntu-latest moved to 26.04, which Playwright 1.59 cannot
+    # install Chromium on. Move back once explorer upgrades Playwright.
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -187,7 +189,7 @@ jobs:
           # the test runs, which is the only place the symlink rejection in
           # tests/semantic_extract/test_cache_backends.py gets exercised at all;
           # deselecting it unconditionally would drop a security check on the
-          # platform where it works. This job runs on ubuntu-latest, so the
+          # platform where it works. This job runs on a Linux runner, so the
           # Windows branch never fires in CI today; it is kept for a Windows
           # runner, where that id does fail, rather than dropped as dead weight.
           deselect=()
@@ -236,7 +238,13 @@ jobs:
           # that --generate-hashes emits.
           # --group dev: the contributor tooling (pytest, black, ...) lives in
           # the PEP 735 `dev` dependency group, not in the `all` extra.
-          uv pip compile pyproject.toml --python-version 3.11 --extra all \
+          # The target is 3.11.5 rather than 3.11: requires-python now floors
+          # at 3.11.5 (soupsieve 4.x needs it, #2251), and a bare 3.11 target
+          # resolves as 3.11.0, which makes soupsieve 4.x unsatisfiable. The
+          # flags mirror the command recorded in the file's own header so the
+          # two cannot drift apart.
+          uv pip compile pyproject.toml --python-version 3.11.5 \
+            --python-platform linux --extra all \
             --group dev --constraint requirements-ci.txt \
             -o /tmp/requirements-ci-check.txt
           diff \
