@@ -29,3 +29,20 @@ opentelemetry-exporter-otlp-proto-common>=1.45.1,<2
 opentelemetry-exporter-otlp-proto-http>=1.45.1,<2
 opentelemetry-instrumentation-requests>=0.66b1,<1
 opentelemetry-instrumentation-threading>=0.66b1,<1
+
+# semgrep 1.175.0 pins wcmatch~=8.3, which is affected by GHSA-53pm-wgxf-c6qf
+# (polynomial-time ReDoS when a pattern with several `*` wildcards is matched
+# against an attacker-supplied file name), fixed in 11.2. semgrep only calls
+# `glob.globmatch(path, pattern, flags=GLOBSTAR | DOTGLOB)` from
+# target_manager.py. Across 34 representative include/exclude patterns over
+# all 1,514 tracked paths in this repo (51,476 pairs), 8.5.2 and 11.2 return
+# identical results; the advisory's own probe pattern against a 150-character
+# name takes 9.4s on 8.5.2 and under 1ms on 11.2.
+# Capped below 12 because of one measured behaviour: the trailing-slash form
+# `semantica/**/` matches all 454 tracked paths under semantica/ on 11.2 and
+# none of them on 12.0.4, and 454 is exactly what the scan reports as
+# "Targets scanned". Nothing else in the 34-pattern set differs between the
+# two releases, extglob and leading dot included, so this is the single
+# behaviour worth not crossing.
+# Drop this once semgrep relaxes its pin to 11.2 or later.
+wcmatch>=11.2,<12
