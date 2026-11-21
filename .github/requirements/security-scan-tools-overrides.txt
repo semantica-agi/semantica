@@ -29,3 +29,16 @@ opentelemetry-exporter-otlp-proto-common>=1.45.1,<2
 opentelemetry-exporter-otlp-proto-http>=1.45.1,<2
 opentelemetry-instrumentation-requests>=0.66b1,<1
 opentelemetry-instrumentation-threading>=0.66b1,<1
+
+# semgrep 1.175.0 pins wcmatch~=8.3, which is affected by GHSA-53pm-wgxf-c6qf
+# (polynomial-time ReDoS when a pattern with several `*` wildcards is matched
+# against an attacker-supplied file name), fixed in 11.2. semgrep only calls
+# `glob.globmatch(path, pattern, flags=GLOBSTAR | DOTGLOB)` from
+# target_manager.py. On every tracked path in this repo, across 34
+# representative include/exclude patterns (45,630 pairs), 8.5.2 and 11.2
+# return identical results; the advisory's probe pattern drops from 0.99s to
+# <1ms on a 161-byte name.
+# Capped below 12 to stay on the major semgrep's pin was built for; 12.0
+# changes extglob and leading-dot matching semantics the scan does not use.
+# Drop this once semgrep relaxes its pin to 11.2 or later.
+wcmatch>=11.2,<12
