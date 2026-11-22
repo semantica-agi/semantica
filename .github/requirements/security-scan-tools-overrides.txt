@@ -29,3 +29,25 @@ opentelemetry-exporter-otlp-proto-common>=1.45.1,<2
 opentelemetry-exporter-otlp-proto-http>=1.45.1,<2
 opentelemetry-instrumentation-requests>=0.66b1,<1
 opentelemetry-instrumentation-threading>=0.66b1,<1
+
+# semgrep 1.175.0 pins wcmatch~=8.3, which is affected by GHSA-53pm-wgxf-c6qf
+# (polynomial-time ReDoS when a pattern with several `*` wildcards is matched
+# against an attacker-supplied file name), fixed in 11.2. semgrep only calls
+# `glob.globmatch(path, pattern, flags=GLOBSTAR | DOTGLOB)` from
+# target_manager.py. Across 34 representative include/exclude patterns over
+# all 1,514 tracked paths in this repo (51,476 pairs), 8.5.2 and 11.2 return
+# identical results; the advisory's own probe pattern against a 150-character
+# name takes 9.4s on 8.5.2 and under 1ms on 11.2.
+# Capped below 12: 12.0.4 changes how a pattern ending in `/**/` matches, and
+# semgrep hands such patterns to wcmatch verbatim when a rule's own
+# include/exclude ends with `/**/` (preprocess_path_patterns turns `foo/**/`
+# into `**/foo/**/` and `**/foo/**/**`). On this repo's 1,514 tracked paths,
+# 11.2 matches 456 of them with `**/semantica/**/` — the 454 files under
+# semantica/ plus .claude/skills/semantica/{SKILL.md,init} — and 12.0.4
+# matches none. The patterns semgrep builds for an ordinary rule,
+# `**/semantica/**` and `/semantica/**`, behave identically on both versions
+# (456 and 454), so this cap guards against a rule we cannot enumerate here,
+# not a failure observed today. The scan itself reports 454 targets, which is
+# exactly the number of tracked files under semantica/.
+# Drop this once semgrep relaxes its pin to 11.2 or later.
+wcmatch>=11.2,<12
