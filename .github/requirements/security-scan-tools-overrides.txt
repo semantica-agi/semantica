@@ -38,11 +38,16 @@ opentelemetry-instrumentation-threading>=0.66b1,<1
 # all 1,514 tracked paths in this repo (51,476 pairs), 8.5.2 and 11.2 return
 # identical results; the advisory's own probe pattern against a 150-character
 # name takes 9.4s on 8.5.2 and under 1ms on 11.2.
-# Capped below 12 because of one measured behaviour: the trailing-slash form
-# `semantica/**/` matches all 454 tracked paths under semantica/ on 11.2 and
-# none of them on 12.0.4, and 454 is exactly what the scan reports as
-# "Targets scanned". Nothing else in the 34-pattern set differs between the
-# two releases, extglob and leading dot included, so this is the single
-# behaviour worth not crossing.
+# Capped below 12: 12.0.4 changes how a pattern ending in `/**/` matches, and
+# semgrep hands such patterns to wcmatch verbatim when a rule's own
+# include/exclude ends with `/**/` (preprocess_path_patterns turns `foo/**/`
+# into `**/foo/**/` and `**/foo/**/**`). On this repo's 1,514 tracked paths,
+# 11.2 matches 456 of them with `**/semantica/**/` — the 454 files under
+# semantica/ plus .claude/skills/semantica/{SKILL.md,init} — and 12.0.4
+# matches none. The patterns semgrep builds for an ordinary rule,
+# `**/semantica/**` and `/semantica/**`, behave identically on both versions
+# (456 and 454), so this cap guards against a rule we cannot enumerate here,
+# not a failure observed today. The scan itself reports 454 targets, which is
+# exactly the number of tracked files under semantica/.
 # Drop this once semgrep relaxes its pin to 11.2 or later.
 wcmatch>=11.2,<12
