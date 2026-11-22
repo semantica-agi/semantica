@@ -91,3 +91,32 @@ def test_generate_structured_passes_through_list_return():
 
     assert result == [{"id": 1}, {"id": 2}]
     assert isinstance(result, list)
+
+
+# OpenAI shut these down on 2026-10-23 (https://platform.openai.com/docs/deprecations).
+SHUT_DOWN_OPENAI_MODELS = {"gpt-3.5-turbo", "gpt-4", "gpt-4-turbo"}
+
+
+def test_default_model_is_still_served():
+    assert OpenAI(api_key="fake-key").model not in SHUT_DOWN_OPENAI_MODELS
+
+
+def test_openai_provider_default_model_is_still_served():
+    from semantica.semantic_extract.providers import OpenAIProvider
+
+    assert OpenAIProvider(api_key="fake-key").model not in SHUT_DOWN_OPENAI_MODELS
+
+
+def test_split_llm_default_model_is_still_served(monkeypatch):
+    from semantica.split import methods
+
+    requested = {}
+
+    def fake_create_provider(provider, model=None, **kwargs):
+        requested["model"] = model
+        raise RuntimeError("stop after recording the model")
+
+    monkeypatch.setattr(methods, "create_provider", fake_create_provider)
+    methods.split_llm("Some text to split.", chunk_size=100)
+
+    assert requested["model"] not in SHUT_DOWN_OPENAI_MODELS

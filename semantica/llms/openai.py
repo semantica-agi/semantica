@@ -29,7 +29,7 @@ class OpenAI:
 
     def __init__(
         self,
-        model: str = "gpt-3.5-turbo",
+        model: str = "gpt-4o-mini",
         api_key: Optional[str] = None,
         **kwargs
     ):
@@ -37,7 +37,7 @@ class OpenAI:
         Initialize OpenAI provider.
 
         Args:
-            model: Model name (default: "gpt-3.5-turbo")
+            model: Model name (default: "gpt-4o-mini")
             api_key: OpenAI API key (default: from OPENAI_API_KEY env var)
             **kwargs: Additional provider options
         """

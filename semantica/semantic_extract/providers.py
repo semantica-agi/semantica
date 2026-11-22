@@ -747,7 +747,7 @@ class OpenAIProvider(BaseProvider):
     def __init__(
         self,
         api_key: Optional[str] = None,
-        model: str = "gpt-3.5-turbo",
+        model: str = "gpt-4o-mini",
         base_url: Optional[str] = None,
         **kwargs,
     ):
