@@ -11,6 +11,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Semantic retrieval in the MCP server** (#2295)
+  - `find_precedents` blends local FastEmbed similarity (`BAAI/bge-small-en-v1.5`, `embeddings-local` extra) with the existing lexical + structural score, so paraphrased scenarios find their precedent. Results carry `semantic_similarity` / `lexical_similarity` and `method`. Without FastEmbed, or with `SEMANTICA_SEMANTIC_SEARCH=false`, the previous behaviour is unchanged
+  - New `search_knowledge` tool: semantic search over all graph nodes (findings, decisions, files, docs…) with a keyword fallback
+  - New `file_history` tool: for file nodes, the nodes that `CHANGED` them, knowledge with `SOURCE` edges to those (with `via_pr` / `pr_merged`), and decisions that `AFFECTS` them. It walks the incoming edges that `query_graph` neighbors only follows one hop deep
+  - New module `semantica/mcp_server/semantic.py`, tests in `tests/test_mcp_semantic_search.py`; MCP docs list 18 tools
+
 - `DecisionRecorder` and `AgentContext` gain opt-in `evaluators`/`eval_config` constructor parameters that run `semantica.evals` evaluators (e.g. `decision_scores`) automatically during `record_decision()`, storing `eval_score`/`eval_passed`/`eval_details` in `Decision.metadata`. Fully backward-compatible: omitting `evaluators` leaves recording behavior unchanged. Evaluator failures are logged and never block decision persistence. Both the `graph_store` and `context_graph` `AgentContext` decision backends run the hook.
 - **Trust-tier grading of retrieved context** (#1703, phase 2 of #1557) by @pkupt
   - `ContextRetriever` now grades every retrieved fact on evidence quality and records the tier in `RetrievedContext.metadata["trust_tier"]` (`quarantine` / `bronze` / `silver` / `gold`). Tiers are computed at query time from signals already present in the result — graph node confidence and, when a `provenance_manager` is configured, the number of distinct sources from `get_all_sources` — and are never persisted, so grades stay current as source sets change

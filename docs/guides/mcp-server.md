@@ -11,7 +11,7 @@ MCP stands for the Model Context Protocol. It is an open standard that allows ex
 The Semantica MCP server exposes your knowledge graph as 15 callable tools. By connecting it, any compatible AI client can traverse the graph live, record decisions, run analytics, and export results during a conversation without custom tool wrappers.
 
 <Info>
-  The Semantica MCP server exposes 15 tools and 3 read-only resources. All tools accept and return JSON. No configuration beyond an optional environment variable for graph persistence is required.
+  The Semantica MCP server exposes 18 tools and 3 read-only resources. All tools accept and return JSON. No configuration beyond an optional environment variable for graph persistence is required.
 </Info>
 
 ## Architecture & Communication

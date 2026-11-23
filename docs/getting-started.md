@@ -191,7 +191,7 @@ icon: "rocket"
     }
     ```
 
-    15 tools available instantly: extract entities, query graph, record decisions, run reasoning, export results.
+    18 tools available instantly: extract entities, query graph, record decisions, run reasoning, export results.
 
     **Next:** [MCP Server reference →](/reference/mcp_server)
   </Tab>

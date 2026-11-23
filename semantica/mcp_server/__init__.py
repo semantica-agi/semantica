@@ -294,12 +294,104 @@ def _tool_find_precedents(args: dict) -> dict:
     max_results = int(args.get("max_results", 5))
     graph = _get_graph()
     try:
+        from semantica.mcp_server import semantic
+
         min_similarity = float(args.get("min_similarity", 0.05))
+        if semantic.enabled() and semantic.describe()["semantic"]:
+            # Rank every candidate lexically (soft_floor=0), then blend in embedding similarity so
+            # paraphrased scenarios still find their precedent.
+            pool = graph.find_similar_decisions(
+                scenario, max_results=max(50, max_results * 10), soft_floor=0.0)
+            pool = pool if isinstance(pool, list) else list(pool)
+            ranked = [p for p in semantic.rerank_precedents(scenario, pool, len(pool))
+                      if p["similarity"] >= min_similarity]
+            return {"precedents": ranked[:max_results], "method": "semantic+lexical"}
         precedents = graph.find_similar_decisions(
             scenario, max_results=max_results, min_similarity=min_similarity)
-        return {"precedents": precedents if isinstance(precedents, list) else list(precedents)}
+        return {"precedents": precedents if isinstance(precedents, list) else list(precedents),
+                "method": "lexical"}
     except Exception as exc:
         return {"error": str(exc), "precedents": []}
+
+
+_KNOWLEDGE_TYPES = {"decision", "Finding", "Incident", "Thread", "Explanation"}
+
+
+def _brief(node: dict) -> dict:
+    meta = node.get("metadata") or {}
+    inner = meta.get("metadata") if isinstance(meta.get("metadata"), dict) else {}
+    out = {"id": node.get("id"), "type": node.get("type"),
+           "label": meta.get("label") or meta.get("scenario") or node.get("content")}
+    for key in ("url", "merged", "outcome", "summary", "detail", "title"):
+        val = meta.get(key) or inner.get(key)
+        if val:
+            out[key] = val if not isinstance(val, str) else val[:300]
+    return out
+
+
+def _tool_file_history(args: dict) -> dict:
+    """History of files: PRs that changed them, knowledge sourced from those PRs, decisions affecting them.
+
+    Walks incoming edges (file <-CHANGED- PR <-SOURCE- Finding/decision, file <-AFFECTS- decision),
+    which `query_graph` neighbors only follows one hop deep.
+    """
+    repo = args.get("repo", "")
+    paths = args.get("paths") or []
+    ids = list(args.get("node_ids") or []) + [f"file:{repo}:{p}" for p in paths if repo]
+    if not ids:
+        return {"error": "give repo + paths, or node_ids"}
+    max_prs = int(args.get("max_prs_per_file", 10))
+    graph = _get_graph()
+    try:
+        incoming: dict = {}
+        for e in graph.find_edges():
+            incoming.setdefault(e.get("target"), []).append((e.get("source"), e.get("type")))
+        nodes = {n["id"]: n for n in graph.find_nodes()}
+        files, knowledge = [], {}
+        for fid in ids:
+            if fid not in nodes:
+                files.append({"file": fid, "known": False})
+                continue
+            prs = [s for s, t in incoming.get(fid, []) if t == "CHANGED" and s in nodes]
+            prs.sort(key=lambda s: str(_brief(nodes[s]).get("merged", "")), reverse=True)
+            affecting = [s for s, t in incoming.get(fid, []) if t == "AFFECTS" and s in nodes]
+            from_prs = []
+            for pr in prs:
+                pr_brief = _brief(nodes[pr])
+                for s, t in incoming.get(pr, []):
+                    if s in nodes and nodes[s].get("type") in _KNOWLEDGE_TYPES:
+                        from_prs.append(s)
+                        item = knowledge.setdefault(s, _brief(nodes[s]))
+                        # Date knowledge by the PR merge, not by when a backfill recorded it.
+                        item.setdefault("via_pr", pr_brief.get("url") or pr)
+                        if pr_brief.get("merged"):
+                            item.setdefault("pr_merged", pr_brief["merged"])
+            for k in affecting:
+                knowledge.setdefault(k, _brief(nodes[k]))
+            files.append({"file": fid, "known": True, "prs": [_brief(nodes[p]) for p in prs[:max_prs]],
+                          "pr_count": len(prs), "affected_by": affecting, "knowledge_from_prs": sorted(set(from_prs))})
+        return {"files": files, "knowledge": list(knowledge.values())}
+    except Exception as exc:
+        return {"error": str(exc)}
+
+
+def _tool_search_knowledge(args: dict) -> dict:
+    """Semantic search over every node: findings, decisions, PRs, threads, incidents, files, docs."""
+    query = args.get("query", "")
+    if not query:
+        return {"error": "query is required"}
+    node_types = args.get("node_types") or []
+    if isinstance(node_types, str):
+        node_types = [node_types]
+    limit = int(args.get("limit", 10))
+    graph = _get_graph()
+    try:
+        from semantica.mcp_server import semantic
+
+        hits, method = semantic.search_nodes(query, graph.find_nodes(), node_types, limit)
+        return {"query": query, "method": method, "results": hits}
+    except Exception as exc:
+        return {"error": str(exc), "results": []}
 
 
 def _tool_get_causal_chain(args: dict) -> dict:
@@ -851,6 +943,40 @@ TOOLS = [
             "required": ["scenario"],
         },
         "_handler": _tool_find_precedents,
+    },
+    {
+        "name": "search_knowledge",
+        "description": "Semantic search over all graph knowledge (findings, decisions, pull requests, "
+                       "threads, incidents, files, docs). Use for 'what do we know about X' before "
+                       "designing or reviewing; falls back to keyword matching without embeddings.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "query":      {"type": "string", "description": "Natural-language question or topic"},
+                "node_types": {"type": "array", "items": {"type": "string"},
+                               "description": "Optional filter, e.g. [\"Finding\", \"decision\", \"PullRequest\"]"},
+                "limit":      {"type": "integer", "description": "Max results (default 10)"},
+            },
+            "required": ["query"],
+        },
+        "_handler": _tool_search_knowledge,
+    },
+    {
+        "name": "file_history",
+        "description": "History of files for reviews and planning: the pull requests that changed them, "
+                       "findings/decisions recorded from those PRs (incl. review discussions), and "
+                       "decisions that affect the files. Pass repo + repo-relative paths (node ids "
+                       "file:<repo>:<path>) or node_ids.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "repo":     {"type": "string", "description": "Repo name, e.g. ana-starrocks"},
+                "paths":    {"type": "array", "items": {"type": "string"}, "description": "Repo-relative paths"},
+                "node_ids": {"type": "array", "items": {"type": "string"}, "description": "Explicit file node ids"},
+                "max_prs_per_file": {"type": "integer", "description": "Default 10"},
+            },
+        },
+        "_handler": _tool_file_history,
     },
     {
         "name": "get_causal_chain",

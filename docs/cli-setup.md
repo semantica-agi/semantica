@@ -53,7 +53,7 @@ python -c "import semantica; print(semantica.__version__)"
 - **semantica-server**: starts the REST API server. Binds to `127.0.0.1:8000` by default; set `SEMANTICA_HOST` to expose beyond localhost. Use this when another service or application needs programmatic access to Semantica over HTTP.
 - **semantica-worker**: background task processor. Run alongside `semantica-server` when you need async pipeline execution outside the request cycle. Start the server first, then start one or more workers pointing at the same backend.
 - **semantica-explorer**: launches the browser dashboard. Requires `pip install semantica[explorer]`. Use this to explore a saved knowledge graph interactively. See [Explorer Setup](/explorer-setup).
-- **semantica-mcp**: runs the MCP server over stdio. Configure it in your MCP client's settings file to expose all 15 tools and 3 resources to Claude Desktop, Cursor, Windsurf, or any MCP-aware client. See [MCP Server](/reference/mcp_server).
+- **semantica-mcp**: runs the MCP server over stdio. Configure it in your MCP client's settings file to expose all 18 tools and 3 resources to Claude Desktop, Cursor, Windsurf, or any MCP-aware client. See [MCP Server](/reference/mcp_server).
 
 
 ## Usage Examples
@@ -229,6 +229,6 @@ Install the [Microsoft Visual C++ Redistributable](https://aka.ms/vs/17/release/
 ## Next Steps
 
 - [Explorer Setup](/explorer-setup): build a graph, save it, and launch the browser dashboard.
-- [MCP Server](/reference/mcp_server): all 15 tools and 3 resources exposed over the MCP protocol.
+- [MCP Server](/reference/mcp_server): all 18 tools and 3 resources exposed over the MCP protocol.
 - [Installation](/installation): virtual environments, optional extras, and platform-specific notes.
 - [Quickstart](/quickstart): end-to-end pipeline walkthrough with working code.

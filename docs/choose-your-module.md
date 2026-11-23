@@ -226,7 +226,7 @@ Pick your goal to see the minimum imports and a working skeleton.
   </Tab>
 
   <Tab title="MCP: Claude / Cursor">
-    Use Semantica from Claude Desktop, Cursor, VS Code, or any MCP-aware tool; no Python code required after setup. 15 tools are available.
+    Use Semantica from Claude Desktop, Cursor, VS Code, or any MCP-aware tool; no Python code required after setup. 18 tools are available.
 
     **Step 1: Install**
     ```bash

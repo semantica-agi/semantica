@@ -6,7 +6,7 @@ icon: "plug"
 
 **`semantica.mcp_server`** exposes Semantica's knowledge graph, decision intelligence, semantic extraction, and reasoning capabilities as an [MCP (Model Context Protocol)](https://modelcontextprotocol.io) **server over stdio**:
 
-- 15 MCP tools exposed: extract entities, query graph, record decisions, run reasoning, export results
+- 18 MCP tools exposed: extract entities, query graph, record decisions, run reasoning, export results
 - No Python code required after launch: configure once, use from any MCP-aware client
 - Compatible with Claude Desktop, Windsurf, Cline, Continue, VS Code, Roo Code, Cursor
 
@@ -40,7 +40,7 @@ python -m semantica.mcp_server
 
 ## What You Get
 
-- **15 MCP Tools** — Extract entities, extract relations, record decisions, query decisions, find precedents, trace causal chains, add entities, add relationships, run analytics, summarise graph, run reasoning, export graph, query the live graph, update nodes, archive nodes.
+- **18 MCP Tools** — Extract entities, extract relations, record decisions, query decisions, find precedents, trace causal chains, add entities, add relationships, run analytics, summarise graph, run reasoning, export graph, query the live graph, update nodes, archive nodes, link decisions, semantic knowledge search, file history.
 - **3 Readable Resources** — Live graph JSON (`semantica://graph/summary`), decision list, and schema/version info: readable by any MCP client.
 - **Zero Infrastructure** — Runs over stdio: no server, no port, no Docker required. One config block to activate in any MCP client.
 - **Persistent Graphs** — Point `SEMANTICA_KG_PATH` at a saved graph file to load it on first use. Opt into `SEMANTICA_KG_AUTO_RELOAD=true` for same-session file refresh.
@@ -150,6 +150,8 @@ The MCP server is included in the base install: no extras required.
 | `SEMANTICA_KG_PATH`        | _(none: in-memory graph)_ | Path to a persisted graph file to load on first use                                  |
 | `SEMANTICA_KG_AUTO_RELOAD` | `false`                   | Set to `true` to reload changed graph-file revisions before the next graph operation |
 | `SEMANTICA_LOG_LEVEL`      | `WARNING`                 | Log verbosity: `DEBUG`, `INFO`, `WARNING`                                            |
+| `SEMANTICA_SEMANTIC_SEARCH` | `true`                   | Set to `false` to disable embedding-based ranking in `find_precedents` / `search_knowledge` |
+| `SEMANTICA_EMBED_MODEL`    | `BAAI/bge-small-en-v1.5`  | FastEmbed model used for semantic ranking (needs the `embeddings-local` extra)       |
 
 <Warning>
   **The graph starts empty unless you set `SEMANTICA_KG_PATH`.** The MCP server creates a fresh in-memory `ContextGraph` on first use. Set `SEMANTICA_KG_PATH` to a previously saved graph file to restore state across server restarts. Without it, all data is lost when the process exits.
@@ -169,7 +171,7 @@ Use `ContextGraph.save_to_file()` for atomic publication. The revision check is 
 
 ## Tools
 
-The MCP server exposes 15 tools that any connected AI assistant can call:
+The MCP server exposes 18 tools that any connected AI assistant can call:
 
 | Tool                  | Category              | Description                                                                              |
 | :-------------------- | :-------------------- | :--------------------------------------------------------------------------------------- |
@@ -177,7 +179,10 @@ The MCP server exposes 15 tools that any connected AI assistant can call:
 | `extract_relations`   | Extraction            | Typed relation and triplet extraction                                                    |
 | `record_decision`     | Decision Intelligence | Save a decision with reasoning and outcome                                               |
 | `query_decisions`     | Decision Intelligence | Search recorded decisions by natural language or category                                |
-| `find_precedents`     | Decision Intelligence | Hybrid similarity search over past decisions                                             |
+| `find_precedents`     | Decision Intelligence | Hybrid similarity search over past decisions (local embeddings + lexical when `embeddings-local` is installed) |
+| `link_decisions`      | Decision Intelligence | Add a causal or lineage link between two decisions                                       |
+| `search_knowledge`    | Graph Operations      | Semantic search over all nodes (findings, decisions, files, docs…); keyword fallback   |
+| `file_history`        | Graph Operations      | For file nodes: changing nodes (`CHANGED`), knowledge sourced from them, decisions that `AFFECTS` them |
 | `get_causal_chain`    | Decision Intelligence | Trace upstream / downstream causal chains                                                |
 | `add_entity`          | Graph Operations      | Add a node to the live graph                                                             |
 | `add_relationship`    | Graph Operations      | Add a directed edge between two nodes                                                    |
