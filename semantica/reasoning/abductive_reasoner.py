@@ -21,11 +21,19 @@ Main Classes:
     - HypothesisRanking: Enum for hypothesis ranking strategies
 
 Example Usage:
-    >>> from semantica.reasoning import AbductiveReasoner, Observation
-    >>> reasoner = AbductiveReasoner()
-    >>> observation = Observation("obs1", "Person X is in location Y")
-    >>> hypotheses = reasoner.generate_hypotheses(observation, facts)
-    >>> best = reasoner.rank_hypotheses(hypotheses, HypothesisRanking.SIMPLICITY)
+    Hypotheses are drawn from the rules on the wrapped ``Reasoner``, so an
+    observation can only be explained by a rule that concludes it. The
+    ranking strategy is a constructor argument -- ``rank_hypotheses`` reads
+    ``self.ranking_strategy`` and ignores its own ``**options``:
+
+    >>> from semantica.reasoning import AbductiveReasoner, Observation, Rule
+    >>> reasoner = AbductiveReasoner(ranking_strategy="simplicity")
+    >>> rule = reasoner.reasoner.add_rule(
+    ...     Rule("r1", "sprinkler", ["Sprinkler(?x)"], "WetLawn(?x)")
+    ... )
+    >>> observation = Observation("obs1", "WetLawn(yard)")
+    >>> hypotheses = reasoner.generate_hypotheses([observation])
+    >>> best = reasoner.rank_hypotheses(hypotheses)
 
 Author: Semantica Contributors
 License: MIT

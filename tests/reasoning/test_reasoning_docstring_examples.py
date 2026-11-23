@@ -54,16 +54,35 @@ from semantica.reasoning import (
 from semantica.utils.exceptions import ProcessingError
 
 _REASONING_DIR = pathlib.Path(reasoning_pkg.__file__).parent
+# Every module in this subpackage whose Example Usage block has been
+# corrected and is expected to execute. deductive_reasoner and
+# abductive_reasoner joined once #2243 landed.
+_CORRECTED = [
+    "abductive_reasoner",
+    "deductive_reasoner",
+    "explanation_generator",
+    "rete_engine",
+    "sparql_reasoner",
+]
+
 _ASSIGN_RE = re.compile(r"^\s*(\w+)\s*=\s*(\w+)\s*\(")
-_CALL_RE = re.compile(r"\b(\w+)\.(\w+)\s*\(")
+# ``var.attr(`` where ``var`` is a bare name. The negative lookbehind keeps
+# a chained call out: in ``reasoner.reasoner.add_rule(...)`` the method is
+# called on whatever ``reasoner.reasoner`` is, not on ``reasoner``'s class,
+# and blaming the outer class reported two false positives.
+_CALL_RE = re.compile(r"(?<![\w.])(\w+)\.(\w+)\s*\(")
 
 # Modules whose documented calls are still broken, with the reason. Each one
 # needs an entry in test_known_remaining_is_still_broken so this cannot rot
 # into a list of things that were quietly fixed elsewhere.
-_KNOWN_REMAINING = {
-    "deductive_reasoner": "blocked on #2243 -- its example imports "
-                          "DeductiveReasoner from the package",
-}
+#
+# Empty, and meant to stay that way. ``deductive_reasoner`` was the last
+# entry: its example could not be corrected until #2243 made
+# ``from semantica.reasoning import DeductiveReasoner`` resolve. The
+# mechanism is kept because the sweep covers every module in the subpackage,
+# so a future one may need to be parked here -- but a non-empty list should
+# always name an issue.
+_KNOWN_REMAINING: dict = {}
 
 
 def _modules_with_examples():
@@ -108,12 +127,15 @@ class TestNoDocumentedCallIsMissing:
         assert _unresolved_calls(stem) == []
 
     def test_every_module_with_examples_is_covered(self):
-        """The sweep must actually see the three modules this PR fixes."""
+        """The sweep must actually see every module with a corrected block."""
         found = set(_modules_with_examples())
-        for stem in (
-            "explanation_generator", "rete_engine", "sparql_reasoner"
-        ):
+        for stem in _CORRECTED:
             assert stem in found
+
+    def test_nothing_is_parked_without_a_reason(self):
+        """Empty is the goal; a populated list must justify itself."""
+        for stem, reason in _KNOWN_REMAINING.items():
+            assert "#" in reason, f"{stem} is parked without naming an issue"
 
     @pytest.mark.parametrize("stem", sorted(_KNOWN_REMAINING))
     def test_known_remaining_is_still_broken(self, stem):
@@ -203,9 +225,7 @@ class TestDocumentedExamplesExecute:
     executing the block catches them.
     """
 
-    @pytest.mark.parametrize(
-        "stem", ["explanation_generator", "rete_engine", "sparql_reasoner"]
-    )
+    @pytest.mark.parametrize("stem", _CORRECTED)
     def test_block_runs_without_drifting(self, stem):
         assert _run_example(stem) is None
 
@@ -233,7 +253,9 @@ class TestExplanationGeneratorExampleRuns:
             self._inference()
         )
         assert explanation.reasoning_path is not None
-        assert explanation.reasoning_path.steps
+        # The PR body claimed a path of two steps; pin the number rather
+        # than merely non-empty, so the claim and the test agree.
+        assert len(explanation.reasoning_path.steps) == 2
 
     def test_show_reasoning_path_is_the_documented_name(self):
         generator = ExplanationGenerator()
