@@ -16,6 +16,7 @@ os.environ["SEMANTICA_DISABLE_PROGRESS"] = "1"
 
 from semantica.reasoning import abductive_reasoner as abductive_module
 from semantica.reasoning.reasoner import Rule
+from semantica_mcp.mcp.server import _handle_tools_call
 from semantica_mcp.mcp.tools.reasoning import handle_abductive_reasoning
 
 
@@ -74,6 +75,31 @@ class AbductiveReasoningHandlerTests(unittest.TestCase):
         with _reasoner_with_rules(1):
             result = handle_abductive_reasoning({"observations": ["WetLawn(yard)"]})
         self.assertNotIn("message", result)
+
+    def test_result_survives_server_dispatch(self):
+        # json.dumps in server.py runs outside the handler's try/except, so a
+        # non-serialisable result fails the whole request rather than
+        # becoming an "error" key. Go through the dispatch to cover that.
+        with _reasoner_with_rules(1):
+            response = _handle_tools_call(
+                1,
+                {"name": "abductive_reasoning", "arguments": {"observations": ["WetLawn(yard)"]}},
+            )
+
+        self.assertNotIn("error", response)
+        self.assertFalse(response["result"]["isError"])
+        payload = json.loads(response["result"]["content"][0]["text"])
+        self.assertEqual(payload["count"], 1)
+        self.assertEqual(payload["hypotheses"][0]["premises"], ["Cause0(?x)"])
+
+    def test_no_rules_message_survives_server_dispatch(self):
+        response = _handle_tools_call(
+            1,
+            {"name": "abductive_reasoning", "arguments": {"observations": ["WetLawn(yard)"]}},
+        )
+        payload = json.loads(response["result"]["content"][0]["text"])
+        self.assertEqual(payload["count"], 0)
+        self.assertEqual(payload["message"], "No rules available for abductive reasoning")
 
     def test_invalid_max_hypotheses_is_reported_as_error(self):
         result = handle_abductive_reasoning(
