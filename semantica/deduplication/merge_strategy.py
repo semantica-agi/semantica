@@ -496,9 +496,9 @@ class MergeStrategyManager:
         elif strategy == MergeStrategy.MERGE_ALL:
             # Merge into list if not already
             if isinstance(value1, list):
-                if value2 not in value1:
-                    value1.append(value2)
-                return {"resolved": True, "value": value1, "resolution": "merge_all"}
+                # A new list, so the source entities' lists stay unchanged.
+                merged = value1 if value2 in value1 else [*value1, value2]
+                return {"resolved": True, "value": merged, "resolution": "merge_all"}
             else:
                 return {
                     "resolved": True,

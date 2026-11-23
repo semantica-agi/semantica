@@ -1,3 +1,5 @@
+import copy
+
 import pytest
 
 from semantica.deduplication import EntityMerger, MergeStrategyManager
@@ -94,3 +96,27 @@ def test_custom_resolution_sees_each_entity_once(rule):
     merged = manager.merge_entities(entities).merged_entity
 
     assert merged["properties"]["mentions"] == 8
+
+
+@pytest.mark.parametrize("strategy", ["keep_first", "keep_most_complete"])
+def test_merge_all_leaves_source_lists_unchanged(strategy):
+    entities = [
+        {
+            "id": "acme-crm",
+            "name": "Acme Manufacturing",
+            "properties": {"tags": ["supplier"]},
+        },
+        {
+            "id": "acme-registry",
+            "name": "Acme Manufacturing",
+            "properties": {"tags": "manufacturer", "country": "FR"},
+        },
+    ]
+    original = copy.deepcopy(entities)
+    manager = MergeStrategyManager()
+    manager.add_property_rule("tags", "merge_all")
+
+    merged = manager.merge_entities(entities, strategy=strategy).merged_entity
+
+    assert merged["properties"]["tags"] == ["supplier", "manufacturer"]
+    assert entities == original
