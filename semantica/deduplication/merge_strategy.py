@@ -407,22 +407,34 @@ class MergeStrategyManager:
         tracking_id: Optional[str] = None,
     ) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
         """Merge properties from all entities."""
-        merged_properties = base_entity.get("properties", {}).copy()
+        ordered = (
+            MergeStrategy.KEEP_FIRST,
+            MergeStrategy.KEEP_LAST,
+            MergeStrategy.MERGE_ALL,
+        )
+
+        def follows_input_order(prop_name: str) -> bool:
+            rule = self.property_rules.get(prop_name)
+            return (rule.strategy if rule else strategy) in ordered
+
+        # Order-based strategies merge every entity in input order; the others
+        # start from the base entity's value.
+        merged_properties = {
+            prop_name: prop_value
+            for prop_name, prop_value in base_entity.get("properties", {}).items()
+            if not follows_input_order(prop_name)
+        }
         conflicts = []
 
-        total_entities = len(entities) - 1  # Excluding base entity
-        if total_entities <= 0:
-            return merged_properties, conflicts
-
         for ent_idx, entity in enumerate(entities):
-            if entity == base_entity:
-                continue
-
+            is_base = entity == base_entity
             entity_props = entity.get("properties", {})
             prop_list = list(entity_props.items())
             total_props = len(prop_list)
 
             for prop_idx, (prop_name, prop_value) in enumerate(prop_list):
+                if is_base and not follows_input_order(prop_name):
+                    continue
                 if prop_name not in merged_properties:
                     # New property, add it
                     merged_properties[prop_name] = prop_value
