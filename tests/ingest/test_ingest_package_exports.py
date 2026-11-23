@@ -69,9 +69,32 @@ _DOCUMENTED_IMPORTS = [
 ]
 
 
-def _statically_reachable():
-    """Names importable from the package, without touching an attribute."""
-    return set(ingest_pkg._LAZY_EXPORTS) | set(ingest_pkg.__all__)
+def _really_importable(name):
+    """True if ``from semantica.ingest import name`` would succeed.
+
+    The guard this replaces compared names against
+    ``set(_LAZY_EXPORTS) | set(__all__)``. Because that is a **union**, a name
+    listed in ``__all__`` with no lazy mapping counted as reachable while
+    importing it raised ``AttributeError`` -- so the guard written to catch
+    the next unregistered ingestor would have passed it. Appending a
+    ``GhostIngestor`` to ``__all__`` demonstrates it.
+
+    The thing being guarded is a behaviour, so this asserts the behaviour.
+    ``hasattr`` cannot be used: for a probe-backed backend the lazy
+    ``__getattr__`` raises ``ImportError`` with an install hint on a core
+    install, and ``hasattr`` only swallows ``AttributeError``. That
+    ``ImportError`` means the name *is* registered and the extra is simply
+    absent, which is reachable for our purposes -- so it is caught
+    explicitly rather than avoided by not asking.
+    """
+    try:
+        getattr(ingest_pkg, name)
+    except AttributeError:
+        return False
+    except ImportError:
+        # Registered, but its optional backend is not installed.
+        return True
+    return True
 
 
 def _ingestor_classes():
@@ -91,13 +114,33 @@ class TestEveryIngestorIsReachable:
     """The guard that makes this class of defect non-recurring."""
 
     def test_every_ingestor_class_is_reachable(self):
-        reachable = _statically_reachable()
         missing = sorted(
             f"{stem}.{name}"
             for stem, name in _ingestor_classes()
-            if name not in reachable
+            if not _really_importable(name)
         )
         assert missing == []
+
+    def test_a_name_in_all_without_a_mapping_is_not_counted_reachable(self):
+        """The hole this replaces: ``__all__`` membership is not an import.
+
+        The previous guard unioned ``_LAZY_EXPORTS`` with ``__all__``, so a
+        name added to ``__all__`` alone passed while importing it failed.
+        """
+        ingest_pkg.__all__.append("GhostIngestor")
+        try:
+            assert "GhostIngestor" in set(ingest_pkg.__all__)
+            assert not _really_importable("GhostIngestor")
+        finally:
+            ingest_pkg.__all__.remove("GhostIngestor")
+
+    def test_a_probe_backed_backend_counts_as_reachable(self):
+        """``RepoIngestor`` raises ImportError, not AttributeError, bare.
+
+        It is registered; only GitPython may be absent. Treating that as
+        unreachable would make the guard fail on a core install.
+        """
+        assert _really_importable("RepoIngestor")
 
     def test_the_sweep_actually_finds_the_modules(self):
         """Rule out a sweep that passes because it collected nothing."""
