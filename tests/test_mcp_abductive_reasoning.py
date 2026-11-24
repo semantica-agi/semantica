@@ -101,6 +101,39 @@ class AbductiveReasoningHandlerTests(unittest.TestCase):
         self.assertEqual(payload["count"], 0)
         self.assertEqual(payload["message"], "No rules available for abductive reasoning")
 
+    def test_rules_argument_produces_hypotheses_end_to_end(self):
+        response = _handle_tools_call(
+            1,
+            {
+                "name": "abductive_reasoning",
+                "arguments": {
+                    "observations": ["WetLawn(yard)"],
+                    "rules": ["IF Sprinkler(?x) THEN WetLawn(?x)"],
+                },
+            },
+        )
+        self.assertFalse(response["result"]["isError"])
+        payload = json.loads(response["result"]["content"][0]["text"])
+        self.assertEqual(payload["count"], 1)
+        self.assertEqual(payload["hypotheses"][0]["premises"], ["Sprinkler(?x)"])
+        self.assertNotIn("message", payload)
+
+    def test_rules_that_do_not_explain_the_observation_give_no_hypotheses(self):
+        result = handle_abductive_reasoning(
+            {
+                "observations": ["WetLawn(yard)"],
+                "rules": ["IF Rain(?x) THEN WetRoad(?x)"],
+            }
+        )
+        self.assertEqual(result["count"], 0)
+
+    def test_malformed_rule_is_reported_as_error(self):
+        result = handle_abductive_reasoning(
+            {"observations": ["WetLawn(yard)"], "rules": ["garbage"]}
+        )
+        self.assertIn("error", result)
+        self.assertEqual(result["hypotheses"], [])
+
     def test_invalid_max_hypotheses_is_reported_as_error(self):
         result = handle_abductive_reasoning(
             {"observations": ["WetLawn(yard)"], "max_hypotheses": "many"}

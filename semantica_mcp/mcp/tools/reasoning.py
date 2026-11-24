@@ -59,6 +59,15 @@ def handle_abductive_reasoning(args: dict) -> dict:
         )
 
         reasoner = AbductiveReasoner(config={"max_hypotheses": max_hypotheses})
+        for rule in args.get("rules") or []:
+            rule_text = str(rule)
+            upper = rule_text.upper()
+            if "IF " not in upper or " THEN " not in upper:
+                return {
+                    "error": f"rule must be of the form 'IF <conditions> THEN <conclusion>': {rule_text!r}",
+                    "hypotheses": [],
+                }
+            reasoner.reasoner.add_rule(rule_text)
         hypotheses = reasoner.generate_hypotheses(
             [
                 Observation(observation_id=f"obs_{i}", description=str(text))
@@ -68,8 +77,8 @@ def handle_abductive_reasoning(args: dict) -> dict:
         result = [_hypothesis_to_dict(h) for h in hypotheses]
         response = {"hypotheses": result, "count": len(result)}
         if not reasoner.reasoner.rules:
-            # Hypotheses are only generated from rules, and this tool has no way
-            # to receive any yet, so say why the list is empty.
+            # Hypotheses are only generated from rules, so say why the list is
+            # empty when the caller supplied none.
             response["message"] = "No rules available for abductive reasoning"
         return response
     except Exception as exc:
