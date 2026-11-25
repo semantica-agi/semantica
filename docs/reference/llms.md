@@ -398,7 +398,7 @@ from semantica.llms import LiteLLM
 llm = LiteLLM(model="anthropic/claude-opus-4-7",         api_key=os.getenv("ANTHROPIC_API_KEY"))
 
 # Google Gemini
-llm = LiteLLM(model="gemini/gemini-1.5-pro",             api_key=os.getenv("GOOGLE_API_KEY"))
+llm = LiteLLM(model="gemini/gemini-3.8-flash",           api_key=os.getenv("GOOGLE_API_KEY"))
 
 # Ollama (local: no API key)
 llm = LiteLLM(model="ollama/llama3.2:3b",                api_base="http://localhost:11434")
@@ -454,7 +454,7 @@ from semantica.llms import LiteLLM
 # Pattern: LiteLLM(model="<provider>/<model-name>")
 providers = {
     "Anthropic":  LiteLLM(model="anthropic/claude-opus-4-7",       api_key=os.getenv("ANTHROPIC_API_KEY")),
-    "Gemini":     LiteLLM(model="gemini/gemini-1.5-pro",            api_key=os.getenv("GOOGLE_API_KEY")),
+    "Gemini":     LiteLLM(model="gemini/gemini-3.8-flash",          api_key=os.getenv("GOOGLE_API_KEY")),
     "Ollama":     LiteLLM(model="ollama/llama3.2:3b",               api_base="http://localhost:11434"),
     "DeepSeek":   LiteLLM(model="deepseek/deepseek-chat",           api_key=os.getenv("DEEPSEEK_API_KEY")),
     "Azure":      LiteLLM(model="azure/gpt-4o",                     api_key=os.getenv("AZURE_API_KEY")),

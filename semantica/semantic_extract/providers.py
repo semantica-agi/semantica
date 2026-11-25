@@ -7,9 +7,9 @@ custom HuggingFace models for semantic extraction tasks.
 
 Supported Providers:
     - "openai": OpenAI API (GPT-3.5, GPT-4, etc.)
-    - "gemini": Google Gemini API (gemini-pro, etc.)
+    - "gemini": Google Gemini API (gemini-3.8-flash, etc.)
     - "groq": Groq API (llama2, mixtral, etc.)
-    - "anthropic": Anthropic Claude API (claude-3-sonnet, etc.)
+    - "anthropic": Anthropic Claude API (claude-sonnet-4-6, etc.)
     - "ollama": Ollama local provider (local open-source models)
     - "huggingface_llm": HuggingFace Transformers for LLM tasks
 
@@ -32,9 +32,9 @@ Key Features:
     - Unified provider interface for all LLM services
     - Support for multiple LLM providers:
         * OpenAI (GPT-3.5, GPT-4, etc.)
-        * Google Gemini (gemini-pro, etc.)
+        * Google Gemini (gemini-3.8-flash, etc.)
         * Groq (llama2, mixtral, etc.)
-        * Anthropic Claude (claude-3-sonnet, etc.)
+        * Anthropic Claude (claude-sonnet-4-6, etc.)
         * Ollama (local open-source models)
         * HuggingFace Transformers (custom LLM models)
     - HuggingFace model loader for NER, relation extraction, and triplet extraction
@@ -747,6 +747,19 @@ class BaseProvider:
 # changing it: gpt-4o-mini-2024-07-18 is scheduled to shut down on 2027-01-14.
 DEFAULT_OPENAI_MODEL = "gpt-4o-mini"
 
+# The one place the Anthropic default model is named; semantica.llms.Anthropic
+# and AnthropicProvider both default to it. Check
+# https://platform.claude.com/docs/en/about-claude/model-deprecations before
+# changing it. Claude 4.7 and later models reject a non-default temperature,
+# top_p or top_k with a 400, and generate_typed always sends a temperature, so a
+# move past claude-sonnet-4-6 needs those parameters dropped for such models.
+DEFAULT_ANTHROPIC_MODEL = "claude-sonnet-4-6"
+
+# The one place the Gemini default model is named; semantica.llms.Gemini and
+# GeminiProvider both default to it. Check
+# https://ai.google.dev/gemini-api/docs/deprecations before changing it.
+DEFAULT_GEMINI_MODEL = "gemini-3.8-flash"
+
 
 class OpenAIProvider(BaseProvider):
     """OpenAI provider implementation."""
@@ -884,7 +897,10 @@ class GeminiProvider(BaseProvider):
     """Google Gemini provider implementation."""
 
     def __init__(
-        self, api_key: Optional[str] = None, model: str = "gemini-pro", **kwargs
+        self,
+        api_key: Optional[str] = None,
+        model: str = DEFAULT_GEMINI_MODEL,
+        **kwargs,
     ):
         """Initialize Gemini provider."""
         super().__init__(**kwargs)
@@ -1172,7 +1188,7 @@ class AnthropicProvider(BaseProvider):
     def __init__(
         self,
         api_key: Optional[str] = None,
-        model: str = "claude-3-sonnet-20240229",
+        model: str = DEFAULT_ANTHROPIC_MODEL,
         **kwargs,
     ):
         """Initialize Anthropic provider."""

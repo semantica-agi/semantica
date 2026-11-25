@@ -304,7 +304,7 @@ The `Gemini` provider tries the newer `google-genai` SDK first and falls back to
 ```python
 from semantica.llms import Gemini
 
-gemini = Gemini(model="gemini-pro", api_key="YOUR_GEMINI_KEY")
+gemini = Gemini(model="gemini-3.8-flash", api_key="YOUR_GEMINI_KEY")
 # api_key falls back to the GEMINI_API_KEY environment variable
 
 if not gemini.is_available():
