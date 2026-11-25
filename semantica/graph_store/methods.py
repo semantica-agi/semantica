@@ -58,7 +58,7 @@ Example Usage:
     >>> results = execute_query("MATCH (p:Person) RETURN p.name")
 """
 
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Union
 
 from .config import graph_store_config
 from .graph_store import GraphAnalytics, GraphStore, NodeManager, QueryEngine, RelationshipManager
@@ -68,46 +68,10 @@ from .registry import method_registry
 # Global store instance
 _global_store: Optional[GraphStore] = None
 
-# Stores built from caller-supplied config dicts, keyed by the resolved
-# connection settings, so repeated calls with the same config reuse one
-# backend connection instead of opening a driver per call.
-_config_stores: Dict[Tuple[Tuple[str, Any], ...], GraphStore] = {}
 
-
-def _store_from_config(config: Dict[str, Any]) -> GraphStore:
-    """Build a store from a caller-supplied config dict (#2271).
-
-    Honors the CLI config's ``graph_db`` section — the same keys
-    ``cli._get_graph_store`` passes to ``GraphStore`` (``backend``, ``uri``,
-    ``user``, ``password``, ``database``, ``encrypted``, ...). A ``path`` key
-    is dropped: it selects the memory backend's persistence file and GraphStore
-    has no memory backend. Without a ``graph_db`` section the env-configured
-    defaults apply, exactly as when no config was passed.
-    """
-    graph_db = dict(config.get("graph_db") or {})
-    if not graph_db:
-        return _get_store()
-    graph_db.pop("path", None)
-    backend = graph_db.pop("backend", None)
-    key = tuple(sorted((k, str(v)) for k, v in graph_db.items())) + (("backend", str(backend)),)
-    store = _config_stores.get(key)
-    if store is None:
-        store = GraphStore(backend=backend, **graph_db)
-        _config_stores[key] = store
-    return store
-
-
-def _get_store(config: Optional[Dict[str, Any]] = None) -> GraphStore:
-    """Get a GraphStore instance.
-
-    With a caller-supplied ``config`` the store is always built from it — the
-    env-configured global singleton must not answer a call that carries its
-    own connection settings (#2271). Without one, the env-configured global
-    store is created and reused as before.
-    """
+def _get_store() -> GraphStore:
+    """Get or create global GraphStore instance."""
     global _global_store
-    if config is not None:
-        return _store_from_config(config)
     if _global_store is None:
         config = graph_store_config.get_all()
         backend = config.get("default_backend", "neo4j")
@@ -451,27 +415,18 @@ def execute_query(
         query: Query string
         parameters: Query parameters
         method: Execution method name (default: "default")
-        **options: Additional options. A ``config`` option carrying the
-            caller's configuration dict (e.g. the CLI's ``config.to_dict()``)
-            selects the store the query runs against via its ``graph_db``
-            section instead of the env-configured default (#2271); it is
-            removed from ``options`` and never reaches the backend call.
+        **options: Additional options
 
     Returns:
         Query results
     """
-    config = options.pop("config", None)
-
     # Check registry for custom method
     custom_method = method_registry.get("query", method)
     if custom_method:
-        # Custom methods keep receiving ``config`` in **options, as before.
-        if config is not None:
-            options["config"] = config
         return custom_method(query, parameters=parameters, **options)
 
     # Default implementation
-    store = _get_store(config)
+    store = _get_store()
     return store.execute_query(query, parameters, **options)
 
 
