@@ -36,7 +36,7 @@ Example Usage:
     >>> response = groq.generate("Hello, world!")
     >>>
     >>> # OpenAI provider
-    >>> openai = OpenAI(model="gpt-4", api_key="your-key")
+    >>> openai = OpenAI(model="gpt-4o-mini", api_key="your-key")
     >>> response = openai.generate("Hello, world!")
     >>>
     >>> # HuggingFace LLM provider

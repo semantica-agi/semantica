@@ -164,7 +164,7 @@ chunks = split_llm(
     text,
     chunk_size=1000,
     provider="openai",
-    model="gpt-4"
+    model="gpt-4o-mini"
 )
 
 for chunk in chunks:

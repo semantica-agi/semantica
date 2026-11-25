@@ -381,7 +381,7 @@ import os
 from semantica.llms import OpenAI
 
 llm = OpenAI(
-    model="gpt-4o",                     # recommended; implementation default: gpt-3.5-turbo
+    model="gpt-4o",                     # recommended; implementation default: gpt-4o-mini
     api_key=os.getenv("OPENAI_API_KEY"),
     temperature=0.0,
 )
@@ -546,7 +546,7 @@ Documentation examples may showcase stronger models for better developer experie
 | Provider | Default Model | Notes |
 | :---------- | :--------------- | :------- |
 | `Groq` | `llama-3.1-8b-instant` | Implementation default; examples use `llama-3.3-70b-versatile` for showcase |
-| `OpenAI` | `gpt-3.5-turbo` | Implementation default; examples use `gpt-4o` for showcase |
+| `OpenAI` | `gpt-4o-mini` | Implementation default; examples use `gpt-4o` for showcase |
 | `HuggingFaceLLM` | `gpt2` | Lightweight, widely compatible |
 | `Jev` / `AsyncJev` | `jev-latest` | Early-access alias; pass a concrete model in production when reproducibility requires it |
 
