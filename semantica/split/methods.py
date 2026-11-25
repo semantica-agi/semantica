@@ -766,7 +766,10 @@ def split_llm(
         return split_recursive(text, chunk_size=chunk_size, **kwargs)
 
     try:
-        llm_provider = create_provider(provider, model=model or "gpt-4o-mini")
+        # Without a model, let the provider use its own default rather than
+        # sending an OpenAI model name to Groq, Anthropic, etc.
+        provider_kwargs = {"model": model} if model else {}
+        llm_provider = create_provider(provider, **provider_kwargs)
 
         # First, split roughly by size
         rough_chunks = split_recursive(text, chunk_size=chunk_size, chunk_overlap=0)

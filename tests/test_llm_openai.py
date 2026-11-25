@@ -93,30 +93,68 @@ def test_generate_structured_passes_through_list_return():
     assert isinstance(result, list)
 
 
-# OpenAI shut these down on 2026-10-23 (https://platform.openai.com/docs/deprecations).
+# OpenAI shut these down in 2026 (https://developers.openai.com/api/docs/deprecations).
 SHUT_DOWN_OPENAI_MODELS = {"gpt-3.5-turbo", "gpt-4", "gpt-4-turbo"}
 
 
-def test_default_model_is_still_served():
-    assert OpenAI(api_key="fake-key").model not in SHUT_DOWN_OPENAI_MODELS
+def test_default_openai_model_is_not_shut_down():
+    from semantica.semantic_extract.providers import DEFAULT_OPENAI_MODEL
+
+    assert DEFAULT_OPENAI_MODEL not in SHUT_DOWN_OPENAI_MODELS
 
 
-def test_openai_provider_default_model_is_still_served():
-    from semantica.semantic_extract.providers import OpenAIProvider
+def test_openai_wrapper_uses_shared_default_model():
+    from semantica.semantic_extract.providers import DEFAULT_OPENAI_MODEL
 
-    assert OpenAIProvider(api_key="fake-key").model not in SHUT_DOWN_OPENAI_MODELS
+    llm = OpenAI(api_key="fake-key")
+
+    assert llm.model == DEFAULT_OPENAI_MODEL
+    assert llm.provider.model == DEFAULT_OPENAI_MODEL
 
 
-def test_split_llm_default_model_is_still_served(monkeypatch):
+def test_openai_provider_uses_shared_default_model():
+    from semantica.semantic_extract.providers import (
+        DEFAULT_OPENAI_MODEL,
+        OpenAIProvider,
+    )
+
+    assert OpenAIProvider(api_key="fake-key").model == DEFAULT_OPENAI_MODEL
+
+
+def _record_split_llm_provider_kwargs(monkeypatch, **split_kwargs):
     from semantica.split import methods
 
-    requested = {}
+    calls = []
 
-    def fake_create_provider(provider, model=None, **kwargs):
-        requested["model"] = model
-        raise RuntimeError("stop after recording the model")
+    def fake_create_provider(provider, **kwargs):
+        calls.append((provider, kwargs))
+        raise RuntimeError("stop after recording the provider arguments")
 
-    monkeypatch.setattr(methods, "create_provider", fake_create_provider)
-    methods.split_llm("Some text to split.", chunk_size=100)
+    monkeypatch.setattr(methods, "SEMANTIC_EXTRACT_AVAILABLE", True)
+    monkeypatch.setattr(methods, "create_provider", fake_create_provider, raising=False)
+    methods.split_llm("Some text to split.", chunk_size=100, **split_kwargs)
 
-    assert requested["model"] not in SHUT_DOWN_OPENAI_MODELS
+    assert len(calls) == 1
+    return calls[0]
+
+
+def test_split_llm_without_model_leaves_default_to_provider(monkeypatch):
+    provider, kwargs = _record_split_llm_provider_kwargs(monkeypatch)
+
+    assert provider == "openai"
+    assert "model" not in kwargs
+
+
+def test_split_llm_does_not_send_openai_model_to_other_providers(monkeypatch):
+    provider, kwargs = _record_split_llm_provider_kwargs(monkeypatch, provider="groq")
+
+    assert provider == "groq"
+    assert "model" not in kwargs
+
+
+def test_split_llm_passes_explicit_model(monkeypatch):
+    _, kwargs = _record_split_llm_provider_kwargs(
+        monkeypatch, provider="openai", model="gpt-4o"
+    )
+
+    assert kwargs["model"] == "gpt-4o"

@@ -44,7 +44,7 @@ Main Classes:
 Example Usage:
     >>> from semantica.semantic_extract import LLMExtraction
     >>> # Using OpenAI
-    >>> extractor = LLMExtraction(provider="openai", model="gpt-4")
+    >>> extractor = LLMExtraction(provider="openai", model="gpt-4o-mini")
     >>> enhanced_entities = extractor.enhance_entities(text, entities)
     >>> enhanced_relations = extractor.enhance_relations(text, relations)
     >>> 

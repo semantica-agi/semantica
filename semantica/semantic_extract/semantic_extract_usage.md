@@ -135,7 +135,7 @@ extractor = NERExtractor(method="llm")
 entities = extractor.extract(
     text, 
     provider="openai", 
-    model="gpt-4",
+    model="gpt-4o-mini",
     silent_fail=False,      # Raise ProcessingError on failure (default)
     max_text_length=4000,   # Auto-chunking for long text (default: 64k for major providers)
     max_tokens=4096,        # Explicitly control generation output length
@@ -168,7 +168,7 @@ entities = extractor.extract(text)
 extractor = NERExtractor(
     method="llm", 
     provider="openai", 
-    model="gpt-4",
+    model="gpt-4o-mini",
     temperature=0.0
 )
 entities = extractor.extract(text)
@@ -264,7 +264,7 @@ relations = extractor.extract(
     text, 
     entities=entities, 
     provider="openai",
-    model="gpt-4",
+    model="gpt-4o-mini",
     max_tokens=2048, # Increased output limit for many relations
     silent_fail=True  # Return empty list if extraction fails
 )
@@ -335,7 +335,7 @@ extractor = TripletExtractor(method="llm")
 triplets = extractor.extract_triplets(
     text, 
     provider="openai", 
-    model="gpt-4",
+    model="gpt-4o-mini",
     max_text_length=64000, # Large default chunk size supported
     max_tokens=4096 # Ensure enough tokens for all triplets
 )
