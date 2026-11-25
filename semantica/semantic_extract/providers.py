@@ -59,7 +59,7 @@ Functions:
 
 Example Usage:
     >>> from semantica.semantic_extract.providers import create_provider
-    >>> provider = create_provider("openai", model="gpt-4")
+    >>> provider = create_provider("openai", model="gpt-4o-mini")
     >>> response = provider.generate("Extract entities from: Apple Inc. was founded in 1976.")
     >>>
     >>> loader = HuggingFaceModelLoader(device="cuda")
@@ -741,13 +741,20 @@ class BaseProvider:
         )
 
 
+# The one place the OpenAI default model is named. semantica.llms.OpenAI and
+# OpenAIProvider both default to it, so a future OpenAI shutdown is a one-line
+# change here. Check https://developers.openai.com/api/docs/deprecations before
+# changing it: gpt-4o-mini-2024-07-18 is scheduled to shut down on 2027-01-14.
+DEFAULT_OPENAI_MODEL = "gpt-4o-mini"
+
+
 class OpenAIProvider(BaseProvider):
     """OpenAI provider implementation."""
 
     def __init__(
         self,
         api_key: Optional[str] = None,
-        model: str = "gpt-3.5-turbo",
+        model: str = DEFAULT_OPENAI_MODEL,
         base_url: Optional[str] = None,
         **kwargs,
     ):

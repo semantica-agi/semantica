@@ -55,7 +55,7 @@ Example Usage:
     >>> entities = extractor.extract_entities("Apple Inc. was founded in 1976.")
     >>> 
     >>> # Using LLM method
-    >>> extractor = NERExtractor(method="llm", provider="openai", llm_model="gpt-4")
+    >>> extractor = NERExtractor(method="llm", provider="openai", llm_model="gpt-4o-mini")
     >>> entities = extractor.extract_entities("Apple Inc. was founded in 1976.")
     >>> 
     >>> # Using HuggingFace model

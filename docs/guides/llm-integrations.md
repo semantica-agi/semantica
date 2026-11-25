@@ -241,7 +241,7 @@ risk_data = oai.generate_structured(
 # {"counterparties": [{"name": "Counterparty A", "exposure_eur": 45000000}, ...]}
 ```
 
-The default model `gpt-3.5-turbo` is fine for classification and light extraction. Switch to `gpt-4o` for complex multi-step regulatory reasoning or document understanding.
+The default model `gpt-4o-mini` is fine for classification and light extraction. Switch to `gpt-4o` for complex multi-step regulatory reasoning or document understanding.
 
 ## Anthropic — Complex Reasoning and Structured Extraction
 
