@@ -75,6 +75,19 @@ def _preview_result(result: Any) -> Optional[str]:
     return preview[:200]
 
 
+def _sum_tokens(prompt_tokens: Any, completion_tokens: Any) -> Optional[int]:
+    """Return the token total, or ``None`` when either side is not a number.
+
+    Providers disagree about token types, and accounting must never raise:
+    a string count used to turn a successful call into a ``TypeError``, or to
+    produce ``"105"`` for ``10 + 5``.
+    """
+    for value in (prompt_tokens, completion_tokens):
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            return None
+    return prompt_tokens + completion_tokens
+
+
 class LLMProvenanceMixin:
     """
     Mixin to add provenance tracking to any LLM provider.
@@ -291,11 +304,7 @@ class LLMProvenanceMixin:
                 metadata.update(
                     prompt_tokens=prompt_tokens,
                     completion_tokens=completion_tokens,
-                    total_tokens=(
-                        prompt_tokens + completion_tokens
-                        if prompt_tokens is not None and completion_tokens is not None
-                        else None
-                    ),
+                    total_tokens=_sum_tokens(prompt_tokens, completion_tokens),
                 )
             cost = getattr(response, "cost", None)
             if cost is None:

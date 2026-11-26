@@ -160,3 +160,28 @@ def test_typed_usage(backend, monkeypatch, has_usage, path):
     assert json.loads(result.model_dump_json()) == PAYLOAD
     assert completion.call_count == (2 if path in ("text", "retry") else 1)
     _assert_metadata(backend, has_usage)
+
+
+@pytest.mark.parametrize(
+    "usage",
+    [
+        {"prompt_tokens": "10", "completion_tokens": 5},
+        {"prompt_tokens": "10", "completion_tokens": "5"},
+        {"prompt_tokens": None, "completion_tokens": 5},
+    ],
+)
+def test_non_numeric_token_counts_do_not_break_the_call(backend, usage):
+    """Accounting must not raise, or concatenate strings, on odd token types."""
+    name, wrapper, completion, _ = backend
+    reply = _reply(name, PAYLOAD, has_usage=False)
+    if name == "litellm_dict":
+        reply["usage"] = usage
+    else:
+        reply.usage = SimpleNamespace(**usage)
+    completion.return_value = reply
+
+    result = wrapper.generate_structured("Return JSON")
+
+    assert result == PAYLOAD
+    metadata = wrapper._prov_manager.track_entity.call_args.kwargs["metadata"]
+    assert metadata["total_tokens"] is None
