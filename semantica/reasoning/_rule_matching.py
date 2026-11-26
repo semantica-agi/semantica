@@ -40,6 +40,97 @@ def substitute_variables(template: str, bindings: Dict[str, str]) -> str:
     return re.sub(r"\?(\w+)", _replace, template)
 
 
+_VARIABLE = re.compile(r"\?\w+")
+
+
+def split_atom(text: str) -> Optional[Tuple[str, List[str]]]:
+    """Split ``"Pred(a, f(b, c), d)"`` into ``("Pred", ["a", "f(b, c)", "d"])``.
+
+    Arguments are split on top-level commas only (commas inside nested
+    parentheses stay in their argument) and stripped, so ``"P(a,b)"`` and
+    ``"P(a, b)"`` are the same atom. Returns ``None`` for text that is not a
+    single ``name(args)`` atom.
+    """
+    if not isinstance(text, str):
+        return None
+    match = re.match(r"^\s*([^\s(),]+)\s*\((.*)\)\s*$", text, re.DOTALL)
+    if not match:
+        return None
+    predicate, body = match.group(1), match.group(2)
+    if not body.strip():
+        return predicate, []
+    args: List[str] = []
+    depth = 0
+    current: List[str] = []
+    for ch in body:
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+            if depth < 0:
+                return None
+        if ch == "," and depth == 0:
+            args.append("".join(current).strip())
+            current = []
+            continue
+        current.append(ch)
+    if depth != 0:
+        return None
+    args.append("".join(current).strip())
+    return predicate, args
+
+
+def render_atom(predicate: str, args: List[str]) -> str:
+    """Render an atom in the canonical ``Pred(a, b)`` form."""
+    return f"{predicate}({', '.join(args)})"
+
+
+def canonical_atom(text: str) -> str:
+    """``text`` in canonical ``Pred(a, b)`` spacing, or unchanged if not an atom."""
+    parts = split_atom(text)
+    return render_atom(*parts) if parts else text
+
+
+def _match_term(
+    term: str, value: str, bindings: Dict[str, str]
+) -> Optional[Dict[str, str]]:
+    """Match one pattern argument against one value, extending ``bindings``."""
+    if _VARIABLE.fullmatch(term):
+        name = term[1:]
+        if name in bindings:
+            return bindings if bindings[name] == value else None
+        bindings[name] = value
+        return bindings
+    if "?" in term:
+        inner_pattern, inner_value = split_atom(term), split_atom(value)
+        if inner_pattern and inner_value:
+            return _match_atoms(inner_pattern, inner_value, bindings)
+        return match_pattern(term, value, bindings)
+    return bindings if term == value else None
+
+
+def _match_atoms(
+    pattern: Tuple[str, List[str]],
+    value: Tuple[str, List[str]],
+    bindings: Dict[str, str],
+) -> Optional[Dict[str, str]]:
+    """Match a parsed ``name(args)`` pattern against a parsed atom.
+
+    Arguments are compared one by one, so spacing never ends up in a binding;
+    the argument counts must be equal; a variable already in ``bindings`` must
+    equal its bound value, and a variable used twice must bind one value.
+    """
+    (p_pred, p_args), (v_pred, v_args) = pattern, value
+    if len(p_args) != len(v_args):
+        return None
+    result: Optional[Dict[str, str]] = _match_term(p_pred, v_pred, dict(bindings))
+    for term, arg in zip(p_args, v_args):
+        if result is None:
+            return None
+        result = _match_term(term, arg, result)
+    return result
+
+
 def match_pattern(
     pattern: str,
     fact: str,
