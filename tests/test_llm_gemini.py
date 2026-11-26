@@ -105,3 +105,33 @@ def test_generate_structured_passes_through_list_return():
 
     assert result == [{"id": 1}, {"id": 2}]
     assert isinstance(result, list)
+
+
+# Not served by the Gemini API any more.
+# https://ai.google.dev/gemini-api/docs/deprecations
+SHUT_DOWN_GEMINI_MODELS = {
+    "gemini-pro",
+    "gemini-1.0-pro",
+    "gemini-1.5-pro",
+    "gemini-1.5-flash",
+    "gemini-2.0-flash",
+}
+
+
+def test_default_gemini_model_is_not_shut_down():
+    from semantica.semantic_extract.providers import DEFAULT_GEMINI_MODEL
+
+    assert DEFAULT_GEMINI_MODEL not in SHUT_DOWN_GEMINI_MODELS
+
+
+def test_gemini_wrapper_and_provider_share_the_default_model():
+    from semantica.semantic_extract.providers import (
+        DEFAULT_GEMINI_MODEL,
+        GeminiProvider,
+    )
+
+    gemini = Gemini(api_key="fake-key")
+
+    assert gemini.model == DEFAULT_GEMINI_MODEL
+    assert gemini.provider.model == DEFAULT_GEMINI_MODEL
+    assert GeminiProvider(api_key="fake-key").model == DEFAULT_GEMINI_MODEL

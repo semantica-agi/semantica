@@ -8,7 +8,7 @@ from typing import Any, Dict, List, Optional, Type, Union
 
 from pydantic import BaseModel
 
-from ..semantic_extract.providers import GeminiProvider
+from ..semantic_extract.providers import DEFAULT_GEMINI_MODEL, GeminiProvider
 from ..utils.exceptions import ProcessingError
 from ..utils.logging import get_logger
 
@@ -23,13 +23,13 @@ class Gemini:
 
     Example:
         >>> from semantica.llms import Gemini
-        >>> gemini = Gemini(model="gemini-pro", api_key="your-key")
+        >>> gemini = Gemini(model="gemini-3.8-flash", api_key="your-key")
         >>> response = gemini.generate("What is AI?")
     """
 
     def __init__(
         self,
-        model: str = "gemini-pro",
+        model: str = DEFAULT_GEMINI_MODEL,
         api_key: Optional[str] = None,
         **kwargs
     ):
@@ -37,7 +37,7 @@ class Gemini:
         Initialize Gemini provider.
 
         Args:
-            model: Model name (default: "gemini-pro")
+            model: Model name (default: ``DEFAULT_GEMINI_MODEL``)
             api_key: Gemini API key (default: from GEMINI_API_KEY env var)
             **kwargs: Additional provider options
         """
