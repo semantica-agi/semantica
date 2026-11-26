@@ -58,7 +58,7 @@ Example Usage:
     >>> relations = extractor.extract_relations("Apple was founded by Steve Jobs.", entities)
     >>> 
     >>> # Using LLM method
-    >>> extractor = RelationExtractor(method="llm", provider="openai", llm_model="gpt-4")
+    >>> extractor = RelationExtractor(method="llm", provider="openai", llm_model="gpt-4o-mini")
     >>> relations = extractor.extract_relations("Apple was founded by Steve Jobs.", entities)
     >>> 
     >>> # Using fallback chain

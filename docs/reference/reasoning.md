@@ -257,8 +257,10 @@ those actions to run again.
 
 ```python
 from semantica.reasoning import SPARQLReasoner
+from semantica.triplet_store import TripletStore
 
-reasoner = SPARQLReasoner()
+store = TripletStore(backend="jena", endpoint="http://localhost:3030/ds")
+reasoner = SPARQLReasoner(triplet_store=store)
 
 # Add an inference rule (IF-THEN string form)
 reasoner.add_inference_rule("IF is_a(?x, Manager) THEN has_authority(?x)")
@@ -293,7 +295,7 @@ SPARQLReasoner(
 ```
 
 <Note>
-  `execute_query()` returns empty bindings when no `triplet_store` is configured. Pass a `TripletStore` instance via the `triplet_store=` kwarg to execute queries against a live backend.
+  `execute_query()` refuses to run without a `triplet_store` and raises `ProcessingError`; it does not return empty bindings, because an empty result set would be read as "no matches". Pass a `TripletStore` instance via the `triplet_store=` kwarg to execute queries against a live backend. `expand_query()` and `add_inference_rule()` need no store.
 </Note>
 
 

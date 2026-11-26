@@ -57,7 +57,7 @@ Example Usage:
     >>> triplets = extractor.extract_triplets(text, entities, relations)
     >>> 
     >>> # Using LLM method
-    >>> extractor = TripletExtractor(method="llm", provider="openai", llm_model="gpt-4")
+    >>> extractor = TripletExtractor(method="llm", provider="openai", llm_model="gpt-4o-mini")
     >>> triplets = extractor.extract_triplets(text, entities, relations)
     >>> 
     >>> # Using HuggingFace model

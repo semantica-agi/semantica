@@ -7,9 +7,9 @@ custom HuggingFace models for semantic extraction tasks.
 
 Supported Providers:
     - "openai": OpenAI API (GPT-3.5, GPT-4, etc.)
-    - "gemini": Google Gemini API (gemini-pro, etc.)
+    - "gemini": Google Gemini API (gemini-3.8-flash, etc.)
     - "groq": Groq API (llama2, mixtral, etc.)
-    - "anthropic": Anthropic Claude API (claude-3-sonnet, etc.)
+    - "anthropic": Anthropic Claude API (claude-sonnet-4-6, etc.)
     - "ollama": Ollama local provider (local open-source models)
     - "huggingface_llm": HuggingFace Transformers for LLM tasks
 
@@ -32,9 +32,9 @@ Key Features:
     - Unified provider interface for all LLM services
     - Support for multiple LLM providers:
         * OpenAI (GPT-3.5, GPT-4, etc.)
-        * Google Gemini (gemini-pro, etc.)
+        * Google Gemini (gemini-3.8-flash, etc.)
         * Groq (llama2, mixtral, etc.)
-        * Anthropic Claude (claude-3-sonnet, etc.)
+        * Anthropic Claude (claude-sonnet-4-6, etc.)
         * Ollama (local open-source models)
         * HuggingFace Transformers (custom LLM models)
     - HuggingFace model loader for NER, relation extraction, and triplet extraction
@@ -59,7 +59,7 @@ Functions:
 
 Example Usage:
     >>> from semantica.semantic_extract.providers import create_provider
-    >>> provider = create_provider("openai", model="gpt-4")
+    >>> provider = create_provider("openai", model="gpt-4o-mini")
     >>> response = provider.generate("Extract entities from: Apple Inc. was founded in 1976.")
     >>>
     >>> loader = HuggingFaceModelLoader(device="cuda")
@@ -72,6 +72,7 @@ License: MIT
 import json
 import threading
 import time
+from types import SimpleNamespace
 from typing import Any, Dict, List, Optional, Union, Type
 
 try:
@@ -168,6 +169,40 @@ class ResponseText(str):
         instance.usage = usage
         instance.cost = cost
         return instance
+
+
+class ResponseDict(dict):
+    """A JSON object carrying request-local usage and cost."""
+
+
+class ResponseList(list):
+    """A JSON array carrying request-local usage and cost."""
+
+
+def _with_response_metadata(result, response):
+    """Keep response metadata through JSON parsing and schema validation."""
+    if isinstance(result, BaseModel):
+        # Private metadata leaves schema fields and model_dump() unchanged.
+        metadata = SimpleNamespace(
+            usage=getattr(response, "usage", None),
+            cost=getattr(response, "cost", None),
+        )
+        object.__setattr__(result, "_semantica_response_metadata", metadata)
+        return result
+    if isinstance(result, dict):
+        result = ResponseDict(result)
+    elif isinstance(result, list):
+        result = ResponseList(result)
+    else:
+        return result
+    result.usage = getattr(response, "usage", None)
+    if not hasattr(response, "usage") and isinstance(response, dict):
+        result.usage = response.get("usage")
+    result.cost = getattr(response, "cost", None)
+    if result.cost is None:
+        hidden_params = getattr(response, "_hidden_params", None) or {}
+        result.cost = hidden_params.get("response_cost")
+    return result
 
 
 class BaseProvider:
@@ -612,7 +647,11 @@ class BaseProvider:
                         exc_info=True,
                     )
                     raw_content = self.generate(current_prompt, **kwargs)
-                    json_result = self._parse_json(raw_content)
+                    json_result = _with_response_metadata(
+                        self._parse_json(raw_content), raw_content
+                    )
+
+                response_metadata = json_result
 
                 # 2. Validate with Schema
                 # If the result is a list and schema expects a wrapper, or vice versa, we might need adjustment
@@ -709,7 +748,8 @@ class BaseProvider:
                     json_result = {"triplets": json_result}
 
                 validated = schema.model_validate(json_result)
-                return validated
+                # Manual retries retain only the final successful response's usage.
+                return _with_response_metadata(validated, response_metadata)
 
             except ValidationError as e:
                 last_error = e
@@ -741,13 +781,33 @@ class BaseProvider:
         )
 
 
+# The one place the OpenAI default model is named. semantica.llms.OpenAI and
+# OpenAIProvider both default to it, so a future OpenAI shutdown is a one-line
+# change here. Check https://developers.openai.com/api/docs/deprecations before
+# changing it: gpt-4o-mini-2024-07-18 is scheduled to shut down on 2027-01-14.
+DEFAULT_OPENAI_MODEL = "gpt-4o-mini"
+
+# The one place the Anthropic default model is named; semantica.llms.Anthropic
+# and AnthropicProvider both default to it. Check
+# https://platform.claude.com/docs/en/about-claude/model-deprecations before
+# changing it. Claude 4.7 and later models reject a non-default temperature,
+# top_p or top_k with a 400, and generate_typed always sends a temperature, so a
+# move past claude-sonnet-4-6 needs those parameters dropped for such models.
+DEFAULT_ANTHROPIC_MODEL = "claude-sonnet-4-6"
+
+# The one place the Gemini default model is named; semantica.llms.Gemini and
+# GeminiProvider both default to it. Check
+# https://ai.google.dev/gemini-api/docs/deprecations before changing it.
+DEFAULT_GEMINI_MODEL = "gemini-3.8-flash"
+
+
 class OpenAIProvider(BaseProvider):
     """OpenAI provider implementation."""
 
     def __init__(
         self,
         api_key: Optional[str] = None,
-        model: str = "gpt-3.5-turbo",
+        model: str = DEFAULT_OPENAI_MODEL,
         base_url: Optional[str] = None,
         **kwargs,
     ):
@@ -868,7 +928,9 @@ class OpenAIProvider(BaseProvider):
 
         response = self.client.chat.completions.create(**create_kwargs)
         try:
-            return self._parse_json(response.choices[0].message.content)
+            return _with_response_metadata(
+                self._parse_json(response.choices[0].message.content), response
+            )
         except Exception as e:
             raise ProcessingError(f"Failed to parse JSON from OpenAI response: {e}")
 
@@ -877,7 +939,10 @@ class GeminiProvider(BaseProvider):
     """Google Gemini provider implementation."""
 
     def __init__(
-        self, api_key: Optional[str] = None, model: str = "gemini-pro", **kwargs
+        self,
+        api_key: Optional[str] = None,
+        model: str = DEFAULT_GEMINI_MODEL,
+        **kwargs,
     ):
         """Initialize Gemini provider."""
         super().__init__(**kwargs)
@@ -1154,7 +1219,9 @@ class GroqProvider(BaseProvider):
 
         response = self.client.chat.completions.create(**create_kwargs)
         try:
-            return self._parse_json(response.choices[0].message.content)
+            return _with_response_metadata(
+                self._parse_json(response.choices[0].message.content), response
+            )
         except Exception as e:
             raise ProcessingError(f"Failed to parse JSON from Groq response: {e}")
 
@@ -1165,7 +1232,7 @@ class AnthropicProvider(BaseProvider):
     def __init__(
         self,
         api_key: Optional[str] = None,
-        model: str = "claude-3-sonnet-20240229",
+        model: str = DEFAULT_ANTHROPIC_MODEL,
         **kwargs,
     ):
         """Initialize Anthropic provider."""

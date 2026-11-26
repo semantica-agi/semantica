@@ -28,6 +28,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **`ContextGraph.state_at()` normalizes epochs to UTC and validates temporal inputs** (fixes #2204)
+  - `state_at()` now parses its `timestamp` argument with `normalize_temporal_input()`. Unix epochs (`int` and `float`) are converted to UTC (`datetime.fromtimestamp(value, tz=timezone.utc)`), eliminating the local timezone offset shift on non-UTC machines.
+  - **Breaking change**: `state_at()` now raises `ValueError` when `timestamp` is `None`, an unparseable ISO-8601 string, or an unsupported type (such as `date`). Previously, invalid or missing inputs silently fell back to evaluating against `datetime.now()`.
+
 - **Breaking: Python 3.10 is no longer supported. Semantica now requires Python 3.11.5–3.13** (closes #2067)
   - **Why**: Python 3.10 reached end of life on 2026-10-01, and Pillow 13.0.0 requires Python 3.11. Pillow 13 fixes 41 advisories against Pillow 12.3.0, several of them critical (for example GHSA-v9pv-5gc8-w2m6 and GHSA-5x8w-8jj5-q52h, where opening a crafted image can lead to code execution). No Pillow 12.x release carries those fixes, so a 3.10 install could not be made safe. Pillow is required by matplotlib, docling, pdfplumber, python-pptx and other dependencies, so it could not simply be removed either
   - **Who is affected**: anyone installing or running Semantica on Python 3.10, about 10% of downloads in September–October 2026. Python 3.11, 3.12 and 3.13 are unaffected
