@@ -40,6 +40,9 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 
 from ..utils.logging import get_logger
 from ..utils.progress_tracker import get_progress_tracker
+from ._rule_matching import _match_atoms
+from ._rule_matching import render_atom as _render_atom
+from ._rule_matching import split_atom as _split_atom
 from ._rule_matching import substitute_variables as _substitute_variables
 from .reasoner import Fact, Rule, _make_activation_key
 
@@ -122,6 +125,20 @@ def _count_pattern_arity(pattern: str) -> int:
     return top_level_commas + 1
 
 
+def _fact_atom(fact: Fact):
+    """A fact as ``(predicate, [argument, ...])``, each argument as stripped text."""
+    return fact.predicate, [str(a).strip() for a in fact.arguments]
+
+
+def _fact_key(fact: Fact) -> Tuple[str, Tuple[str, ...]]:
+    """Identity of a fact in working memory: its predicate and arguments.
+
+    Copies of one fact carry different ids, so the id is not part of it.
+    """
+    predicate, args = _fact_atom(fact)
+    return predicate, tuple(args)
+
+
 def unify_condition(
     condition: Any,
     fact: Fact,
@@ -164,6 +181,11 @@ def unify_condition(
     p_regex = _build_condition_regex(pattern, bindings)
 
     try:
+        # A name(args) condition is matched argument by argument against the
+        # fact's structured arguments, so spacing never ends up in a binding.
+        atom = _split_atom(pattern)
+        if atom is not None:
+            return _match_atoms(atom, _fact_atom(fact), bindings)
         match = re.match(p_regex, fact_str)
     except re.error as e:
         logger.warning(
@@ -251,6 +273,7 @@ class AlphaNode(ReteNode):
         # paren-depth walk), not fact string rendering, so it is immune to
         # commas inside argument values.
         self._condition_arity: int = _count_pattern_arity(pattern)
+        self._atom = _split_atom(pattern)
         self._compiled: Optional[re.Pattern] = None
         try:
             self._compiled = re.compile(_build_condition_regex(pattern))
@@ -295,6 +318,9 @@ class AlphaNode(ReteNode):
         if self._compiled is None:
             # Compilation failed at build time; treat as non-matching.
             return None
+        if self._atom is not None:
+            # Structured match: values are bound exactly as the fact holds them.
+            return _match_atoms(self._atom, _fact_atom(fact), {})
         fact_str = str(fact)
         try:
             match = self._compiled.match(fact_str)
@@ -390,6 +416,17 @@ class ReteEngine:
         self.network: Dict[str, ReteNode] = {}
         self.facts: List[Fact] = []
         self.fact_counter = 0
+        # Working-memory bookkeeping: which facts are present, which were
+        # asserted from outside, and which activations support each derived
+        # fact (so withdrawing a fact also withdraws what rested on it).
+        self._fact_keys: Set[Tuple[str, Tuple[str, ...]]] = set()
+        self._asserted: Set[Tuple[str, Tuple[str, ...]]] = set()
+        self._derived_support: Dict[
+            Tuple[str, Tuple[str, ...]], Set[Tuple[Any, ...]]
+        ] = {}
+        self._derived_counter = 0
+        # Whether the last run() reached a fixpoint (False: max_iterations was hit).
+        self.last_run_complete: Optional[bool] = None
         self.node_counter = 0
         self._executed_activations: Set[Tuple[Any, ...]] = set()
         # Optional Reasoner used to fire rule-driven actions on match. When
@@ -485,13 +522,133 @@ class ReteEngine:
         """
         Add fact to working memory.
 
+        A fact already present (same predicate and arguments, whatever its id)
+        is not added again, so it never fires a rule twice.
+
         Args:
             fact: Fact to add
         """
-        self.facts.append(fact)
+        key = _fact_key(fact)
+        self._asserted.add(key)
+        self._insert(fact, key)
 
+    def _insert(self, fact: Fact, key: Tuple[str, Tuple[str, ...]]) -> bool:
+        if key in self._fact_keys:
+            return False
+        self._fact_keys.add(key)
+        self.facts.append(fact)
         # Propagate through network
         self._propagate_fact(fact)
+        return True
+
+    def remove_fact(self, fact: Fact) -> bool:
+        """
+        Withdraw a fact from working memory.
+
+        Every partial match and rule activation that used the fact is removed,
+        and a fact concluded by :meth:`run` is withdrawn too once none of the
+        activations that concluded it remains (facts asserted with
+        :meth:`add_fact` are only removed explicitly).
+
+        Args:
+            fact: The fact to withdraw (matched by predicate and arguments).
+
+        Returns:
+            True if the fact was in working memory, False otherwise.
+        """
+        key = _fact_key(fact)
+        if key not in self._fact_keys:
+            return False
+        self._asserted.discard(key)
+        self._derived_support.pop(key, None)
+        self._drop(key)
+        return True
+
+    def _drop(self, key: Tuple[str, Tuple[str, ...]]) -> None:
+        self._fact_keys.discard(key)
+        self.facts = [f for f in self.facts if _fact_key(f) != key]
+
+        def uses(facts: List[Fact]) -> bool:
+            return any(_fact_key(f) == key for f in facts)
+
+        for node in self.network.values():
+            if isinstance(node, AlphaNode):
+                node.tokens = [t for t in node.tokens if not uses(t.facts)]
+            elif isinstance(node, BetaNode):
+                node.left_tokens = [t for t in node.left_tokens if not uses(t.facts)]
+                node.right_tokens = [t for t in node.right_tokens if not uses(t.facts)]
+            elif isinstance(node, TerminalNode):
+                node.activations = [m for m in node.activations if not uses(m.facts)]
+        for derived, support in list(self._derived_support.items()):
+            lost = {activation for activation in support if key in activation[1]}
+            if not lost:
+                continue
+            support -= lost
+            if (
+                not support
+                and derived not in self._asserted
+                and derived in self._fact_keys
+            ):
+                del self._derived_support[derived]
+                self._drop(derived)
+
+    def run(
+        self, facts: Optional[List[Fact]] = None, max_iterations: int = 100
+    ) -> List[str]:
+        """
+        Match, conclude and feed conclusions back until nothing new follows.
+
+        Each activation's conclusion is instantiated and, when it is a
+        ``name(args)`` atom not yet in working memory, added as a derived fact,
+        which can in turn activate other rules. This reaches the same closure
+        as :meth:`Reasoner.forward_chain` for the same rules and facts.
+
+        Args:
+            facts: Optional facts to assert first.
+            max_iterations: Maximum number of match-and-conclude rounds. When
+                it is reached before a fixpoint, ``last_run_complete`` is False
+                and the result may be missing conclusions.
+
+        Returns:
+            The newly concluded facts, in canonical ``Pred(a, b)`` form, in the
+            order they were concluded.
+        """
+        for fact in facts or []:
+            self.add_fact(fact)
+        concluded: List[str] = []
+        self.last_run_complete = False
+        for _ in range(max_iterations):
+            added = False
+            for match in self.match_patterns():
+                activation = (
+                    match.rule.rule_id,
+                    tuple(_fact_key(f) for f in match.facts),
+                )
+                bindings = {k: str(v) for k, v in match.bindings.items()}
+                atom = _split_atom(
+                    _substitute_variables(match.rule.conclusion, bindings)
+                )
+                if atom is None:
+                    continue
+                key = (atom[0], tuple(atom[1]))
+                support = self._derived_support.setdefault(key, set())
+                if activation in support:
+                    continue
+                support.add(activation)
+                self._derived_counter += 1
+                fact = Fact(
+                    f"derived_{self._derived_counter}",
+                    atom[0],
+                    list(atom[1]),
+                    metadata={"derived_by": match.rule.rule_id},
+                )
+                if self._insert(fact, key):
+                    concluded.append(_render_atom(atom[0], list(atom[1])))
+                    added = True
+            if not added:
+                self.last_run_complete = True
+                break
+        return concluded
 
     def _propagate_fact(self, fact: Fact) -> None:
         """Propagate fact through Rete network."""
@@ -681,6 +838,10 @@ class ReteEngine:
     def reset(self) -> None:
         """Reset Rete working memory and action activation history."""
         self.facts.clear()
+        self._fact_keys.clear()
+        self._asserted.clear()
+        self._derived_support.clear()
+        self.last_run_complete = None
         self.reset_action_history()
         for node in self.network.values():
             if isinstance(node, AlphaNode):
