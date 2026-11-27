@@ -21,7 +21,7 @@ icon: "sitemap"
 | `OntologyGenerator` | Auto-generate ontologies from KG data (5-stage pipeline) |
 | `LLMOntologyGenerator` | LLM-powered ontology generation for complex domains |
 | `SHACLGenerator` | Generate SHACL shapes from an ontology or KG schema |
-| `OntologyValidator` | Validate any graph against SHACL shapes: returns `SHACLValidationReport` |
+| `OntologyValidator` | Check an ontology dict or file for consistency and satisfiability: returns `ValidationResult` |
 | `OntologyQualityGate` | Run deterministic ontology/KG quality checks for CI |
 | `OWLGenerator` | Serialize ontologies to Turtle, RDF/XML, JSON-LD |
 | `NamespaceManager` | IRI generation, prefix management, and namespace binding |
@@ -151,16 +151,21 @@ ontology  = generator.generate_ontology({
 Generate SHACL shapes from an ontology and validate any graph against them:
 
 ```python
-from semantica.ontology import SHACLGenerator, OntologyValidator, SHACLValidationReport, SHACLViolation
+from semantica.ontology import (
+    OntologyEngine,
+    SHACLValidationReport,
+    SHACLViolation,
+)
 
-# Generate shapes from ontology
-generator  = SHACLGenerator()
-shapes     = generator.generate(ontology)
-shapes_ttl = shapes.serialize(format="turtle")
+engine = OntologyEngine(base_uri="https://example.org/ontology/")
 
-# Validate a graph against the shapes
-validator = OntologyValidator()
-report: SHACLValidationReport = validator.validate_graph(kg, ontology=ontology)
+# Serialize SHACL shapes derived from the ontology
+shapes_ttl = engine.to_shacl(ontology, format="turtle")
+
+# Validate a graph against those shapes. Pass shacl= to reuse shapes you
+# already hold, or ontology= to have them generated for this call -- passing
+# both, or neither, raises ValueError.
+report: SHACLValidationReport = engine.validate_graph(kg, shacl=shapes_ttl)
 
 if not report.conforms:
     violation: SHACLViolation
@@ -169,6 +174,18 @@ if not report.conforms:
         print(f"  Node: {violation.focus_node}")
         print(f"  Path: {violation.result_path}")
 ```
+
+`validate_graph` needs the `shacl` extra (`pip install semantica[shacl]`) and
+raises `ImportError` without it.
+
+`SHACLGenerator().generate(ontology)` is the structural view of the same
+shapes: it returns a `SHACLGraph` dataclass you can inspect through
+`node_shapes`, `prefixes`, `class_iris` and `property_iris`. It carries no
+serializer, so use `to_shacl` (or `export_shacl` to write a file) when you
+want the shapes as text.
+
+`OntologyValidator` is a different check: it takes an ontology, not a graph,
+and reports consistency and satisfiability.
 
 ### Validation Report Fields
 
@@ -212,9 +229,9 @@ generator.export_owl(ontology, path="ontology.json", format="json-ld")
 from semantica.ontology import NamespaceManager
 
 ns = NamespaceManager(base_uri="https://example.org/")
-ns.register("ex",     "https://example.org/")
-ns.register("schema", "https://schema.org/")
-ns.register("owl",    "http://www.w3.org/2002/07/owl#")
+ns.register_namespace("ex",     "https://example.org/")
+ns.register_namespace("schema", "https://schema.org/")
+ns.register_namespace("owl",    "http://www.w3.org/2002/07/owl#")
 
 # Generate IRIs for classes and properties
 class_iri    = ns.generate_class_iri("Person")
