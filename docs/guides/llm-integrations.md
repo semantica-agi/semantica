@@ -387,8 +387,8 @@ llm = LiteLLM(model="azure/gpt-4o", api_key="YOUR_AZURE_KEY")
 # AWS Bedrock — existing cloud agreement, no new vendor
 llm = LiteLLM(model="bedrock/anthropic.claude-sonnet-4-5-20250929-v1:0")
 
-# Google Vertex AI
-llm = LiteLLM(model="vertex_ai/gemini-1.5-pro")
+# Google Vertex AI — set VERTEXAI_LOCATION to a supported location such as global
+llm = LiteLLM(model="vertex_ai/gemini-3.8-flash")
 
 # Ollama — fully local, no network calls
 llm = LiteLLM(model="ollama/llama3.2")

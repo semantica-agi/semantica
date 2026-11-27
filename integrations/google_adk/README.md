@@ -40,7 +40,7 @@ graph = ContextGraph()
 
 agent = Agent(
     name="researcher",
-    model="gemini-2.0-flash",
+    model="gemini-3.8-flash",
     tools=semantica_kg_tools(graph),
 )
 ```
@@ -65,7 +65,7 @@ decision_tools = semantica_decision_tools(graph)
 
 agent = Agent(
     name="decision_agent",
-    model="gemini-2.0-flash",
+    model="gemini-3.8-flash",
     tools=decision_tools,
 )
 ```
@@ -100,7 +100,7 @@ tools = (
 
 agent = Agent(
     name="researcher",
-    model="gemini-2.0-flash",
+    model="gemini-3.8-flash",
     tools=tools,
 )
 ```
@@ -145,7 +145,7 @@ tools = (
 
 agent = Agent(
     name="researcher",
-    model="gemini-2.0-flash",
+    model="gemini-3.8-flash",
     tools=tools,
 )
 ```
@@ -201,13 +201,13 @@ graph = ContextGraph()
 
 researcher = Agent(
     name="researcher",
-    model="gemini-2.0-flash",
+    model="gemini-3.8-flash",
     tools=semantica_kg_tools(graph),
 )
 
 planner = Agent(
     name="planner",
-    model="gemini-2.0-flash",
+    model="gemini-3.8-flash",
     tools=(
         semantica_kg_tools(graph)
         + semantica_decision_tools(graph)

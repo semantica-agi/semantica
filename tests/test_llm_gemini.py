@@ -1,5 +1,7 @@
 """Tests for the Gemini LLM provider wrapper (semantica.llms.Gemini)."""
 
+import re
+from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
@@ -135,3 +137,20 @@ def test_gemini_wrapper_and_provider_share_the_default_model():
     assert gemini.model == DEFAULT_GEMINI_MODEL
     assert gemini.provider.model == DEFAULT_GEMINI_MODEL
     assert GeminiProvider(api_key="fake-key").model == DEFAULT_GEMINI_MODEL
+
+
+@pytest.mark.parametrize(
+    "relative_path",
+    ["integrations/google_adk/README.md", "docs/guides/llm-integrations.md"],
+)
+def test_gemini_examples_do_not_use_retired_model_ids(relative_path: str) -> None:
+    guide = Path(__file__).resolve().parents[1] / relative_path
+    models = set(
+        re.findall(
+            r"""\bmodel\s*=\s*['"](?:vertex_ai/)?(gemini-[\w.-]+)['"]""",
+            guide.read_text(encoding="utf-8"),
+        )
+    )
+
+    assert models, f"No Gemini model examples found in {relative_path}"
+    assert not models & SHUT_DOWN_GEMINI_MODELS
