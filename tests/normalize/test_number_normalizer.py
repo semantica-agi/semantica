@@ -26,6 +26,17 @@ class TestNumberNormalizer(unittest.TestCase):
         self.assertEqual(result["value"], 100.0)
         self.assertEqual(result["unit"], "meter")
 
+    def test_normalize_quantity_keeps_sign(self):
+        result = self.normalizer.normalize_quantity("-5 kg")
+        self.assertEqual(result["value"], -5.0)
+        self.assertEqual(result["unit"], "kilogram")
+
+        result = self.normalizer.normalize_quantity("-40 celsius")
+        self.assertEqual(result["value"], -40.0)
+
+        result = self.normalizer.normalize_quantity("+3 meters")
+        self.assertEqual(result["value"], 3.0)
+
 
 class TestUnitConverter(unittest.TestCase):
     def setUp(self):
