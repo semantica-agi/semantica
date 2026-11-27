@@ -680,16 +680,24 @@ def _convert_ontology_to_graph(ontology_dict: Dict[str, Any]) -> Tuple[List[Dict
     # Add class nodes
     for cls in ontology_dict.get("classes", []):
         cls_uri = cls.get("uri", f"temp:class:{uuid.uuid4().hex[:12]}")
+        props = {
+            "rdfs:label": cls.get("label", cls.get("name", "")),
+            "rdfs:comment": cls.get("description", ""),
+            "uri": cls_uri,
+            "scheme_uri": ontology_uri,
+        }
+        # Add literal annotations beyond label/comment, preventing overwrite of reserved keys
+        if "literal_annotations" in cls:
+            for pred_uri, values in cls["literal_annotations"].items():
+                # Use full URI to avoid collisions; store as literal values list
+                # Skip if would overwrite a reserved property
+                if pred_uri not in props:
+                    props[pred_uri] = values
         node = {
             "id": cls_uri,
             "type": "owl:Class",
             "content": cls.get("name", cls.get("label", "")),
-            "properties": {
-                "rdfs:label": cls.get("label", cls.get("name", "")),
-                "rdfs:comment": cls.get("description", ""),
-                "uri": cls_uri,
-                "scheme_uri": ontology_uri,
-            },
+            "properties": props,
         }
         nodes.append(node)
         
@@ -711,16 +719,24 @@ def _convert_ontology_to_graph(ontology_dict: Dict[str, Any]) -> Tuple[List[Dict
             "datatype": "owl:DatatypeProperty",
             "annotation": "owl:AnnotationProperty",
         }.get(str(prop.get("type", "object")).lower(), "owl:ObjectProperty")
+        props = {
+            "rdfs:label": prop.get("label", prop.get("name", "")),
+            "rdfs:comment": prop.get("description", ""),
+            "uri": prop_uri,
+            "scheme_uri": ontology_uri,
+        }
+        # Add literal annotations beyond label/comment, preventing overwrite of reserved keys
+        if "literal_annotations" in prop:
+            for pred_uri, values in prop["literal_annotations"].items():
+                # Use full URI to avoid collisions; store as literal values list
+                # Skip if would overwrite a reserved property
+                if pred_uri not in props:
+                    props[pred_uri] = values
         node = {
             "id": prop_uri,
             "type": property_type,
             "content": prop.get("name", prop.get("label", "")),
-            "properties": {
-                "rdfs:label": prop.get("label", prop.get("name", "")),
-                "rdfs:comment": prop.get("description", ""),
-                "uri": prop_uri,
-                "scheme_uri": ontology_uri,
-            },
+            "properties": props,
         }
         nodes.append(node)
         
@@ -2887,6 +2903,18 @@ async def _data_graph_turtle_for_uri(
             if key in _skip_keys or val is None or val == "":
                 continue
             pred = _resolve_uri(str(key), base_namespace)
+            # Handle literal annotations (list of dicts with value/language/datatype)
+            if isinstance(val, list) and val and isinstance(val[0], dict) and "value" in val[0]:
+                for lit_data in val:
+                    lit_val = lit_data.get("value", "")
+                    if lit_val:
+                        lit_obj = rdflib.Literal(
+                            lit_val,
+                            lang=lit_data.get("language"),
+                            datatype=lit_data.get("datatype")
+                        )
+                        g.add((subj, pred, lit_obj))
+                continue
             for item in _as_uri_list(val) if isinstance(val, (list, dict)) else [val]:
                 if item is None or item == "":
                     continue
