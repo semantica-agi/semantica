@@ -32,7 +32,7 @@ Main Classes:
 Example Usage:
     >>> from semantica.semantic_extract.config import config
     >>> api_key = config.get_api_key("openai")
-    >>> config.set_provider("openai", api_key="sk-...", model="gpt-4")
+    >>> config.set_provider("openai", api_key="sk-...", model="gpt-4o-mini")
     >>> provider_config = config.get_provider_config("gemini")
 
 Author: Semantica Contributors

@@ -8,7 +8,7 @@ from typing import Any, Dict, List, Optional, Type, Union
 
 from pydantic import BaseModel
 
-from ..semantic_extract.providers import OpenAIProvider
+from ..semantic_extract.providers import DEFAULT_OPENAI_MODEL, OpenAIProvider
 from ..utils.exceptions import ProcessingError
 from ..utils.logging import get_logger
 
@@ -23,13 +23,13 @@ class OpenAI:
     
     Example:
         >>> from semantica.llms import OpenAI
-        >>> openai = OpenAI(model="gpt-4", api_key="your-key")
+        >>> openai = OpenAI(model="gpt-4o-mini", api_key="your-key")
         >>> response = openai.generate("What is AI?")
     """
 
     def __init__(
         self,
-        model: str = "gpt-3.5-turbo",
+        model: str = DEFAULT_OPENAI_MODEL,
         api_key: Optional[str] = None,
         **kwargs
     ):
@@ -37,7 +37,7 @@ class OpenAI:
         Initialize OpenAI provider.
 
         Args:
-            model: Model name (default: "gpt-3.5-turbo")
+            model: Model name (default: "gpt-4o-mini")
             api_key: OpenAI API key (default: from OPENAI_API_KEY env var)
             **kwargs: Additional provider options
         """

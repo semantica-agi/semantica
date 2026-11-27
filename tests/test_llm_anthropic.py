@@ -108,3 +108,32 @@ def test_generate_structured_passes_through_list_return():
 
     assert result == [{"id": 1}, {"id": 2}]
     assert isinstance(result, list)
+
+
+# Retired on the Claude API; requests to them fail with 404 not_found_error.
+# https://platform.claude.com/docs/en/about-claude/model-deprecations
+RETIRED_ANTHROPIC_MODELS = {
+    "claude-3-sonnet-20240229",
+    "claude-3-5-sonnet-20241022",
+    "claude-3-7-sonnet-20250219",
+    "claude-sonnet-4-20250514",
+}
+
+
+def test_default_anthropic_model_is_not_retired():
+    from semantica.semantic_extract.providers import DEFAULT_ANTHROPIC_MODEL
+
+    assert DEFAULT_ANTHROPIC_MODEL not in RETIRED_ANTHROPIC_MODELS
+
+
+def test_anthropic_wrapper_and_provider_share_the_default_model():
+    from semantica.semantic_extract.providers import (
+        DEFAULT_ANTHROPIC_MODEL,
+        AnthropicProvider,
+    )
+
+    claude = Anthropic(api_key="fake-key")
+
+    assert claude.model == DEFAULT_ANTHROPIC_MODEL
+    assert claude.provider.model == DEFAULT_ANTHROPIC_MODEL
+    assert AnthropicProvider(api_key="fake-key").model == DEFAULT_ANTHROPIC_MODEL

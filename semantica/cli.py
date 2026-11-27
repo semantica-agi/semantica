@@ -2167,12 +2167,27 @@ def kg_query(cli_ctx: CLIContext, query_str: str, lang: str, limit: int, local_j
     json_out = _is_json(cli_ctx, local_json)
 
     def _action() -> None:
-        try:
-            from .graph_store import execute_query
-        except ImportError as exc:
-            raise click.ClickException(f"Graph store module not available: {exc}") from exc
-        result = execute_query(query_str, lang=lang, limit=limit,
-                               config=cli_ctx.config.to_dict())
+        if _uses_memory_graph(cli_ctx):
+            # The memory backend (the CLI default) is served by ContextGraph,
+            # which has no query engine, so keep the env-configured store
+            # (GRAPH_STORE_* variables) that kg query has always used here.
+            try:
+                from .graph_store import execute_query
+            except ImportError as exc:
+                raise click.ClickException(f"Graph store module not available: {exc}") from exc
+            result = execute_query(query_str, lang=lang, limit=limit)
+        else:
+            # Build the store from --store and the config's graph_db section,
+            # exactly as every other graph command does, so --config
+            # credentials reach the query and doctor and kg query agree (#2271).
+            try:
+                gs = _get_graph_store(cli_ctx)
+            except ImportError as exc:
+                raise click.ClickException(f"Graph store module not available: {exc}") from exc
+            try:
+                result = gs.execute_query(query_str, None, lang=lang, limit=limit)
+            finally:
+                gs.close()
         if json_out:
             _jecho(result if isinstance(result, (dict, list)) else {"result": str(result)})
         else:

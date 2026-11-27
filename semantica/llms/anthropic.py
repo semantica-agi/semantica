@@ -8,7 +8,7 @@ from typing import Any, Dict, List, Optional, Type, Union
 
 from pydantic import BaseModel
 
-from ..semantic_extract.providers import AnthropicProvider
+from ..semantic_extract.providers import DEFAULT_ANTHROPIC_MODEL, AnthropicProvider
 from ..utils.exceptions import ProcessingError
 from ..utils.logging import get_logger
 
@@ -29,7 +29,7 @@ class Anthropic:
 
     def __init__(
         self,
-        model: str = "claude-sonnet-4-6",
+        model: str = DEFAULT_ANTHROPIC_MODEL,
         api_key: Optional[str] = None,
         **kwargs
     ):
@@ -37,7 +37,7 @@ class Anthropic:
         Initialize Anthropic provider.
 
         Args:
-            model: Model name (default: claude-sonnet-4-6)
+            model: Model name (default: ``DEFAULT_ANTHROPIC_MODEL``)
             api_key: Anthropic API key (default: from ANTHROPIC_API_KEY env var)
             **kwargs: Additional provider options
         """

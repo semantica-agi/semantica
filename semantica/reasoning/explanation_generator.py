@@ -20,11 +20,19 @@ Main Classes:
     - Justification: Dataclass for justifications
 
 Example Usage:
-    >>> from semantica.reasoning import ExplanationGenerator
+    >>> from semantica.reasoning import (
+    ...     ExplanationGenerator, InferenceResult, Rule
+    ... )
     >>> generator = ExplanationGenerator()
-    >>> explanation = generator.generate_explanation(inference_result)
-    >>> path = generator.generate_reasoning_path(inference_result)
-    >>> justification = generator.create_justification(conclusion, path)
+    >>> rule = Rule("r1", "mortality", ["Human(?x)"], "Mortal(?x)")
+    >>> inference = InferenceResult(
+    ...     "Mortal(Socrates)", rule, ["Human(Socrates)"]
+    ... )
+    >>> explanation = generator.generate_explanation(inference)
+    >>> path = generator.show_reasoning_path(inference)
+    >>> justification = generator.justify_conclusion(
+    ...     inference.conclusion, path
+    ... )
 
 Author: Semantica Contributors
 License: MIT

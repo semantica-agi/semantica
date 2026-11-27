@@ -241,7 +241,7 @@ risk_data = oai.generate_structured(
 # {"counterparties": [{"name": "Counterparty A", "exposure_eur": 45000000}, ...]}
 ```
 
-The default model `gpt-3.5-turbo` is fine for classification and light extraction. Switch to `gpt-4o` for complex multi-step regulatory reasoning or document understanding.
+The default model `gpt-4o-mini` is fine for classification and light extraction. Switch to `gpt-4o` for complex multi-step regulatory reasoning or document understanding.
 
 ## Anthropic — Complex Reasoning and Structured Extraction
 
@@ -304,7 +304,7 @@ The `Gemini` provider tries the newer `google-genai` SDK first and falls back to
 ```python
 from semantica.llms import Gemini
 
-gemini = Gemini(model="gemini-pro", api_key="YOUR_GEMINI_KEY")
+gemini = Gemini(model="gemini-3.8-flash", api_key="YOUR_GEMINI_KEY")
 # api_key falls back to the GEMINI_API_KEY environment variable
 
 if not gemini.is_available():
