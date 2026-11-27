@@ -182,8 +182,9 @@ class NumberNormalizer:
         Raises:
             ValidationError: If quantity format is invalid or parsing fails
         """
-        # Parse quantity and unit
-        pattern = r"([\d.,\s]+)\s*([a-zA-Z]+)"
+        # Parse quantity and unit. The optional leading sign keeps negative
+        # quantities such as "-5 kg" from being returned as positive.
+        pattern = r"([+-]?[\d.,\s]+)\s*([a-zA-Z]+)"
         match = re.search(pattern, quantity_input)
 
         if match:
