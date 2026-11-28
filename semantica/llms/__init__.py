@@ -36,7 +36,7 @@ Example Usage:
     >>> response = groq.generate("Hello, world!")
     >>>
     >>> # OpenAI provider
-    >>> openai = OpenAI(model="gpt-4", api_key="your-key")
+    >>> openai = OpenAI(model="gpt-4o-mini", api_key="your-key")
     >>> response = openai.generate("Hello, world!")
     >>>
     >>> # HuggingFace LLM provider
@@ -55,7 +55,7 @@ Example Usage:
     >>> response = claude.generate("Hello, world!")
     >>>
     >>> # Gemini provider
-    >>> gemini = Gemini(model="gemini-pro", api_key="your-key")
+    >>> gemini = Gemini(model="gemini-3.8-flash", api_key="your-key")
     >>> response = gemini.generate("Hello, world!")
     >>>
     >>> # Ollama provider (local, no api_key)

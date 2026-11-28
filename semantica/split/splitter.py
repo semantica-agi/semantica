@@ -63,8 +63,8 @@ class TextSplitter:
     def __init__(
         self,
         method: Union[str, List[str]] = "recursive",
-        chunk_size: int = 1000,
-        chunk_overlap: int = 200,
+        chunk_size: Optional[int] = None,
+        chunk_overlap: Optional[int] = None,
         **kwargs,
     ):
         """
@@ -72,8 +72,10 @@ class TextSplitter:
 
         Args:
             method: Splitting method name or list of methods for fallback chain
-            chunk_size: Target chunk size in characters
-            chunk_overlap: Overlap between chunks in characters
+            chunk_size: Target chunk size in characters (default: split config,
+                else 1000)
+            chunk_overlap: Overlap between chunks in characters (default: split
+                config, else 200)
             **kwargs: Additional method-specific options:
                 - ner_method: NER method for entity_aware splitting
                 - relation_method: Relation extraction method for relation_aware
@@ -94,7 +96,11 @@ class TextSplitter:
 
         # Set default parameters
         self.chunk_size = chunk_size or split_config.get("chunk_size", 1000)
-        self.chunk_overlap = chunk_overlap or split_config.get("chunk_overlap", 200)
+        self.chunk_overlap = (
+            split_config.get("chunk_overlap", 200)
+            if chunk_overlap is None
+            else chunk_overlap
+        )
 
         # Store additional options
         self.options = kwargs

@@ -81,7 +81,7 @@ framework = Semantica()
 
 # Initialize with configuration dictionary
 config_dict = {
-    "llm_provider": {"name": "openai", "model": "gpt-4"},
+    "llm_provider": {"name": "openai", "model": "gpt-4o-mini"},
     "processing": {"batch_size": 32}
 }
 framework = Semantica(config=config_dict)
@@ -395,7 +395,7 @@ Set nested configuration value by key path.
 
 ```python
 config.set("processing.batch_size", 64)
-config.set("llm_provider.model", "gpt-4")
+config.set("llm_provider.model", "gpt-4o-mini")
 ```
 
 **Parameters:**
@@ -1086,7 +1086,7 @@ plugins:
 {
   "llm_provider": {
     "name": "openai",
-    "model": "gpt-4"
+    "model": "gpt-4o-mini"
   },
   "processing": {
     "batch_size": 32

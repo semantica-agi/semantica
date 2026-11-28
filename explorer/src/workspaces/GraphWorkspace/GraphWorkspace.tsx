@@ -1984,6 +1984,28 @@ export function GraphWorkspace({ externalFocusNodeId, externalFocusToken, onDirt
           setGraphVersion((current) => current + 1);
           sceneRef.current?.getRuntime()?.requestRender();
         }
+        // Removals (a purge, or a `mode=replace` import that dropped entities the
+        // new source no longer has). The server sends REMOVE_EDGE before
+        // REMOVE_NODE; dropping a node also drops its incident edges, so the
+        // hasEdge/hasNode guards make either order, and repeats, harmless.
+        if (eventType === "REMOVE_EDGE") {
+          const removedEdgeId = String(message.data?.entity_id ?? "");
+          if (removedEdgeId && graph.hasEdge(removedEdgeId)) {
+            graph.dropEdge(removedEdgeId);
+            logEvent("delete", `Removed edge ${removedEdgeId} via realtime ws`, { edgeId: removedEdgeId });
+            setGraphVersion((current) => current + 1);
+            sceneRef.current?.getRuntime()?.requestRender();
+          }
+        }
+        if (eventType === "REMOVE_NODE") {
+          const removedNodeId = String(message.data?.entity_id ?? "");
+          if (removedNodeId && graph.hasNode(removedNodeId)) {
+            graph.dropNode(removedNodeId);
+            logEvent("delete", `Removed node ${removedNodeId} via realtime ws`, { nodeId: removedNodeId });
+            setGraphVersion((current) => current + 1);
+            sceneRef.current?.getRuntime()?.requestRender();
+          }
+        }
       } catch (socketError) {
         console.error("[GraphWorkspace] websocket update failed", socketError);
       }

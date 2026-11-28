@@ -257,7 +257,7 @@ llm = Groq(api_key=os.getenv("GROQ_API_KEY"), model="llama-3.1-8b-instant")
 `Jev` and `AsyncJev` wrap the official `typesafe-sdk` System One client. They are decision-only providers: neither class implements `generate()`, `generate_structured()`, or `generate_typed()`, and neither can stand in for a generative provider: not as the `llm_provider=` argument of a reasoning query, and not as `provider=` in an extractor.
 
 <Warning>
-  Jev is experimental and early-access. The `llm-typesafe` extra currently supports the reviewed TypeSafe SDK 0.7 API. Like Semantica itself, it requires Python 3.11 or newer; the SDK is optional and guarded, so the base installation does not need it.
+  Jev is experimental and early-access. The `llm-typesafe` extra currently supports the reviewed TypeSafe SDK 0.7 API. Like Semantica itself, it requires Python 3.11.5 or newer; the SDK is optional and guarded, so the base installation does not need it.
 </Warning>
 
 <Warning>
@@ -381,7 +381,7 @@ import os
 from semantica.llms import OpenAI
 
 llm = OpenAI(
-    model="gpt-4o",                     # recommended; implementation default: gpt-3.5-turbo
+    model="gpt-4o",                     # recommended; implementation default: gpt-4o-mini
     api_key=os.getenv("OPENAI_API_KEY"),
     temperature=0.0,
 )
@@ -398,7 +398,7 @@ from semantica.llms import LiteLLM
 llm = LiteLLM(model="anthropic/claude-opus-4-7",         api_key=os.getenv("ANTHROPIC_API_KEY"))
 
 # Google Gemini
-llm = LiteLLM(model="gemini/gemini-1.5-pro",             api_key=os.getenv("GOOGLE_API_KEY"))
+llm = LiteLLM(model="gemini/gemini-3.8-flash",           api_key=os.getenv("GOOGLE_API_KEY"))
 
 # Ollama (local: no API key)
 llm = LiteLLM(model="ollama/llama3.2:3b",                api_base="http://localhost:11434")
@@ -454,7 +454,7 @@ from semantica.llms import LiteLLM
 # Pattern: LiteLLM(model="<provider>/<model-name>")
 providers = {
     "Anthropic":  LiteLLM(model="anthropic/claude-opus-4-7",       api_key=os.getenv("ANTHROPIC_API_KEY")),
-    "Gemini":     LiteLLM(model="gemini/gemini-1.5-pro",            api_key=os.getenv("GOOGLE_API_KEY")),
+    "Gemini":     LiteLLM(model="gemini/gemini-3.8-flash",          api_key=os.getenv("GOOGLE_API_KEY")),
     "Ollama":     LiteLLM(model="ollama/llama3.2:3b",               api_base="http://localhost:11434"),
     "DeepSeek":   LiteLLM(model="deepseek/deepseek-chat",           api_key=os.getenv("DEEPSEEK_API_KEY")),
     "Azure":      LiteLLM(model="azure/gpt-4o",                     api_key=os.getenv("AZURE_API_KEY")),
@@ -546,7 +546,7 @@ Documentation examples may showcase stronger models for better developer experie
 | Provider | Default Model | Notes |
 | :---------- | :--------------- | :------- |
 | `Groq` | `llama-3.1-8b-instant` | Implementation default; examples use `llama-3.3-70b-versatile` for showcase |
-| `OpenAI` | `gpt-3.5-turbo` | Implementation default; examples use `gpt-4o` for showcase |
+| `OpenAI` | `gpt-4o-mini` | Implementation default; examples use `gpt-4o` for showcase |
 | `HuggingFaceLLM` | `gpt2` | Lightweight, widely compatible |
 | `Jev` / `AsyncJev` | `jev-latest` | Early-access alias; pass a concrete model in production when reproducibility requires it |
 

@@ -7,9 +7,9 @@ post-processing and refinement.
 
 Supported Providers:
     - "openai": OpenAI (GPT-3.5, GPT-4, etc.)
-    - "gemini": Google Gemini (gemini-pro, etc.)
+    - "gemini": Google Gemini (gemini-3.8-flash, etc.)
     - "groq": Groq (llama2, mixtral, etc.)
-    - "anthropic": Anthropic Claude (claude-3-sonnet, etc.)
+    - "anthropic": Anthropic Claude (claude-sonnet-4-6, etc.)
     - "ollama": Ollama (local open-source models)
     - "huggingface_llm": HuggingFace Transformers (custom LLM models)
 
@@ -26,9 +26,9 @@ Key Features:
     - Relation extraction enhancement
     - Multi-provider support:
         * OpenAI (GPT-3.5, GPT-4, etc.)
-        * Google Gemini (gemini-pro, etc.)
+        * Google Gemini (gemini-3.8-flash, etc.)
         * Groq (llama2, mixtral, etc.)
-        * Anthropic Claude (claude-3-sonnet, etc.)
+        * Anthropic Claude (claude-sonnet-4-6, etc.)
         * Ollama (local open-source models)
         * HuggingFace Transformers (custom LLM models)
     - Unified provider interface via providers module
@@ -44,12 +44,12 @@ Main Classes:
 Example Usage:
     >>> from semantica.semantic_extract import LLMExtraction
     >>> # Using OpenAI
-    >>> extractor = LLMExtraction(provider="openai", model="gpt-4")
+    >>> extractor = LLMExtraction(provider="openai", model="gpt-4o-mini")
     >>> enhanced_entities = extractor.enhance_entities(text, entities)
     >>> enhanced_relations = extractor.enhance_relations(text, relations)
     >>> 
     >>> # Using Gemini
-    >>> extractor = LLMExtraction(provider="gemini", model="gemini-pro")
+    >>> extractor = LLMExtraction(provider="gemini", model="gemini-3.8-flash")
     >>> enhanced_entities = extractor.enhance_entities(text, entities)
     >>> 
     >>> # Using Ollama (local)

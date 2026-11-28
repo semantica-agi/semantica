@@ -63,24 +63,28 @@ console = Console()
 # here instead. See the --json promise in the CLI context setup below.
 err_console = Console(stderr=True)
 
-# Supported interpreter range: ``requires-python = ">=3.11,<3.14"`` in
+# Supported interpreter range: ``requires-python = ">=3.11.5,<3.14"`` in
 # pyproject.toml. tests/test_python_support_policy.py fails if the two drift.
+# The floor carries a patch version because soupsieve 4.x, the release that
+# clears the advisories in 2.9.2, requires 3.11.5 (#2251).
 # 3.10 was dropped in 0.8.0: it is past end of life and Pillow 13, which has
 # the security fixes 12.x lacks, needs 3.11 (#2067).
-MIN_PYTHON = (3, 11)
-MAX_PYTHON_EXCLUSIVE = (3, 14)
+MIN_PYTHON = (3, 11, 5)
+MAX_PYTHON_EXCLUSIVE = (3, 14, 0)
 
 
 def _python_version_check(version: Sequence[int]) -> Tuple[str, Optional[str]]:
-    """Return ``(status, hint)`` for an interpreter ``(major, minor, ...)``."""
+    """Return ``(status, hint)`` for an interpreter ``(major, minor[, patch])``."""
     supported = (
-        f"{MIN_PYTHON[0]}.{MIN_PYTHON[1]}"
+        f"{MIN_PYTHON[0]}.{MIN_PYTHON[1]}.{MIN_PYTHON[2]}"
         f"-{MAX_PYTHON_EXCLUSIVE[0]}.{MAX_PYTHON_EXCLUSIVE[1] - 1}"
     )
-    major_minor = (version[0], version[1])
-    if major_minor < MIN_PYTHON:
+    # Callers may pass two or three elements; a missing patch is treated as 0,
+    # so (3, 11) is still "too old" rather than silently accepted.
+    normalized = (version[0], version[1], version[2] if len(version) > 2 else 0)
+    if normalized < MIN_PYTHON:
         return "fail", f"upgrade to Python {supported}"
-    if major_minor >= MAX_PYTHON_EXCLUSIVE:
+    if normalized >= MAX_PYTHON_EXCLUSIVE:
         return "warn", f"Python {supported} is supported; newer versions are untested"
     return "ok", None
 
@@ -2163,12 +2167,27 @@ def kg_query(cli_ctx: CLIContext, query_str: str, lang: str, limit: int, local_j
     json_out = _is_json(cli_ctx, local_json)
 
     def _action() -> None:
-        try:
-            from .graph_store import execute_query
-        except ImportError as exc:
-            raise click.ClickException(f"Graph store module not available: {exc}") from exc
-        result = execute_query(query_str, lang=lang, limit=limit,
-                               config=cli_ctx.config.to_dict())
+        if _uses_memory_graph(cli_ctx):
+            # The memory backend (the CLI default) is served by ContextGraph,
+            # which has no query engine, so keep the env-configured store
+            # (GRAPH_STORE_* variables) that kg query has always used here.
+            try:
+                from .graph_store import execute_query
+            except ImportError as exc:
+                raise click.ClickException(f"Graph store module not available: {exc}") from exc
+            result = execute_query(query_str, lang=lang, limit=limit)
+        else:
+            # Build the store from --store and the config's graph_db section,
+            # exactly as every other graph command does, so --config
+            # credentials reach the query and doctor and kg query agree (#2271).
+            try:
+                gs = _get_graph_store(cli_ctx)
+            except ImportError as exc:
+                raise click.ClickException(f"Graph store module not available: {exc}") from exc
+            try:
+                result = gs.execute_query(query_str, None, lang=lang, limit=limit)
+            finally:
+                gs.close()
         if json_out:
             _jecho(result if isinstance(result, (dict, list)) else {"result": str(result)})
         else:

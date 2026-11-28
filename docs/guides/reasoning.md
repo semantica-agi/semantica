@@ -299,7 +299,7 @@ expanded = sparql.expand_query(query)
 print(expanded)
 ```
 
-`execute_query()` is not implemented yet: no triplet-store execution path exists, so it raises `NotImplementedError` rather than returning an empty result set that callers would misread as "no matches". Until execution lands, run the expanded query against your RDF store directly (for example with `rdflib`).
+`execute_query()` runs against a live backend, so it needs a `triplet_store` on the reasoner (`SPARQLReasoner(triplet_store=store)`). Without one it raises `ProcessingError` rather than returning an empty result set that callers would misread as "no matches" (issue #1083). To stay store-free, use `expand_query()` as above and run the expanded text against your own RDF store, for example with `rdflib`.
 
 Inspect the expanded query before running it:
 

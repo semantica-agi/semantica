@@ -261,6 +261,11 @@ ABDUCTIVE_REASONING = {
             "items": {"type": "string"},
             "description": "Observed facts to explain",
         },
+        "rules": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "IF/THEN rule strings whose conclusions can explain the observations, e.g. ['IF Sprinkler(?x) THEN WetLawn(?x)']. Without rules no hypotheses are generated.",
+        },
         "max_hypotheses": {
             "type": "integer",
             "description": "Max hypotheses to generate (default: 5)",
