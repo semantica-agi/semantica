@@ -130,6 +130,8 @@ from .types import (
     Entity,
     Relation,
     Triplet,
+    collect_extraction_traces,
+    stamp_extraction_trace,
 )
 
 try:
@@ -1588,19 +1590,24 @@ def extract_relations_pattern(
                     end = min(len(text), match.end() + 50)
                     context = text[start:end]
 
-                    relations.append(
-                        Relation(
-                            subject=subject_entity,
-                            predicate=relation_type,
-                            object=object_entity,
-                            confidence=0.7,
-                            context=context,
-                            metadata={
-                                "extraction_method": "pattern",
-                                "pattern": pattern,
-                            },
-                        )
+                    relation = Relation(
+                        subject=subject_entity,
+                        predicate=relation_type,
+                        object=object_entity,
+                        confidence=0.7,
+                        context=context,
+                        metadata={
+                            "extraction_method": "pattern",
+                            "pattern": pattern,
+                        },
                     )
+                    # Keep the endpoints' degradation signal (see #2274).
+                    endpoint_trace = collect_extraction_traces(
+                        [subject_entity, object_entity]
+                    )
+                    if endpoint_trace:
+                        stamp_extraction_trace([relation], endpoint_trace)
+                    relations.append(relation)
 
     return relations
 
@@ -1633,20 +1640,25 @@ def extract_relations_regex(
                 object_entity = entity_map.get(object_text.lower())
 
                 if subject_entity and object_entity:
-                    relations.append(
-                        Relation(
-                            subject=subject_entity,
-                            predicate=relation_type,
-                            object=object_entity,
-                            confidence=0.75,
-                            context=text[
-                                max(0, match.start() - 30) : min(
-                                    len(text), match.end() + 30
-                                )
-                            ],
-                            metadata={"extraction_method": "regex"},
-                        )
+                    relation = Relation(
+                        subject=subject_entity,
+                        predicate=relation_type,
+                        object=object_entity,
+                        confidence=0.75,
+                        context=text[
+                            max(0, match.start() - 30) : min(
+                                len(text), match.end() + 30
+                            )
+                        ],
+                        metadata={"extraction_method": "regex"},
                     )
+                    # Keep the endpoints' degradation signal (see #2274).
+                    endpoint_trace = collect_extraction_traces(
+                        [subject_entity, object_entity]
+                    )
+                    if endpoint_trace:
+                        stamp_extraction_trace([relation], endpoint_trace)
+                    relations.append(relation)
 
     return relations
 
@@ -1665,19 +1677,22 @@ def extract_relations_cooccurrence(
                 end = max(entity1.end_char, entity2.end_char)
                 context = text[max(0, start - 30) : min(len(text), end + 30)]
 
-                relations.append(
-                    Relation(
-                        subject=entity1,
-                        predicate="related_to",
-                        object=entity2,
-                        confidence=0.6,  # Meets default threshold
-                        context=context,
-                        metadata={
-                            "extraction_method": "co_occurrence",
-                            "distance": distance,
-                        },
-                    )
+                relation = Relation(
+                    subject=entity1,
+                    predicate="related_to",
+                    object=entity2,
+                    confidence=0.6,  # Meets default threshold
+                    context=context,
+                    metadata={
+                        "extraction_method": "co_occurrence",
+                        "distance": distance,
+                    },
                 )
+                # Keep the endpoints' degradation signal (see #2274).
+                endpoint_trace = collect_extraction_traces([entity1, entity2])
+                if endpoint_trace:
+                    stamp_extraction_trace([relation], endpoint_trace)
+                relations.append(relation)
 
     return relations
 
@@ -1783,20 +1798,23 @@ def extract_relations_similarity(
             threshold = kwargs.get("similarity_threshold", 0.4 if has_vectors else 0.6)
             
             if best_type and best_score >= threshold:
-                relations.append(
-                    Relation(
-                        subject=entity1,
-                        predicate=best_type,
-                        object=entity2,
-                        confidence=float(best_score),
-                        context=text[max(0, min(entity1.start_char, entity2.start_char) - 20) : min(len(text), max(entity1.end_char, entity2.end_char) + 20)],
-                        metadata={
-                            "extraction_method": "similarity",
-                            "similarity_score": float(best_score),
-                            "between_text": between_text
-                        },
-                    )
+                relation = Relation(
+                    subject=entity1,
+                    predicate=best_type,
+                    object=entity2,
+                    confidence=float(best_score),
+                    context=text[max(0, min(entity1.start_char, entity2.start_char) - 20) : min(len(text), max(entity1.end_char, entity2.end_char) + 20)],
+                    metadata={
+                        "extraction_method": "similarity",
+                        "similarity_score": float(best_score),
+                        "between_text": between_text
+                    },
                 )
+                # Keep the endpoints' degradation signal (see #2274).
+                endpoint_trace = collect_extraction_traces([entity1, entity2])
+                if endpoint_trace:
+                    stamp_extraction_trace([relation], endpoint_trace)
+                relations.append(relation)
 
     return relations
 
@@ -1906,23 +1924,28 @@ def extract_relations_dependency(
             # print(f"DEBUG: Checking object token: {obj_token.text}, Entity: {object_entity}")
 
             if object_entity and subject_entity != object_entity:
-                relations.append(
-                    Relation(
-                        subject=subject_entity,
-                        predicate=verb.lemma_,
-                        object=object_entity,
-                        confidence=0.8,
-                        context=text[
-                            max(0, token.idx - 30) : min(
-                                len(text), obj_token.idx + len(obj_token.text) + 30
-                            )
-                        ],
-                        metadata={
-                            "extraction_method": "dependency",
-                            "dependency_path": f"{token.dep_} -> ... -> {obj_token.dep_}",
-                        },
-                    )
+                relation = Relation(
+                    subject=subject_entity,
+                    predicate=verb.lemma_,
+                    object=object_entity,
+                    confidence=0.8,
+                    context=text[
+                        max(0, token.idx - 30) : min(
+                            len(text), obj_token.idx + len(obj_token.text) + 30
+                        )
+                    ],
+                    metadata={
+                        "extraction_method": "dependency",
+                        "dependency_path": f"{token.dep_} -> ... -> {obj_token.dep_}",
+                    },
                 )
+                # Keep the endpoints' degradation signal (see #2274).
+                endpoint_trace = collect_extraction_traces(
+                    [subject_entity, object_entity]
+                )
+                if endpoint_trace:
+                    stamp_extraction_trace([relation], endpoint_trace)
+                relations.append(relation)
 
     return relations
 
@@ -2392,16 +2415,20 @@ def _parse_relation_result(
                     temporal_source_text,
                 )
 
-        relations.append(
-            Relation(
-                subject=subject_entity,
-                predicate=item.get("predicate", "related_to"),
-                object=object_entity,
-                confidence=item.get("confidence", 0.9),
-                context=text,
-                metadata=metadata,
-            )
+        relation = Relation(
+            subject=subject_entity,
+            predicate=item.get("predicate", "related_to"),
+            object=object_entity,
+            confidence=item.get("confidence", 0.9),
+            context=text,
+            metadata=metadata,
         )
+        # Keep the endpoints' degradation signal (see #2274). Synthetic
+        # endpoints carry no trace, so they contribute nothing here.
+        endpoint_trace = collect_extraction_traces([subject_entity, object_entity])
+        if endpoint_trace:
+            stamp_extraction_trace([relation], endpoint_trace)
+        relations.append(relation)
     return relations
 
 
@@ -2519,15 +2546,20 @@ def extract_triplets_pattern(
             object_entity = match_entity(object_text, entities)
 
             if subject_entity and object_entity:
-                triplets.append(
-                    Triplet(
-                        subject=subject_entity.text,
-                        predicate=predicate_text,
-                        object=object_entity.text,
-                        confidence=0.7,
-                        metadata={"extraction_method": "pattern"},
-                    )
+                triplet = Triplet(
+                    subject=subject_entity.text,
+                    predicate=predicate_text,
+                    object=object_entity.text,
+                    confidence=0.7,
+                    metadata={"extraction_method": "pattern"},
                 )
+                # Keep the endpoints' degradation signal (see #2274).
+                endpoint_trace = collect_extraction_traces(
+                    [subject_entity, object_entity]
+                )
+                if endpoint_trace:
+                    stamp_extraction_trace([triplet], endpoint_trace)
+                triplets.append(triplet)
 
     return triplets
 
@@ -2595,15 +2627,20 @@ def extract_triplets_rules(
                     )
 
                     if subject_entity and object_entity:
-                        triplets.append(
-                            Triplet(
-                                subject=subject_entity.text,
-                                predicate=word,
-                                object=object_entity.text,
-                                confidence=0.7,
-                                metadata={"extraction_method": "rules"},
-                            )
+                        triplet = Triplet(
+                            subject=subject_entity.text,
+                            predicate=word,
+                            object=object_entity.text,
+                            confidence=0.7,
+                            metadata={"extraction_method": "rules"},
                         )
+                        # Keep the endpoints' degradation signal (see #2274).
+                        endpoint_trace = collect_extraction_traces(
+                            [subject_entity, object_entity]
+                        )
+                        if endpoint_trace:
+                            stamp_extraction_trace([triplet], endpoint_trace)
+                        triplets.append(triplet)
 
     return triplets
 

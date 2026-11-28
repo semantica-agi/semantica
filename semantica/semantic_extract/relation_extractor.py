@@ -75,7 +75,12 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 from ..utils.exceptions import ProcessingError
 from ..utils.logging import get_logger
 from ..utils.progress_tracker import get_progress_tracker
-from .types import Entity, Relation
+from .types import (
+    Entity,
+    Relation,
+    collect_extraction_traces,
+    stamp_extraction_trace,
+)
 
 
 class RelationExtractor:
@@ -531,6 +536,12 @@ class RelationExtractor:
                 context=context,
                 metadata={"extraction_method": "last_resort_adjacency"}
             )
+            # Keep the endpoints' degradation signal (e.g. a failed LLM
+            # enhancement, see #2274): without it the relation looks clean
+            # although its input entities were never enhanced.
+            endpoint_trace = collect_extraction_traces([e1, e2])
+            if endpoint_trace:
+                stamp_extraction_trace([rel], endpoint_trace)
             relations.append(rel)
         return relations
 
@@ -557,19 +568,24 @@ class RelationExtractor:
                         end = min(len(text), match.end() + 50)
                         context = text[start:end]
 
-                        relations.append(
-                            Relation(
-                                subject=subject_entity,
-                                predicate=relation_type,
-                                object=object_entity,
-                                confidence=0.7,  # Pattern-based confidence
-                                context=context,
-                                metadata={
-                                    "extraction_method": "pattern",
-                                    "pattern": pattern,
-                                },
-                            )
+                        relation = Relation(
+                            subject=subject_entity,
+                            predicate=relation_type,
+                            object=object_entity,
+                            confidence=0.7,  # Pattern-based confidence
+                            context=context,
+                            metadata={
+                                "extraction_method": "pattern",
+                                "pattern": pattern,
+                            },
                         )
+                        # Keep the endpoints' degradation signal (see #2274).
+                        endpoint_trace = collect_extraction_traces(
+                            [subject_entity, object_entity]
+                        )
+                        if endpoint_trace:
+                            stamp_extraction_trace([relation], endpoint_trace)
+                        relations.append(relation)
 
         # Co-occurrence based relations (entities close to each other)
         for i, entity1 in enumerate(entities):
@@ -582,19 +598,22 @@ class RelationExtractor:
                     end = max(entity1.end_char, entity2.end_char)
                     context = text[max(0, start - 30) : min(len(text), end + 30)]
 
-                    relations.append(
-                        Relation(
-                            subject=entity1,
-                            predicate="related_to",
-                            object=entity2,
-                            confidence=0.5,  # Lower confidence for co-occurrence
-                            context=context,
-                            metadata={
-                                "extraction_method": "co_occurrence",
-                                "distance": distance,
-                            },
-                        )
+                    relation = Relation(
+                        subject=entity1,
+                        predicate="related_to",
+                        object=entity2,
+                        confidence=0.5,  # Lower confidence for co-occurrence
+                        context=context,
+                        metadata={
+                            "extraction_method": "co_occurrence",
+                            "distance": distance,
+                        },
                     )
+                    # Keep the endpoints' degradation signal (see #2274).
+                    endpoint_trace = collect_extraction_traces([entity1, entity2])
+                    if endpoint_trace:
+                        stamp_extraction_trace([relation], endpoint_trace)
+                    relations.append(relation)
 
         return relations
 

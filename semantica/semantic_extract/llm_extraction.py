@@ -70,6 +70,7 @@ from ..utils.progress_tracker import get_progress_tracker
 from .ner_extractor import Entity
 from .providers import create_provider
 from .relation_extractor import Relation
+from .types import stamp_extraction_trace
 
 try:
     from .schemas import EntitiesResponse, RelationsResponse
@@ -209,6 +210,9 @@ class LLMExtraction:
 
         Falls back to the original entities on any LLM or parsing failure so
         that downstream processing is never blocked by an enhancement error.
+        The failure is recorded in-band on the returned entities'
+        ``metadata["extraction_trace"]`` so callers can tell the result was
+        not LLM-enhanced.
 
         Args:
             text: Input text
@@ -282,6 +286,12 @@ class LLMExtraction:
             self.progress_tracker.stop_tracking(
                 tracking_id, status="failed", message=str(e)
             )
+            # Fallback keeps the originals, but the degradation must be
+            # visible in the returned data, not only in the log: stamp the
+            # failure on every returned entity (see #2274).
+            stamp_extraction_trace(
+                entities, f"llm_enhancement:failed({type(e).__name__})"
+            )
             return entities
 
     def enhance_relations(
@@ -311,6 +321,9 @@ class LLMExtraction:
         - All returned relations carry ``enhanced_by`` and ``model`` metadata.
 
         Falls back to the original relations on any LLM or parsing failure.
+        The failure is recorded in-band on the returned relations'
+        ``metadata["extraction_trace"]`` so callers can tell the result was
+        not LLM-enhanced.
 
         Args:
             text: Input text
@@ -348,6 +361,12 @@ class LLMExtraction:
             return enhanced_relations
         except Exception as e:
             self.logger.error(f"Failed to enhance relations with LLM: {e}")
+            # Fallback keeps the originals, but the degradation must be
+            # visible in the returned data, not only in the log: stamp the
+            # failure on every returned relation (see #2274).
+            stamp_extraction_trace(
+                relations, f"llm_enhancement:failed({type(e).__name__})"
+            )
             return relations
 
     def _build_entity_prompt(self, text: str, entities: List[Entity]) -> str:
