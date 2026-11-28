@@ -74,7 +74,7 @@ python -m mcp [--debug]
 | Tool | Description |
 |---|---|
 | `export_graph` | Export graph to JSON, CSV, GraphML, Parquet, Turtle, N-Triples, RDF/XML, JSON-LD |
-| `get_provenance` | Audit history and source lineage for a node (`entity_id`) |
+| `get_provenance` | Latest provenance record and lineage for a node (`entity_id`) from `SEMANTICA_PROVENANCE_DB` / `EXPLORER_PROVENANCE_DB` |
 
 ### Semantic Retrieval
 
