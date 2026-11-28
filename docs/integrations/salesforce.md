@@ -83,7 +83,7 @@ Use environment variables (or a `.env` file with `python-dotenv`) to keep creden
     export SALESFORCE_CONSUMER_KEY="your-connected-app-consumer-key"
     export SALESFORCE_PRIVATE_KEY_FILE="/path/to/server.key"
     ```
-    The JWT bearer flow authenticates with a signed token — no password
+    The JWT bearer flow authenticates with a signed token, so no password
     is transmitted. Ideal for server-to-server integrations and CI/CD
     pipelines. Requires a Salesforce connected app configured with
     **Use digital signatures** and the pre-authorised user listed under
@@ -164,7 +164,7 @@ print(f"Retrieved {data.row_count} of {data.total_size} matching records")
 ```
 
 <Note>
-`data.row_count` is the number of records in `data.data` (i.e. what was actually returned after any `limit`). `data.total_size` is Salesforce's `totalSize` — the number of records matching the query *before* the limit. Compare them to know whether you got all results.
+`data.row_count` is the number of records in `data.data` (i.e. what was actually returned after any `limit`). `data.total_size` is Salesforce's `totalSize`, the number of records matching the query *before* the limit. Compare them to know whether you got all results.
 </Note>
 
 ### Ingest a custom object
@@ -192,7 +192,7 @@ data = ingestor.ingest_sobject(
 
 When `fields` is omitted, all selectable fields are fetched via `describe()`
 (one extra API call). Compound address and geolocation fields (`type=address`,
-`type=location`) are automatically excluded — select their components
+`type=location`) are automatically excluded. Select their components
 (`BillingStreet`, `BillingCity`, `Location__Latitude__s`, …) individually if
 you need them.
 
@@ -203,7 +203,7 @@ data = ingestor.ingest_sobject("Opportunity")
 
 ## Raw SOQL Ingestion
 
-Pass any valid SOQL query verbatim — pagination is handled automatically:
+Pass any valid SOQL query verbatim. Pagination is handled automatically:
 
 ```python
 data = ingestor.ingest_query("""
@@ -278,7 +278,7 @@ for field in schema["fields"]:
 
 ## Context Manager
 
-Prefer the context manager for long-running jobs — it opens one connection on
+Prefer the context manager for long-running jobs. It opens one connection on
 entry and closes it on exit, so every ingestion call inside the `with` block
 reuses the same authenticated session:
 
@@ -369,8 +369,8 @@ Common causes of authentication failures:
 
 ## See Also
 
-- [Ingest Module](../reference/ingest) — Full `SalesforceIngestor` API and all other ingestors.
-- [Snowflake Integration](/integrations/snowflake) — Relational warehouse connector with a similar design.
-- [Databricks Integration](/integrations/databricks) — Lakehouse connector.
-- [Installation](../installation) — All optional dependency extras.
-- [Knowledge Graph](../reference/kg) — Build a KG from ingested Salesforce data.
+- [Ingest Module](/reference/ingest): Full `SalesforceIngestor` API and all other ingestors.
+- [Snowflake Integration](/integrations/snowflake): Relational warehouse connector with a similar design.
+- [Databricks Integration](/integrations/databricks): Lakehouse connector.
+- [Installation](/installation): All optional dependency extras.
+- [Knowledge Graph](/reference/kg): Build a KG from ingested Salesforce data.
