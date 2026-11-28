@@ -69,6 +69,7 @@ Author: Semantica Contributors
 License: MIT
 """
 
+import copy
 import json
 import threading
 import time
@@ -222,6 +223,30 @@ class BaseProvider:
         for key in keys:
             if key in source and source[key] is not None:
                 target[key] = source[key]
+
+    def _extra_body_for_request(self, kwargs: dict) -> Optional[dict]:
+        """Return the extra request fields to send with this call, if any.
+
+        A per-call ``extra_body`` takes precedence over the provider-level one.
+        The dict is copied so that the caller's object is never modified, and a
+        ``stream`` key is dropped: the SDK merges ``extra_body`` over the
+        request body, so leaving it in would defeat the non-streaming contract.
+        """
+        extra_body = kwargs.get("extra_body")
+        if extra_body is None:
+            extra_body = getattr(self, "extra_body", None)
+        if extra_body is None:
+            return None
+        if not isinstance(extra_body, dict):
+            raise ValueError("extra_body must be a dictionary of request fields")
+
+        request_body = copy.deepcopy(extra_body)
+        if "stream" in request_body:
+            request_body.pop("stream")
+            self.logger.warning(
+                "Ignoring 'stream' in extra_body: requests are always sent non-streaming"
+            )
+        return request_body or None
 
     def generate(self, prompt: str, **kwargs) -> str:
         """Generate text - must be implemented."""
@@ -569,6 +594,10 @@ class BaseProvider:
                         "user",
                         "top_k",
                     )
+                    if provider_name == "OpenAIProvider":
+                        extra_body = self._extra_body_for_request(kwargs)
+                        if extra_body is not None:
+                            create_kwargs["extra_body"] = extra_body
 
                     if provider_name == "GroqProvider":
                         create_kwargs["response_format"] = {"type": "json_object"}
@@ -809,6 +838,7 @@ class OpenAIProvider(BaseProvider):
         api_key: Optional[str] = None,
         model: str = DEFAULT_OPENAI_MODEL,
         base_url: Optional[str] = None,
+        extra_body: Optional[Dict[str, Any]] = None,
         **kwargs,
     ):
         """Initialize OpenAI provider.
@@ -821,11 +851,17 @@ class OpenAIProvider(BaseProvider):
                 ``instructor`` will use ``Mode.JSON`` instead of
                 ``Mode.TOOLS`` because most OpenAI-compatible servers do not
                 implement the full function-calling protocol.
+            extra_body: Optional extra JSON fields sent with every request
+                (e.g. ``{"custom_option": {"enabled": True}}``).  A per-call
+                ``extra_body`` overrides this default.
         """
         super().__init__(**kwargs)
         self.api_key = api_key or config.get_api_key("openai")
         self.model = model
         self.base_url = base_url  # None → standard OpenAI; set → custom endpoint
+        if extra_body is not None and not isinstance(extra_body, dict):
+            raise ValueError("extra_body must be a dictionary of request fields")
+        self.extra_body = extra_body
         self.client = None
         self._init_client()
 
@@ -887,6 +923,9 @@ class OpenAIProvider(BaseProvider):
             "logit_bias",
             "user",
         )
+        extra_body = self._extra_body_for_request(kwargs)
+        if extra_body is not None:
+            create_kwargs["extra_body"] = extra_body
 
         response = self.client.chat.completions.create(**create_kwargs)
         content = response.choices[0].message.content
@@ -925,6 +964,9 @@ class OpenAIProvider(BaseProvider):
             "logit_bias",
             "user",
         )
+        extra_body = self._extra_body_for_request(kwargs)
+        if extra_body is not None:
+            create_kwargs["extra_body"] = extra_body
 
         response = self.client.chat.completions.create(**create_kwargs)
         try:
