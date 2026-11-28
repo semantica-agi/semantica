@@ -12,7 +12,7 @@ Similarity Calculation:
     - "exact": Exact string matching
     - "levenshtein": Levenshtein distance-based similarity
     - "jaro_winkler": Jaro-Winkler similarity with prefix bonus
-    - "cosine": Cosine similarity for embeddings
+    - "cosine": Cosine similarity of character pairs in the name
     - "property": Property value comparison
     - "relationship": Jaccard similarity of relationships
     - "embedding": Cosine similarity of vector embeddings
@@ -126,7 +126,7 @@ def calculate_similarity(
             - "exact": Exact string matching
             - "levenshtein": Levenshtein distance-based similarity
             - "jaro_winkler": Jaro-Winkler similarity
-            - "cosine": Cosine similarity for embeddings
+            - "cosine": Cosine similarity of character pairs in the name
             - "property": Property value comparison
             - "relationship": Jaccard similarity of relationships
             - "embedding": Cosine similarity of vector embeddings
