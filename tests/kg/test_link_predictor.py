@@ -86,7 +86,7 @@ class TestLinkPredictor:
         """Test Adamic-Adar index calculation."""
         # A and C have B as common neighbor (degree 2)
         score = self.predictor._adamic_adar_index(self.simple_graph, "A", "C")
-        expected = 1.0 / (2.0 * np.log(2.0))  # 1/(deg(B) * log(deg(B)))
+        expected = 1.0 / np.log(2.0)  # 1/log(deg(B))
         assert abs(score - expected) < 1e-10
         
         # A and D have no common neighbors
