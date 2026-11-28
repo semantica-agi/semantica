@@ -139,40 +139,74 @@ def test_gemini_wrapper_and_provider_share_the_default_model():
     assert GeminiProvider(api_key="fake-key").model == DEFAULT_GEMINI_MODEL
 
 
-def _check_gemini_examples(guide: Path) -> None:
-    models = re.findall(
-        r"""\bmodel\s*=\s*['"](?:(?:gemini|vertex_ai|models)/)?(gemini-[\w.-]+)['"]""",
-        guide.read_text(encoding="utf-8"),
-    )
-    retired = {
-        model
-        for model in models
-        if re.sub(r"-[0-9]{3}$", "", model) in SHUT_DOWN_GEMINI_MODELS
-    }
-    assert models, f"No Gemini model examples found in {guide}"
-    assert not retired, f"Retired Gemini model examples in {guide}: {sorted(retired)}"
+REPO_ROOT = Path(__file__).resolve().parents[1]
 
-
-@pytest.mark.parametrize(
-    "relative_path",
-    ["integrations/google_adk/README.md", "docs/guides/llm-integrations.md"],
+# Matches `model="..."`, `model='...'` and YAML-style `model: ...`, with any
+# provider route in front of the ID (gemini/, vertex_ai/, openrouter/google/, ...).
+GEMINI_MODEL_EXAMPLE = re.compile(
+    r"""\bmodel\s*[=:]\s*['"]?(?:[\w.-]+/)*(gemini-[\w.-]*\w)"""
 )
-def test_gemini_examples_do_not_use_retired_model_ids(relative_path: str) -> None:
-    _check_gemini_examples(Path(__file__).resolve().parents[1] / relative_path)
+
+
+def _is_shut_down(model: str) -> bool:
+    # Covers pinned versions (-001), aliases (-latest) and variants (-exp, -lite).
+    return any(
+        model == retired or model.startswith(retired + "-")
+        for retired in SHUT_DOWN_GEMINI_MODELS
+    )
+
+
+def _gemini_doc_guides() -> list[Path]:
+    guides = [REPO_ROOT / "README.md"]
+    for folder in ("docs", "integrations"):
+        guides.extend(sorted((REPO_ROOT / folder).rglob("*.md")))
+    return guides
+
+
+def _check_gemini_examples(guides: list[Path]) -> None:
+    models: dict[str, set[str]] = {}
+    for guide in guides:
+        for model in GEMINI_MODEL_EXAMPLE.findall(guide.read_text(encoding="utf-8")):
+            models.setdefault(model, set()).add(str(guide))
+    retired = {
+        model: sorted(paths) for model, paths in models.items() if _is_shut_down(model)
+    }
+    assert models, "No Gemini model examples found"
+    assert not retired, f"Retired Gemini model examples: {retired}"
+
+
+def test_gemini_examples_do_not_use_retired_model_ids() -> None:
+    _check_gemini_examples(_gemini_doc_guides())
 
 
 @pytest.mark.parametrize(
-    "retired_id",
-    ["gemini/gemini-2.0-flash", "gemini-2.0-flash-001", "vertex_ai/gemini-1.5-pro-002"],
+    "example",
+    [
+        'Agent(model="gemini/gemini-2.0-flash")',
+        'Agent(model="gemini-2.0-flash-001")',
+        'LiteLLM(model="vertex_ai/gemini-1.5-pro-002")',
+        'LiteLLM(model="gemini-1.5-pro-latest")',
+        'LiteLLM(model="gemini-2.0-flash-exp")',
+        'LiteLLM(model="vertex_ai_beta/gemini-2.0-flash")',
+        'LiteLLM(model="openrouter/google/gemini-1.5-flash")',
+        "model: gemini-2.0-flash",
+    ],
 )
 def test_gemini_example_guard_rejects_retired_routes_and_versions(
-    tmp_path: Path, retired_id: str
+    tmp_path: Path, example: str
 ) -> None:
     guide = tmp_path / "guide.md"
+    guide.write_text(f'Agent(model="gemini-3.8-flash")\n{example}\n', encoding="utf-8")
+
+    with pytest.raises(AssertionError, match="Retired Gemini model examples"):
+        _check_gemini_examples([guide])
+
+
+def test_gemini_example_guard_accepts_current_model(tmp_path: Path) -> None:
+    guide = tmp_path / "guide.md"
     guide.write_text(
-        f'Agent(model="gemini-3.8-flash")\nAgent(model="{retired_id}")\n',
+        'Agent(model="gemini-3.8-flash")\nmodel: vertex_ai/gemini-3.8-flash\n',
         encoding="utf-8",
     )
 
-    with pytest.raises(AssertionError, match="Retired Gemini model examples"):
-        _check_gemini_examples(guide)
+    _check_gemini_examples([guide])
