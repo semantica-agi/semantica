@@ -20,11 +20,18 @@ Main Classes:
     - Argument: Dataclass for logical arguments
 
 Example Usage:
-    >>> from semantica.reasoning import DeductiveReasoner, Premise
+    Inference rules live on the wrapped ``Reasoner``, which is what
+    ``apply_logic`` reads; premises are matched against rule conditions, so
+    they use the same pattern form rather than prose:
+
+    >>> from semantica.reasoning import DeductiveReasoner, Premise, Rule
     >>> reasoner = DeductiveReasoner()
-    >>> premises = [Premise("p1", "All humans are mortal"), Premise("p2", "Socrates is human")]
-    >>> conclusion = reasoner.deduce(premises, rules)
-    >>> proof = reasoner.generate_proof(premises, conclusion)
+    >>> rule = reasoner.reasoner.add_rule(
+    ...     Rule("r1", "mortality", ["Human(?x)"], "Mortal(?x)")
+    ... )
+    >>> premises = [Premise("p1", "Human(Socrates)")]
+    >>> conclusions = reasoner.apply_logic(premises)
+    >>> proof = reasoner.prove_theorem("Mortal(Socrates)")
 
 Author: Semantica Contributors
 License: MIT

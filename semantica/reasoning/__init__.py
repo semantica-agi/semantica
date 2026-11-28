@@ -12,8 +12,8 @@ from .abductive_reasoner import (
     Hypothesis,
     HypothesisRanking,
     Observation,
+    Explanation as AbductiveExplanation,
 )
-from .abductive_reasoner import Explanation as AbductiveExplanation
 from .datalog_reasoner import DatalogFact, DatalogReasoner, DatalogRule
 from .deductive_reasoner import (
     Argument,
