@@ -20,11 +20,7 @@ log = logging.getLogger("semantica.mcp.resources")
 def _read_graph_summary(uri: str) -> dict:
     try:
         graph = get_graph()
-        all_nodes = list(graph.find_nodes())
-        node_types: dict[str, int] = {}
-        for n in all_nodes:
-            t = str(n.get("type", "Unknown"))
-            node_types[t] = node_types.get(t, 0) + 1
+        node_types, _ = graph.type_counts()
         edge_count = 0
         if hasattr(graph, "edge_count"):
             try:
@@ -34,7 +30,7 @@ def _read_graph_summary(uri: str) -> dict:
         elif hasattr(graph, "stats"):
             edge_count = graph.stats().get("edge_count", 0)
         data = {
-            "node_count": len(all_nodes),
+            "node_count": sum(node_types.values()),
             "edge_count": edge_count,
             "node_types": node_types,
         }
@@ -86,20 +82,13 @@ def _read_ontology_schema(uri: str) -> dict:
     each relationship type with how many of them exist.
     """
     try:
-        graph = get_graph()
-        node_types: dict[str, int] = {}
-        for node in graph.find_nodes():
-            node_type = str(node.get("type", "Unknown"))
-            node_types[node_type] = node_types.get(node_type, 0) + 1
-        edge_types: dict[str, int] = {}
-        for edge in graph.find_edges():
-            edge_type = str(edge.get("type", "Unknown"))
-            edge_types[edge_type] = edge_types.get(edge_type, 0) + 1
+        node_types, edge_types = get_graph().type_counts()
         data = {
             "node_types": dict(sorted(node_types.items())),
             "edge_types": dict(sorted(edge_types.items())),
         }
     except Exception as exc:
+        log.exception("Failed to build the ontology schema resource")
         data = {"error": str(exc)}
     return {"uri": uri, "mimeType": "application/json", "text": json.dumps(data, indent=2)}
 

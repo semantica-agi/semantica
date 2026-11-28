@@ -2662,6 +2662,24 @@ class ContextGraph:
             stop = skip + limit if limit is not None else None
             return list(itertools.islice(gen, skip, stop))
 
+    def type_counts(self) -> Tuple[Dict[str, int], Dict[str, int]]:
+        """Count nodes and edges by type without copying the records.
+
+        Returns ``(node_types, edge_types)``. Types are reported as
+        :meth:`find_nodes` and :meth:`find_edges` report them, so a node with no
+        type counts as ``"entity"``.
+        """
+        node_types: Dict[str, int] = defaultdict(int)
+        edge_types: Dict[str, int] = defaultdict(int)
+        with self._lock:
+            for node in self.nodes.values():
+                if node.node_id:
+                    node_types[str(node.node_type or "entity")] += 1
+            for edge in self.edges:
+                if edge.source_id and edge.target_id:
+                    edge_types[str(edge.edge_type)] += 1
+        return dict(node_types), dict(edge_types)
+
     def stats(self) -> Dict[str, Any]:
         """Get graph statistics."""
         with self._lock:
