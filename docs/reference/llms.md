@@ -490,6 +490,20 @@ llm = OpenAI(
   `base_url` is validated at construction time. Non-HTTP(S) schemes raise `ValueError` to prevent SSRF attacks (fixed in v0.5.0).
 </Note>
 
+Gateways that need endpoint-specific JSON fields can send them with `extra_body`. It applies to `generate()`, `generate_structured()` and `generate_typed()`, and it can be set on the provider or per call (the call-level value wins):
+
+```python
+llm = OpenAI(
+    model="qwen2.5-72b",
+    base_url="https://my-internal-gateway.company.com/v1",
+    extra_body={"custom_option": {"enabled": True}},
+)
+
+answer = llm.generate("Summarise the filing.", extra_body={"trace": "extraction"})
+```
+
+Requests stay non-streaming (`stream=False`), so a `stream` key in `extra_body` is ignored. The dictionary is copied before it is sent, leaving the object you passed in unchanged. Extractors accept the same option and include it in the extraction cache key, so different extension settings do not share a cached result.
+
 ## Using Generative Providers in Extractors
 
 Extractors do not take a provider instance. They build one themselves from keyword configuration: `provider` names the backend (default `"openai"`), `llm_model` picks the model, and `api_key` is read from the matching `<PROVIDER>_API_KEY` variable when it is omitted. `llm_provider=` is not read here: it travels through `**config` into the provider factory and is kept in the constructed provider's `config` mapping, which nothing consults — the instance never serves as the extractor's provider, so the extractor runs against the backend named by `provider=` (the `"openai"` default when it is omitted). Jev is not usable here either, because it returns decisions rather than generated text:

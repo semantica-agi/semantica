@@ -274,6 +274,7 @@ _GENERATION_CACHE_KEYS = frozenset({
     "user",
     "system",  # Anthropic system prompt
     "metadata",  # Anthropic request metadata
+    "extra_body",  # OpenAI-compatible endpoint-specific request fields
     "candidate_count",  # Gemini
     "repeat_penalty",  # Ollama
     "num_ctx",  # Ollama
