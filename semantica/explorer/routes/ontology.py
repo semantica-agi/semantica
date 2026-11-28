@@ -3682,13 +3682,18 @@ async def compare_versions(
 # Alignment endpoints using OntologyEngine
 # ---------------------------------------------------------------------------
 
-@router.post("/alignments", response_model=AlignmentResponse)
-async def create_alignment(
+@router.post("/alignments/engine", response_model=AlignmentResponse)
+async def create_engine_alignment(
     body: AlignmentRequest,
-    request: Request,
     session: GraphSession = Depends(get_session),
 ):
-    """Create an alignment between two ontology entities using OntologyEngine.create_alignment."""
+    """Create an alignment through OntologyEngine.
+
+    This is the engine-backed counterpart to the in-memory collection routes.
+    It requires a configured TripletStore; when one is not available, it
+    returns 503 rather than writing an incompatible object into the
+    OntologyAlignment store.
+    """
     response = AlignmentResponse(
         source=body.source_uri,
         predicate=body.predicate,
@@ -3696,24 +3701,52 @@ async def create_alignment(
     )
     try:
         from ...ontology import OntologyEngine
-        
-        # Initialize OntologyEngine with session's graph store
-        engine_config = {"store": session.graph.store if hasattr(session.graph, "store") else None}
-        engine = OntologyEngine(**engine_config)
-        
-        # Use OntologyEngine.create_alignment
+
+        engine = OntologyEngine(
+            store=session.graph.store if hasattr(session.graph, "store") else None
+        )
         await asyncio.to_thread(
             engine.create_alignment,
             body.source_uri,
             body.target_uri,
-            body.predicate
+            body.predicate,
         )
     except Exception as exc:
-        logger.info("OntologyEngine alignment store unavailable; using route-level store: %s", exc)
-
-    alignment_store = _get_alignment_store(request)
-    alignment_store[_alignment_key(response.source, response.predicate, response.target)] = response
+        logger.info("OntologyEngine alignment store unavailable: %s", exc)
+        raise HTTPException(
+            status_code=503,
+            detail=f"OntologyEngine alignment store unavailable: {exc}",
+        ) from exc
     return response
+
+
+@router.get("/alignments/engine", response_model=List[AlignmentResponse])
+async def list_engine_alignments(
+    ontology_uri: Optional[str] = Query(None),
+    session: GraphSession = Depends(get_session),
+):
+    """List alignments through OntologyEngine (requires a configured TripletStore)."""
+    try:
+        from ...ontology import OntologyEngine
+
+        engine = OntologyEngine(
+            store=session.graph.store if hasattr(session.graph, "store") else None
+        )
+        alignments = await asyncio.to_thread(
+            engine.list_alignments, ontology_uri=ontology_uri
+        )
+    except Exception as exc:
+        logger.info("OntologyEngine alignment listing unavailable: %s", exc)
+        raise HTTPException(
+            status_code=503,
+            detail=f"OntologyEngine alignment listing unavailable: {exc}",
+        ) from exc
+
+    return [
+        alignment
+        for alignment in (_coerce_alignment(raw) for raw in alignments)
+        if alignment is not None
+    ]
 
 
 @router.get("/alignments/{entity_uri:path}", response_model=List[AlignmentResponse])
@@ -3724,9 +3757,13 @@ async def get_alignments(
 ):
     """Get all alignments for an entity using OntologyEngine.get_alignments."""
     route_alignments = [
-        alignment
+        AlignmentResponse(
+            source=alignment.source_uri,
+            predicate=alignment.predicate_uri,
+            target=alignment.target_uri,
+        )
         for alignment in _get_alignment_store(request).values()
-        if alignment.source == entity_uri or alignment.target == entity_uri
+        if alignment.source_uri == entity_uri or alignment.target_uri == entity_uri
     ]
     try:
         from ...ontology import OntologyEngine
@@ -3750,42 +3787,4 @@ async def get_alignments(
         return list(merged.values())
     except Exception as exc:
         logger.info("OntologyEngine alignment lookup unavailable; using route-level store: %s", exc)
-        return route_alignments
-
-
-@router.get("/alignments", response_model=List[AlignmentResponse])
-async def list_alignments(
-    request: Request,
-    ontology_uri: Optional[str] = Query(None),
-    session: GraphSession = Depends(get_session),
-):
-    """List all alignments, optionally filtered by ontology URI using OntologyEngine.list_alignments."""
-    route_alignments = list(_get_alignment_store(request).values())
-    if ontology_uri:
-        route_alignments = [
-            alignment for alignment in route_alignments
-            if ontology_uri in alignment.source or ontology_uri in alignment.target
-        ]
-    try:
-        from ...ontology import OntologyEngine
-        
-        # Initialize OntologyEngine with session's graph store
-        engine_config = {"store": session.graph.store if hasattr(session.graph, "store") else None}
-        engine = OntologyEngine(**engine_config)
-        
-        # Use OntologyEngine.list_alignments
-        alignments = await asyncio.to_thread(engine.list_alignments, ontology_uri=ontology_uri)
-        
-        engine_alignments = [
-            alignment
-            for alignment in (_coerce_alignment(align) for align in alignments)
-            if alignment is not None
-        ]
-        merged = {
-            _alignment_key(alignment.source, alignment.predicate, alignment.target): alignment
-            for alignment in route_alignments + engine_alignments
-        }
-        return list(merged.values())
-    except Exception as exc:
-        logger.info("OntologyEngine alignment listing unavailable; using route-level store: %s", exc)
         return route_alignments
