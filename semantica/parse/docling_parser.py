@@ -32,6 +32,7 @@ Author: Semantica Contributors
 License: MIT
 """
 
+import importlib.util
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -42,23 +43,39 @@ from ..utils.helpers import safe_import
 from ..utils.logging import get_logger
 from ..utils.progress_tracker import get_progress_tracker
 
-# Try to import docling, handle gracefully if not available
-DOCLING_AVAILABLE = False
-DOCLING_IMPORT_ERROR = None
+# Docling loads PyTorch and transformers, so it is imported on first use.
+DOCLING_AVAILABLE = importlib.util.find_spec("docling") is not None
+DOCLING_IMPORT_ERROR = None if DOCLING_AVAILABLE else "No module named 'docling'"
 DocumentConverter = None
 InputFormat = None
 PdfPipelineOptions = None
 PdfFormatOption = None
 
-try:
-    from docling.document_converter import DocumentConverter, PdfFormatOption
-    from docling.datamodel.base_models import InputFormat
-    from docling.datamodel.pipeline_options import PdfPipelineOptions
-    DOCLING_AVAILABLE = True
-    DOCLING_IMPORT_ERROR = None
-except (ImportError, OSError) as e:
-    DOCLING_AVAILABLE = False
-    DOCLING_IMPORT_ERROR = str(e)
+
+def _load_docling() -> None:
+    """Import docling and record why it failed if it cannot be loaded."""
+    global DOCLING_AVAILABLE, DOCLING_IMPORT_ERROR
+    global DocumentConverter, InputFormat, PdfPipelineOptions, PdfFormatOption
+
+    if None not in (DocumentConverter, InputFormat, PdfPipelineOptions, PdfFormatOption):
+        return
+    try:
+        from docling.datamodel.base_models import InputFormat as input_format
+        from docling.datamodel.pipeline_options import (
+            PdfPipelineOptions as pipeline_options,
+        )
+        from docling.document_converter import DocumentConverter as converter
+        from docling.document_converter import PdfFormatOption as format_option
+    except (ImportError, OSError) as e:
+        if DocumentConverter is not None:
+            return
+        DOCLING_AVAILABLE = False
+        DOCLING_IMPORT_ERROR = str(e)
+        raise ImportError(DOCLING_IMPORT_ERROR) from e
+    DocumentConverter = DocumentConverter or converter
+    InputFormat = InputFormat or input_format
+    PdfPipelineOptions = PdfPipelineOptions or pipeline_options
+    PdfFormatOption = PdfFormatOption or format_option
 
 
 @dataclass
@@ -152,6 +169,7 @@ class DoclingParser:
 
             # Lazy initialization of converter
             if self._converter is None:
+                _load_docling()
                 # Initialize with proper format_options if OCR is needed
                 if self.enable_ocr:
                     # Configure PDF pipeline options for OCR
