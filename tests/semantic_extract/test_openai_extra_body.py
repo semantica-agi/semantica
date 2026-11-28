@@ -100,6 +100,16 @@ def test_caller_dictionary_is_not_modified():
     assert call_kwargs["stream"] is False
 
 
+def test_edits_to_the_constructor_dict_do_not_change_the_provider_default():
+    body = {"team": "alpha"}
+    provider = _provider(extra_body=body)
+
+    body["team"] = "beta"
+
+    provider.generate("prompt")
+    assert _call_kwargs(provider)["extra_body"] == {"team": "alpha"}
+
+
 def test_non_dict_extra_body_is_rejected():
     provider = _provider()
 

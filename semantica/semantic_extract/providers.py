@@ -861,7 +861,10 @@ class OpenAIProvider(BaseProvider):
         self.base_url = base_url  # None → standard OpenAI; set → custom endpoint
         if extra_body is not None and not isinstance(extra_body, dict):
             raise ValueError("extra_body must be a dictionary of request fields")
-        self.extra_body = extra_body
+        # Keep the provider's default independent of the caller's object: the
+        # pool keys an instance by its construction arguments, so later edits
+        # to that dict must not change what the cached instance sends.
+        self.extra_body = copy.deepcopy(extra_body) if extra_body is not None else None
         self.client = None
         self._init_client()
 
