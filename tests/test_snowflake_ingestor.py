@@ -572,7 +572,11 @@ class TestSnowflakeIngestor:
     # WHERE-clause validation regression tests
     # ------------------------------------------------------------------
 
-    def test_ingest_table_union_in_where_raises_validation_error(self):
+    @patch("semantica.ingest.snowflake_ingestor.SNOWFLAKE_AVAILABLE", True)
+    @patch("semantica.ingest.snowflake_ingestor.snowflake")
+    def test_ingest_table_union_in_where_raises_validation_error(
+        self, mock_snowflake
+    ):
         """UNION in WHERE must raise ValidationError, not just block semicolons."""
         from semantica.ingest.snowflake_ingestor import SnowflakeIngestor
         from semantica.utils.exceptions import ValidationError
@@ -585,7 +589,11 @@ class TestSnowflakeIngestor:
         with pytest.raises(ValidationError):
             ingestor.ingest_table("CUSTOMERS", where="1=1 UNION SELECT * FROM secrets")
 
-    def test_ingest_table_comment_in_where_raises_validation_error(self):
+    @patch("semantica.ingest.snowflake_ingestor.SNOWFLAKE_AVAILABLE", True)
+    @patch("semantica.ingest.snowflake_ingestor.snowflake")
+    def test_ingest_table_comment_in_where_raises_validation_error(
+        self, mock_snowflake
+    ):
         """SQL comment sequences in WHERE must raise ValidationError."""
         from semantica.ingest.snowflake_ingestor import SnowflakeIngestor
         from semantica.utils.exceptions import ValidationError
