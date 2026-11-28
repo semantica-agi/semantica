@@ -401,8 +401,20 @@ class ParquetExporter:
                 self.logger.warning(f"Entity {i} missing ID, skipping")
                 continue
 
-            # Normalize confidence to float, with validation
+            # Prefer top-level confidence, then properties, then metadata.
+            # A decision commonly stores it under "properties" (#1796).
             raw_confidence = entity.get("confidence")
+            if raw_confidence is None:
+                props = entity.get("properties")
+                raw_confidence = (
+                    props.get("confidence") if isinstance(props, dict) else None
+                )
+            if raw_confidence is None:
+                metadata = entity.get("metadata")
+                raw_confidence = (
+                    metadata.get("confidence") if isinstance(metadata, dict) else None
+                )
+            # Normalize confidence to float, with validation
             confidence_value = None
             if raw_confidence is not None:
                 try:
@@ -544,8 +556,19 @@ class ParquetExporter:
             # Generate ID if missing
             rel_id = rel.get("id") or rel.get("relationship_id") or f"rel_{i}"
 
-            # Normalize confidence to float, with validation
+            # Resolve nested confidence in the same order as entities.
             raw_confidence = rel.get("confidence")
+            if raw_confidence is None:
+                props = rel.get("properties")
+                raw_confidence = (
+                    props.get("confidence") if isinstance(props, dict) else None
+                )
+            if raw_confidence is None:
+                metadata = rel.get("metadata")
+                raw_confidence = (
+                    metadata.get("confidence") if isinstance(metadata, dict) else None
+                )
+            # Normalize confidence to float, with validation
             confidence_value = None
             if raw_confidence is not None:
                 try:
