@@ -26,6 +26,25 @@ class TestNumberNormalizer(unittest.TestCase):
         self.assertEqual(result["value"], 100.0)
         self.assertEqual(result["unit"], "meter")
 
+    def test_normalize_quantity_keeps_sign(self):
+        result = self.normalizer.normalize_quantity("-5 kg")
+        self.assertEqual(result["value"], -5.0)
+        self.assertEqual(result["unit"], "kilogram")
+
+        result = self.normalizer.normalize_quantity("-40 celsius")
+        self.assertEqual(result["value"], -40.0)
+
+        result = self.normalizer.normalize_quantity("+3 meters")
+        self.assertEqual(result["value"], 3.0)
+
+    def test_normalize_quantity_hyphen_is_not_a_sign(self):
+        # A hyphen joined to a preceding number or word is not a minus sign.
+        # Range parsing is out of scope; only check the sign is not flipped.
+        for quantity in ("10-20 kg", "item-5 kg", "5 - 3 kg"):
+            with self.subTest(quantity=quantity):
+                result = self.normalizer.normalize_quantity(quantity)
+                self.assertGreater(result["value"], 0)
+
 
 class TestUnitConverter(unittest.TestCase):
     def setUp(self):
