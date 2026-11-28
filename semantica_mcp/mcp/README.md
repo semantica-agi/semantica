@@ -94,7 +94,7 @@ python -m mcp [--debug]
 | `semantica://graph/summary` | Live node/edge counts and type breakdown |
 | `semantica://decisions/list` | Most recent 50 decisions |
 | `semantica://schema/info` | Schema version, node/edge types, tool names |
-| `semantica://ontology/schema` | Full ontology schema |
+| `semantica://ontology/schema` | Node and relationship types in use in the current graph, with counts |
 
 ---
 
