@@ -28,6 +28,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Faster ranking and faster `semantica.parse` import.** `ContextRetriever` embeds result, entity and relationship texts in one batch when the vector store has `embed_batch`, and falls back to one call per text otherwise. `semantica.parse` no longer imports `docling` (and with it PyTorch and transformers) until a document is parsed with `DoclingParser`, so an installed but broken `docling` is now reported on first parse instead of at import.
 - **`ContextGraph.state_at()` normalizes epochs to UTC and validates temporal inputs** (fixes #2204)
   - `state_at()` now parses its `timestamp` argument with `normalize_temporal_input()`. Unix epochs (`int` and `float`) are converted to UTC (`datetime.fromtimestamp(value, tz=timezone.utc)`), eliminating the local timezone offset shift on non-UTC machines.
   - **Breaking change**: `state_at()` now raises `ValueError` when `timestamp` is `None`, an unparseable ISO-8601 string, or an unsupported type (such as `date`). Previously, invalid or missing inputs silently fell back to evaluating against `datetime.now()`.

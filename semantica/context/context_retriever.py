@@ -913,14 +913,13 @@ class ContextRetriever:
                         if query_norm > 0:
                             # Calculate semantic similarity for each entity
                             entity_scores = []
-                            for entity in entities:
-                                entity_name = str(entity.get("name", entity.get("id", "")))
+                            entity_embeddings = self._embed_many([
+                                f"{entity.get('name', entity.get('id', ''))} {entity.get('type', '')}".strip()
+                                for entity in entities
+                            ])
+                            for entity, entity_embedding in zip(entities, entity_embeddings):
                                 entity_type = str(entity.get("type", ""))
-                                
-                                # Create entity text for embedding (include type for better matching)
-                                entity_text = f"{entity_name} {entity_type}".strip()
-                                entity_embedding = self.vector_store.embed(entity_text)
-                                
+
                                 if entity_embedding is not None:
                                     entity_embedding = np.array(entity_embedding)
                                     # Handle batch embeddings
@@ -944,6 +943,7 @@ class ContextRetriever:
                             
                             # Also match relationships semantically
                             relationship_scores = []
+                            relationship_parts = []
                             for rel in relationships:
                                 rel_type = str(rel.get("type", ""))
                                 source_id = rel.get("source") or rel.get("source_id", "")
@@ -961,8 +961,12 @@ class ContextRetriever:
                                 
                                 # Create relationship text for embedding
                                 rel_text = f"{rel_type} {source_name} {target_name}".strip()
-                                rel_embedding = self.vector_store.embed(rel_text)
-                                
+                                relationship_parts.append((rel, rel_type, source_id, target_id, rel_text))
+                            
+                            rel_embeddings = self._embed_many([part[-1] for part in relationship_parts])
+                            for (rel, rel_type, source_id, target_id, _), rel_embedding in zip(
+                                relationship_parts, rel_embeddings
+                            ):
                                 if rel_embedding is not None:
                                     rel_embedding = np.array(rel_embedding)
                                     if len(rel_embedding.shape) == 2:
@@ -1254,6 +1258,18 @@ class ContextRetriever:
             self.logger.warning(f"Memory retrieval failed: {e}")
             return []
 
+    def _embed_many(self, texts: List[str]) -> List[Any]:
+        """Embed several texts, in one batch when the vector store supports it."""
+        embed_batch = getattr(self.vector_store, "embed_batch", None)
+        if callable(embed_batch) and len(texts) > 1:
+            try:
+                embeddings = embed_batch(texts)
+                if len(embeddings) == len(texts):
+                    return list(embeddings)
+            except Exception as e:
+                self.logger.debug(f"Batch embedding failed, embedding one by one: {e}")
+        return [self.vector_store.embed(text) for text in texts]
+
     def _rank_and_merge(
         self,
         results: List[RetrievedContext],
@@ -1420,9 +1436,11 @@ class ContextRetriever:
                     query_norm = np.linalg.norm(query_embedding)
                     
                     if query_norm > 0:
-                        for result in merged_results:
+                        content_embeddings = self._embed_many(
+                            [result.content[:500] for result in merged_results]
+                        )
+                        for result, content_embedding in zip(merged_results, content_embeddings):
                             # Re-score based on semantic similarity to query
-                            content_embedding = self.vector_store.embed(result.content[:500])
                             if content_embedding is not None:
                                 content_embedding = np.array(content_embedding)
                                 if len(content_embedding.shape) == 2:
